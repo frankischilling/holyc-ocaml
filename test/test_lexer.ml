@@ -144,7 +144,8 @@ let nested_comments () =
 
 let trailing_dollar () =
   let _, tokens = lex "$" in
-  check_string_list "trailing dollar token" [ "punctuation('$')" ] (names tokens)
+  check_string_list "trailing dollar token" [ "punctuation('$')" ]
+    (names tokens)
 
 let error_code text =
   let session = Session.create () in
