@@ -6,11 +6,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($ReferenceRoot)) {
-  $ReferenceRoot = Join-Path $repositoryRoot 'third_party\TempleOS'
+  $ReferenceRoot = Join-Path (Join-Path $repositoryRoot 'third_party') 'TempleOS'
 }
 $ReferenceRoot = [System.IO.Path]::GetFullPath($ReferenceRoot)
 $expectedCommit = 'c26482bb6ad3f80106d28504ec5db3c6a360732c'
-$manifestPath = Join-Path $repositoryRoot 'reference\manifest.json'
+$manifestPath = Join-Path (Join-Path $repositoryRoot 'reference') 'manifest.json'
 
 if (-not (Test-Path -LiteralPath $ReferenceRoot -PathType Container)) {
   throw "TempleOS reference checkout is missing: $ReferenceRoot"

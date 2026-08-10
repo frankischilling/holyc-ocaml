@@ -1,0 +1,63 @@
+name: Compatibility discrepancy
+description: Report a difference from the pinned TempleOS compiler or loader.
+title: "compat: "
+labels:
+  - status:needs-source-audit
+body:
+  - type: input
+    id: source-reference
+    attributes:
+      label: TempleOS source reference
+      description: Name the pinned file and function, table, or line.
+    validations:
+      required: true
+  - type: textarea
+    id: original
+    attributes:
+      label: Original compiler behavior
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: holyc behavior
+    validations:
+      required: true
+  - type: input
+    id: oracle
+    attributes:
+      label: Oracle fixture
+      description: Link a fixture or state why one has not been produced.
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Affected phase
+      options:
+        - Lexer
+        - Preprocessor
+        - Parser
+        - Semantic analysis
+        - IR or optimizer
+        - Interpreter
+        - Assembler
+        - Hosted backend
+        - TempleOS BIN or loader
+        - Runtime
+    validations:
+      required: true
+  - type: dropdown
+    id: difference
+    attributes:
+      label: Difference class
+      options:
+        - Source behavior
+        - Diagnostic
+        - Runtime result
+        - Binary output
+        - Loader behavior
+    validations:
+      required: true
+  - type: textarea
+    id: resolution
+    attributes:
+      label: Proposed resolution

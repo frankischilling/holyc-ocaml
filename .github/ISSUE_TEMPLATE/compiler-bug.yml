@@ -1,0 +1,91 @@
+name: Compiler bug
+description: Report incorrect behavior or a compiler crash.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Compiler version
+      description: Paste the full output of `holyc version`.
+    validations:
+      required: true
+  - type: input
+    id: reference
+    attributes:
+      label: Reference commit
+      value: c26482bb6ad3f80106d28504ec5db3c6a360732c
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Host platform
+      placeholder: Ubuntu 24.04 x86-64
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target
+      options:
+        - Raw lexer
+        - IR interpreter
+        - Hosted x86-64
+        - TempleOS BIN
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Compilation mode
+      options:
+        - Parse only
+        - JIT
+        - AOT
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Minimal HolyC source
+      render: c
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and generated artifacts
+      description: Remove secrets and attach only fixtures that can be shared.
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression status
+      options:
+        - Worked in an earlier holyc commit
+        - Has never worked in holyc
+        - Unknown
+    validations:
+      required: true
