@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "upstream": "https://github.com/cia-foundation/TempleOS",
+  "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "files": [
+    {"path": "Compiler/Compiler.PRJ", "sha256": "baa14c282ef65f228765bfd7299902161bf48af91771c2419a9f669693139864"},
+    {"path": "Compiler/CompilerA.HH", "sha256": "39fa3d77c9943e2d3321e6bf988c7bbfa0dedeca0407e88537fe098d585fe893"},
+    {"path": "Compiler/CompilerB.HH", "sha256": "fd2e92eabab207af9fa9e48053f66f33e548efc2a901fb5ec36aceeded49df77"},
+    {"path": "Compiler/CInit.HC", "sha256": "aa1b33bc208d27abdb2b241315a3c5c8fb0f6623cf5a12b1a503003af7016c0e"},
+    {"path": "Compiler/CExcept.HC", "sha256": "beea49d532d72d2eb4503fc49d6f08e38e9caf209896a8184f068fb4dc04f37e"},
+    {"path": "Compiler/LexLib.HC", "sha256": "6ecad2756d2a14a4c790bac0e8769f6570aa933fb09e09d60cb99c388725a897"},
+    {"path": "Compiler/Lex.HC", "sha256": "b130a7f3d9d3a99fdf46ee282f0a5bf5ecfc7a0767a324e4f46e9ccdcc7da88c"},
+    {"path": "Compiler/OpCodes.DD", "sha256": "215b2113288f58d67b7da34cb3ade9bd744fac8dff79bfce70197a7ee879220f"},
+    {"path": "Kernel/KernelA.HH", "sha256": "4b271e1927c6c1cec4e5f394c9912e112c76fccbb065c60e23d048a670f2589a"},
+    {"path": "Kernel/StrA.HC", "sha256": "571ee7c5f0d29441b123ec4bd5ad2cf02f3f0d42adecd930300e2b93f7963202"},
+    {"path": "Doc/HolyC.DD", "sha256": "e11418a39a8948a2d85b368584c9523bae34943474078738ff1ffb1dfbfaee31"},
+    {"path": "Doc/Lex.DD", "sha256": "703846607e7930cd49e473220c92db1a6d781191f53ad8f2d2bcabeea65775b2"},
+    {"path": "Doc/Credits.DD", "sha256": "b721c77d50ba7a84bf4e8bc3e86eeaf557818a2d4aef2c0a98c7cfe7b946ee84"}
+  ]
+}
