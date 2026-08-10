@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use holyc in research, cite the repository and the pinned TempleOS reference."
+title: "holyc: a HolyC compiler in OCaml"
+type: software
+authors:
+  - name: "holyc-ocaml contributors"
+license: MIT
+version: 0.1.0-dev
+repository-code: "https://github.com/frankischilling/holyc-ocaml"
+date-released: 2026-08-10

@@ -35,4 +35,4 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 - Files are finite OCaml byte strings. An embedded NUL is diagnosed because TempleOS uses NUL as an internal buffer terminator.
 - Lines increment on LF, matching `LexGetChar`. CR is whitespace but does not start a new line by itself.
 - A raw lexer command returns `#` as punctuation. Directive execution begins in issue #3 and will replace that tooling behavior only in preprocessed mode.
-- Dollar-delimited DolDoc markup is outside the first raw-source slice. `$$` is still recognized as the HolyC current-position token.
+- Dollar-delimited text is retained as comment trivia in raw-source mode. Interpreting DolDoc markup is outside this slice, while `$$` is recognized as the HolyC current-position token.
