@@ -1,0 +1,7 @@
+(test
+ (name test_main)
+ (modules test_main test_source test_lexer test_diagnostic)
+ (libraries alcotest holyc_lib qcheck-alcotest)
+ (deps
+  (glob_files golden/*)
+  (glob_files negative/*)))

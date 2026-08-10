@@ -1,0 +1,4 @@
+(executable
+ (name holyc)
+ (public_name holyc)
+ (libraries cmdliner holyc_lib))
