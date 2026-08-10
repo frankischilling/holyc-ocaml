@@ -19,7 +19,7 @@ git -C third_party/TempleOS checkout --detach c26482bb6ad3f80106d28504ec5db3c6a3
 powershell -File tools/verify-reference.ps1
 ```
 
-The verifier rejects a missing, dirty, or mismatched checkout and checks every file in `reference/manifest.json`.
+The verifier rejects a missing, dirty, or mismatched checkout and checks every file in `reference/manifest.json`. Checksums cover the pinned Git blob bytes, so line-ending conversion in a host checkout cannot change the result.
 
 ## Update policy
 

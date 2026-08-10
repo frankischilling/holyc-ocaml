@@ -2,19 +2,20 @@
   "schema_version": 1,
   "upstream": "https://github.com/cia-foundation/TempleOS",
   "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "checksum_basis": "git-blob-bytes",
   "files": [
-    {"path": "Compiler/Compiler.PRJ", "sha256": "baa14c282ef65f228765bfd7299902161bf48af91771c2419a9f669693139864"},
-    {"path": "Compiler/CompilerA.HH", "sha256": "39fa3d77c9943e2d3321e6bf988c7bbfa0dedeca0407e88537fe098d585fe893"},
-    {"path": "Compiler/CompilerB.HH", "sha256": "fd2e92eabab207af9fa9e48053f66f33e548efc2a901fb5ec36aceeded49df77"},
-    {"path": "Compiler/CInit.HC", "sha256": "aa1b33bc208d27abdb2b241315a3c5c8fb0f6623cf5a12b1a503003af7016c0e"},
-    {"path": "Compiler/CExcept.HC", "sha256": "beea49d532d72d2eb4503fc49d6f08e38e9caf209896a8184f068fb4dc04f37e"},
-    {"path": "Compiler/LexLib.HC", "sha256": "6ecad2756d2a14a4c790bac0e8769f6570aa933fb09e09d60cb99c388725a897"},
-    {"path": "Compiler/Lex.HC", "sha256": "b130a7f3d9d3a99fdf46ee282f0a5bf5ecfc7a0767a324e4f46e9ccdcc7da88c"},
-    {"path": "Compiler/OpCodes.DD", "sha256": "215b2113288f58d67b7da34cb3ade9bd744fac8dff79bfce70197a7ee879220f"},
-    {"path": "Kernel/KernelA.HH", "sha256": "4b271e1927c6c1cec4e5f394c9912e112c76fccbb065c60e23d048a670f2589a"},
-    {"path": "Kernel/StrA.HC", "sha256": "571ee7c5f0d29441b123ec4bd5ad2cf02f3f0d42adecd930300e2b93f7963202"},
-    {"path": "Doc/HolyC.DD", "sha256": "e11418a39a8948a2d85b368584c9523bae34943474078738ff1ffb1dfbfaee31"},
-    {"path": "Doc/Lex.DD", "sha256": "703846607e7930cd49e473220c92db1a6d781191f53ad8f2d2bcabeea65775b2"},
-    {"path": "Doc/Credits.DD", "sha256": "b721c77d50ba7a84bf4e8bc3e86eeaf557818a2d4aef2c0a98c7cfe7b946ee84"}
+    {"path": "Compiler/Compiler.PRJ", "sha256": "bbf936462dbe22b5ef4dc8bd0e33269d56c26d246ba7cff48c26c4e4be5477bd"},
+    {"path": "Compiler/CompilerA.HH", "sha256": "9eca54eff7d1c0803172e45e5483a57262e24f7b759a6a727c29beaf660967b2"},
+    {"path": "Compiler/CompilerB.HH", "sha256": "829136ab966141dbdb6539bf1a8fb6c6291cce55605acf287fe6de904fc76b48"},
+    {"path": "Compiler/CInit.HC", "sha256": "f187d11043dcceb8791409a3e6809ea26e9c3b4f182fe2cbe5c5e644e6938b19"},
+    {"path": "Compiler/CExcept.HC", "sha256": "4af48a26a34a79094cbdd211b5f586eae81e24d49e08cc74d5fdd0c935a49936"},
+    {"path": "Compiler/LexLib.HC", "sha256": "e3618d409597d8fffd9089bfd6c9fd31463a69c9b62ac6089a347b2e3b54e8b2"},
+    {"path": "Compiler/Lex.HC", "sha256": "d35432fb7862588ae463524e3896d7de2f2e1db2ccb5f2ce6e11e18db27da864"},
+    {"path": "Compiler/OpCodes.DD", "sha256": "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d"},
+    {"path": "Kernel/KernelA.HH", "sha256": "1b4b6d8b6aeeaedfd2b11536b84557d9d2efc05ff38200020cd7a4a94dcd7d41"},
+    {"path": "Kernel/StrA.HC", "sha256": "3a14834309e6a59a9345606ab64c74ba0e719e3b35b12d1f75554757e4444780"},
+    {"path": "Doc/HolyC.DD", "sha256": "bacd70e46107b03949a3ded7459e1acb771ffbb1864e2b5ef9166d8a81bf10d6"},
+    {"path": "Doc/Lex.DD", "sha256": "71217337d73a3a5e64b3ed7d59426bcd7866f731544e362be54fd29f03a6092d"},
+    {"path": "Doc/Credits.DD", "sha256": "58ddc8edf81ce48ef961945e52fa85f6dcac7804bfa71790e6287ed41557e9c7"}
   ]
 }
