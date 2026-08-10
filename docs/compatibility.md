@@ -1,4 +1,4 @@
-# Compatibility status
+# holyc-ocaml compatibility status
 
 Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 

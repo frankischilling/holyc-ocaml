@@ -1,4 +1,4 @@
-# Testing
+# Testing holyc-ocaml
 
 Run the local checks with:
 

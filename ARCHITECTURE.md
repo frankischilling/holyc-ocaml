@@ -1,4 +1,4 @@
-# Architecture
+# holyc-ocaml architecture
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 

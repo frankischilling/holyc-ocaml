@@ -1,4 +1,5 @@
 (executable
  (name holyc)
  (public_name holyc)
+ (package holyc-ocaml)
  (libraries cmdliner holyc_lib))

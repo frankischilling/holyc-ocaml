@@ -1,4 +1,4 @@
-# Support
+# holyc-ocaml support
 
 Use GitHub Issues for reproducible compiler defects and compatibility discrepancies. Include the `holyc version` output, host platform, target mode, command, minimal HolyC source, diagnostics, and expected TempleOS behavior.
 

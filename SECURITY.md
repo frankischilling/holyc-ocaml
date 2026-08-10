@@ -1,4 +1,4 @@
-# Security policy
+# holyc-ocaml security policy
 
 Report suspected vulnerabilities through GitHub private vulnerability reporting when it is available. Do not include exploit details in a public issue.
 

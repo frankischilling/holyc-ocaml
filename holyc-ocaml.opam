@@ -1,8 +1,8 @@
 opam-version: "2.0"
-name: "holyc"
+name: "holyc-ocaml"
 version: "0.1.0~dev"
 synopsis: "A source-grounded HolyC compiler in OCaml"
-description: "holyc implements HolyC behavior from a pinned TempleOS source snapshot."
+description: "holyc-ocaml implements HolyC behavior from a pinned TempleOS source snapshot."
 maintainer: ["holyc-ocaml contributors"]
 authors: ["holyc-ocaml contributors"]
 license: "MIT"

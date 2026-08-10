@@ -1,4 +1,4 @@
-# Contributing
+# Contributing to holyc-ocaml
 
 Start with an issue that names the TempleOS source evidence and a testable result. Branch from an updated `main` branch and keep each pull request focused on one issue.
 

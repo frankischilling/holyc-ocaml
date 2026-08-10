@@ -11,5 +11,5 @@
 
 (library
  (name holyc_lib)
- (public_name holyc.lib)
+ (public_name holyc-ocaml.lib)
  (libraries dune-build-info unix yojson))

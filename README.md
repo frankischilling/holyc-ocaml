@@ -1,6 +1,6 @@
-# holyc
+# holyc-ocaml
 
-`holyc` is an OCaml implementation of the HolyC compiler. Compatibility work is based on the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+`holyc-ocaml` is the project for an OCaml implementation of the HolyC compiler. Its compiler command is `holyc`, and its OCaml library module is `holyc_lib`. Compatibility work is based on the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 The current build contains the source manager, byte spans, structured diagnostics, and a handwritten streaming lexer. The lexer handles identifiers, the complete language keyword list, integer and floating literals, strings, character constants up to eight bytes, nested comments, and the operators defined by the pinned compiler tables. Human and JSON token dumps are available.
 
