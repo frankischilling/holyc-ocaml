@@ -1,0 +1,4 @@
+(executable
+ (name version_gen)
+ (modules version_gen)
+ (libraries unix))

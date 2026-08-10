@@ -1,0 +1,17 @@
+module Source_id = Common.Source_id
+module Source_file = Common.Source_file
+module Source_manager = Common.Source_manager
+module Span = Common.Span
+module Diagnostic = Common.Diagnostic
+module Diagnostic_render = Common.Diagnostic_render
+module Session = Driver.Session
+module Version = Driver.Version
+module Keyword = Frontend.Keyword
+module Operator = Frontend.Operator
+module Trivia = Frontend.Trivia
+module Token_kind = Frontend.Token_kind
+module Token = Frontend.Token
+module Lexer = Frontend.Lexer
+
+val lex :
+  Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result

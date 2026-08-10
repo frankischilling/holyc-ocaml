@@ -1,0 +1,75 @@
+schema_version = 1
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+
+[[feature]]
+id = "HC-COMPILER-ASSEMBLY-ORDER"
+description = "Compiler phases follow the include order in Compiler.PRJ."
+sources = ["Compiler/Compiler.PRJ"]
+implementation = ["ARCHITECTURE.md"]
+tests = ["tools/verify-reference.ps1"]
+status = "audited"
+
+[[feature]]
+id = "HC-SOURCE-BYTE-POSITIONS"
+description = "Source locations use byte offsets and one-based display lines and columns."
+sources = ["Compiler/Lex.HC:LexGetChar", "Compiler/CExcept.HC:LexPutPos"]
+implementation = ["src/common/source_file.ml", "src/common/span.ml"]
+tests = ["test/test_source.ml"]
+status = "implemented"
+
+[[feature]]
+id = "HC-LEX-IDENTIFIERS"
+description = "Identifiers accept ASCII letters, underscore, at sign, digits after the first byte, and bytes from 128 through 255."
+sources = ["Compiler/Lex.HC:Lex", "Kernel/StrA.HC:char_bmp_alpha_numeric"]
+implementation = ["src/frontend/lexer.ml"]
+tests = ["test/test_lexer.ml"]
+status = "implemented"
+
+[[feature]]
+id = "HC-LEX-KEYWORDS"
+description = "The language keyword spelling and numeric IDs match the pinned opcode database."
+sources = ["Compiler/CompilerA.HH:KW_INCLUDE", "Compiler/OpCodes.DD:KEYWORD"]
+implementation = ["src/frontend/keyword.ml"]
+tests = ["test/test_lexer.ml"]
+status = "implemented"
+
+[[feature]]
+id = "HC-LEX-LITERALS"
+description = "The lexer recognizes wrapping 64-bit integers, F64 literals, strings, and little-endian character constants up to eight bytes."
+sources = ["Compiler/Lex.HC:Lex", "Compiler/Lex.HC:LexInStr", "Doc/HolyC.DD"]
+implementation = ["src/frontend/lexer.ml", "src/common/int64_ops.ml"]
+tests = ["test/test_lexer.ml", "test/golden/lexer-tour.tokens"]
+status = "implemented"
+
+[[feature]]
+id = "HC-LEX-OPERATORS"
+description = "Operator spellings come from the dual-token tables and dot handling in the pinned lexer."
+sources = ["Compiler/CInit.HC:CmpFillTables", "Compiler/Lex.HC:Lex"]
+implementation = ["src/frontend/operator.ml", "src/frontend/lexer.ml"]
+tests = ["test/test_lexer.ml"]
+status = "implemented"
+
+[[feature]]
+id = "HC-LEX-NESTED-COMMENTS"
+description = "Block comments nest and line comments end before the next line."
+sources = ["Compiler/Lex.HC:Lex"]
+implementation = ["src/frontend/lexer.ml", "src/frontend/trivia.ml"]
+tests = ["test/test_lexer.ml", "test/negative/unterminated-comment.hc"]
+status = "implemented"
+
+[[feature]]
+id = "HC-DIAGNOSTIC-LEXER"
+description = "Lexical failures carry stable codes, source spans, and rendered source context."
+sources = ["Compiler/CExcept.HC:LexExcept", "Compiler/CExcept.HC:LexPutPos"]
+implementation = ["src/common/diagnostic.ml", "src/common/diagnostic_render.ml"]
+tests = ["test/test_diagnostic.ml", "test/negative/unterminated-string.hc"]
+status = "implemented"
+
+[[feature]]
+id = "HC-PREPROCESSOR-INTEGRATED"
+description = "Directives and generated input are part of the lexical stream."
+sources = ["Compiler/Lex.HC:Lex", "Kernel/KernelA.HH:__DATE__"]
+implementation = []
+tests = []
+status = "planned"
+issue = 3

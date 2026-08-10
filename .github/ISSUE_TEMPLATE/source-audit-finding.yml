@@ -1,0 +1,42 @@
+name: Source audit finding
+description: Record behavior found in the pinned TempleOS source.
+title: "audit: "
+labels:
+  - area:source-audit
+  - type:research
+body:
+  - type: input
+    id: file
+    attributes:
+      label: Source file
+    validations:
+      required: true
+  - type: input
+    id: symbol
+    attributes:
+      label: Function or table
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: conflict
+    attributes:
+      label: Documentation conflict
+      description: State whether prose agrees with the implementation.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Implementation impact
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Required tests
+    validations:
+      required: true

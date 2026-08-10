@@ -1,0 +1,15 @@
+(include_subdirs qualified)
+
+(rule
+ (targets build_metadata.ml)
+ (action
+  (chdir
+   %{workspace_root}
+   (with-stdout-to
+    %{targets}
+    (run %{exe:../tools/version_gen.exe})))))
+
+(library
+ (name holyc_lib)
+ (public_name holyc-ocaml.lib)
+ (libraries dune-build-info unix yojson))

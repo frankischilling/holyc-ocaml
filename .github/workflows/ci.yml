@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: OCaml ${{ matrix.ocaml-compiler }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        ocaml-compiler:
+          - 5.1.x
+          - 5.3.x
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@605a7e998e76e035b82c14d618a6e1010732c4ce # v3
+        with:
+          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          dune-cache: true
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --with-dev-setup
+
+      - name: Check formatting
+        run: opam exec -- dune build @fmt
+
+      - name: Verify the pinned reference
+        shell: pwsh
+        run: ./tools/verify-reference.ps1
+
+      - name: Build
+        run: opam exec -- dune build @all
+
+      - name: Run tests
+        run: opam exec -- dune runtest --no-buffer
+
+      - name: Build package artifacts
+        run: opam exec -- dune build @install

@@ -1,0 +1,38 @@
+name: Performance regression
+description: Report a measured slowdown or memory increase.
+title: "perf: "
+labels:
+  - area:performance
+body:
+  - type: input
+    id: benchmark
+    attributes:
+      label: Benchmark
+    validations:
+      required: true
+  - type: input
+    id: baseline
+    attributes:
+      label: Baseline result and commit
+    validations:
+      required: true
+  - type: input
+    id: current
+    attributes:
+      label: Current result and commit
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+    validations:
+      required: true
+  - type: textarea
+    id: profiler
+    attributes:
+      label: Profiler output
+  - type: input
+    id: suspected
+    attributes:
+      label: Suspected commit

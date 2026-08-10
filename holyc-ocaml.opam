@@ -1,0 +1,28 @@
+opam-version: "2.0"
+name: "holyc-ocaml"
+version: "0.1.0~dev"
+synopsis: "A source-grounded HolyC compiler in OCaml"
+description: "holyc-ocaml implements HolyC behavior from a pinned TempleOS source snapshot."
+maintainer: ["holyc-ocaml contributors"]
+authors: ["holyc-ocaml contributors"]
+license: "MIT"
+homepage: "https://github.com/frankischilling/holyc-ocaml"
+bug-reports: "https://github.com/frankischilling/holyc-ocaml/issues"
+dev-repo: "git+https://github.com/frankischilling/holyc-ocaml.git"
+depends: [
+  "ocaml" {>= "5.1"}
+  "dune" {>= "3.12"}
+  "cmdliner" {>= "1.2"}
+  "dune-build-info" {>= "3.12"}
+  "yojson" {>= "2.1"}
+  "alcotest" {with-test & >= "1.7"}
+  "qcheck-alcotest" {with-test & >= "0.22"}
+  "ocamlformat" {with-dev-setup & = "0.29.0"}
+  "odoc" {with-doc}
+]
+build: [
+  ["dune" "subst"] {dev}
+  ["dune" "build" "-p" name "-j" jobs]
+  ["dune" "runtest" "-p" name "-j" jobs] {with-test}
+  ["dune" "build" "@doc" "-p" name "-j" jobs] {with-doc}
+]

@@ -1,0 +1,38 @@
+name: Feature or language support
+description: Request a HolyC construct backed by pinned source evidence.
+title: "feature: "
+labels:
+  - enhancement
+  - status:needs-source-audit
+body:
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Source evidence
+      description: Include pinned files, functions, tables, and relevant documentation.
+    validations:
+      required: true
+  - type: textarea
+    id: syntax
+    attributes:
+      label: Required syntax
+      render: c
+    validations:
+      required: true
+  - type: textarea
+    id: semantics
+    attributes:
+      label: Required semantics
+    validations:
+      required: true
+  - type: input
+    id: modules
+    attributes:
+      label: Affected modules
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance test
+      description: Describe the smallest fixture that proves the behavior.
+    validations:
+      required: true
