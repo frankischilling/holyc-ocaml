@@ -447,6 +447,35 @@ issue = 26
 known_difference_issues = [27]
 
 [[feature]]
+id = "HC-PREPROCESSOR-CONDITIONAL-RECOVERY"
+description = "Unmatched conditional boundaries use explicit hosted-strict or TempleOS-permissive recovery, and versioned reports name the selected policy."
+sources = [
+  "Compiler/Lex.HC:Lex KW_ELSE",
+  "Compiler/Lex.HC:lex_else",
+  "Compiler/Lex.HC:Lex KW_IFAOT",
+  "Compiler/Lex.HC:Lex KW_IFJIT",
+  "Compiler/Lex.HC:Lex KW_ENDIF",
+  "Kernel/KernelA.HH:CCF_IN_IF"
+]
+implementation = [
+  "src/frontend/preprocessor.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_preprocessor.ml:conditional_recovery_fixtures",
+  "test/test_preprocessor.ml:templeos_recovery_nests_and_crosses_frames",
+  "test/test_preprocessor.ml:conditional_recovery_reports",
+  "test/fixtures/conditional-recovery-cases.json",
+  "test/negative/conditional-stray-else.hc",
+  "test/negative/conditional-stray-endif.hc",
+  "test/negative/conditional-duplicate-else.hc",
+  "test/negative/conditional-unterminated.hc"
+]
+status = "implemented"
+validation = "source-audit-complete-native-oracle-pending"
+issue = 27
+
+[[feature]]
 id = "HC-PREPROCESSOR-SYMBOL-CONDITIONALS"
 description = "The integrated stream selects #ifdef and #ifndef branches from definition and compiler-symbol visibility while retaining the pinned import mask and local-variable shadow behavior."
 sources = [

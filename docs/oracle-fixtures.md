@@ -37,7 +37,13 @@ The OCaml tests split every multi-byte operator at every possible definition-fra
 
 This fixture validates the native lexer behavior needed by issue #24. It is not a TempleOS loader oracle and says nothing about `.BIN` acceptance. Loader fixtures will use a separate controlled procedure once the module writer exists.
 
-## Reproduction
+## Conditional recovery oracle status
+
+[`test/fixtures/conditional-recovery-cases.json`](../test/fixtures/conditional-recovery-cases.json) records the four malformed boundary inputs required by issue #27, their source positions, the strict hosted diagnostics, and the source-derived permissive results. Its `native_oracle.status` field is `pending`.
+
+No native result for those four cases is claimed yet. The OCaml tests execute both policies and also cover nested input that crosses include and definition frames. A controlled TempleOS run still needs to record token output, `error_cnt`, `warning_cnt`, and capture checksums before the fixture can move under `test/oracle` or the issue can close.
+
+## Lexical frame reproduction
 
 Download `TOS_Distro.ISO` only from the canonical `final` release and reject it unless the SHA-1 above matches. A suitable isolated boot command is:
 
