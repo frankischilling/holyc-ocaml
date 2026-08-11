@@ -433,6 +433,45 @@ source_diagnostic_location = "retained lookahead token"
 hosted_diagnostic_location = "assert directive with a retained-lookahead note"
 
 [[feature]]
+id = "HC-PREPROCESSOR-HELP-METADATA"
+description = "The integrated stream records #help_index changes and #help_file source symbols in source order with explicit continuation, extension, path, index, and provenance metadata."
+sources = [
+  "Compiler/Lex.HC:Lex KW_HELP_INDEX",
+  "Compiler/Lex.HC:Lex KW_HELP_FILE",
+  "Compiler/LexLib.HC:LexExtStr",
+  "Kernel/KernelA.HH:CHashSrcSym",
+  "Kernel/KernelA.HH:HTT_HELP_FILE",
+  "Kernel/KHashB.HC:HashSrcFileSet",
+  "Kernel/BlkDev/DskStrA.HC:FileExtDot",
+  "Kernel/BlkDev/DskStrA.HC:ExtDft",
+  "Kernel/BlkDev/DskStrA.HC:FileNameAbs",
+  "Kernel/StrA.HC:StrUtil",
+  "Kernel/KernelC.HH:#help_index and #help_file corpus",
+  "Doc/Directives.DD"
+]
+implementation = [
+  "src/frontend/help_metadata.ml",
+  "src/frontend/include_resolver.ml",
+  "src/frontend/lexer.ml",
+  "src/frontend/preprocessor.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_help_directive.ml",
+  "test/cli/help-metadata.hc",
+  "test/cli/help-metadata.human",
+  "test/cli/help-metadata.json"
+]
+status = "implemented"
+issue = 37
+known_difference_issues = [24]
+kernel_c_index_directives = 104
+kernel_c_help_files = 20
+hosted_path_behavior = "confined lexical resolution without opening the target help file"
+semantic_hash_consumer = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

@@ -4,7 +4,7 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation
 
-`holyc preprocess` recognizes quoted includes, TempleOS text definitions, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, and symbol-presence conditionals inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional state belongs to the preprocessing stream and can span either kind of frame. Tokens keep the source ID and byte span of the frame that produced them.
+`holyc preprocess` recognizes quoted includes, TempleOS text definitions, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, symbol-presence conditionals, `#help_index`, and `#help_file` inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional and help state belongs to the preprocessing stream and can span either kind of frame. Tokens and metadata keep the source ID and byte span of the frame that produced them.
 
 This command is deliberately separate from `holyc lex`. The raw lexer still returns directive and replacement text as ordinary tooling tokens; it does not read files, expand definitions, or select conditional branches.
 
@@ -36,6 +36,20 @@ Definitions have no parameters, argument substitution, token pasting, or stringi
 The TempleOS compiler stores definitions in the task hash table. `holyc-ocaml` keeps them in `Session.t`: includes and later preprocessing calls made with the same session see the same source-ordered environment. Each replacement frame receives a stable source ID, a byte-segment map back to the captured replacement, the invocation span, and the original definition span. Terminal and JSON diagnostics from replacement text report both sites.
 
 The current lexer resumes a caller between tokens. TempleOS can exhaust a lexical frame while it is still scanning a token, which may join punctuation from a replacement with the caller's saved lookahead. That boundary requires an oracle-backed composite byte stream and remains tracked by [issue #24](https://github.com/frankischilling/holyc-ocaml/issues/24). No compatibility result in this slice treats that case as passing.
+
+## Help metadata
+
+`Compiler/Lex.HC:KW_HELP_INDEX` reads one string and replaces `CCmpCtrl.cur_help_idx`. It calls `LexExtStr` with `lex_next=FALSE`, which joins another string only when an immediate backslash requests continued lexical input. Whitespace alone does not join adjacent strings. An empty value clears the effective index. The hosted stream keeps every index event for traceability and separately exposes the final nonempty value, if one remains.
+
+`KW_HELP_FILE` reads one string, applies the `DD.Z` default through `ExtDft`, resolves it through `FileNameAbs`, and creates a public `CHashSrcSym` with `HTT_HELP_FILE`. `HashSrcFileSet` attaches the current source link and a copy of the nonempty help index. `Frontend.Help_metadata` records the declared spelling, effective path, hosted resolved path, `FL:` source link, active index, directive and value spans, include stack, and definition trace. Records stay in source order across includes and definition expansions. An inactive directive has no effect.
+
+The extension check mirrors `FileExtDot`, including its unusual rule that a qualifying dot anywhere in the full spelling counts as an extension. `FileNameAbs` strips leading and trailing TempleOS whitespace and removes non-whitespace control bytes before path handling; the hosted metadata path applies the same sanitation. An embedded NUL is rejected instead of treating the suffix as invisible.
+
+Hosted resolution is lexical and root confined. It does not stat, open, create, or read the target help file. TempleOS root spellings still require `--templeos-root`, and an escaping path reports `HCPP0004`. The resolved host path and original TempleOS spelling remain separate because their strings are not byte-identical representations.
+
+Use `holyc preprocess --dump-help-metadata FILE` for the `holyc-help-metadata-v1` human report. Add `--format=json` for the versioned JSON object. The same value is returned as `Preprocessor.output.help_metadata`. The pinned `Kernel/KernelC.HH` corpus check records 104 index directives and 20 help-file directives, matching the source counts exactly.
+
+This slice does not parse DolDoc or insert help-file entries into the future semantic hash table. A malformed directive retains its nonstring input and reports `HCPP0028` or `HCPP0029`; the pinned lexer skips the metadata mutation without issuing the same hosted diagnostic. That difference prevents malformed tooling input from appearing successful and does not affect valid corpus input.
 
 ## Symbol conditionals
 
@@ -87,6 +101,7 @@ TempleOS itself does not diagnose include or definition cycles, set these nestin
 
 - the working directory, include roots, and TempleOS root are canonicalized before use;
 - a resolved file must remain under one of those roots after symbolic-link resolution;
+- a help-file metadata path is confined lexically and never opens the target;
 - active canonical paths are compared before a frame is pushed;
 - Windows comparisons fold ASCII case and treat slash and backslash as the same separator;
 - the default nesting limit is 64 included files, excluding the root source;
@@ -106,7 +121,7 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0001` | Missing or unknown directive name |
 | `HCPP0002` | Missing, empty, or invalid quoted include path |
 | `HCPP0003` | No source candidate was found |
-| `HCPP0004` | The canonical target is outside the allowed roots |
+| `HCPP0004` | The resolved include or metadata path is outside the allowed roots |
 | `HCPP0005` | The target is already active and would form a cycle |
 | `HCPP0006` | The configured nesting limit would be exceeded |
 | `HCPP0007` | The target is unreadable, too large, a directory, or not a regular file |
@@ -130,6 +145,9 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0025` | Integer division or modulo uses a zero divisor |
 | `HCPP0026` | The preprocessor expression node limit would be exceeded |
 | `HCPP0027` | Signed division would overflow the 64-bit result |
+| `HCPP0028` | `#help_index` or `#help_file` is missing its string argument |
+| `HCPP0029` | A `#help_index` continuation is not followed by another string |
+| `HCPP0030` | A help-file path contains a hosted-invalid byte or cannot be resolved |
 
 A human diagnostic prints each `#include` site from the root toward the failing frame. A failure in replacement text also names the invocation and declaration sites. JSON keeps include entries in `include_stack` and definition provenance in `secondary`.
 
@@ -154,6 +172,7 @@ let config =
 let output = Holyc_lib.preprocess_detailed session ~config ~source
 let tokens = output.tokens
 let diagnostics = output.diagnostics
+let help_metadata = output.help_metadata
 ```
 
 Register a parser-visible symbol before the stream reaches a later directive when needed:
@@ -168,4 +187,4 @@ let _entry =
     ()
 ```
 
-Configuration creation canonicalizes every root and returns an error before preprocessing if a root is missing or not a directory. The streaming `Preprocessor.next` entry point and the collecting `Holyc_lib.preprocess_detailed` entry point share the same frame rules. The detailed result preserves tokens with warnings and exposes `Preprocessor.has_errors`; `Holyc_lib.preprocess` remains a convenience result that returns `Error diagnostics` only when an error-severity item exists. Use the detailed entry point when warnings must be displayed or counted. `Preprocessor.definition_dump` emits the source-ordered `holyc-definition-dump-v1` format. `Symbol_visibility.Environment.dump` emits `holyc-symbol-visibility-v1`.
+Configuration creation canonicalizes every root and returns an error before preprocessing if a root is missing or not a directory. The streaming `Preprocessor.next` entry point and the collecting `Holyc_lib.preprocess_detailed` entry point share the same frame rules. The detailed result preserves tokens with warnings and exposes `Preprocessor.has_errors`; `Holyc_lib.preprocess` remains a convenience result that returns `Error diagnostics` only when an error-severity item exists. Use the detailed entry point when warnings or help metadata must be retained. `Preprocessor.definition_dump` emits the source-ordered `holyc-definition-dump-v1` format. `Help_metadata.human` and `Help_metadata.json` emit `holyc-help-metadata-v1`. `Symbol_visibility.Environment.dump` emits `holyc-symbol-visibility-v1`.

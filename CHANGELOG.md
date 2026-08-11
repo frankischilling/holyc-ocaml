@@ -12,3 +12,4 @@
 - Added `#ifdef` and `#ifndef` with a session-owned model of TempleOS hash kinds, checked keyword and internal-type seeds, import filtering, local-variable shadowing, deterministic visibility dumps, and streaming symbol updates.
 - Added deterministic `#if` evaluation for integer, character, and floating literals, definition-expanded constants, `defined`, HolyC precedence and comparison chains, 64-bit target arithmetic, retained branch lookahead, provenance-aware diagnostics, and a configurable expression-size limit.
 - Added constant `#assert` evaluation with nonfatal `HCPP0024` warnings, retained token output, a diagnostic-preserving library result, and human and JSON CLI golden tests.
+- Added source-ordered `#help_index` and `#help_file` metadata with explicit continuation handling, hosted path confinement without target reads, include and definition provenance, versioned dumps, and complete coverage of the pinned `KernelC.HH` directives.
