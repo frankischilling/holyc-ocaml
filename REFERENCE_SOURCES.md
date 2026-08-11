@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, and the complete intermediate-code definition and metadata tables. Optimizer and backend reads establish how the original compiler consumes the option and IC fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, and the complete intermediate-code definition and metadata tables. Parser, optimizer, kernel, and backend reads establish how the original compiler consumes the option, function-flag, and IC fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Generated keyword data
 
@@ -82,3 +82,15 @@ dune exec tools/intermediate_code_gen.exe -- --compiler third_party/TempleOS/Com
 The generator verifies both source tables before parsing them. It requires 185 contiguous `IC_*` definitions, the `IC_ICS_NUM` value `0xB9`, the audited `CIntermediateStruct` layout, and one metadata record for each numeric code. Unknown argument shapes, structural types, Boolean values, padding, or extra fields stop generation.
 
 Constant names and display names remain separate. The source contains 13 real differences, including `IC_SWAP_I64` versus `SWAP_U64`; the generator does not rewrite either spelling. `dune build @generated-check` compares both generated files with a fresh rendering.
+
+## Generated function-flag data
+
+Regenerate the function and parser flag specification with:
+
+```text
+dune exec tools/function_flag_gen.exe -- --reference-root third_party/TempleOS --manifest reference/manifest.json --output-ml src/generated/function_flags.ml --output-mli src/generated/function_flags.mli
+```
+
+The generator checks nine pinned files before parsing them. It keeps the inherited `CHashClass.flags` bits, function-only `Ff_*` bits, temporary `FSF_*` parser masks, and `FSG_FUN_FLAGS*` groups separate. It also verifies the declaration-modifier assignments and the source conditions governing `RET1`, varargs, caller cleanup, interrupt returns, and internal functions.
+
+The generated helpers describe those source rules without implementing function parsing or machine-code emission. `dune build @generated-check` rejects stale implementation or interface output.

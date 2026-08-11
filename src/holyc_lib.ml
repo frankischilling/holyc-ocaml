@@ -8,6 +8,7 @@ module Session = Driver.Session
 module Version = Driver.Version
 module Primitive_type = Sema.Primitive_type
 module Compiler_option = Sema.Compiler_option
+module Function_flag = Sema.Function_flag
 module Ir_opcode = Ir.Opcode
 module Asm_directive = Asm.Directive
 module Keyword = Frontend.Keyword

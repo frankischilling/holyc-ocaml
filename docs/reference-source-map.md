@@ -73,6 +73,20 @@ The audited core consumers establish these phase assignments:
 
 `tools/compiler_option_source.ml` validates the definitions, source comments, initial mask, public API, `_BEQU` behavior, and core references while ignoring occurrences in comments and literals. `tools/compiler_option_gen.ml` writes the pinned checksums and line references to `src/generated/compiler_options.ml`. `Sema.Compiler_option` provides immutable lookup and mask operations. It does not yet connect these values to a compiler controller or implement their downstream effects.
 
+## Function and calling flags
+
+`CHashFun` inherits the `U16 flags` field declared by `CHashClass` in `Kernel/KernelA.HH`. `Cf_EXTERN` and `Cf_INTERNAL_TYPE` occupy bits 0 and 1 of that shared field. The eight `Ff_*` function positions are contiguous from bit 8 through bit 15; the lower-byte gap is part of the representation and is not compacted in the OCaml model.
+
+`Compiler/CompilerA.HH` defines a second flag set used while `PrsStmt` reads a declaration. `FSF_PUBLIC`, `FSF_ASM`, `FSF_STATIC`, and `FSF__` occupy bits 0 through 3 of this temporary value. The four calling modifiers use the same masks as their stored `Ff_*` counterparts. `FSG_FUN_FLAGS1` selects only those four stored bits, while `FSG_FUN_FLAGS2` adds public parser state.
+
+`PrsFunJoin` copies `FSG_FUN_FLAGS1` into `CHashFun.flags` and transfers `FSF_PUBLIC` to the hash type separately. It derives `Ff_RET1` only when the fixed argument block is nonempty, no varargs marker is present, and the eight-byte argument slots fit a signed 16-bit return immediate. This gives a fixed-argument range of 1 through 4,095.
+
+The declaration modifier assignments are order-sensitive. `interrupt` sets both `FSF_INTERRUPT` and `FSF_NOARGPOP`. The calling modifiers and `public` retain existing calling, public, and assembly state. `static` keeps assembly state but clears the other staged bits. A leading underscore handled by `_extern` or `_import` adds `FSF__` without clearing state.
+
+`PrsExp.HC` selects caller cleanup with `(Ff_RET1 || Ff_ARGPOP) && !Ff_NOARGPOP`. `OptPass789A.HC` applies the same rule in function epilogues. That backend also uses `Ff_INTERRUPT` for interrupt save/restore and `IRETQ`, and it removes an eight-byte error-code slot when `Ff_HASERRCODE` is present. `PrsVar.HC` marks varargs with `Ff_DOT_DOT_DOT`; `OptPass3.HC` accounts for the synthetic `argc` and `argv` members. Internal functions are dispatched as IC operations in `PrsExp.HC`, excluded from ordinary call clobbering in `OptPass6.HC`, and omitted from address-to-function lookup in `Kernel/FunSeg.HC`.
+
+`tools/function_flag_source.ml` checks the definitions, source expressions, structure ownership, modifier assignments, downstream predicates, and every core consumer while ignoring comments and literals. `tools/function_flag_gen.ml` emits immutable nested modules and source references in `src/generated/function_flags.ml`. `Sema.Function_flag` provides typed lookup and pure transition helpers. Function parsing, validity diagnostics, call lowering, and native ABI emission remain later work. [The ABI notes](holy-abi.md) keep that boundary explicit.
+
 ## Intermediate-code operation table
 
 `Compiler/CompilerA.HH` defines `IC_END` at `0x00` through `IC_ATAN` at `0xB8`, followed by `IC_ICS_NUM` at `0xB9`. The numeric range is contiguous. The same file defines four argument shapes and four structural categories in `CIntermediateStruct`.
