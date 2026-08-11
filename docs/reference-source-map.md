@@ -50,9 +50,11 @@ The `KW_IFDEF` and `KW_IFNDEF` branches in `Compiler/Lex.HC:Lex` set `CCF_NO_DEF
 
 The current generated opcode table does not yet publish opcode or register records, which is tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The standalone preprocessor also cannot discover unparsed HolyC declarations. The source corpus has no active `#ifdef` or `#ifndef` occurrence, so focused fixtures establish this slice's behavior.
 
-## Conditional expressions
+## Conditional and assertion expressions
 
 The `KW_IF` branch in `Compiler/Lex.HC:Lex` sets `CCF_IN_IF`, reads one token, and calls `LexExpression`. It treats the returned 64 bits as the branch predicate and leaves the token following the expression in the ordinary lexer lookahead. `KW_ASSERT` uses the same evaluator but reports a warning when the result is false.
+
+The assertion branch calls `LexWarn(cc,"Assert Failed ")` and then returns through `lex_end`. `Compiler/CExcept.HC:LexWarn` increments `warning_cnt` without incrementing `error_cnt` or throwing. `Frontend.Preprocessor` therefore queues `HCPP0024` as a warning, while `preprocess_detailed` returns that warning beside the retained tokens and the CLI exits successfully. TempleOS prints the warning at the current lookahead token. The hosted renderer instead uses the directive span and records the lookahead as related context; the compatibility report identifies that diagnostic-only difference.
 
 `Compiler/PrsExp.HC:LexExpression2Bin` calls the normal expression parser, appends return operations, compiles the resulting intermediate code, and returns executable memory. `LexExpression` calls that code without forcing the result to I64 or F64. Native conditions can therefore use any expression term available to the current compiler controller, including calls, globals, memory, and compiler state. The hosted constant evaluator implements only the terms that do not need semantic state or execution. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) records the remaining VM path.
 
