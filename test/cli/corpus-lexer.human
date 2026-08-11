@@ -1,0 +1,12 @@
+holyc-corpus-lex-v1
+phase lex
+input verified-git-tree
+templeos-reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+files 528
+tokenizes 528
+failed 0
+bytes 4190323
+lexed-bytes 2923417
+tokens 719304
+nul-terminated-files 54
+binary-payload-bytes 1266852

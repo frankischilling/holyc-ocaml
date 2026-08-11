@@ -5,7 +5,7 @@ Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 | Phase | Current result | Evidence |
 | --- | --- | --- |
 | Source loading | Implemented for bounded local files and in-memory buffers | Source and span unit tests |
-| Raw lexing | Implemented for identifiers, keywords, literals, comments, and operators | Unit, golden, negative, and property tests |
+| Raw lexing | Implemented for identifiers, keywords, literals, comments, line continuations, and operators. At the pinned commit, all 528 `.HC`, `.HH`, and `.PRJ` Git blobs tokenize without a diagnostic or crash. The report accounts for 54 NUL terminators and 1,266,852 trailing payload bytes. | Unit, golden, negative, property, full-corpus, and CLI golden tests; [issue #42](https://github.com/frankischilling/holyc-ocaml/issues/42) |
 | Operator specification | Implemented for compound recognition, precedence constants, association flags, and binary IC mappings | Generated-table and public API tests |
 | Primitive type facts | Implemented for supported names, raw IDs, sizes, signedness, `Bool`, public integer union backing, and `RT_PTR` | Generated-table and semantic API tests |
 | Compiler option specification | Implemented for all 12 bit indices, initial state, gaps, core consumers, and the `Option`/`GetOption` contract; stage behavior is not wired yet | Generated-table and semantic API tests |
@@ -21,4 +21,4 @@ Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 | TempleOS `.BIN` serialization and loading | Not implemented | M8 |
 | Bootstrap | Not attempted | M9 |
 
-No TempleOS corpus percentage is reported yet. A raw lexer fixture passing does not establish preprocessing, parsing, execution, or loader compatibility.
+The lexer corpus result is 528 of 528 files at TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The denominator is the complete committed set of files ending in `.HC`, `.HH`, or `.PRJ`. This is a raw-tokenization result, not a whole-compiler compatibility percentage. Preprocessing, parsing, semantic analysis, lowering, execution, native emission, and loader acceptance remain separate gates.

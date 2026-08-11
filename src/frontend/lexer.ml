@@ -1,11 +1,17 @@
+type termination =
+  | Physical_eof
+  | Nul_terminated of { terminator_offset : int; trailing_bytes : int }
+
 type t = {
   source : Common.Source_file.t;
   contents : string;
   mode : Token.mode;
   generated_from : Common.Span.t option;
   defined_at : Common.Span.t option;
+  nul_terminates : bool;
   mutable offset : int;
   mutable emitted_eof : bool;
+  mutable termination : termination option;
 }
 
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
@@ -18,19 +24,23 @@ type definition_replacement = {
   terminator : definition_terminator;
 }
 
-let create ?(mode = Token.Raw) ?generated_from ?defined_at source =
+let create ?(mode = Token.Raw) ?generated_from ?defined_at
+    ?(nul_terminates = false) source =
   {
     source;
     contents = Common.Source_file.contents source;
     mode;
     generated_from;
     defined_at;
+    nul_terminates;
     offset = 0;
     emitted_eof = false;
+    termination = None;
   }
 
 let source_id lexer = Common.Source_file.id lexer.source
 let offset lexer = lexer.offset
+let termination lexer = lexer.termination
 let source_length lexer = String.length lexer.contents
 let at_end lexer = lexer.offset >= source_length lexer
 
@@ -199,6 +209,14 @@ let trivia lexer kind start =
 
 let rec skip_trivia lexer accumulated =
   match (peek lexer 0, peek lexer 1) with
+  | Some '\\', Some ('\n' | '\r') ->
+      let start = lexer.offset in
+      lexer.offset <- lexer.offset + 2;
+      if
+        Char.equal lexer.contents.[lexer.offset - 1] '\r'
+        && Option.fold ~none:false ~some:(Char.equal '\n') (peek lexer 0)
+      then ignore (advance lexer);
+      skip_trivia lexer (trivia lexer Line_continuation start :: accumulated)
   | Some byte, _ when is_whitespace byte ->
       let start = lexer.offset in
       while Option.fold ~none:false ~some:is_whitespace (peek lexer 0) do
@@ -617,6 +635,8 @@ let scan_operator_or_punctuation lexer leading_trivia =
 
 let eof_token lexer leading_trivia =
   let start = lexer.offset in
+  if Option.is_none lexer.termination then
+    lexer.termination <- Some Physical_eof;
   lexer.emitted_eof <- true;
   make_token lexer leading_trivia ~kind:Token_kind.Eof ~value:Token.No_value
     start
@@ -630,6 +650,15 @@ let next lexer =
     | None -> (
         match peek lexer 0 with
         | None -> Token (eof_token lexer leading_trivia)
+        | Some '\x00' when lexer.nul_terminates ->
+            let terminator_offset = lexer.offset in
+            let trailing_bytes =
+              String.length lexer.contents - terminator_offset - 1
+            in
+            ignore (advance lexer);
+            lexer.termination <-
+              Some (Nul_terminated { terminator_offset; trailing_bytes });
+            Token (eof_token lexer leading_trivia)
         | Some '\x00' ->
             let start = lexer.offset in
             ignore (advance lexer);
@@ -660,8 +689,8 @@ let next lexer =
                     literal."
                  ~start ~stop:lexer.offset ()))
 
-let lex_all ?mode source =
-  let lexer = create ?mode source in
+let lex_all ?mode ?nul_terminates source =
+  let lexer = create ?mode ?nul_terminates source in
   let rec loop tokens diagnostics =
     match next lexer with
     | Token token when token.Token.kind = Token_kind.Eof ->

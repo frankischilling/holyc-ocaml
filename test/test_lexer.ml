@@ -190,6 +190,60 @@ let malformed_input () =
     "long character" "HCLEX0005" (error_code "'123456789'");
   Alcotest.(check string) "NUL" "HCLEX0006" (error_code "a\x00b")
 
+let line_continuations () =
+  let _, tokens = lex "one\\\ntwo\\\r\nthree\\\rfour" in
+  let tokens = without_eof tokens in
+  let values =
+    List.map
+      (fun token -> Token.value_text token.Token.value |> Option.get)
+      tokens
+  in
+  check_string_list "continued identifiers"
+    [ "one"; "two"; "three"; "four" ]
+    values;
+  let continuation_raw =
+    List.tl tokens
+    |> List.map (fun token ->
+        match token.Token.leading_trivia with
+        | [ trivia ] ->
+            Alcotest.(check string)
+              "continuation kind" "line-continuation"
+              (Trivia.kind_name trivia.Trivia.kind);
+            trivia.Trivia.raw
+        | _ -> Alcotest.fail "expected one continuation trivia item")
+  in
+  check_string_list "continuation spelling"
+    [ "\\\n"; "\\\r\n"; "\\\r" ]
+    continuation_raw;
+  Alcotest.(check string) "lone backslash" "HCLEX0001" (error_code "\\")
+
+let nul_termination () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"payload.hc" ~contents:"name\x00payload"
+  in
+  let lexer = Lexer.create ~nul_terminates:true source in
+  let first = Lexer.next lexer in
+  let eof = Lexer.next lexer in
+  (match first with
+  | Lexer.Token token ->
+      Alcotest.(check string)
+        "token before NUL" "identifier"
+        (Token_kind.name token.Token.kind)
+  | Lexer.Diagnostic _ -> Alcotest.fail "unexpected diagnostic before NUL");
+  (match eof with
+  | Lexer.Token token ->
+      Alcotest.(check bool)
+        "NUL emits EOF" true
+        (token.Token.kind = Token_kind.Eof)
+  | Lexer.Diagnostic _ -> Alcotest.fail "expected EOF at NUL");
+  match Lexer.termination lexer with
+  | Some (Lexer.Nul_terminated { terminator_offset; trailing_bytes }) ->
+      Alcotest.(check int) "terminator offset" 4 terminator_offset;
+      Alcotest.(check int) "payload bytes" 7 trailing_bytes
+  | Some Lexer.Physical_eof -> Alcotest.fail "expected NUL termination"
+  | None -> Alcotest.fail "expected recorded termination"
+
 let read_file path =
   let channel = open_in_bin path in
   Fun.protect
@@ -225,5 +279,7 @@ let tests =
     Alcotest.test_case "nested comments" `Quick nested_comments;
     Alcotest.test_case "trailing dollar" `Quick trailing_dollar;
     Alcotest.test_case "malformed input" `Quick malformed_input;
+    Alcotest.test_case "line continuations" `Quick line_continuations;
+    Alcotest.test_case "NUL termination" `Quick nul_termination;
     Alcotest.test_case "golden token dump" `Quick golden_dump;
   ]

@@ -3,6 +3,15 @@
   "upstream": "https://github.com/cia-foundation/TempleOS",
   "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "checksum_basis": "git-blob-bytes",
+  "lexer_corpus": {
+    "root_tree": "02b508a8ff9739e628f7eca19b0521f76632d325",
+    "extensions": [".HC", ".HH", ".PRJ"],
+    "files": 528,
+    "canonical_bytes": 4190323,
+    "tokens": 719304,
+    "nul_terminated_files": 54,
+    "trailing_payload_bytes": 1266852
+  },
   "files": [
     {"path": "Compiler/Compiler.PRJ", "sha256": "bbf936462dbe22b5ef4dc8bd0e33269d56c26d246ba7cff48c26c4e4be5477bd"},
     {"path": "Compiler/CompilerA.HH", "sha256": "9eca54eff7d1c0803172e45e5483a57262e24f7b759a6a727c29beaf660967b2"},

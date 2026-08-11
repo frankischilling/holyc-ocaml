@@ -2,6 +2,13 @@ type t
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
 type definition_terminator = End_of_line | End_of_file | Nul
 
+(** Records whether a lexer configured with [nul_terminates] reached a physical
+    EOF or a source terminator. Ordinary lexers still diagnose an embedded NUL.
+*)
+type termination =
+  | Physical_eof
+  | Nul_terminated of { terminator_offset : int; trailing_bytes : int }
+
 type definition_replacement = {
   replacement : string;
   replacement_span : Common.Span.t;
@@ -13,10 +20,12 @@ val create :
   ?mode:Token.mode ->
   ?generated_from:Common.Span.t ->
   ?defined_at:Common.Span.t ->
+  ?nul_terminates:bool ->
   Common.Source_file.t ->
   t
 
 val offset : t -> int
+val termination : t -> termination option
 
 val consume_continuation_marker : t -> Common.Span.t option
 (** Consume an immediate backslash used by source constructs that explicitly
@@ -28,5 +37,6 @@ val next : t -> item
 
 val lex_all :
   ?mode:Token.mode ->
+  ?nul_terminates:bool ->
   Common.Source_file.t ->
   (Token.t list, Common.Diagnostic.t list) result

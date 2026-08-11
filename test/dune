@@ -12,6 +12,7 @@
   test_symbol_visibility
   test_diagnostic
   test_version
+  test_corpus
   test_opcode_table_source
   test_primitive_type_source
   test_primitive_type
@@ -180,3 +181,20 @@
      --command-line-source
      cli/predefined-values.hc))
    (diff cli/predefined-values.json predefined-values.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets corpus-lexer.human.actual)
+ (deps
+  cli/corpus-lexer.human
+  (source_tree ../third_party/TempleOS))
+ (action
+  (progn
+   (with-stdout-to
+    corpus-lexer.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     corpus
+     lex
+     --reference-root=%{env:DUNE_SOURCEROOT=}/third_party/TempleOS))
+   (diff cli/corpus-lexer.human corpus-lexer.human.actual))))

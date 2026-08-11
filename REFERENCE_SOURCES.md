@@ -19,7 +19,7 @@ git -C third_party/TempleOS checkout --detach c26482bb6ad3f80106d28504ec5db3c6a3
 powershell -File tools/verify-reference.ps1
 ```
 
-The verifier rejects a missing, dirty, or mismatched checkout and checks every file in `reference/manifest.json`. Checksums cover the pinned Git blob bytes, so line-ending conversion in a host checkout cannot change the result.
+The verifier rejects a missing, dirty, or mismatched checkout and checks every individually audited file in `reference/manifest.json`. Checksums cover the pinned Git blob bytes, so line-ending conversion in a host checkout cannot change the result. The same manifest records the pinned root tree used by the lexer corpus.
 
 ## Update policy
 
@@ -27,7 +27,18 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest currently verifies 48 pinned Git blobs.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest verifies 48 individually audited Git blobs and identifies the full pinned tree used by the 528-file lexer corpus.
+
+## Lexer corpus audit
+
+Run the pinned corpus check with:
+
+```text
+dune exec holyc -- corpus lex --reference-root=third_party/TempleOS
+dune exec holyc -- corpus lex --format=json --reference-root=third_party/TempleOS
+```
+
+The command verifies the checkout before and after scanning, enumerates only committed `.HC`, `.HH`, and `.PRJ` paths, and reads each object directly from Git. It does not run reference code. Reading committed objects avoids host checkout line-ending conversion. At the pinned root tree `02b508a8ff9739e628f7eca19b0521f76632d325`, all 528 files tokenize without a lexer diagnostic or internal error. The report records 719,304 tokens, 54 NUL terminators, and 1,266,852 trailing payload bytes. These figures establish raw lexing only.
 
 ## Include-frame audit
 
