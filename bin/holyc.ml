@@ -134,7 +134,8 @@ let conditional_depth_argument =
 
 let expression_nodes_argument =
   let documentation =
-    "Allow at most this many terms and operators in one #if expression."
+    "Allow at most this many terms and operators in one #if or #assert \
+     expression."
   in
   Arg.(
     value & opt int 512
@@ -173,20 +174,20 @@ let preprocess_file format include_roots templeos_root max_include_depth
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
             message;
           1
-      | Ok config -> (
-          match Holyc_lib.preprocess session ~config ~source with
-          | Error diagnostics ->
-              print_diagnostics format session diagnostics;
-              1
-          | Ok tokens ->
-              print_tokens format session tokens;
-              0))
+      | Ok config ->
+          let output = Holyc_lib.preprocess_detailed session ~config ~source in
+          if output.diagnostics <> [] then
+            print_diagnostics format session output.diagnostics;
+          if Holyc_lib.Preprocessor.has_errors output then 1
+          else (
+            print_tokens format session output.tokens;
+            0))
 
 let preprocess_command =
   let documentation =
     "Tokenize a file while resolving bounded includes, definition expansions, \
-     constant #if expressions, and JIT/AOT conditional frames. Unsupported \
-     directives produce diagnostics."
+     constant #if and #assert expressions, and JIT/AOT conditional frames. \
+     Unsupported directives produce diagnostics."
   in
   let info = Cmd.info "preprocess" ~doc:documentation in
   Cmd.v info

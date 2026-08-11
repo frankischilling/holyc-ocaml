@@ -1,4 +1,5 @@
 type value
+type directive = If | Assert
 
 type problem = {
   code : string;
@@ -16,6 +17,7 @@ type failure =
 type parsed
 
 val parse :
+  directive:directive ->
   opener:Common.Span.t ->
   max_nodes:int ->
   next:(unit -> Lexer.item) ->

@@ -32,3 +32,13 @@ val preprocess :
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
   (Token.t list, Diagnostic.t list) result
+(** The convenience entry point returns tokens when the stream has no errors.
+    Use {!preprocess_detailed} when warnings must be retained. *)
+
+val preprocess_detailed :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  Preprocessor.output
+(** Preprocess a source and retain tokens, warnings, notes, and errors in one
+    result. *)

@@ -6,6 +6,7 @@
   test_lexer
   test_preprocessor
   test_conditional_expression
+  test_assert_directive
   test_symbol_visibility
   test_diagnostic
   test_version
@@ -63,3 +64,49 @@
   ../third_party/TempleOS/Kernel/KUtils.HC
   (glob_files golden/*)
   (glob_files negative/*)))
+
+(rule
+ (alias runtest)
+ (targets
+  assert-warning.human.tokens.actual
+  assert-warning.human.diagnostics.actual)
+ (deps
+  cli/assert-warning.hc
+  cli/assert-warning.human.tokens
+  cli/assert-warning.human.diagnostics)
+ (action
+  (progn
+   (with-stdout-to
+    assert-warning.human.tokens.actual
+    (with-stderr-to
+     assert-warning.human.diagnostics.actual
+     (run %{exe:../bin/holyc.exe} preprocess cli/assert-warning.hc)))
+   (diff cli/assert-warning.human.tokens assert-warning.human.tokens.actual)
+   (diff
+    cli/assert-warning.human.diagnostics
+    assert-warning.human.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  assert-warning.json.tokens.actual
+  assert-warning.json.diagnostics.actual)
+ (deps
+  cli/assert-warning.hc
+  cli/assert-warning.json.tokens
+  cli/assert-warning.json.diagnostics)
+ (action
+  (progn
+   (with-stdout-to
+    assert-warning.json.tokens.actual
+    (with-stderr-to
+     assert-warning.json.diagnostics.actual
+     (run
+      %{exe:../bin/holyc.exe}
+      preprocess
+      --format=json
+      cli/assert-warning.hc)))
+   (diff cli/assert-warning.json.tokens assert-warning.json.tokens.actual)
+   (diff
+    cli/assert-warning.json.diagnostics
+    assert-warning.json.diagnostics.actual))))

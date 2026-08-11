@@ -5,6 +5,7 @@ let () =
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
       ("conditional expressions", Test_conditional_expression.tests);
+      ("assert directives", Test_assert_directive.tests);
       ("symbol visibility", Test_symbol_visibility.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);

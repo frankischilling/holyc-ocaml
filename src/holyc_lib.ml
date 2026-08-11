@@ -26,7 +26,12 @@ module Preprocessor = Frontend.Preprocessor
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
-let preprocess session ~config ~source =
-  Frontend.Preprocessor.lex_all ~sources:(Session.sources session)
+let preprocess_detailed session ~config ~source =
+  Frontend.Preprocessor.collect_all ~sources:(Session.sources session)
     ~definitions:(Session.definitions session)
     ~symbols:(Session.symbols session) ~config source
+
+let preprocess session ~config ~source =
+  let output = preprocess_detailed session ~config ~source in
+  if Frontend.Preprocessor.has_errors output then Error output.diagnostics
+  else Ok output.tokens
