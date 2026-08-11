@@ -219,11 +219,7 @@
   (progn
    (with-stdout-to
     parse-globals.json.actual
-    (run
-     %{exe:../bin/holyc.exe}
-     dump-ast
-     --format=json
-     cli/parse-globals.hc))
+    (run %{exe:../bin/holyc.exe} dump-ast --format=json cli/parse-globals.hc))
    (diff cli/parse-globals.json parse-globals.json.actual))))
 
 (rule
@@ -253,9 +249,5 @@
      parse-error.json.actual
      (with-accepted-exit-codes
       1
-      (run
-       %{exe:../bin/holyc.exe}
-       parse
-       --format=json
-       cli/parse-error.hc))))
+      (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-error.hc))))
    (diff cli/parse-error.json parse-error.json.actual))))
