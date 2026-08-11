@@ -417,6 +417,190 @@ let comma_failures () =
       ("list lacks its final semicolon", "I64 first,*second", "HCPARSE0003");
     ]
 
+let modifier_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("static keyword branch", "case KW_STATIC:");
+      ("static replaces staged flags", "fsp_flags=FSF_STATIC|fsp_flags&FSF_ASM;");
+      ("public keyword branch", "case KW_PUBLIC:");
+      ( "public retains the function flag group",
+        "fsp_flags=FSF_PUBLIC|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+      ("public reaches global variables", "if (fsp_flags&FSF_PUBLIC)");
+    ];
+  let header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains header fragment))
+    [
+      ("public keyword identity", "#define KW_PUBLIC\t25");
+      ("static keyword identity", "#define KW_STATIC\t41");
+      ("public staged flag", "#define FSF_PUBLIC\t\t0x01");
+      ("static staged flag", "#define FSF_STATIC\t\t0x04");
+    ]
+
+let direct_modifiers () =
+  let source =
+    "public I64 exported;\n\
+     static U8 hidden;\n\
+     public static Bool public_then_static;\n\
+     static public I16 static_then_public;\n\
+     public public I8 repeated;"
+  in
+  let _, _, output = parse_string source in
+  let variables = expect_ast output |> globals in
+  let modifier_name = function
+    | Ast.Public -> "public"
+    | Ast.Static -> "static"
+  in
+  Alcotest.(check (list (list string)))
+    "ordered modifier spellings"
+    [
+      [ "public" ];
+      [ "static" ];
+      [ "public"; "static" ];
+      [ "static"; "public" ];
+      [ "public"; "public" ];
+    ]
+    (List.map
+       (fun (variable : Ast.global_variable) ->
+         List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           variable.modifiers)
+       variables);
+  Alcotest.(check (list (list string)))
+    "ordered modifier kinds"
+    [
+      [ "public" ];
+      [ "static" ];
+      [ "public"; "static" ];
+      [ "static"; "public" ];
+      [ "public"; "public" ];
+    ]
+    (List.map
+       (fun (variable : Ast.global_variable) ->
+         List.map
+           (fun (modifier : Ast.declaration_modifier) ->
+             modifier_name modifier.kind)
+           variable.modifiers)
+       variables);
+  let exported = List.hd variables in
+  let public = List.hd exported.modifiers in
+  Alcotest.(check int)
+    "public starts the declaration" 0 public.location.span.start;
+  Alcotest.(check int)
+    "public width" 6
+    (public.location.span.stop - public.location.span.start);
+  Alcotest.(check int)
+    "declaration includes the prefix" 0 exported.location.span.start
+
+let modifier_declaration_group () =
+  let _, _, output = parse_string "public I64 first,*second;" in
+  let declaration = expect_ast output |> expect_one_declaration in
+  Alcotest.(check (list string))
+    "one group modifier" [ "public" ]
+    (List.map
+       (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+       declaration.modifiers);
+  Alcotest.(check (list string))
+    "group names" [ "first"; "second" ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> item.name.spelling)
+       declaration.declarators);
+  Alcotest.(check (list int))
+    "group pointer depths" [ 0; 1 ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> List.length item.pointer_layers)
+       declaration.declarators);
+  Alcotest.(check int)
+    "group includes the prefix" 0 declaration.location.span.start
+
+let definition_backed_modifier () =
+  let session, root, output =
+    parse_string "#define VIS public\nVIS U64 visible;"
+  in
+  let ast = expect_ast output in
+  let variable = expect_one_global ast in
+  let modifier =
+    match variable.modifiers with
+    | [ modifier ] -> modifier
+    | items ->
+        Alcotest.failf "expected one modifier, got %d" (List.length items)
+  in
+  Alcotest.(check string) "replacement spelling" "public" modifier.spelling;
+  Alcotest.(check bool)
+    "modifier uses a generated frame" false
+    (Source_id.equal modifier.location.span.source (Source_file.id root));
+  let generated_from =
+    modifier.location.generated_from
+    |> Option.value ~default:modifier.location.span
+  in
+  let defined_at =
+    modifier.location.defined_at |> Option.value ~default:modifier.location.span
+  in
+  Alcotest.(check bool)
+    "modifier retains the invocation" true
+    (Source_id.equal generated_from.source (Source_file.id root));
+  Alcotest.(check bool)
+    "modifier retains the definition" true
+    (Source_id.equal defined_at.source (Source_file.id root));
+  let open Yojson.Safe.Util in
+  let modifier_json =
+    Ast_dump.to_yojson (Session.sources session) ast
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "modifiers" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON retains the invocation" true
+    (modifier_json |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON retains the definition" true
+    (modifier_json |> member "location" |> member "defined_at" <> `Null)
+
+let modifier_streaming_visibility () =
+  let source =
+    "static I64 declared;\n\
+     #ifdef declared\n\
+     public U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  let variables = expect_ast output |> globals in
+  Alcotest.(check (list string))
+    "the conditional sees the modified declaration" [ "declared"; "selected" ]
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       variables)
+
+let modifier_failures () =
+  List.iter
+    (fun (name, source, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (name ^ " diagnostic") "HCPARSE0001" diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ( "public lacks a type",
+        "public ;",
+        "after declaration modifier \"public\"" );
+      ( "static precedes an unresolved type",
+        "static Widget invalid;",
+        "after declaration modifier \"static\"" );
+      ( "extern is not in this slice",
+        "extern I64 unavailable;",
+        "at the start of a global declaration" );
+    ]
+
 let empty_and_comment_only () =
   List.iter
     (fun contents ->
@@ -632,6 +816,16 @@ let tests =
     Alcotest.test_case "comma declarations update symbol conditionals" `Quick
       comma_streaming_visibility;
     Alcotest.test_case "comma declaration failures" `Quick comma_failures;
+    Alcotest.test_case "pinned declaration modifier behavior" `Quick
+      modifier_source_behavior;
+    Alcotest.test_case "direct declaration modifiers" `Quick direct_modifiers;
+    Alcotest.test_case "modifier on a declaration group" `Quick
+      modifier_declaration_group;
+    Alcotest.test_case "definition-backed declaration modifier" `Quick
+      definition_backed_modifier;
+    Alcotest.test_case "modified declarations update symbol conditionals" `Quick
+      modifier_streaming_visibility;
+    Alcotest.test_case "declaration modifier failures" `Quick modifier_failures;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;
