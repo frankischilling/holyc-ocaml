@@ -2,7 +2,7 @@ open Holyc_lib
 
 let rendered_context () =
   let session = Session.create () in
-  let source = Session.add_source session ~path:"bad.hc" ~contents:"ok\n\\\n" in
+  let source = Session.add_source session ~path:"bad.hc" ~contents:"ok\n\\" in
   match Holyc_lib.lex session ~source with
   | Ok _ -> Alcotest.fail "expected an invalid-byte diagnostic"
   | Error [ diagnostic ] ->
