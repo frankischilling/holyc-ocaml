@@ -344,6 +344,37 @@ issue = 26
 known_difference_issues = [24, 27]
 
 [[feature]]
+id = "HC-PREPROCESSOR-SYMBOL-CONDITIONALS"
+description = "The integrated stream selects #ifdef and #ifndef branches from definition and compiler-symbol visibility while retaining the pinned import mask and local-variable shadow behavior."
+sources = [
+  "Compiler/Lex.HC:CmpCtrlNew",
+  "Compiler/Lex.HC:Lex identifier lookup",
+  "Compiler/Lex.HC:Lex KW_IFDEF",
+  "Compiler/Lex.HC:Lex KW_IFNDEF",
+  "Compiler/CMain.HC:LexStmt2Bin",
+  "Compiler/AsmInit.HC:AsmHashLoad",
+  "Compiler/CInit.HC:internal_types_table",
+  "Kernel/KernelA.HH:HTT_EXPORT_SYS_SYM",
+  "Kernel/KernelA.HH:HTG_TYPE_MASK",
+  "Kernel/KHashA.HC:HashFind",
+  "Doc/PreProcessor.DD"
+]
+implementation = [
+  "src/frontend/symbol_visibility.ml",
+  "src/frontend/preprocessor.ml",
+  "src/driver/session.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_symbol_visibility.ml",
+  "test/test_preprocessor.ml",
+  "examples/symbol-conditions.hc"
+]
+status = "implemented"
+issue = 29
+known_difference_issues = [24, 27, 30]
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

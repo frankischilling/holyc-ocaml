@@ -40,6 +40,16 @@ The `KW_IFAOT` and `KW_IFJIT` cases in `Compiler/Lex.HC:Lex` continue into the m
 
 Outside `CCF_IN_IF`, the pinned lexer discards an unmatched `#endif`, treats an unmatched `#else` as a request to scan forward, and returns EOF without a mismatch diagnostic when a false branch is unterminated. The hosted stream reports `HCPP0015` through `HCPP0018` instead. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) records that diagnostic difference and the missing oracle fixtures. The `KW_IFJIT` path also returns `TK_IFAOT` while `CCF_IN_IF` is set; that source quirk concerns later `#if` expression parsing and is not part of the mode-only state.
 
+## Symbol-presence conditionals
+
+The `KW_IFDEF` and `KW_IFNDEF` branches in `Compiler/Lex.HC:Lex` set `CCF_NO_DEFINES` while they read one identifier. Identifier lookup still finds the matching hash entry, but a definition's replacement text does not enter the stream. `#ifdef` continues when `cc->hash_entry` is non-null; `#ifndef` continues when it is null.
+
+`CmpCtrlNew` initializes `hash_mask` to `HTG_TYPE_MASK-HTT_IMPORT_SYS_SYM`. The 17 `HTT_*` bits in `Kernel/KernelA.HH` show that this is a compiler-symbol predicate rather than a definition-only predicate. Imports are excluded. `Compiler/CMain.HC:LexStmt2Bin` builds the local and global table chain for the current compilation mode. Before that hash lookup, `Lex` calls `MemberFind` against `local_var_lst`; a local match suppresses `HashFind` and leaves `hash_entry` null.
+
+`Compiler/AsmInit.HC:AsmHashLoad` inserts language keywords, assembly keywords, opcodes, registers, and all 17 records from `Compiler/CInit.HC:internal_types_table` into `cmp.asm_hash`. `Driver.Session` currently seeds the generated language, assembly-keyword, and internal-type subsets. `Frontend.Symbol_visibility` models every hash kind, masked lookup, and local shadows with deterministic identities and source provenance. The parser can publish later declarations to the same environment between calls to `Frontend.Preprocessor.next`.
+
+The current generated opcode table does not yet publish opcode or register records, which is tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The standalone preprocessor also cannot discover unparsed HolyC declarations. The source corpus has no active `#ifdef` or `#ifndef` occurrence, so focused fixtures establish this slice's behavior.
+
 ## Tokens and operators
 
 `Kernel/KernelA.HH` assigns numeric values to compound tokens. `Compiler/CInit.HC:CmpFillTables` defines two-character tokens, three-character shifts, and expression precedence. `Compiler/OpCodes.DD` supplies the keyword spellings consumed by `Compiler/AsmInit.HC`.

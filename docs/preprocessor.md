@@ -4,11 +4,11 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation
 
-`holyc preprocess` recognizes quoted includes, TempleOS text definitions, and JIT/AOT mode conditionals inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional state belongs to the preprocessing stream and can span either kind of frame. Tokens keep the source ID and byte span of the frame that produced them.
+`holyc preprocess` recognizes quoted includes, TempleOS text definitions, JIT/AOT mode conditionals, and symbol-presence conditionals inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional state belongs to the preprocessing stream and can span either kind of frame. Tokens keep the source ID and byte span of the frame that produced them.
 
 This command is deliberately separate from `holyc lex`. The raw lexer still returns directive and replacement text as ordinary tooling tokens; it does not read files, expand definitions, or select conditional branches.
 
-`#if` expressions, `#ifdef`, `#ifndef`, `defined(...)`, `#assert`, `#exe`, predefined values, and general generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). In particular, the built-in names in `Kernel/KernelA.HH` expand to `#exe` programs in TempleOS; this implementation does not install those names until the compile-time VM can execute them.
+`#if` expressions, `defined(...)`, `#assert`, `#exe`, predefined values, and general generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). In particular, the built-in names in `Kernel/KernelA.HH` expand to `#exe` programs in TempleOS; this implementation does not install those names until the compile-time VM can execute them.
 
 ## Behavior taken from the pinned compiler
 
@@ -37,13 +37,25 @@ The TempleOS compiler stores definitions in the task hash table. `holyc-ocaml` k
 
 The current lexer resumes a caller between tokens. TempleOS can exhaust a lexical frame while it is still scanning a token, which may join punctuation from a replacement with the caller's saved lookahead. That boundary requires an oracle-backed composite byte stream and remains tracked by [issue #24](https://github.com/frankischilling/holyc-ocaml/issues/24). No compatibility result in this slice treats that case as passing.
 
+## Symbol conditionals
+
+The `KW_IFDEF` and `KW_IFNDEF` cases in `Compiler/Lex.HC:Lex` set `CCF_NO_DEFINES` before reading one identifier. A definition with that name is found, but its replacement is not injected into the operand. `#ifdef` selects the first branch when the identifier has a compiler hash entry; `#ifndef` reverses that result.
+
+The test is wider than a C macro lookup. `CmpCtrlNew` uses `HTG_TYPE_MASK-HTT_IMPORT_SYS_SYM`, so definitions, globals, classes, internal types, functions, keywords, assembler entries, files, modules, help files, frame pointers, and exports may count. Imports do not. Identifier lookup checks `local_var_lst` before the hash tables. A matching local variable stops the hash lookup and leaves `cc->hash_entry` null, so a local can make `#ifdef` false even when the same spelling exists in the compiler hash chain.
+
+`Driver.Session` owns the hosted visibility environment. New sessions seed the 48 language keywords, 25 assembly keywords, and 17 internal type records from the checked generated tables. Entries retain an explicit TempleOS hash kind, a stable ID, and source provenance. Parser and semantic work can register functions, classes, globals, exports, imports, and other entries between calls to `Preprocessor.next`. A scoped local context models the separate `local_var_lst` result. `holyc-symbol-visibility-v1` is the deterministic state dump for tests and future inspection commands.
+
+The standalone `holyc preprocess` command does not parse declarations. It therefore sees the checked seed entries, definitions encountered in source order, and anything its caller registered in the session, but it cannot infer an earlier HolyC function or class declaration yet. The complete opcode and register seed set is tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). This boundary is reported as a known difference rather than silently treating `#ifdef` as definition-only.
+
+Inactive symbol conditionals use the same raw scan as inactive mode conditionals. Their operand is not tokenized or looked up, so malformed discarded text has no symbol-state side effect. An active directive without an identifier reports `HCPP0020`; its matching branches remain inert during recovery.
+
 ## JIT and AOT conditionals
 
 `Kernel/KernelA.HH` assigns `CCF_AOT_COMPILE`, and `Compiler/CMain.HC:CmpBuf` sets it for AOT compilation. A controller without that flag follows the JIT path. `Preprocessor.Config.create` therefore defaults to `Jit` without consulting the host platform. Pass `~compilation_mode:Aot` through the library or `--mode=aot` to `holyc preprocess` to select the other branch.
 
 The `KW_IFAOT` and `KW_IFJIT` cases in `Compiler/Lex.HC:Lex` include the matching branch and scan past the other one. `#else` switches the selected side, and `#endif` closes the innermost conditional. While a branch is inactive, the pinned compiler reads raw bytes until `#` and lexes only the following directive name. The OCaml lexer exposes the same bounded raw scan. It does not expand ordinary discarded identifiers, load an inactive include, install an inactive definition, or report malformed quoted text that lies wholly inside the discarded branch.
 
-The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` as structural openers even though active uses of those directives are not implemented yet. This prevents an unsupported conditional nested inside a discarded mode branch from closing its parent early. If one of those directives is reached in active input, `HCPP0008` is retained and the stream stays inactive through its matching boundary so later directives do not run after the error.
+The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` with the two mode openers. This prevents a nested conditional inside discarded input from closing its parent early. Active `#ifdef` and `#ifndef` evaluate through the session visibility environment. Active expression `#if` remains unsupported; `HCPP0008` keeps both of its branches inert so later directives do not run after the error.
 
 Conditional boundaries can cross an included file or a definition-backed frame because the state belongs to the stream rather than an individual lexer. A definition may also provide the spelling after `#`; definition recursion and generated-byte guards still apply when that happens.
 
@@ -89,6 +101,7 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0017` | `#endif` has no active conditional |
 | `HCPP0018` | A conditional reaches the end of the stream without `#endif` |
 | `HCPP0019` | The conditional nesting limit would be exceeded |
+| `HCPP0020` | `#ifdef` or `#ifndef` is missing a symbol name |
 
 A human diagnostic prints each `#include` site from the root toward the failing frame. A failure in replacement text also names the invocation and declaration sites. JSON keeps include entries in `include_stack` and definition provenance in `secondary`.
 
@@ -112,4 +125,16 @@ let config =
 let tokens = Holyc_lib.preprocess session ~config ~source
 ```
 
-Configuration creation canonicalizes every root and returns an error before preprocessing if a root is missing or not a directory. The streaming `Preprocessor.next` entry point and the collecting `Holyc_lib.preprocess` entry point share the same frame rules. `Preprocessor.definition_dump` emits the source-ordered `holyc-definition-dump-v1` format for tests and later compiler-state tools.
+Register a parser-visible symbol before the stream reaches a later directive when needed:
+
+```ocaml
+let symbols = Holyc_lib.Session.symbols session
+
+let _entry =
+  Holyc_lib.Symbol_visibility.Environment.add symbols
+    ~name:"ParsedFunction"
+    ~kind:Holyc_lib.Symbol_visibility.Function
+    ()
+```
+
+Configuration creation canonicalizes every root and returns an error before preprocessing if a root is missing or not a directory. The streaming `Preprocessor.next` entry point and the collecting `Holyc_lib.preprocess` entry point share the same frame rules. `Preprocessor.definition_dump` emits the source-ordered `holyc-definition-dump-v1` format. `Symbol_visibility.Environment.dump` emits `holyc-symbol-visibility-v1`.
