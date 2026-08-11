@@ -424,6 +424,19 @@ let unary_operator_kind token =
   | Token_kind.Operator Operator.Decrement -> Some Ast.Pre_decrement
   | _ -> None
 
+let postfix_operator_kind token =
+  match token.Token.kind with
+  | Token_kind.Operator Operator.Increment -> Some Ast.Post_increment
+  | Token_kind.Operator Operator.Decrement -> Some Ast.Post_decrement
+  | _ -> None
+
+let is_postfix_continuation token =
+  match token.Token.kind with
+  | Token_kind.Punctuation ('(' | '[' | '.')
+  | Token_kind.Operator
+      (Operator.Arrow | Operator.Increment | Operator.Decrement) -> true
+  | _ -> false
+
 let binary_operator token =
   match token.Token.kind with
   | Token_kind.Punctuation _ | Token_kind.Operator _ ->
@@ -777,6 +790,28 @@ and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
     in
     Some { node; tokens }
 
+and parse_postfix_update_suffix cursor ~context (operand : parsed_expression)
+    operator_kind : parsed_expression option =
+  let operator_item = take cursor in
+  let operator = make_expression_operator operator_item.token in
+  let tokens = operand.tokens @ [ operator_item.token ] in
+  let node =
+    Ast.Postfix_expression
+      (Ast.make_postfix_expression ~operand:operand.node ~operator_kind
+         ~operator
+         ~location:(location_from_expression_tokens tokens))
+  in
+  let following = peek cursor in
+  if is_postfix_continuation following.token then
+    expression_failure cursor following ~code:"HCPARSE0028"
+      ~message:
+        (Printf.sprintf
+           "postfix update %S must end the postfix chain in %s, but found %s"
+           operator_item.token.raw
+           (expression_context_name context)
+           (token_description following.token))
+  else Some { node; tokens }
+
 and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
@@ -805,36 +840,53 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
       | Some member ->
           parse_expression_tail cursor ~context ~depth ~minimum_binding_power
             member)
-  | _ -> (
-      match binary_operator item.token with
-      | Some operator_spec
-        when binary_binding_power operator_spec >= minimum_binding_power -> (
-          let operator_item = take cursor in
-          let binding_power = binary_binding_power operator_spec in
-          let right_minimum =
-            match operator_spec.association with
-            | Operator.Right -> binding_power
-            | Operator.Left | Operator.Unspecified -> binding_power + 1
-          in
+  | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> (
+      match postfix_operator_kind item.token with
+      | None -> assert false
+      | Some operator_kind -> (
           match
-            parse_expression cursor ~context ~depth:(depth + 1)
-              ~minimum_binding_power:right_minimum
+            parse_postfix_update_suffix cursor ~context left operator_kind
           with
           | None -> None
-          | Some (right : parsed_expression) ->
-              let node =
-                combine_binary_expression left.node operator_item operator_spec
-                  right.node
-              in
-              let left : parsed_expression =
-                {
-                  node;
-                  tokens = left.tokens @ (operator_item.token :: right.tokens);
-                }
-              in
-              parse_expression_tail cursor ~context ~depth
-                ~minimum_binding_power left)
-      | _ -> Some left)
+          | Some postfix ->
+              parse_expression_binary_tail cursor ~context ~depth
+                ~minimum_binding_power postfix))
+  | _ ->
+      parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
+        left
+
+and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
+    (left : parsed_expression) : parsed_expression option =
+  let item = peek cursor in
+  match binary_operator item.token with
+  | Some operator_spec
+    when binary_binding_power operator_spec >= minimum_binding_power -> (
+      let operator_item = take cursor in
+      let binding_power = binary_binding_power operator_spec in
+      let right_minimum =
+        match operator_spec.association with
+        | Operator.Right -> binding_power
+        | Operator.Left | Operator.Unspecified -> binding_power + 1
+      in
+      match
+        parse_expression cursor ~context ~depth:(depth + 1)
+          ~minimum_binding_power:right_minimum
+      with
+      | None -> None
+      | Some (right : parsed_expression) ->
+          let node =
+            combine_binary_expression left.node operator_item operator_spec
+              right.node
+          in
+          let left : parsed_expression =
+            {
+              node;
+              tokens = left.tokens @ (operator_item.token :: right.tokens);
+            }
+          in
+          parse_expression_binary_tail cursor ~context ~depth
+            ~minimum_binding_power left)
+  | _ -> Some left
 
 let parse_parameter_default cursor =
   let equals = take cursor in
@@ -852,11 +904,6 @@ let parse_parameter_default cursor =
           ~location:(location_from_expression_tokens tokens)
       in
       Some ({ node; tokens } : parsed_parameter_default)
-
-let is_unimplemented_expression_continuation token =
-  match token.Token.kind with
-  | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> true
-  | _ -> false
 
 let declaration_binding_kind token =
   match token.Token.kind with
@@ -878,25 +925,14 @@ let parse_binding cursor =
       match parsed_expression with
       | None -> Bad_binding
       | Some expression ->
-          let following = peek cursor in
-          if is_unimplemented_expression_continuation following.token then (
-            ignore
-              (expression_failure cursor following ~code:"HCPARSE0020"
-                 ~message:
-                   (Printf.sprintf
-                      "_intern target expression continuation %s is not \
-                       implemented"
-                      (token_description following.token)));
-            Bad_binding)
-          else
-            let node =
-              Ast.make_declaration_binding ~kind:Ast.Intern
-                ~spelling:keyword.token.raw
-                ~location:(token_location keyword.token)
-                ~target:(Ast.Expression_binding_target expression.node)
-            in
-            Parsed_binding
-              { node; keyword; tokens = keyword.token :: expression.tokens })
+          let node =
+            Ast.make_declaration_binding ~kind:Ast.Intern
+              ~spelling:keyword.token.raw
+              ~location:(token_location keyword.token)
+              ~target:(Ast.Expression_binding_target expression.node)
+          in
+          Parsed_binding
+            { node; keyword; tokens = keyword.token :: expression.tokens })
   | _ -> (
       match declaration_binding_kind item.token with
       | None -> No_binding
@@ -961,13 +997,7 @@ let parse_array_dimension cursor ~index =
     | None -> None
     | Some (expression : parsed_expression) ->
         let closing = peek cursor in
-        if is_unimplemented_expression_continuation closing.token then
-          expression_failure cursor closing ~code:"HCPARSE0020"
-            ~message:
-              (Printf.sprintf
-                 "array dimension expression continuation %s is not implemented"
-                 (token_description closing.token))
-        else if closing.token.kind <> Token_kind.Punctuation ']' then
+        if closing.token.kind <> Token_kind.Punctuation ']' then
           expression_failure cursor closing ~code:"HCPARSE0023"
             ~message:
               (Printf.sprintf
@@ -1070,14 +1100,6 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
               ~message:
                 "register qualifier must appear before function parameter \
                  pointer stars or its name"
-        | Token_kind.Punctuation '['
-        | Token_kind.Operator (Operator.Increment | Operator.Decrement)
-          when Option.is_some parsed_default ->
-            declaration_failure cursor following_item ~code:"HCPARSE0020"
-              ~message:
-                (Printf.sprintf
-                   "default expression continuation %s is not implemented"
-                   (token_description following_item.token))
         | _ ->
             declaration_failure cursor following_item ~code:"HCPARSE0010"
               ~message:

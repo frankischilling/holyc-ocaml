@@ -68,6 +68,7 @@ type unary_operator_kind =
   | Pre_increment
   | Pre_decrement
 
+type postfix_operator_kind = Post_increment | Post_decrement
 type member_access_kind = Direct_member | Pointer_member
 
 type expression =
@@ -79,6 +80,7 @@ type expression =
   | Current_position_expression of expression_operator
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
+  | Postfix_expression of postfix_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
@@ -107,6 +109,13 @@ and prefix_expression = {
   prefix_operator : expression_operator;
   prefix_operand : expression;
   prefix_location : location;
+}
+
+and postfix_expression = {
+  postfix_operand : expression;
+  postfix_operator_kind : postfix_operator_kind;
+  postfix_operator : expression_operator;
+  postfix_location : location;
 }
 
 and binary_expression = {
@@ -335,6 +344,14 @@ let make_prefix_expression ~operator_kind ~operator ~operand ~location =
     prefix_location = location;
   }
 
+let make_postfix_expression ~operand ~operator_kind ~operator ~location =
+  {
+    postfix_operand = operand;
+    postfix_operator_kind = operator_kind;
+    postfix_operator = operator;
+    postfix_location = location;
+  }
+
 let make_binary_expression ~left ~operator ~operator_spec ~right ~location =
   {
     binary_left = left;
@@ -389,6 +406,7 @@ let expression_location = function
   | Current_position_expression operator -> operator.operator_location
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
+  | Postfix_expression expression -> expression.postfix_location
   | Binary_expression expression -> expression.binary_location
   | Call_expression expression -> expression.call_location
   | Index_expression expression -> expression.index_location

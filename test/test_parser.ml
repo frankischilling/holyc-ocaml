@@ -141,6 +141,10 @@ let expect_prefix_expression = function
   | Ast.Prefix_expression prefix -> prefix
   | _ -> Alcotest.fail "expected a prefix expression"
 
+let expect_postfix_expression = function
+  | Ast.Postfix_expression postfix -> postfix
+  | _ -> Alcotest.fail "expected a postfix expression"
+
 let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
@@ -156,6 +160,10 @@ let expect_member_expression = function
 let member_access_kind_name = function
   | Ast.Direct_member -> "direct"
   | Ast.Pointer_member -> "pointer"
+
+let postfix_operator_kind_name = function
+  | Ast.Post_increment -> "post_increment"
+  | Ast.Post_decrement -> "post_decrement"
 
 let expect_provided_call_argument (argument : Ast.call_argument) =
   match argument.call_argument_value with
@@ -1797,16 +1805,16 @@ let intern_binding_failures () =
         None,
         "HCPARSE0001",
         "after declaration binding \"_intern\"" );
-      ( "unsupported increment after a call target",
-        "_intern Resolve()++ I64 Called();",
+      ( "call cannot follow a postfix increment",
+        "_intern Resolve()++() I64 Called();",
         Some "Called",
-        "HCPARSE0020",
-        "target expression continuation" );
-      ( "unsupported increment target",
-        "_intern Table++ I64 Indexed();",
+        "HCPARSE0028",
+        "must end the postfix chain" );
+      ( "index cannot follow a postfix increment",
+        "_intern Table++[0] I64 Indexed();",
         Some "Indexed",
-        "HCPARSE0020",
-        "target expression continuation" );
+        "HCPARSE0028",
+        "must end the postfix chain" );
       ( "binding cannot repeat",
         "_intern IC_BSF extern I64 Duplicate();",
         Some "Duplicate",
@@ -2142,11 +2150,11 @@ let call_expression_failures () =
         Some "MissingOperand",
         "HCPARSE0018",
         "call argument expression operand" );
-      ( "unsupported increment continuation after a call",
-        "_intern F()++ I64 Indexed();",
+      ( "call cannot continue after a postfix increment",
+        "_intern F()++() I64 Indexed();",
         Some "Indexed",
-        "HCPARSE0020",
-        "target expression continuation" );
+        "HCPARSE0028",
+        "must end the postfix chain" );
     ];
   let nesting = Parser.max_expression_depth in
   let nested_source =
@@ -2450,11 +2458,11 @@ let index_expression_failures () =
         Some "MissingOperand",
         "HCPARSE0018",
         "index expression operand" );
-      ( "unsupported increment after an index",
-        "_intern Table[0]++ I64 Member();",
+      ( "index cannot continue after a postfix increment",
+        "_intern Table[0]++[1] I64 Member();",
         Some "Member",
-        "HCPARSE0020",
-        "target expression continuation" );
+        "HCPARSE0028",
+        "must end the postfix chain" );
     ];
   let nesting = Parser.max_expression_depth in
   let nested_source =
@@ -2787,11 +2795,11 @@ let member_expression_failures () =
         Some "Nested",
         "HCPARSE0027",
         "in index expression" );
-      ( "unsupported increment after a member",
-        "_intern object.value++ I64 Incremented();",
+      ( "member cannot continue after a postfix increment",
+        "_intern object.value++->next I64 Incremented();",
         Some "Incremented",
-        "HCPARSE0020",
-        "target expression continuation" );
+        "HCPARSE0028",
+        "must end the postfix chain" );
     ]
 
 let deterministic_member_dumps () =
@@ -2831,6 +2839,286 @@ let deterministic_member_dumps () =
     "JSON direct member before index" "direct"
     (callback_json |> member "base" |> member "base" |> member "access_kind"
    |> to_string)
+
+let postfix_update_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("postincrement modifier branch", "case TK_PLUS_PLUS:");
+      ("postincrement flag", "cc->flags|=CCF_POSTINC;");
+      ("postdecrement flag", "cc->flags|=CCF_POSTDEC;");
+      ("postfix precedence assignment", "*unary_post_prec=PREC_UNARY_POST;");
+      ("postincrement IC selection", "i=IC__PP+PREC_UNARY_POST<<16;");
+      ("postdecrement IC selection", "i=IC__MM+PREC_UNARY_POST<<16;");
+      ("postfix modifier ends the chain", "return PE_DEREFERENCE;");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains compiler_header fragment))
+    [
+      ("postincrement IC identity", "#define IC__PP");
+      ("postdecrement IC identity", "#define IC__MM");
+      ("postfix precedence identity", "#define PREC_UNARY_POST");
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_header fragment))
+    [
+      ("increment token identity", "#define TK_PLUS_PLUS");
+      ("decrement token identity", "#define TK_MINUS_MINUS");
+      ("postincrement flag identity", "#define CCF_POSTINC");
+      ("postdecrement flag identity", "#define CCF_POSTDEC");
+    ];
+  let lexer_tables = pinned "Compiler/CInit.HC" in
+  Alcotest.(check bool)
+    "increment token mapping" true
+    (contains lexer_tables "d['+']=TK_PLUS_PLUS<<16+'+';");
+  Alcotest.(check bool)
+    "decrement token mapping" true
+    (contains lexer_tables "d['-']=TK_MINUS_MINUS<<16+'-';");
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Compiler/AsmInit.HC", "tmpins->opcode[tmpins->opcode_cnt++]");
+      ("Kernel/Compress.HC", "if (*src++&0x80)");
+      ("Adam/ADbg.HC", "doc_e->data=ptr(I8 *)++;");
+      ("Demo/DbgDemo.HC", "if (!(i++%2000000))");
+    ]
+
+let postfix_update_shapes_and_precedence () =
+  let postfix_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_postfix_expression
+  in
+  let increment = postfix_from "_intern counter++ I64 Incremented();" in
+  Alcotest.(check string)
+    "postincrement kind" "post_increment"
+    (postfix_operator_kind_name increment.postfix_operator_kind);
+  Alcotest.(check string)
+    "postincrement spelling" "++" increment.postfix_operator.operator_spelling;
+  (match increment.postfix_operand with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string)
+        "postincrement operand" "counter" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier postincrement operand");
+  let decrement = postfix_from "_intern counter-- I64 Decremented();" in
+  Alcotest.(check string)
+    "postdecrement kind" "post_decrement"
+    (postfix_operator_kind_name decrement.postfix_operator_kind);
+  Alcotest.(check string)
+    "postdecrement spelling" "--" decrement.postfix_operator.operator_spelling;
+  let member =
+    postfix_from "_intern Factory().nodes[index].count++ I64 MemberUpdated();"
+  in
+  ignore (expect_member_expression member.postfix_operand);
+  let _, _, dereference_output = parse_string "_intern *ptr++ I64 Value();" in
+  let dereference =
+    expect_ast dereference_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_prefix_expression
+  in
+  Alcotest.(check bool)
+    "dereference remains the prefix root" true
+    (dereference.prefix_operator_kind = Ast.Dereference);
+  ignore (expect_postfix_expression dereference.prefix_operand);
+  let _, _, left_output =
+    parse_string "_intern counter++ + 1 I64 LeftUpdated();"
+  in
+  let left_binary =
+    expect_ast left_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_binary_expression
+  in
+  Alcotest.(check string)
+    "binary operator follows postincrement" "+"
+    left_binary.binary_operator.operator_spelling;
+  ignore (expect_postfix_expression left_binary.binary_left);
+  let _, _, right_output =
+    parse_string "_intern 1 + counter-- I64 RightUpdated();"
+  in
+  let right_binary =
+    expect_ast right_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_binary_expression
+  in
+  ignore (expect_postfix_expression right_binary.binary_right)
+
+let postfix_update_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=counter++);"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_postfix_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[count--];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_postfix_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(counter++) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_postfix_expression );
+  let _, _, index_output =
+    parse_string "_intern table[index--] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_postfix_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode "_intern counter++ I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_postfix_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let postfix_update_provenance () =
+  let session, root, output =
+    parse_string "#define UPDATE counter++\n_intern UPDATE I64 Generated();"
+  in
+  let postfix =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_postfix_expression
+  in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("operand", Ast.expression_location postfix.postfix_operand);
+      ("operator", postfix.postfix_operator.operator_location);
+      ("postfix expression", postfix.postfix_location);
+    ];
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated postfix operator provenance" true
+    (target_json |> member "operator" |> member "location"
+   |> member "generated_from" <> `Null)
+
+let postfix_update_failures () =
+  List.iter
+    (fun (description, source, rejected_name, suffix) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (description ^ " code") "HCPARSE0028" diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message "must end the postfix chain");
+      Alcotest.(check bool)
+        (description ^ " identifies the following suffix")
+        true
+        (contains diagnostic.message suffix);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) rejected_name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected postfix declaration %s became visible"
+            rejected_name)
+    [
+      ( "call after postincrement",
+        "_intern counter++() I64 Called();",
+        "Called",
+        "\"(\"" );
+      ( "index after postdecrement",
+        "_intern counter--[0] I64 Indexed();",
+        "Indexed",
+        "\"[\"" );
+      ( "pointer member after postincrement",
+        "_intern counter++->field I64 PointerMember();",
+        "PointerMember",
+        "\"->\"" );
+      ( "direct member after postdecrement",
+        "_intern counter--.field I64 DirectMember();",
+        "DirectMember",
+        "\".\"" );
+      ( "second postincrement",
+        "_intern counter++++ I64 Twice();",
+        "Twice",
+        "\"++\"" );
+      ( "postdecrement after postincrement",
+        "_intern counter++-- I64 Mixed();",
+        "Mixed",
+        "\"--\"" );
+    ]
+
+let deterministic_postfix_update_dumps () =
+  let session, _, output =
+    parse_string
+      "_intern Factory().items[index].count++ + cursor-- I64 Updated();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human postfix dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON postfix dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names postincrement" true
+    (contains human "expression kind=postfix operator_kind=post_increment");
+  let open Yojson.Safe.Util in
+  let binary_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check string)
+    "JSON root remains binary" "binary"
+    (binary_json |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON left postfix kind" "post_increment"
+    (binary_json |> member "left" |> member "operator_kind" |> to_string);
+  Alcotest.(check string)
+    "JSON right postfix kind" "post_decrement"
+    (binary_json |> member "right" |> member "operator_kind" |> to_string)
 
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -4008,16 +4296,16 @@ let array_dimension_failures () =
         "MissingBracket",
         "HCPARSE0023",
         "expected ']'" );
-      ( "unsupported increment",
-        "I64 Indexed[count++];",
+      ( "call after a postfix increment",
+        "I64 Indexed[count++()];",
         "Indexed",
-        "HCPARSE0020",
-        "continuation" );
-      ( "unsupported increment after a call",
-        "I64 Called[Count()++];",
+        "HCPARSE0028",
+        "postfix chain" );
+      ( "call after a postfix incremented call",
+        "I64 Called[Count()++()];",
         "Called",
-        "HCPARSE0020",
-        "continuation" );
+        "HCPARSE0028",
+        "postfix chain" );
       ( "unsupported atom",
         "I64 LastClass[lastclass];",
         "LastClass",
@@ -4112,16 +4400,16 @@ let default_expression_failures () =
         "Unmatched",
         "HCPARSE0019",
         "close default expression" );
-      ( "unsupported increment after a call",
-        "extern U0 Called(I64 value=Factory()++);",
+      ( "call after a postfix incremented call",
+        "extern U0 Called(I64 value=Factory()++());",
         "Called",
-        "HCPARSE0020",
-        "continuation" );
-      ( "unsupported postfix increment",
-        "extern U0 Postfix(I64 value=counter++);",
+        "HCPARSE0028",
+        "postfix chain" );
+      ( "index after a postfix increment",
+        "extern U0 Postfix(I64 value=counter++[0]);",
         "Postfix",
-        "HCPARSE0020",
-        "continuation" );
+        "HCPARSE0028",
+        "postfix chain" );
       ( "unsupported lastclass",
         "extern U0 LastClass(I64 value=lastclass);",
         "LastClass",
@@ -4560,6 +4848,17 @@ let tests =
       member_expression_failures;
     Alcotest.test_case "deterministic member dumps" `Quick
       deterministic_member_dumps;
+    Alcotest.test_case "pinned postfix update behavior" `Quick
+      postfix_update_source_behavior;
+    Alcotest.test_case "postfix update shapes and precedence" `Quick
+      postfix_update_shapes_and_precedence;
+    Alcotest.test_case "postfix update contexts and modes" `Quick
+      postfix_update_contexts_and_modes;
+    Alcotest.test_case "postfix update provenance" `Quick
+      postfix_update_provenance;
+    Alcotest.test_case "postfix update failures" `Quick postfix_update_failures;
+    Alcotest.test_case "deterministic postfix update dumps" `Quick
+      deterministic_postfix_update_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

@@ -1,0 +1,707 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-postfix-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 48
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "binary",
+            "left": {
+              "kind": "prefix",
+              "operator_kind": "dereference",
+              "operator": {
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 9
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 9
+                    }
+                  ]
+                }
+              },
+              "operand": {
+                "kind": "postfix",
+                "operator_kind": "post_increment",
+                "operand": {
+                  "kind": "identifier",
+                  "spelling": "ptr",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 9,
+                      "stop": 12
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-expression.hc",
+                        "line": 1,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 9,
+                        "stop": 12
+                      }
+                    ]
+                  }
+                },
+                "operator": {
+                  "spelling": "++",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 14
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-expression.hc",
+                        "line": 1,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 12,
+                        "stop": 14
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 9,
+                    "stop": 14
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 9,
+                      "stop": 12
+                    },
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 14
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 14
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 9
+                  },
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 9,
+                    "stop": 12
+                  },
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 12,
+                    "stop": 14
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "postfix",
+              "operator_kind": "post_decrement",
+              "operand": {
+                "kind": "member",
+                "access_kind": "pointer",
+                "base": {
+                  "kind": "identifier",
+                  "spelling": "object",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 23
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-expression.hc",
+                        "line": 1,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 17,
+                        "stop": 23
+                      }
+                    ]
+                  }
+                },
+                "operator": {
+                  "spelling": "->",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 25
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 25
+                      }
+                    ]
+                  }
+                },
+                "member": {
+                  "spelling": "field",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 30
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-expression.hc",
+                        "line": 1,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 30
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 30
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 23
+                    },
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 25
+                    },
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 30
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "--",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 32
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-expression.hc",
+                      "line": 1,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 32
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 32
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 30
+                  },
+                  {
+                    "path": "cli/parse-postfix-expression.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 32
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-postfix-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 32
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 9
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 9,
+                  "stop": 12
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 12,
+                  "stop": 14
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-postfix-expression.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 32
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 34,
+              "source_id": 0,
+              "start": 33,
+              "stop": 36
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-expression.hc",
+                "line": 1,
+                "column": 34,
+                "source_id": 0,
+                "start": 33,
+                "stop": 36
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Updated",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 38,
+              "source_id": 0,
+              "start": 37,
+              "stop": 44
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-expression.hc",
+                "line": 1,
+                "column": 38,
+                "source_id": 0,
+                "start": 37,
+                "stop": 44
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-postfix-expression.hc",
+            "line": 1,
+            "column": 45,
+            "source_id": 0,
+            "start": 44,
+            "stop": 45
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-postfix-expression.hc",
+            "line": 1,
+            "column": 46,
+            "source_id": 0,
+            "start": 45,
+            "stop": 46
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-postfix-expression.hc",
+            "line": 1,
+            "column": 47,
+            "source_id": 0,
+            "start": 46,
+            "stop": 47
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 47,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-postfix-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 47
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 13,
+              "source_id": 0,
+              "start": 12,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 32
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 34,
+              "source_id": 0,
+              "start": 33,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 38,
+              "source_id": 0,
+              "start": 37,
+              "stop": 44
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-postfix-expression.hc",
+              "line": 1,
+              "column": 47,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

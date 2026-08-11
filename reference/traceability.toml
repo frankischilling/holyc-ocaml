@@ -1297,6 +1297,54 @@ address_value_dereference_and_lvalue_status = "planned"
 lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-POSTFIX-UPDATE-EXPRESSIONS"
+description = "Postfix increment and decrement retain their complete operand and end the postfix modifier chain before binary parsing resumes."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 PE_DEREFERENCE branch",
+  "Compiler/PrsExp.HC:PrsUnaryModifier TK_PLUS_PLUS and TK_MINUS_MINUS branches",
+  "Compiler/CompilerA.HH:IC__PP, IC__MM, and PREC_UNARY_POST",
+  "Compiler/CInit.HC:CmpFillTables compound token construction",
+  "Kernel/KernelA.HH:TK_PLUS_PLUS, TK_MINUS_MINUS, CCF_POSTINC, and CCF_POSTDEC",
+  "Compiler/AsmInit.HC:109-112",
+  "Kernel/Compress.HC:18-213",
+  "Adam/ADbg.HC:62-128",
+  "Demo/DbgDemo.HC:21"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-postfix-expression.hc",
+  "test/cli/parse-postfix-expression.human",
+  "test/cli/parse-postfix-expression.json",
+  "test/cli/parse-postfix-error.hc",
+  "test/cli/parse-postfix-error.human",
+  "test/cli/parse-postfix-error.json",
+  "test/cli/parse-intern-error.hc",
+  "test/cli/parse-intern-error.human",
+  "test/cli/parse-intern-error.json"
+]
+status = "implemented"
+issue = 81
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["postfix increment", "postfix decrement"]
+operator_kinds = ["post_increment", "post_decrement"]
+postfix_precedence = "binds before every audited binary operator"
+chain_behavior = "call, index, and member suffixes may precede one terminal update"
+prefix_interaction = "postfix update binds within an audited prefix operand such as *ptr++"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+continued_postfix_diagnostic = "HCPARSE0028"
+modifiable_lvalue_validation = "planned"
+operand_type_checking = "planned"
+mutation_and_old_value_semantics = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
