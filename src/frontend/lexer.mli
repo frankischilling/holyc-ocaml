@@ -1,8 +1,23 @@
 type t
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
+type definition_terminator = End_of_line | End_of_file | Nul
 
-val create : ?mode:Token.mode -> Common.Source_file.t -> t
+type definition_replacement = {
+  replacement : string;
+  replacement_span : Common.Span.t;
+  segments : Definition.segment list;
+  terminator : definition_terminator;
+}
+
+val create :
+  ?mode:Token.mode ->
+  ?generated_from:Common.Span.t ->
+  ?defined_at:Common.Span.t ->
+  Common.Source_file.t ->
+  t
+
 val offset : t -> int
+val capture_definition_replacement : t -> definition_replacement
 val next : t -> item
 
 val lex_all :

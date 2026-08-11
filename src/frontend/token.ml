@@ -10,6 +10,7 @@ type value =
 type origin = {
   frame : Common.Source_id.t;
   generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
 }
 
 type t = {
@@ -118,6 +119,10 @@ let to_yojson sources token =
             ("frame", `Int (Common.Source_id.to_int token.origin.frame));
             ( "generated_from",
               match token.origin.generated_from with
+              | None -> `Null
+              | Some span -> span_json sources span );
+            ( "defined_at",
+              match token.origin.defined_at with
               | None -> `Null
               | Some span -> span_json sources span );
           ] );

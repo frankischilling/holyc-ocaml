@@ -2,6 +2,7 @@ type t
 
 val create : unit -> t
 val sources : t -> Common.Source_manager.t
+val definitions : t -> Frontend.Definition.Environment.t
 val add_source : t -> path:string -> contents:string -> Common.Source_file.t
 
 val load_source :

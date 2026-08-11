@@ -19,6 +19,7 @@ module Token_kind = Frontend.Token_kind
 module Token = Frontend.Token
 module Lexer = Frontend.Lexer
 module Include_resolver = Frontend.Include_resolver
+module Definition = Frontend.Definition
 module Lexer_frame = Frontend.Lexer_frame
 module Preprocessor = Frontend.Preprocessor
 
