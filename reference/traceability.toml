@@ -743,6 +743,44 @@ storage_status = "planned"
 local_static_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-ORDINARY-BINDINGS"
+description = "Primitive global declarations preserve one ordinary extern or import binding, and import is accepted only in AOT mode."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW_EXTERN, KW_IMPORT, PRS0_EXTERN, and PRS0_IMPORT",
+  "Compiler/CompilerB.HH:13",
+  "Kernel/KernelC.HH:10",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-bindings.hc",
+  "test/cli/parse-bindings.human",
+  "test/cli/parse-bindings.json",
+  "test/cli/parse-import-jit.hc",
+  "test/cli/parse-import-jit.human",
+  "test/cli/parse-import-jit.json"
+]
+status = "implemented"
+issue = 57
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["extern", "import"]
+import_mode = "aot-only"
+jit_import_diagnostic = "HCPARSE0006"
+rejected_name_publication = "disabled"
+linkage_resolution_status = "planned"
+underscored_binding_status = "planned"
+extern_to_import_option_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
