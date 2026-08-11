@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest currently verifies 47 pinned Git blobs.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest currently verifies 48 pinned Git blobs.
 
 ## Include-frame audit
 
@@ -40,6 +40,12 @@ No source table is copied or generated for this behavior. `reference/traceabilit
 The definition implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Compiler/CHash.HC`, `Kernel/KDefine.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`. The audit also follows `CHashDefineStr`, `LFSF_DEFINE`, `CCF_NO_DEFINES`, and task hash ownership in `Kernel/KernelA.HH`; insertion and lookup in `Kernel/KHashA.HC`; source metadata in `Kernel/KHashB.HC`; and character bitmaps in `Kernel/StrA.HC`. The manifest records each of those source blobs.
 
 No replacement table is copied into the project. `Frontend.Definition` and `Frontend.Preprocessor` implement the observed raw-text capture and frame injection. Definition recursion, nesting, and generated-byte diagnostics are hosted safety additions and are identified as such in the traceability entry and preprocessor notes.
+
+## Predefined-value audit
+
+The six standard definitions come from `Kernel/KernelA.HH` and are repeated in `Doc/Directives.DD`. Their bodies use `StreamPrint` or `StreamDir`; `Compiler/CMisc.HC:StreamDir` derives the directory from the active source name. `Kernel/StrPrint.HC:MPrintDate` and `MPrintTime` establish the exact `MM/DD/YY` and `HH:MM:SS` output. The root and include depth rule for `__CMD_LINE__` comes from `Compiler/Lex.HC:LexFilePush` and the standard definition itself. The manifest includes the Git blobs used by these claims.
+
+`Frontend.Predefined` records the six spellings, recognizes the pinned standard bodies, validates explicit deterministic date and time settings, and renders replacement text. `Frontend.Preprocessor` pushes that text through an ordinary bounded lexical frame. This is not a general `#exe` implementation. File and directory values use canonical hosted paths and are documented as a hosted representation of the TempleOS `full_name` and `DirFile` behavior.
 
 ## Mode-conditional audit
 

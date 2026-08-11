@@ -505,6 +505,37 @@ hosted_path_behavior = "confined lexical resolution without opening the target h
 semantic_hash_consumer = "planned"
 
 [[feature]]
+id = "HC-PREPROCESSOR-PREDEFINED-VALUES"
+description = "The six standard compiler values expand through bounded lexical frames with explicit deterministic date, time, command-line, source-line, file, and directory inputs."
+sources = [
+  "Kernel/KernelA.HH:__DATE__ through __DIR__",
+  "Compiler/Lex.HC:LexFilePush",
+  "Compiler/CMisc.HC:StreamDir",
+  "Kernel/StrPrint.HC:MPrintDate",
+  "Kernel/StrPrint.HC:MPrintTime",
+  "Doc/Directives.DD"
+]
+implementation = [
+  "src/frontend/predefined.ml",
+  "src/frontend/lexer_frame.ml",
+  "src/frontend/preprocessor.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_predefined.ml",
+  "test/cli/predefined-values.hc",
+  "test/cli/predefined-values.human",
+  "test/cli/predefined-values.json"
+]
+status = "implemented"
+issue = 40
+default_date = "01/01/70"
+default_time = "00:00:00"
+hosted_path_behavior = "canonical host paths rather than TempleOS drive paths"
+general_exe_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

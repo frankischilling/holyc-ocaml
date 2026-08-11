@@ -8,7 +8,9 @@ The compiler treats input as untrusted. Relevant risks include include path trav
 
 ## Compile-time execution
 
-HolyC `#exe` is arbitrary compile-time code. The current build never executes it. Planned hosted support will deny network access, process creation, unrestricted file access, and unbounded execution by default. A deterministic instruction and memory budget will apply even when source generation is nested.
+HolyC `#exe` is arbitrary compile-time code. The current build never executes user-supplied `#exe` blocks. The six standard predefined values use a dedicated expander for their audited pinned definitions; this path cannot access the network, launch a process, or read another file. Their generated token text shares the configured nesting and byte limits with ordinary definition expansion.
+
+Planned general hosted support will deny network access, process creation, unrestricted file access, and unbounded execution by default. A deterministic instruction and memory budget will apply even when source generation is nested.
 
 Native compile-time execution will not be the default. Any future unsafe mode must be named clearly in command output and compatibility reports.
 

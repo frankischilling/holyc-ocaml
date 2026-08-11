@@ -14,3 +14,4 @@
 - Added constant `#assert` evaluation with nonfatal `HCPP0024` warnings, retained token output, a diagnostic-preserving library result, and human and JSON CLI golden tests.
 - Added source-ordered `#help_index` and `#help_file` metadata with explicit continuation handling, hosted path confinement without target reads, include and definition provenance, versioned dumps, and complete coverage of the pinned `KernelC.HH` directives.
 - Added a checked parser and deterministic generated table for all 106 registers, 325 canonical opcodes, 49 aliases, and 924 instruction forms in the pinned `OpCodes.DD`, then exposed every register and opcode spelling to symbol conditionals.
+- Added deterministic, provenance-carrying expansions for `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__`, with explicit CLI overrides and shared generated-text limits.

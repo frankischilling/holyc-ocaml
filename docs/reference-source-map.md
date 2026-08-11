@@ -8,7 +8,7 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 ## Lexer state
 
-`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the lexical frame stack, while `LexGetChar` owns one-byte pushback and line tracking. Root depth is -1 and the first pushed frame has depth 0. `LexBackupLastChar` saves the caller cursor and one-character lookahead before a push; `LexGetChar` restores that state and continues without an intermediate EOF after a buffer ends. The OCaml source model stores the full byte buffer and precomputed line starts. Each `Lexer_frame` owns one lexer cursor, its source, caller, kind, and relevant include or definition provenance. Hosted include and definition depth are tracked separately.
+`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the lexical frame stack, while `LexGetChar` owns one-byte pushback and line tracking. Root depth is -1 and the first pushed frame has depth 0. `LexBackupLastChar` saves the caller cursor and one-character lookahead before a push; `LexGetChar` restores that state and continues without an intermediate EOF after a buffer ends. The OCaml source model stores the full byte buffer and precomputed line starts. Each `Lexer_frame` owns one lexer cursor, its source, caller, kind, and relevant include, definition, or predefined-value provenance. Hosted include and generated-text depth are tracked separately.
 
 `Kernel/StrA.HC` shows that the lexer is byte oriented. Identifier starts include ASCII letters, underscore, at sign, and bytes 128 through 255. Digits are accepted after the first byte. The hosted lexer preserves non-ASCII bytes rather than requiring UTF-8.
 
@@ -29,6 +29,14 @@ The `KW_DEFINE` branch in `Compiler/Lex.HC:Lex` sets `CCF_NO_DEFINES` before rea
 Identifier recognition in `Compiler/Lex.HC:Lex` checks `HTT_DEFINE_STR` before it returns a token. A match calls `LexIncludeStr` with a copy of the stored text and marks the pushed `CLexFile` with `LFSF_DEFINE`. `Compiler/CExcept.HC:ParenWarning` and `Compiler/PrsExp.HC` inspect that flag, so the OCaml frame model keeps definitions distinct from physical includes for later parser work.
 
 `Frontend.Definition` assigns source-ordered identities, retains replacement spans and byte-segment maps, and keeps both current lookup state and redefinition history. `Driver.Session` owns that environment because the native `CmpCtrlNew` points definition lookup at the task hash table. `Frontend.Preprocessor` creates a logical source for each expansion, adds invocation and declaration provenance to tokens and diagnostics, and resumes the caller at replacement EOF. Active-definition cycle checks and definition depth and byte budgets are hosted security rules; the pinned lexer has no equivalent guard.
+
+## Predefined compiler values
+
+`Kernel/KernelA.HH:2035-2043` defines `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__` as definition strings containing narrow `#exe` bodies. `Doc/Directives.DD` publishes the same six definitions. The line and file forms read the active lexical frame. The command-line form also requires `CCF_CMD_LINE` and a source depth below one. `Compiler/Lex.HC:LexFilePush` establishes root depth -1 and the first included depth 0.
+
+`Compiler/CMisc.HC:StreamDir` calls `DirFile` on the active `full_name` and injects a quoted string through `StreamPrint`. `Kernel/StrPrint.HC:MPrintDate` renders `%D` as `MM/DD/YY`, while `MPrintTime` renders `%T` as `HH:MM:SS`.
+
+`Frontend.Predefined` keeps those six spellings and recognizes their exact standard bodies by comparing raw token sequences. Whitespace may differ without allowing separate tokens to fuse. `Frontend.Preprocessor` expands each value into a bounded generated lexical frame with invocation provenance. An exact source definition retains its declaration span; a different source definition with the same name remains ordinary replacement text. Date and time come from explicit deterministic configuration. File and directory results use canonical hosted paths, so compatibility reports do not claim byte equality with TempleOS drive names. General `#exe` execution remains future compile-time VM work.
 
 ## Help directives and source links
 
