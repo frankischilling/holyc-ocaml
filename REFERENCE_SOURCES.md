@@ -27,7 +27,13 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include frames and path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+
+## Include-frame audit
+
+The current include implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`, plus the `CLexFile` and `CCmpCtrl` definitions in `Kernel/KernelA.HH` and `DirNameAbs`, `FileNameAbs`, and `ExtDft` in `Kernel/BlkDev/DskStrA.HC`. Their Git blob checksums are in the manifest.
+
+No source table is copied or generated for this behavior. `reference/traceability.toml` links the original functions to `include_resolver.ml`, `lexer_frame.ml`, `preprocessor.ml`, and the focused tests. The hosted filesystem restrictions are documented as project security policy rather than TempleOS behavior.
 
 ## Generated keyword data
 

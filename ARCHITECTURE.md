@@ -5,7 +5,7 @@ The compiler is split into explicit stages. Each stage consumes immutable inputs
 The current slice has six layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
-- `Frontend` owns token definitions, the audited keyword table, streaming lexical state, and stable token dumps.
+- `Frontend` owns token definitions, the audited keyword table, streaming lexical state, canonical include resolution, nested source frames, the current `#include` preprocessor slice, and stable token dumps. Each preprocessing stream owns its mutable cursors; source IDs and frame links remain session-local.
 - `Generated` contains deterministic source facts produced only after pinned checksum and table-shape validation.
 - `Sema` currently exposes primitive type identity, compiler-option metadata, and the audited function-flag model. Declaration resolution, conversions, call checking, and aggregate layout have not entered this layer yet.
 - `Ir` currently exposes the exhaustive intermediate-code identity and source metadata table. Instructions, control flow, verification, lowering, and execution have not entered this layer yet.
@@ -13,7 +13,7 @@ The current slice has six layers:
 
 `holyc_lib` exposes the supported high-level entry points. The command-line program calls the same library functions used by tests.
 
-Later stages will add preprocessing, parsing, semantic analysis, IR instructions and verification, interpretation, optimization, assembly, hosted code generation, and TempleOS module emission. A stage enters the supported list only after its verifier boundary and focused tests exist.
+Later frontend work will add definitions, conditional directives, compile-time execution, and generated source to the existing frame stream. Parsing, semantic analysis, IR instructions and verification, interpretation, optimization, assembly, hosted code generation, and TempleOS module emission follow after that. A stage enters the supported list only after its verifier boundary and focused tests exist.
 
 ## Source authority
 

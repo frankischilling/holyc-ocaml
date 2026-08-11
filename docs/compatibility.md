@@ -12,7 +12,7 @@ Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 | Function-flag specification | Implemented for inherited and function-only bits, parser staging masks, modifier transitions, `RET1`, cleanup selection, and pinned consumers; function parsing and ABI lowering are not implemented | Generated-table and semantic API tests |
 | Intermediate-code specification | Implemented for all 185 numeric identities, argument and result metadata, structural types, table flags, and source/display names; executable IR is not implemented | Generated-table and public API tests |
 | TempleOS BIN specification | Implemented for the 32-byte header, all 21 defined entries, five reserved codes, relocation formulas, record payloads, two loader passes, eight AOT adjustments, and source-marked limitations; parsing and emission are not implemented | Generated-table and public API tests; [format notes](templeos-bin-format.md) |
-| Integrated preprocessing | Not implemented | [Issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3) |
+| Integrated preprocessing | Partially implemented: quoted `#include`, deterministic working-directory and include-root search, TempleOS root mapping, nested source spans, caller resumption, include backtraces, cycle detection, and hosted depth, size, and root limits. Definitions, conditions, `#assert`, `#exe`, predefined values, and generated source remain unavailable. | [Include notes](preprocessor.md), [issue #21](https://github.com/frankischilling/holyc-ocaml/issues/21), and [epic #3](https://github.com/frankischilling/holyc-ocaml/issues/3) |
 | Parsing | Not implemented | M3 |
 | Full semantic analysis | Not implemented | M4 |
 | Executable IR and interpretation | Not implemented | M5 |

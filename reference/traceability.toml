@@ -252,9 +252,44 @@ tests = [
 status = "implemented"
 
 [[feature]]
+id = "HC-PREPROCESSOR-INCLUDE-FRAMES"
+description = "Quoted includes push a distinct lexical source frame, preserve per-file spans and include origins, and resume the caller without an intermediate EOF. Hosted resolution adds explicit root, cycle, depth, and source-size checks."
+sources = [
+  "Compiler/Lex.HC:LexFilePush",
+  "Compiler/Lex.HC:LexBackupLastChar",
+  "Compiler/Lex.HC:LexGetChar",
+  "Compiler/Lex.HC:LexIncludeStr",
+  "Compiler/Lex.HC:Lex KW_INCLUDE",
+  "Compiler/LexLib.HC:LexFilePop",
+  "Kernel/KernelA.HH:CLexFile",
+  "Kernel/KernelA.HH:CCmpCtrl",
+  "Kernel/BlkDev/DskStrA.HC:DirNameAbs",
+  "Kernel/BlkDev/DskStrA.HC:FileNameAbs",
+  "Kernel/BlkDev/DskStrA.HC:ExtDft",
+  "Doc/PreProcessor.DD",
+  "Doc/Lex.DD",
+  "Doc/Directives.DD"
+]
+implementation = [
+  "src/frontend/include_resolver.ml",
+  "src/frontend/lexer_frame.ml",
+  "src/frontend/preprocessor.ml",
+  "src/common/diagnostic.ml",
+  "src/common/diagnostic_render.ml",
+  "bin/holyc.ml"
+]
+tests = ["test/test_preprocessor.ml"]
+status = "implemented"
+issue = 21
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
-description = "Directives and generated input are part of the lexical stream."
-sources = ["Compiler/Lex.HC:Lex", "Kernel/KernelA.HH:__DATE__"]
+description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
+sources = [
+  "Compiler/Lex.HC:Lex",
+  "Compiler/Lex.HC:LexHashDefine",
+  "Kernel/KernelA.HH:__DATE__"
+]
 implementation = []
 tests = []
 status = "planned"
