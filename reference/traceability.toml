@@ -706,7 +706,7 @@ delimiter_provenance = "implemented"
 streaming_symbol_publication = "implemented"
 initializer_status = "planned"
 array_suffix_status = "planned"
-function_declarator_status = "planned"
+function_declarator_status = "bound primitive prototypes implemented in HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
 
 [[feature]]
 id = "HC-PARSER-DECLARATION-MODIFIERS"
@@ -779,6 +779,55 @@ rejected_name_publication = "disabled"
 linkage_resolution_status = "planned"
 underscored_binding_status = "implemented in HC-PARSER-ALTERNATE-BINDINGS"
 extern_to_import_option_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+description = "Bound declarations with primitive return and parameter types retain their complete prototype syntax and enter the streaming symbol environment as functions."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/CompilerA.HH:PRS1_FUN_ARG and PRS1B_FUN_ARG",
+  "Kernel/KernelA.HH:Ff_DOT_DOT_DOT and TK_ELLIPSIS",
+  "Compiler/CExts.HC:10-40",
+  "Kernel/KernelB.HH:44, 122-163, and 270-274",
+  "Kernel/KernelC.HH:104, 547, and 711",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-prototypes.hc",
+  "test/cli/parse-function-prototypes.human",
+  "test/cli/parse-function-prototypes.json",
+  "test/cli/parse-function-prototype-error.hc",
+  "test/cli/parse-function-prototype-error.human",
+  "test/cli/parse-function-prototype-error.json"
+]
+status = "implemented"
+issue = 61
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["extern", "_extern", "import", "_import"]
+import_mode = "aot-only"
+parameter_type_status = "primitive types with zero through four pointer layers"
+parameter_name_status = "optional"
+variadic_marker_status = "implemented"
+function_symbol_publication = "after the complete semicolon"
+default_argument_status = "planned"
+lastclass_default_status = "planned"
+register_parameter_status = "planned"
+function_pointer_parameter_status = "planned"
+array_parameter_status = "rejected to match PrsArrayDims"
+function_body_status = "planned"
+linkage_resolution_status = "planned"
+abi_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-ALTERNATE-BINDINGS"
