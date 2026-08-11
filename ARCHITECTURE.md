@@ -7,7 +7,7 @@ The current slice has five layers:
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
 - `Frontend` owns token definitions, the audited keyword table, streaming lexical state, and stable token dumps.
 - `Generated` contains deterministic source facts produced only after pinned checksum and table-shape validation.
-- `Sema` currently exposes primitive type identity and representation metadata. Declaration resolution, conversions, and aggregate layout have not entered this layer yet.
+- `Sema` currently exposes primitive type identity, compiler-option metadata, and the audited function-flag model. Declaration resolution, conversions, call checking, and aggregate layout have not entered this layer yet.
 - `Ir` currently exposes the exhaustive intermediate-code identity and source metadata table. Instructions, control flow, verification, lowering, and execution have not entered this layer yet.
 
 `holyc_lib` exposes the supported high-level entry points. The command-line program calls the same library functions used by tests.

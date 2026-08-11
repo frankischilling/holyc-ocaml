@@ -177,6 +177,35 @@ tests = [
 status = "implemented"
 
 [[feature]]
+id = "HC-FUNCTION-FLAG-SPECIFICATION"
+description = "Stored function bits, parser-staging masks, modifier transitions, RET1 derivation, and cleanup selection retain their pinned values and source behavior."
+sources = [
+  "Kernel/KernelA.HH:CHashFun",
+  "Kernel/KernelA.HH:Ff_INTERRUPT",
+  "Compiler/CompilerA.HH:FSF_PUBLIC",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Compiler/OptPass3.HC:OptPass3",
+  "Compiler/OptPass6.HC:OptPass6Lag",
+  "Compiler/OptPass789A.HC:OptPass789A",
+  "Kernel/FunSeg.HC:HashFunSegFind",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/generated/function_flags.ml",
+  "src/sema/function_flag.ml",
+  "tools/function_flag_source.ml",
+  "tools/function_flag_gen.ml"
+]
+tests = [
+  "test/test_function_flag_source.ml",
+  "test/test_function_flag.ml"
+]
+status = "implemented"
+
+[[feature]]
 id = "HC-DIAGNOSTIC-LEXER"
 description = "Lexical failures carry stable codes, source spans, and rendered source context."
 sources = ["Compiler/CExcept.HC:LexExcept", "Compiler/CExcept.HC:LexPutPos"]
