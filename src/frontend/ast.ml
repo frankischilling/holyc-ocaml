@@ -78,6 +78,7 @@ type expression =
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Binary_expression of binary_expression
+  | Call_expression of call_expression
 
 and expression_literal = {
   literal_spelling : string;
@@ -110,6 +111,24 @@ and binary_expression = {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+and call_argument_value =
+  | Omitted_call_argument
+  | Provided_call_argument of expression
+
+and call_argument = {
+  call_argument_value : call_argument_value;
+  following_comma : location option;
+  call_argument_location : location;
+}
+
+and call_expression = {
+  call_callee : expression;
+  call_opening_parenthesis : location;
+  call_arguments : call_argument list;
+  call_closing_parenthesis : location;
+  call_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -305,6 +324,23 @@ let make_binary_expression ~left ~operator ~operator_spec ~right ~location =
     binary_location = location;
   }
 
+let make_call_argument ~value ~following_comma ~location =
+  {
+    call_argument_value = value;
+    following_comma;
+    call_argument_location = location;
+  }
+
+let make_call_expression ~callee ~opening_parenthesis ~arguments
+    ~closing_parenthesis ~location =
+  {
+    call_callee = callee;
+    call_opening_parenthesis = opening_parenthesis;
+    call_arguments = arguments;
+    call_closing_parenthesis = closing_parenthesis;
+    call_location = location;
+  }
+
 let expression_location = function
   | Integer_literal literal
   | Float_literal literal
@@ -315,6 +351,7 @@ let expression_location = function
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
   | Binary_expression expression -> expression.binary_location
+  | Call_expression expression -> expression.call_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }

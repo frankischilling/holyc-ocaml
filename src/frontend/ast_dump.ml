@@ -210,6 +210,41 @@ let rec print_expression buffer sources ~indent expression =
       Printf.bprintf buffer "%sright\n" child_indent;
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         binary.binary_right
+  | Ast.Call_expression call ->
+      Printf.bprintf buffer "%sexpression kind=call arguments=%d span=%s\n"
+        indent
+        (List.length call.call_arguments)
+        (location_text sources call.call_location);
+      Printf.bprintf buffer "%scallee\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        call.call_callee;
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources call.call_opening_parenthesis);
+      List.iteri
+        (print_call_argument buffer sources ~indent:child_indent)
+        call.call_arguments;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources call.call_closing_parenthesis)
+
+and print_call_argument buffer sources ~indent index
+    (argument : Ast.call_argument) =
+  let kind =
+    match argument.call_argument_value with
+    | Ast.Omitted_call_argument -> "omitted"
+    | Ast.Provided_call_argument _ -> "provided"
+  in
+  Printf.bprintf buffer "%sargument index=%d kind=%s span=%s\n" indent index
+    kind
+    (location_text sources argument.call_argument_location);
+  (match argument.call_argument_value with
+  | Ast.Omitted_call_argument -> ()
+  | Ast.Provided_call_argument expression ->
+      print_expression buffer sources ~indent:(indent ^ "  ") expression);
+  Option.iter
+    (fun comma ->
+      Printf.bprintf buffer "%s  comma span=%s\n" indent
+        (location_text sources comma))
+    argument.following_comma
 
 and print_literal buffer sources ~indent ~kind
     (literal : Ast.expression_literal) =
@@ -617,6 +652,42 @@ let rec expression_to_yojson sources = function
           ("right", expression_to_yojson sources binary.binary_right);
           ("location", location_to_yojson sources binary.binary_location);
         ]
+  | Ast.Call_expression call ->
+      `Assoc
+        [
+          ("kind", `String "call");
+          ("callee", expression_to_yojson sources call.call_callee);
+          ( "opening_parenthesis",
+            location_to_yojson sources call.call_opening_parenthesis );
+          ( "arguments",
+            `List
+              (List.map (call_argument_to_yojson sources) call.call_arguments)
+          );
+          ( "closing_parenthesis",
+            location_to_yojson sources call.call_closing_parenthesis );
+          ("location", location_to_yojson sources call.call_location);
+        ]
+
+and call_argument_to_yojson sources (argument : Ast.call_argument) =
+  `Assoc
+    ([
+       ( "kind",
+         `String
+           (match argument.call_argument_value with
+           | Ast.Omitted_call_argument -> "omitted"
+           | Ast.Provided_call_argument _ -> "provided") );
+     ]
+    @ (match argument.call_argument_value with
+      | Ast.Omitted_call_argument -> []
+      | Ast.Provided_call_argument expression ->
+          [ ("expression", expression_to_yojson sources expression) ])
+    @ [
+        ( "comma",
+          match argument.following_comma with
+          | None -> `Null
+          | Some comma -> location_to_yojson sources comma );
+        ("location", location_to_yojson sources argument.call_argument_location);
+      ])
 
 let binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc

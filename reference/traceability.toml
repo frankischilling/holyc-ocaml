@@ -1164,6 +1164,53 @@ internal_flag_status = "planned"
 linkage_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-PARENTHESIZED-CALL-EXPRESSIONS"
+description = "Parenthesized calls retain ordered provided and omitted argument slots without treating a hole as an explicit zero."
+sources = [
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Compiler/PrsExp.HC:PrsUnaryTerm direct and indirect call branches",
+  "Doc/HolyC.DD:default arguments and calls",
+  "Compiler/AsmInit.HC:71",
+  "Compiler/CMain.HC:10 and 95",
+  "Compiler/CMisc.HC:152"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-call-expression.hc",
+  "test/cli/parse-call-expression.human",
+  "test/cli/parse-call-expression.json",
+  "test/cli/parse-call-error.hc",
+  "test/cli/parse-call-error.human",
+  "test/cli/parse-call-error.json"
+]
+status = "implemented"
+issue = 75
+ast_schema = "holyc-ast-v1"
+accepted_form = "parenthesized call suffix"
+argument_slot_kinds = ["provided", "omitted"]
+empty_call_slot_count = 0
+omitted_vs_explicit_zero = "distinct AST representation"
+leading_middle_consecutive_and_trailing_holes = "implemented"
+call_precedence = "postfix call binds before every audited binary operator"
+nested_calls = "implemented"
+parenthesized_callee = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "_intern targets", "nested call arguments"]
+definition_and_include_provenance = "preserved"
+missing_separator_diagnostic = "HCPARSE0024"
+missing_parenthesis_diagnostic = "HCPARSE0025"
+parentheses_free_call_status = "planned"
+callee_resolution_status = "planned"
+argument_type_and_count_checking = "planned"
+default_availability_and_filling = "planned"
+varargs_validation_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
