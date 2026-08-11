@@ -26,6 +26,9 @@ module Help_metadata = Frontend.Help_metadata
 module Symbol_visibility = Frontend.Symbol_visibility
 module Lexer_frame = Frontend.Lexer_frame
 module Preprocessor = Frontend.Preprocessor
+module Ast = Frontend.Ast
+module Ast_dump = Frontend.Ast_dump
+module Parser = Frontend.Parser
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -45,3 +48,18 @@ val preprocess_detailed :
   Preprocessor.output
 (** Preprocess a source and retain tokens, warnings, notes, errors, and
     source-ordered help metadata in one result. *)
+
+val parse :
+  Session.t -> source:Source_file.t -> (Ast.module_, Diagnostic.t list) result
+
+val parse_with_config :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  (Ast.module_, Diagnostic.t list) result
+
+val parse_detailed :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  Parser.output

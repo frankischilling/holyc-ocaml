@@ -35,6 +35,13 @@ end
 
 type t
 
+type diagnostic_context = private {
+  include_stack : Common.Diagnostic.related list;
+  definition_trace : Common.Diagnostic.related list;
+}
+(** Source context for the most recently returned token. A streaming consumer
+    should capture this value before requesting another item. *)
+
 type output = {
   tokens : Token.t list;
   diagnostics : Common.Diagnostic.t list;
@@ -53,6 +60,7 @@ val create :
   t
 
 val next : t -> Lexer.item
+val diagnostic_context : t -> diagnostic_context
 val definitions : t -> Definition.t list
 val definition_dump : t -> string
 val help_metadata : t -> Help_metadata.t

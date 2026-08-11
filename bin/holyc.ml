@@ -193,6 +193,16 @@ let dump_help_metadata_argument =
   in
   Arg.(value & flag & info [ "dump-help-metadata" ] ~doc:documentation)
 
+let make_preprocessor_config include_roots templeos_root max_include_depth
+    max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source =
+  Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
+    ~include_roots ?templeos_root ~compilation_mode ~max_include_depth
+    ~max_source_bytes ~max_definition_depth ~max_generated_bytes
+    ~max_conditional_depth ~max_expression_nodes ~predefined_date
+    ~predefined_time ~command_line_source ()
+
 let preprocess_file format dump_help_metadata include_roots templeos_root
     max_include_depth max_source_bytes max_definition_depth max_generated_bytes
     max_conditional_depth max_expression_nodes compilation_mode predefined_date
@@ -204,11 +214,10 @@ let preprocess_file format dump_help_metadata include_roots templeos_root
       1
   | Ok source -> (
       match
-        Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
-          ~include_roots ?templeos_root ~compilation_mode ~max_include_depth
-          ~max_source_bytes ~max_definition_depth ~max_generated_bytes
-          ~max_conditional_depth ~max_expression_nodes ~predefined_date
-          ~predefined_time ~command_line_source ()
+        make_preprocessor_config include_roots templeos_root max_include_depth
+          max_source_bytes max_definition_depth max_generated_bytes
+          max_conditional_depth max_expression_nodes compilation_mode
+          predefined_date predefined_time command_line_source
       with
       | Error message ->
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
@@ -242,6 +251,66 @@ let preprocess_command =
       $ expression_nodes_argument $ compilation_mode_argument
       $ predefined_date_argument $ predefined_time_argument
       $ command_line_source_argument $ file_argument)
+
+let print_ast format session ast =
+  match format with
+  | Human ->
+      Holyc_lib.Ast_dump.human (Holyc_lib.Session.sources session) ast
+      |> output_string stdout
+  | Json ->
+      Holyc_lib.Ast_dump.json (Holyc_lib.Session.sources session) ast
+      |> print_endline
+
+let parse_file format include_roots templeos_root max_include_depth
+    max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source path =
+  let session = Holyc_lib.Session.create () in
+  match Holyc_lib.Session.load_source session ~path with
+  | Error message ->
+      Printf.eprintf "holyc: could not read %s: %s\n" path message;
+      1
+  | Ok source -> (
+      match
+        make_preprocessor_config include_roots templeos_root max_include_depth
+          max_source_bytes max_definition_depth max_generated_bytes
+          max_conditional_depth max_expression_nodes compilation_mode
+          predefined_date predefined_time command_line_source
+      with
+      | Error message ->
+          Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
+            message;
+          1
+      | Ok config -> (
+          let output = Holyc_lib.parse_detailed session ~config ~source in
+          if output.diagnostics <> [] then
+            print_diagnostics format session output.diagnostics;
+          match output.ast with
+          | None -> 1
+          | Some ast ->
+              print_ast format session ast;
+              0))
+
+let parser_term =
+  Term.(
+    const parse_file $ format_argument $ include_roots_argument
+    $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
+    $ definition_depth_argument $ generated_bytes_argument
+    $ conditional_depth_argument $ expression_nodes_argument
+    $ compilation_mode_argument $ predefined_date_argument
+    $ predefined_time_argument $ command_line_source_argument $ file_argument)
+
+let parse_command =
+  let documentation =
+    "Parse direct primitive global declarations and print the versioned AST."
+  in
+  Cmd.v (Cmd.info "parse" ~doc:documentation) parser_term
+
+let dump_ast_command =
+  let documentation =
+    "Print the versioned AST for the currently supported HolyC grammar."
+  in
+  Cmd.v (Cmd.info "dump-ast" ~doc:documentation) parser_term
 
 let corpus_root_argument =
   let documentation =
@@ -315,6 +384,13 @@ let root_command =
       ~doc:documentation
   in
   Cmd.group info
-    [ lex_command; preprocess_command; corpus_command; version_command ]
+    [
+      lex_command;
+      preprocess_command;
+      parse_command;
+      dump_ast_command;
+      corpus_command;
+      version_command;
+    ]
 
 let () = exit (Cmd.eval' root_command)
