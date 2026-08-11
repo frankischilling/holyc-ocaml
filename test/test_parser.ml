@@ -103,6 +103,19 @@ let expect_function_pointer (parameter : Ast.function_parameter) =
   | Some function_pointer -> function_pointer
   | None -> Alcotest.fail "expected a function-pointer parameter"
 
+let expect_parameter_default (parameter : Ast.function_parameter) =
+  match parameter.default with
+  | Some default -> default
+  | None -> Alcotest.fail "expected a parameter default"
+
+let expect_binary_expression = function
+  | Ast.Binary_expression binary -> binary
+  | _ -> Alcotest.fail "expected a binary expression"
+
+let expect_prefix_expression = function
+  | Ast.Prefix_expression prefix -> prefix
+  | _ -> Alcotest.fail "expected a prefix expression"
+
 let globals ast =
   List.map
     (function
@@ -2069,6 +2082,415 @@ let function_streaming_visibility () =
       Alcotest.failf "expected a prototype and selected global, got %d items"
         (List.length items)
 
+let default_parameter_expression_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ("default begins at assignment", "if (cc->token=='=') {");
+      ( "default uses the expression compiler",
+        "machine_code=LexExpression2Bin(cc,&type);" );
+      ("default executes during parsing", "tmpm->dft_val=Call(machine_code);");
+      ("default availability is recorded", "tmpm->flags|=MLF_DFT_AVAILABLE;");
+    ];
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "power participates in the unary-minus exception" true
+    (contains expression_parser "cur_op.u16[0]==IC_POWER");
+  Alcotest.(check bool)
+    "unary minus participates in the power exception" true
+    (contains expression_parser "stk_op.u16[0]==IC_UNARY_MINUS");
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun name ->
+      Alcotest.(check bool)
+        (name ^ " precedence is pinned")
+        true
+        (contains compiler_header ("#define " ^ name)))
+    [ "PREC_EXP"; "PREC_MUL"; "PREC_AND"; "PREC_ADD"; "PREC_ASSIGN" ];
+  let cinit_source = pinned "Compiler/CInit.HC" in
+  Alcotest.(check bool)
+    "shift and exponentiation share a precedence" true
+    (contains cinit_source "d[TK_SHL]=(PREC_EXP+ASSOCF_LEFT)<<16+IC_SHL")
+
+let default_expression_atoms () =
+  let source =
+    "extern U0 Defaults(I64 integer=0,F64 floating=1.5,\n\
+     I64 characters='AB',U8 *text=\"ok\\n\",I64 symbol=NULL,\n\
+     I64 position=$$,I64 plain);"
+  in
+  let session, _, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  Alcotest.(check (list bool))
+    "defaults may precede a plain parameter"
+    [ true; true; true; true; true; true; false ]
+    (List.map
+       (fun (parameter : Ast.function_parameter) ->
+         Option.is_some parameter.default)
+       prototype.parameters);
+  let defaults =
+    prototype.parameters
+    |> List.filter_map (fun (parameter : Ast.function_parameter) ->
+        parameter.default)
+  in
+  (match (List.nth defaults 0).value with
+  | Ast.Integer_literal literal ->
+      Alcotest.(check string) "integer spelling" "0" literal.literal_spelling;
+      Alcotest.(check int64)
+        "explicit zero value" 0L
+        (match literal.literal_value with
+        | Ast.Integer_value value -> value
+        | _ -> Alcotest.fail "integer literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected an integer default");
+  (match (List.nth defaults 1).value with
+  | Ast.Float_literal literal ->
+      Alcotest.(check (float 0.))
+        "floating value" 1.5
+        (match literal.literal_value with
+        | Ast.Float_value value -> value
+        | _ -> Alcotest.fail "floating literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected a floating default");
+  (match (List.nth defaults 2).value with
+  | Ast.Character_literal literal ->
+      Alcotest.(check int64)
+        "multi-character value" 0x4241L
+        (match literal.literal_value with
+        | Ast.Integer_value value -> value
+        | _ -> Alcotest.fail "character literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected a character default");
+  (match (List.nth defaults 3).value with
+  | Ast.String_literal literal ->
+      Alcotest.(check string)
+        "decoded string bytes" "ok\n"
+        (match literal.literal_value with
+        | Ast.Bytes_value value -> value
+        | _ -> Alcotest.fail "string literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected a string default");
+  (match (List.nth defaults 4).value with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "identifier spelling" "NULL" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier default");
+  (match (List.nth defaults 5).value with
+  | Ast.Current_position_expression operator ->
+      Alcotest.(check string)
+        "current-position spelling" "$$" operator.operator_spelling
+  | _ -> Alcotest.fail "expected a current-position default");
+  List.iter
+    (fun (default : Ast.parameter_default) ->
+      Alcotest.(check int)
+        "assignment token width" 1
+        (default.equals.span.stop - default.equals.span.start))
+    defaults;
+  let open Yojson.Safe.Util in
+  let first_default =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd |> member "default"
+  in
+  Alcotest.(check string)
+    "JSON atom kind" "integer_literal"
+    (first_default |> member "value" |> member "kind" |> to_string)
+
+let default_expression_prefixes () =
+  let cases =
+    [
+      ("+", "value", Ast.Unary_plus);
+      ("-", "value", Ast.Unary_minus);
+      ("!", "value", Ast.Logical_not);
+      ("~", "value", Ast.Bitwise_not);
+      ("*", "pointer", Ast.Dereference);
+      ("&", "value", Ast.Address_of);
+      ("++", "value", Ast.Pre_increment);
+      ("--", "value", Ast.Pre_decrement);
+    ]
+  in
+  List.iteri
+    (fun index (spelling, operand, expected_kind) ->
+      let source =
+        Printf.sprintf "extern U0 Prefix%d(I64 result=%s%s);" index spelling
+          operand
+      in
+      let _, _, output = parse_string source in
+      let default =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_parameter_default
+      in
+      let prefix = expect_prefix_expression default.value in
+      Alcotest.(check bool)
+        (spelling ^ " prefix kind")
+        true
+        (prefix.prefix_operator_kind = expected_kind);
+      Alcotest.(check string)
+        (spelling ^ " spelling") spelling
+        prefix.prefix_operator.operator_spelling)
+    cases
+
+let default_expression_binary_registry () =
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "extern U0 Binary%d(I64 value=1%s2);" index
+          operator.spelling
+      in
+      let _, _, output = parse_string source in
+      let binary =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_parameter_default
+        |> fun default -> expect_binary_expression default.value
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " spelling")
+        operator.spelling binary.binary_operator.operator_spelling;
+      Alcotest.(check string)
+        (operator.spelling ^ " IC")
+        operator.ic_name binary.binary_operator_spec.ic_name;
+      Alcotest.(check int)
+        (operator.spelling ^ " source line")
+        operator.source_line binary.binary_operator_spec.source_line)
+    Operator.binary_operators
+
+let default_expression_precedence () =
+  let representatives =
+    Operator.binary_operators
+    |> List.sort_uniq (fun left right ->
+        Int.compare left.Operator.precedence_value right.precedence_value)
+    |> List.sort (fun left right ->
+        Int.compare left.Operator.precedence_value right.precedence_value)
+  in
+  let rec adjacent = function
+    | stronger :: (weaker :: _ as rest) ->
+        let check_grouping source expected_left expected_right =
+          let _, _, output = parse_string source in
+          let root =
+            expect_ast output |> expect_one_prototype |> fun prototype ->
+            List.hd prototype.parameters |> expect_parameter_default
+            |> fun default -> expect_binary_expression default.value
+          in
+          Alcotest.(check string)
+            "weaker operator is the root" weaker.Operator.spelling
+            root.binary_operator.operator_spelling;
+          expected_left root.binary_left;
+          expected_right root.binary_right
+        in
+        check_grouping
+          (Printf.sprintf "extern U0 P(I64 v=1%s2%s3);" weaker.spelling
+             stronger.spelling)
+          (fun _ -> ())
+          (fun expression ->
+            let nested = expect_binary_expression expression in
+            Alcotest.(check string)
+              "stronger operator binds on the right" stronger.spelling
+              nested.binary_operator.operator_spelling);
+        check_grouping
+          (Printf.sprintf "extern U0 P(I64 v=1%s2%s3);" stronger.spelling
+             weaker.spelling)
+          (fun expression ->
+            let nested = expect_binary_expression expression in
+            Alcotest.(check string)
+              "stronger operator binds on the left" stronger.spelling
+              nested.binary_operator.operator_spelling)
+          (fun _ -> ());
+        adjacent rest
+    | _ -> ()
+  in
+  adjacent representatives
+
+let default_expression_associativity () =
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "extern U0 Assoc%d(I64 value=1%s2%s3);" index
+          operator.spelling operator.spelling
+      in
+      let _, _, output = parse_string source in
+      let root =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_parameter_default
+        |> fun default -> expect_binary_expression default.value
+      in
+      match operator.association with
+      | Operator.Right -> ignore (expect_binary_expression root.binary_right)
+      | Operator.Left | Operator.Unspecified ->
+          ignore (expect_binary_expression root.binary_left))
+    Operator.binary_operators
+
+let default_expression_grouping_and_power () =
+  let source = "extern U0 Grouped(I64 grouped=(1+2)*3,I64 powered=-2`3`4);" in
+  let _, _, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let grouped =
+    List.nth prototype.parameters 0 |> expect_parameter_default
+    |> fun default -> expect_binary_expression default.value
+  in
+  Alcotest.(check string)
+    "multiplication remains outside explicit grouping" "*"
+    grouped.binary_operator.operator_spelling;
+  (match grouped.binary_left with
+  | Ast.Parenthesized_expression parenthesized ->
+      ignore (expect_binary_expression parenthesized.grouped_expression)
+  | _ -> Alcotest.fail "expected explicit grouping on the left");
+  let power =
+    List.nth prototype.parameters 1 |> expect_parameter_default
+    |> fun default -> expect_prefix_expression default.value
+  in
+  Alcotest.(check bool)
+    "unary minus wraps exponentiation" true
+    (power.prefix_operator_kind = Ast.Unary_minus);
+  let outer_power = expect_binary_expression power.prefix_operand in
+  Alcotest.(check string)
+    "outer power spelling" "`" outer_power.binary_operator.operator_spelling;
+  ignore (expect_binary_expression outer_power.binary_right)
+
+let default_expression_nested_and_provenance () =
+  let source =
+    "#define VALUE 1+2\n\
+     extern U0 Outer(I64 first=VALUE,I64 middle,\n\
+     I64 (*callback)(I64 inner=VALUE));"
+  in
+  let session, root, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  Alcotest.(check bool)
+    "a default need not trail" false
+    (Option.is_some (List.nth prototype.parameters 1).default);
+  let outer_default =
+    List.hd prototype.parameters |> expect_parameter_default
+  in
+  let outer_binary = expect_binary_expression outer_default.value in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ( "generated left operand",
+        Ast.expression_location outer_binary.binary_left );
+      ("generated operator", outer_binary.binary_operator.operator_location);
+      ( "generated right operand",
+        Ast.expression_location outer_binary.binary_right );
+    ];
+  let callback = List.nth prototype.parameters 2 |> expect_function_pointer in
+  let inner = List.hd callback.signature_parameters in
+  ignore (expect_parameter_default inner);
+  let open Yojson.Safe.Util in
+  let expression_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd |> member "default"
+    |> member "value"
+  in
+  Alcotest.(check string)
+    "JSON generated expression kind" "binary"
+    (expression_json |> member "kind" |> to_string)
+
+let included_default_expression () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      let declaration_file = Filename.concat root "defaults.HC" in
+      write_file root_file "#include \"defaults\"";
+      write_file declaration_file "extern U0 Included(I64 value=1+2);";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config root) ~source
+      in
+      let default =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_parameter_default
+      in
+      let expression_source =
+        Source_manager.find (Session.sources session)
+          (Ast.expression_location default.value).span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "default keeps its included source path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let default_expression_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected default prototype %s became visible" name)
+    [
+      ( "missing operand",
+        "extern U0 Missing(I64 value=);",
+        "Missing",
+        "HCPARSE0018",
+        "expected a default expression operand" );
+      ( "missing right operand",
+        "extern U0 MissingRight(I64 value=1+);",
+        "MissingRight",
+        "HCPARSE0018",
+        "expected a default expression operand" );
+      ( "unmatched grouping",
+        "extern U0 Unmatched(I64 value=(1+2;",
+        "Unmatched",
+        "HCPARSE0019",
+        "close default expression" );
+      ( "unsupported call",
+        "extern U0 Called(I64 value=Factory());",
+        "Called",
+        "HCPARSE0020",
+        "continuation" );
+      ( "unsupported postfix increment",
+        "extern U0 Postfix(I64 value=counter++);",
+        "Postfix",
+        "HCPARSE0020",
+        "continuation" );
+      ( "unsupported lastclass",
+        "extern U0 LastClass(I64 value=lastclass);",
+        "LastClass",
+        "HCPARSE0020",
+        "not implemented" );
+    ];
+  let nesting = Parser.max_expression_depth in
+  let source =
+    Printf.sprintf "extern U0 TooNested(I64 value=%s1%s);"
+      (String.make nesting '(') (String.make nesting ')')
+  in
+  let session, _, output = parse_string source in
+  Alcotest.(check bool)
+    "excessive expression nesting has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check string)
+    "excessive expression nesting code" "HCPARSE0021"
+    (first_diagnostic output).code;
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "TooNested"
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "excessively nested default prototype became visible"
+
 let function_prototype_failures () =
   List.iter
     (fun (description, source, name, code, message_fragment) ->
@@ -2135,11 +2557,6 @@ let function_prototype_failures () =
         "Nonterminal",
         "HCPARSE0015",
         "after variadic marker" );
-      ( "default parameter",
-        "extern U0 Defaulted(I64 value=0);",
-        "Defaulted",
-        "HCPARSE0012",
-        "default parameter expressions" );
       ( "array parameter",
         "extern U0 Arrayed(I64 values[2]);",
         "Arrayed",
@@ -2448,6 +2865,26 @@ let tests =
       definition_backed_function_prototype;
     Alcotest.test_case "function prototypes update symbol conditionals" `Quick
       function_streaming_visibility;
+    Alcotest.test_case "pinned default-expression behavior" `Quick
+      default_parameter_expression_source_behavior;
+    Alcotest.test_case "default-expression atoms" `Quick
+      default_expression_atoms;
+    Alcotest.test_case "default-expression prefixes" `Quick
+      default_expression_prefixes;
+    Alcotest.test_case "default-expression binary registry" `Quick
+      default_expression_binary_registry;
+    Alcotest.test_case "default-expression precedence" `Quick
+      default_expression_precedence;
+    Alcotest.test_case "default-expression associativity" `Quick
+      default_expression_associativity;
+    Alcotest.test_case "default-expression grouping and power" `Quick
+      default_expression_grouping_and_power;
+    Alcotest.test_case "nested and generated defaults" `Quick
+      default_expression_nested_and_provenance;
+    Alcotest.test_case "included default expression" `Quick
+      included_default_expression;
+    Alcotest.test_case "default-expression failures" `Quick
+      default_expression_failures;
     Alcotest.test_case "function prototype failures" `Quick
       function_prototype_failures;
     Alcotest.test_case "pinned function-pointer parameter behavior" `Quick

@@ -625,6 +625,36 @@
 
 (rule
  (alias runtest)
+ (targets parse-default-parameters.human.actual)
+ (deps cli/parse-default-parameters.hc cli/parse-default-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-default-parameters.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-default-parameters.hc))
+   (diff
+    cli/parse-default-parameters.human
+    parse-default-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-default-parameters.json.actual)
+ (deps cli/parse-default-parameters.hc cli/parse-default-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-default-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-default-parameters.hc))
+   (diff
+    cli/parse-default-parameters.json
+    parse-default-parameters.json.actual))))
+
+(rule
+ (alias runtest)
  (targets
   parse-function-prototype-error.human.actual
   parse-function-prototype-error.human.stdout.actual)

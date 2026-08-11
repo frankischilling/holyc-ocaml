@@ -71,6 +71,37 @@ let register_qualifier_position_name = function
   | Ast.Before_type -> "before_type"
   | Ast.After_type -> "after_type"
 
+let unary_operator_kind_name = function
+  | Ast.Unary_plus -> "unary_plus"
+  | Ast.Unary_minus -> "unary_minus"
+  | Ast.Logical_not -> "logical_not"
+  | Ast.Bitwise_not -> "bitwise_not"
+  | Ast.Dereference -> "dereference"
+  | Ast.Address_of -> "address_of"
+  | Ast.Pre_increment -> "pre_increment"
+  | Ast.Pre_decrement -> "pre_decrement"
+
+let association_name = function
+  | Operator.Unspecified -> "unspecified"
+  | Operator.Left -> "left"
+  | Operator.Right -> "right"
+
+let escaped_bytes bytes =
+  let buffer = Buffer.create (String.length bytes) in
+  String.iter
+    (fun byte ->
+      let code = Char.code byte in
+      if code >= 0x20 && code <= 0x7e && not (Char.equal byte '\\') then
+        Buffer.add_char buffer byte
+      else Printf.bprintf buffer "\\x%02x" code)
+    bytes;
+  Buffer.contents buffer
+
+let literal_value_text = function
+  | Ast.Integer_value value -> Printf.sprintf "0x%016Lx" value
+  | Ast.Float_value value -> Printf.sprintf "%.17g" value
+  | Ast.Bytes_value value -> escaped_bytes value
+
 let binding_kind_name = function
   | Ast.Extern -> "extern"
   | Ast.Import -> "import"
@@ -137,6 +168,84 @@ let print_parameter_name buffer sources ~indent = function
         (location_text sources name.location)
   | None -> Printf.bprintf buffer "%sname omitted\n" indent
 
+let rec print_expression buffer sources ~indent expression =
+  let child_indent = indent ^ "  " in
+  match expression with
+  | Ast.Integer_literal literal ->
+      print_literal buffer sources ~indent ~kind:"integer_literal" literal
+  | Ast.Float_literal literal ->
+      print_literal buffer sources ~indent ~kind:"float_literal" literal
+  | Ast.Character_literal literal ->
+      print_literal buffer sources ~indent ~kind:"character_literal" literal
+  | Ast.String_literal literal ->
+      print_literal buffer sources ~indent ~kind:"string_literal" literal
+  | Ast.Identifier_expression identifier ->
+      Printf.bprintf buffer "%sexpression kind=identifier spelling=%S span=%s\n"
+        indent identifier.spelling
+        (location_text sources identifier.location)
+  | Ast.Current_position_expression operator ->
+      Printf.bprintf buffer
+        "%sexpression kind=current_position spelling=%S span=%s\n" indent
+        operator.operator_spelling
+        (location_text sources operator.operator_location)
+  | Ast.Parenthesized_expression grouped ->
+      Printf.bprintf buffer "%sexpression kind=parenthesized span=%s\n" indent
+        (location_text sources grouped.parenthesized_location);
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources grouped.opening_parenthesis);
+      print_expression buffer sources ~indent:child_indent
+        grouped.grouped_expression;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources grouped.closing_parenthesis)
+  | Ast.Prefix_expression prefix ->
+      Printf.bprintf buffer
+        "%sexpression kind=prefix operator_kind=%s span=%s\n" indent
+        (unary_operator_kind_name prefix.prefix_operator_kind)
+        (location_text sources prefix.prefix_location);
+      print_expression_operator buffer sources ~indent:child_indent
+        prefix.prefix_operator;
+      print_expression buffer sources ~indent:child_indent prefix.prefix_operand
+  | Ast.Binary_expression binary ->
+      Printf.bprintf buffer
+        "%sexpression kind=binary precedence=%s precedence_value=0x%02x \
+         association=%s ic=%s source_line=%d span=%s\n"
+        indent binary.binary_operator_spec.precedence_name
+        binary.binary_operator_spec.precedence_value
+        (association_name binary.binary_operator_spec.association)
+        binary.binary_operator_spec.ic_name
+        binary.binary_operator_spec.source_line
+        (location_text sources binary.binary_location);
+      Printf.bprintf buffer "%sleft\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        binary.binary_left;
+      print_expression_operator buffer sources ~indent:child_indent
+        binary.binary_operator;
+      Printf.bprintf buffer "%sright\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        binary.binary_right
+
+and print_literal buffer sources ~indent ~kind
+    (literal : Ast.expression_literal) =
+  Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S span=%s\n"
+    indent kind literal.literal_spelling
+    (literal_value_text literal.literal_value)
+    (location_text sources literal.literal_location)
+
+and print_expression_operator buffer sources ~indent
+    (operator : Ast.expression_operator) =
+  Printf.bprintf buffer "%soperator spelling=%S span=%s\n" indent
+    operator.operator_spelling
+    (location_text sources operator.operator_location)
+
+let print_parameter_default buffer sources ~indent
+    (default : Ast.parameter_default) =
+  let child_indent = indent ^ "  " in
+  Printf.bprintf buffer "%sdefault span=%s\n" indent
+    (location_text sources default.location);
+  Printf.bprintf buffer "%sequals span=%s\n" child_indent
+    (location_text sources default.equals);
+  print_expression buffer sources ~indent:child_indent default.value
+
 let rec print_function_parameter buffer sources ~indent index
     (parameter : Ast.function_parameter) =
   let child_indent = indent ^ "  " in
@@ -155,6 +264,9 @@ let rec print_function_parameter buffer sources ~indent index
   | Some function_pointer ->
       print_function_pointer buffer sources ~indent:child_indent
         ~name:parameter.name function_pointer);
+  Option.iter
+    (print_parameter_default buffer sources ~indent:child_indent)
+    parameter.default;
   Option.iter
     (fun (delimiter : Ast.declaration_delimiter) ->
       Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
@@ -421,6 +533,98 @@ let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
     @ register_qualifier_fields sources variadic.register_qualifiers
     @ [ ("location", location_to_yojson sources variadic.location) ])
 
+let literal_value_to_yojson = function
+  | Ast.Integer_value value -> `String (Printf.sprintf "0x%016Lx" value)
+  | Ast.Float_value value -> `Float value
+  | Ast.Bytes_value value -> `String (escaped_bytes value)
+
+let literal_to_yojson sources ~kind (literal : Ast.expression_literal) =
+  `Assoc
+    [
+      ("kind", `String kind);
+      ("spelling", `String literal.literal_spelling);
+      ("value", literal_value_to_yojson literal.literal_value);
+      ("location", location_to_yojson sources literal.literal_location);
+    ]
+
+let expression_operator_to_yojson sources (operator : Ast.expression_operator) =
+  `Assoc
+    [
+      ("spelling", `String operator.operator_spelling);
+      ("location", location_to_yojson sources operator.operator_location);
+    ]
+
+let rec expression_to_yojson sources = function
+  | Ast.Integer_literal literal ->
+      literal_to_yojson sources ~kind:"integer_literal" literal
+  | Ast.Float_literal literal ->
+      literal_to_yojson sources ~kind:"float_literal" literal
+  | Ast.Character_literal literal ->
+      literal_to_yojson sources ~kind:"character_literal" literal
+  | Ast.String_literal literal ->
+      literal_to_yojson sources ~kind:"string_literal" literal
+  | Ast.Identifier_expression identifier ->
+      `Assoc
+        [
+          ("kind", `String "identifier");
+          ("spelling", `String identifier.spelling);
+          ("location", location_to_yojson sources identifier.location);
+        ]
+  | Ast.Current_position_expression operator ->
+      `Assoc
+        [
+          ("kind", `String "current_position");
+          ("spelling", `String operator.operator_spelling);
+          ("location", location_to_yojson sources operator.operator_location);
+        ]
+  | Ast.Parenthesized_expression grouped ->
+      `Assoc
+        [
+          ("kind", `String "parenthesized");
+          ( "opening_parenthesis",
+            location_to_yojson sources grouped.opening_parenthesis );
+          ("expression", expression_to_yojson sources grouped.grouped_expression);
+          ( "closing_parenthesis",
+            location_to_yojson sources grouped.closing_parenthesis );
+          ("location", location_to_yojson sources grouped.parenthesized_location);
+        ]
+  | Ast.Prefix_expression prefix ->
+      `Assoc
+        [
+          ("kind", `String "prefix");
+          ( "operator_kind",
+            `String (unary_operator_kind_name prefix.prefix_operator_kind) );
+          ( "operator",
+            expression_operator_to_yojson sources prefix.prefix_operator );
+          ("operand", expression_to_yojson sources prefix.prefix_operand);
+          ("location", location_to_yojson sources prefix.prefix_location);
+        ]
+  | Ast.Binary_expression binary ->
+      `Assoc
+        [
+          ("kind", `String "binary");
+          ("left", expression_to_yojson sources binary.binary_left);
+          ( "operator",
+            expression_operator_to_yojson sources binary.binary_operator );
+          ("precedence", `String binary.binary_operator_spec.precedence_name);
+          ("precedence_value", `Int binary.binary_operator_spec.precedence_value);
+          ( "association",
+            `String (association_name binary.binary_operator_spec.association)
+          );
+          ("ic", `String binary.binary_operator_spec.ic_name);
+          ("source_line", `Int binary.binary_operator_spec.source_line);
+          ("right", expression_to_yojson sources binary.binary_right);
+          ("location", location_to_yojson sources binary.binary_location);
+        ]
+
+let parameter_default_to_yojson sources (default : Ast.parameter_default) =
+  `Assoc
+    [
+      ("equals", location_to_yojson sources default.equals);
+      ("value", expression_to_yojson sources default.value);
+      ("location", location_to_yojson sources default.location);
+    ]
+
 let rec parameter_to_yojson sources (parameter : Ast.function_parameter) =
   `Assoc
     (register_qualifier_fields sources parameter.register_qualifiers
@@ -437,6 +641,10 @@ let rec parameter_to_yojson sources (parameter : Ast.function_parameter) =
               function_pointer_to_yojson sources ~name:parameter.name
                 function_pointer );
           ])
+    @ (match parameter.default with
+      | None -> []
+      | Some default ->
+          [ ("default", parameter_default_to_yojson sources default) ])
     @ (match parameter.delimiter with
       | None -> []
       | Some delimiter ->

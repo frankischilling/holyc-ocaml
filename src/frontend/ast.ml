@@ -86,12 +86,78 @@ type variadic_marker = {
   location : location;
 }
 
+type literal_value =
+  | Integer_value of int64
+  | Float_value of float
+  | Bytes_value of string
+
+type unary_operator_kind =
+  | Unary_plus
+  | Unary_minus
+  | Logical_not
+  | Bitwise_not
+  | Dereference
+  | Address_of
+  | Pre_increment
+  | Pre_decrement
+
+type expression =
+  | Integer_literal of expression_literal
+  | Float_literal of expression_literal
+  | Character_literal of expression_literal
+  | String_literal of expression_literal
+  | Identifier_expression of identifier
+  | Current_position_expression of expression_operator
+  | Parenthesized_expression of parenthesized_expression
+  | Prefix_expression of prefix_expression
+  | Binary_expression of binary_expression
+
+and expression_literal = {
+  literal_spelling : string;
+  literal_value : literal_value;
+  literal_location : location;
+}
+
+and expression_operator = {
+  operator_spelling : string;
+  operator_location : location;
+}
+
+and parenthesized_expression = {
+  opening_parenthesis : location;
+  grouped_expression : expression;
+  closing_parenthesis : location;
+  parenthesized_location : location;
+}
+
+and prefix_expression = {
+  prefix_operator_kind : unary_operator_kind;
+  prefix_operator : expression_operator;
+  prefix_operand : expression;
+  prefix_location : location;
+}
+
+and binary_expression = {
+  binary_left : expression;
+  binary_operator : expression_operator;
+  binary_operator_spec : Operator.binary_operator;
+  binary_right : expression;
+  binary_location : location;
+}
+
+type parameter_default = {
+  equals : location;
+  value : expression;
+  location : location;
+}
+
 type function_parameter = {
   register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
   function_pointer : function_pointer_declarator option;
+  default : parameter_default option;
   delimiter : declaration_delimiter option;
   location : location;
 }
@@ -182,14 +248,65 @@ let make_register_qualifier ~kind ~position ~spelling ~explicit_register
     ~location =
   { kind; position; spelling; explicit_register; location }
 
+let make_expression_literal ~spelling ~value ~location =
+  {
+    literal_spelling = spelling;
+    literal_value = value;
+    literal_location = location;
+  }
+
+let make_expression_operator ~spelling ~location =
+  { operator_spelling = spelling; operator_location = location }
+
+let make_parenthesized_expression ~opening_parenthesis ~expression
+    ~closing_parenthesis ~location =
+  {
+    opening_parenthesis;
+    grouped_expression = expression;
+    closing_parenthesis;
+    parenthesized_location = location;
+  }
+
+let make_prefix_expression ~operator_kind ~operator ~operand ~location =
+  {
+    prefix_operator_kind = operator_kind;
+    prefix_operator = operator;
+    prefix_operand = operand;
+    prefix_location = location;
+  }
+
+let make_binary_expression ~left ~operator ~operator_spec ~right ~location =
+  {
+    binary_left = left;
+    binary_operator = operator;
+    binary_operator_spec = operator_spec;
+    binary_right = right;
+    binary_location = location;
+  }
+
+let expression_location = function
+  | Integer_literal literal
+  | Float_literal literal
+  | Character_literal literal
+  | String_literal literal -> literal.literal_location
+  | Identifier_expression identifier -> identifier.location
+  | Current_position_expression operator -> operator.operator_location
+  | Parenthesized_expression expression -> expression.parenthesized_location
+  | Prefix_expression expression -> expression.prefix_location
+  | Binary_expression expression -> expression.binary_location
+
+let make_parameter_default ~equals ~value ~location =
+  { equals; value; location }
+
 let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
-    ~name ~function_pointer ~delimiter ~location =
+    ~name ~function_pointer ~default ~delimiter ~location =
   {
     register_qualifiers;
     type_specifier;
     pointer_layers;
     name;
     function_pointer;
+    default;
     delimiter;
     location;
   }

@@ -1,2 +1,2 @@
-// Compiler/PrsVar.HC compiles defaults; this parser slice rejects them explicitly.
-extern U0 Broken(I64 value=0);
+// Compiler/PrsVar.HC requires an expression after a parameter's equals sign.
+extern U0 Broken(I64 value=);

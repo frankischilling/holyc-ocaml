@@ -1,15 +1,15 @@
 [
   {
-    "code": "HCPARSE0012",
+    "code": "HCPARSE0018",
     "severity": "error",
-    "message": "default parameter expressions are not implemented in function prototypes",
+    "message": "expected a default expression operand, but found \")\"",
     "primary": {
       "path": "cli/parse-function-prototype-error.hc",
       "line": 2,
-      "column": 27,
+      "column": 28,
       "source_id": 0,
-      "start": 110,
-      "stop": 111
+      "start": 105,
+      "stop": 106
     },
     "secondary": [],
     "include_stack": [],

@@ -1,0 +1,53 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-default-parameters.hc:1:1..3:1 items=1
+  function_prototype span=cli/parse-default-parameters.hc:2:1..2:82 parameters=3 variadic=false
+    binding kind=extern spelling="extern" span=cli/parse-default-parameters.hc:2:1..2:7
+    return_type primitive=I64 spelling="I64" span=cli/parse-default-parameters.hc:2:8..2:11
+    name spelling="Defaults" span=cli/parse-default-parameters.hc:2:12..2:20
+    opening_parenthesis span=cli/parse-default-parameters.hc:2:20..2:21
+    parameter index=0 span=cli/parse-default-parameters.hc:2:21..2:36
+      type primitive=I64 spelling="I64" span=cli/parse-default-parameters.hc:2:21..2:24
+      name spelling="power" span=cli/parse-default-parameters.hc:2:25..2:30
+      default span=cli/parse-default-parameters.hc:2:30..2:35
+        equals span=cli/parse-default-parameters.hc:2:30..2:31
+        expression kind=prefix operator_kind=unary_minus span=cli/parse-default-parameters.hc:2:31..2:35
+          operator spelling="-" span=cli/parse-default-parameters.hc:2:31..2:32
+          expression kind=binary precedence=PREC_EXP precedence_value=0x10 association=right ic=IC_POWER source_line=288 span=cli/parse-default-parameters.hc:2:32..2:35
+            left
+              expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-default-parameters.hc:2:32..2:33
+            operator spelling="`" span=cli/parse-default-parameters.hc:2:33..2:34
+            right
+              expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-default-parameters.hc:2:34..2:35
+      delimiter kind=comma spelling="," span=cli/parse-default-parameters.hc:2:35..2:36
+    parameter index=1 span=cli/parse-default-parameters.hc:2:36..2:49
+      type primitive=I64 spelling="I64" span=cli/parse-default-parameters.hc:2:36..2:39
+      name spelling="required" span=cli/parse-default-parameters.hc:2:40..2:48
+      delimiter kind=comma spelling="," span=cli/parse-default-parameters.hc:2:48..2:49
+    parameter index=2 span=cli/parse-default-parameters.hc:2:49..2:80
+      type primitive=U0 spelling="U0" span=cli/parse-default-parameters.hc:2:49..2:51
+      function_pointer span=cli/parse-default-parameters.hc:2:52..2:80 parameters=1 variadic=false
+        opening_parenthesis span=cli/parse-default-parameters.hc:2:52..2:53
+        pointer_layer depth=1 spelling="*" span=cli/parse-default-parameters.hc:2:53..2:54
+        name spelling="callback" span=cli/parse-default-parameters.hc:2:54..2:62
+        closing_parenthesis span=cli/parse-default-parameters.hc:2:62..2:63
+        signature_opening_parenthesis span=cli/parse-default-parameters.hc:2:63..2:64
+        parameter index=0 span=cli/parse-default-parameters.hc:2:64..2:79
+          type primitive=I64 spelling="I64" span=cli/parse-default-parameters.hc:2:64..2:67
+          name spelling="value" span=cli/parse-default-parameters.hc:2:68..2:73
+          default span=cli/parse-default-parameters.hc:2:73..2:79
+            equals span=cli/parse-default-parameters.hc:2:73..2:74
+            expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-default-parameters.hc:2:74..2:79
+              left
+                expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-default-parameters.hc:2:74..2:75
+              operator spelling="+" span=cli/parse-default-parameters.hc:2:75..2:76
+              right
+                expression kind=binary precedence=PREC_MUL precedence_value=0x14 association=unspecified ic=IC_MUL source_line=292 span=cli/parse-default-parameters.hc:2:76..2:79
+                  left
+                    expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-default-parameters.hc:2:76..2:77
+                  operator spelling="*" span=cli/parse-default-parameters.hc:2:77..2:78
+                  right
+                    expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-default-parameters.hc:2:78..2:79
+        signature_closing_parenthesis span=cli/parse-default-parameters.hc:2:79..2:80
+    closing_parenthesis span=cli/parse-default-parameters.hc:2:80..2:81
+    semicolon span=cli/parse-default-parameters.hc:2:81..2:82
