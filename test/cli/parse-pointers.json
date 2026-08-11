@@ -1,0 +1,339 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-pointers.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 124
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I8",
+          "spelling": "I8",
+          "location": {
+            "span": {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 90,
+              "stop": 92
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-pointers.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 90,
+                "stop": 92
+              }
+            ]
+          }
+        },
+        "pointer_layers": [
+          {
+            "depth": 1,
+            "spelling": "*",
+            "location": {
+              "span": {
+                "path": "cli/parse-pointers.hc",
+                "line": 3,
+                "column": 4,
+                "source_id": 0,
+                "start": 93,
+                "stop": 94
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-pointers.hc",
+                  "line": 3,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 94
+                }
+              ]
+            }
+          }
+        ],
+        "name": {
+          "spelling": "signed_byte",
+          "location": {
+            "span": {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 5,
+              "source_id": 0,
+              "start": 94,
+              "stop": 105
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-pointers.hc",
+                "line": 3,
+                "column": 5,
+                "source_id": 0,
+                "start": 94,
+                "stop": 105
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-pointers.hc",
+          "line": 3,
+          "column": 16,
+          "source_id": 0,
+          "start": 105,
+          "stop": 106
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-pointers.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 90,
+            "stop": 106
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 90,
+              "stop": 92
+            },
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 4,
+              "source_id": 0,
+              "start": 93,
+              "stop": 94
+            },
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 5,
+              "source_id": 0,
+              "start": 94,
+              "stop": 105
+            },
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 3,
+              "column": 16,
+              "source_id": 0,
+              "start": 105,
+              "stop": 106
+            }
+          ]
+        }
+      },
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-pointers.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 107,
+              "stop": 109
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-pointers.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 107,
+                "stop": 109
+              }
+            ]
+          }
+        },
+        "pointer_layers": [
+          {
+            "depth": 1,
+            "spelling": "*",
+            "location": {
+              "span": {
+                "path": "<definition:00000000:PTR>",
+                "line": 1,
+                "column": 1,
+                "source_id": 1,
+                "start": 0,
+                "stop": 1
+              },
+              "source_segments": [
+                {
+                  "path": "<definition:00000000:PTR>",
+                  "line": 1,
+                  "column": 1,
+                  "source_id": 1,
+                  "start": 0,
+                  "stop": 1
+                }
+              ],
+              "generated_from": {
+                "path": "cli/parse-pointers.hc",
+                "line": 4,
+                "column": 4,
+                "source_id": 0,
+                "start": 110,
+                "stop": 113
+              },
+              "defined_at": {
+                "path": "cli/parse-pointers.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 75,
+                "stop": 90
+              }
+            }
+          },
+          {
+            "depth": 2,
+            "spelling": "*",
+            "location": {
+              "span": {
+                "path": "<definition:00000000:PTR>",
+                "line": 1,
+                "column": 2,
+                "source_id": 1,
+                "start": 1,
+                "stop": 2
+              },
+              "source_segments": [
+                {
+                  "path": "<definition:00000000:PTR>",
+                  "line": 1,
+                  "column": 2,
+                  "source_id": 1,
+                  "start": 1,
+                  "stop": 2
+                }
+              ],
+              "generated_from": {
+                "path": "cli/parse-pointers.hc",
+                "line": 4,
+                "column": 4,
+                "source_id": 0,
+                "start": 110,
+                "stop": 113
+              },
+              "defined_at": {
+                "path": "cli/parse-pointers.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 75,
+                "stop": 90
+              }
+            }
+          }
+        ],
+        "name": {
+          "spelling": "zero_ptr",
+          "location": {
+            "span": {
+              "path": "cli/parse-pointers.hc",
+              "line": 4,
+              "column": 8,
+              "source_id": 0,
+              "start": 114,
+              "stop": 122
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-pointers.hc",
+                "line": 4,
+                "column": 8,
+                "source_id": 0,
+                "start": 114,
+                "stop": 122
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-pointers.hc",
+          "line": 4,
+          "column": 16,
+          "source_id": 0,
+          "start": 122,
+          "stop": 123
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-pointers.hc",
+            "line": 4,
+            "column": 1,
+            "source_id": 0,
+            "start": 107,
+            "stop": 109
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 107,
+              "stop": 109
+            },
+            {
+              "path": "<definition:00000000:PTR>",
+              "line": 1,
+              "column": 1,
+              "source_id": 1,
+              "start": 0,
+              "stop": 1
+            },
+            {
+              "path": "<definition:00000000:PTR>",
+              "line": 1,
+              "column": 2,
+              "source_id": 1,
+              "start": 1,
+              "stop": 2
+            },
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 4,
+              "column": 8,
+              "source_id": 0,
+              "start": 114,
+              "stop": 122
+            },
+            {
+              "path": "cli/parse-pointers.hc",
+              "line": 4,
+              "column": 16,
+              "source_id": 0,
+              "start": 122,
+              "stop": 123
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

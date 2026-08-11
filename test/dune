@@ -224,6 +224,32 @@
 
 (rule
  (alias runtest)
+ (targets parse-pointers.human.actual)
+ (deps cli/parse-pointers.hc cli/parse-pointers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-pointers.hc))
+   (diff cli/parse-pointers.human parse-pointers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-pointers.json.actual)
+ (deps cli/parse-pointers.hc cli/parse-pointers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-pointers.hc))
+   (diff cli/parse-pointers.json parse-pointers.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-error.human.actual parse-error.human.stdout.actual)
  (deps cli/parse-error.hc cli/parse-error.human)
  (action
@@ -251,3 +277,41 @@
       1
       (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-error.hc))))
    (diff cli/parse-error.json parse-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-pointer-errors.human.actual
+  parse-pointer-errors.human.stdout.actual)
+ (deps cli/parse-pointer-errors.hc cli/parse-pointer-errors.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointer-errors.human.stdout.actual
+    (with-stderr-to
+     parse-pointer-errors.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-pointer-errors.hc))))
+   (diff cli/parse-pointer-errors.human parse-pointer-errors.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-pointer-errors.json.actual
+  parse-pointer-errors.json.stdout.actual)
+ (deps cli/parse-pointer-errors.hc cli/parse-pointer-errors.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointer-errors.json.stdout.actual
+    (with-stderr-to
+     parse-pointer-errors.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-pointer-errors.hc))))
+   (diff cli/parse-pointer-errors.json parse-pointer-errors.json.actual))))

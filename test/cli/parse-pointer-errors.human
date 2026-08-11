@@ -1,0 +1,6 @@
+cli/parse-pointer-errors.hc:2:9: error[HCPARSE0004]: HolyC types may have at most 4 pointer stars; this star exceeds that limit
+    2 | I64 *****too_deep;
+      |         ^
+cli/parse-pointer-errors.hc:3:5: error[HCPARSE0005]: parenthesized function-pointer declarators are not implemented
+    3 | I64 (*function_pointer)();
+      |     ^

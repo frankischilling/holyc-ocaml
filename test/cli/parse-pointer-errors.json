@@ -1,0 +1,36 @@
+[
+  {
+    "code": "HCPARSE0004",
+    "severity": "error",
+    "message": "HolyC types may have at most 4 pointer stars; this star exceeds that limit",
+    "primary": {
+      "path": "cli/parse-pointer-errors.hc",
+      "line": 2,
+      "column": 9,
+      "source_id": 0,
+      "start": 47,
+      "stop": 48
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  },
+  {
+    "code": "HCPARSE0005",
+    "severity": "error",
+    "message": "parenthesized function-pointer declarators are not implemented",
+    "primary": {
+      "path": "cli/parse-pointer-errors.hc",
+      "line": 3,
+      "column": 5,
+      "source_id": 0,
+      "start": 62,
+      "stop": 63
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
