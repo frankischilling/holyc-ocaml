@@ -85,19 +85,31 @@ type register_qualifier = private {
   location : location;
 }
 
+type variadic_marker = private {
+  register_qualifiers : register_qualifier list;
+  spelling : string;
+  location : location;
+}
+
 type function_parameter = private {
   register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
+  function_pointer : function_pointer_declarator option;
   delimiter : declaration_delimiter option;
   location : location;
 }
 
-type variadic_marker = private {
-  register_qualifiers : register_qualifier list;
-  spelling : string;
-  location : location;
+and function_pointer_declarator = private {
+  declarator_opening_parenthesis : location;
+  indirection_layers : pointer_layer list;
+  declarator_closing_parenthesis : location;
+  signature_opening_parenthesis : location;
+  signature_parameters : function_parameter list;
+  signature_variadic : variadic_marker option;
+  signature_closing_parenthesis : location;
+  function_pointer_location : location;
 }
 
 type function_prototype = private {
@@ -201,9 +213,21 @@ val make_function_parameter :
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier option ->
+  function_pointer:function_pointer_declarator option ->
   delimiter:declaration_delimiter option ->
   location:location ->
   function_parameter
+
+val make_function_pointer_declarator :
+  declarator_opening_parenthesis:location ->
+  indirection_layers:pointer_layer list ->
+  declarator_closing_parenthesis:location ->
+  signature_opening_parenthesis:location ->
+  signature_parameters:function_parameter list ->
+  signature_variadic:variadic_marker option ->
+  signature_closing_parenthesis:location ->
+  function_pointer_location:location ->
+  function_pointer_declarator
 
 val make_variadic_marker :
   register_qualifiers:register_qualifier list ->

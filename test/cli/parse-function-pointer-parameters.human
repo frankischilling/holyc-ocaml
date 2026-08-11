@@ -1,0 +1,39 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-function-pointer-parameters.hc:1:1..4:1 items=1
+  function_prototype span=cli/parse-function-pointer-parameters.hc:2:1..3:61 parameters=1 variadic=false
+    binding kind=extern spelling="extern" span=cli/parse-function-pointer-parameters.hc:2:1..2:7
+    return_type primitive=U0 spelling="U0" span=cli/parse-function-pointer-parameters.hc:2:8..2:10
+    name spelling="CallbackForms" span=cli/parse-function-pointer-parameters.hc:2:11..2:24
+    opening_parenthesis span=cli/parse-function-pointer-parameters.hc:2:24..2:25
+    parameter index=0 span=cli/parse-function-pointer-parameters.hc:3:3..3:59
+      type primitive=U8 spelling="U8" span=cli/parse-function-pointer-parameters.hc:3:3..3:5
+      pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-parameters.hc:3:6..3:7
+      function_pointer span=cli/parse-function-pointer-parameters.hc:3:7..3:59 parameters=1 variadic=true
+        opening_parenthesis span=cli/parse-function-pointer-parameters.hc:3:7..3:8
+        pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-parameters.hc:3:8..3:9
+        name spelling="outer" span=cli/parse-function-pointer-parameters.hc:3:9..3:14
+        closing_parenthesis span=cli/parse-function-pointer-parameters.hc:3:14..3:15
+        signature_opening_parenthesis span=cli/parse-function-pointer-parameters.hc:3:15..3:16
+        parameter index=0 span=cli/parse-function-pointer-parameters.hc:3:16..3:55
+          type primitive=I64 spelling="I64" span=cli/parse-function-pointer-parameters.hc:3:16..3:19
+          function_pointer span=cli/parse-function-pointer-parameters.hc:3:20..3:54 parameters=1 variadic=false
+            opening_parenthesis span=cli/parse-function-pointer-parameters.hc:3:20..3:21
+            pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-parameters.hc:3:21..3:22
+            name spelling="inner" span=cli/parse-function-pointer-parameters.hc:3:22..3:27
+            closing_parenthesis span=cli/parse-function-pointer-parameters.hc:3:27..3:28
+            signature_opening_parenthesis span=cli/parse-function-pointer-parameters.hc:3:28..3:29
+            parameter index=0 span=cli/parse-function-pointer-parameters.hc:3:29..3:53
+              register_qualifier kind=reg position=before_type spelling="reg" span=cli/parse-function-pointer-parameters.hc:3:29..3:32
+                explicit_register spelling="R12" span=cli/parse-function-pointer-parameters.hc:3:33..3:36
+              register_qualifier kind=noreg position=before_type spelling="noreg" span=cli/parse-function-pointer-parameters.hc:3:37..3:42
+              type primitive=U8 spelling="U8" span=cli/parse-function-pointer-parameters.hc:3:43..3:45
+              pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-parameters.hc:3:46..3:47
+              pointer_layer depth=2 spelling="*" span=cli/parse-function-pointer-parameters.hc:3:47..3:48
+              name spelling="value" span=cli/parse-function-pointer-parameters.hc:3:48..3:53
+            signature_closing_parenthesis span=cli/parse-function-pointer-parameters.hc:3:53..3:54
+          delimiter kind=comma spelling="," span=cli/parse-function-pointer-parameters.hc:3:54..3:55
+        variadic spelling="..." span=cli/parse-function-pointer-parameters.hc:3:55..3:58
+        signature_closing_parenthesis span=cli/parse-function-pointer-parameters.hc:3:58..3:59
+    closing_parenthesis span=cli/parse-function-pointer-parameters.hc:3:59..3:60
+    semicolon span=cli/parse-function-pointer-parameters.hc:3:60..3:61

@@ -131,6 +131,73 @@ let print_pointer_layers buffer sources ~indent pointer_layers =
         (location_text sources pointer.location))
     pointer_layers
 
+let print_parameter_name buffer sources ~indent = function
+  | Some (name : Ast.identifier) ->
+      Printf.bprintf buffer "%sname spelling=%S span=%s\n" indent name.spelling
+        (location_text sources name.location)
+  | None -> Printf.bprintf buffer "%sname omitted\n" indent
+
+let rec print_function_parameter buffer sources ~indent index
+    (parameter : Ast.function_parameter) =
+  let child_indent = indent ^ "  " in
+  Printf.bprintf buffer "%sparameter index=%d span=%s\n" indent index
+    (location_text sources parameter.location);
+  print_register_qualifiers buffer sources ~indent:child_indent
+    ~position:Ast.Before_type parameter.register_qualifiers;
+  print_type buffer sources ~indent:child_indent parameter.type_specifier;
+  print_register_qualifiers buffer sources ~indent:child_indent
+    ~position:Ast.After_type parameter.register_qualifiers;
+  print_pointer_layers buffer sources ~indent:child_indent
+    parameter.pointer_layers;
+  (match parameter.function_pointer with
+  | None ->
+      print_parameter_name buffer sources ~indent:child_indent parameter.name
+  | Some function_pointer ->
+      print_function_pointer buffer sources ~indent:child_indent
+        ~name:parameter.name function_pointer);
+  Option.iter
+    (fun (delimiter : Ast.declaration_delimiter) ->
+      Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
+        child_indent
+        (delimiter_kind_name delimiter.kind)
+        delimiter.spelling
+        (location_text sources delimiter.location))
+    parameter.delimiter
+
+and print_function_pointer buffer sources ~indent ~name
+    (function_pointer : Ast.function_pointer_declarator) =
+  let child_indent = indent ^ "  " in
+  Printf.bprintf buffer "%sfunction_pointer span=%s parameters=%d variadic=%b\n"
+    indent
+    (location_text sources function_pointer.function_pointer_location)
+    (List.length function_pointer.signature_parameters)
+    (Option.is_some function_pointer.signature_variadic);
+  Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+    (location_text sources function_pointer.declarator_opening_parenthesis);
+  print_pointer_layers buffer sources ~indent:child_indent
+    function_pointer.indirection_layers;
+  print_parameter_name buffer sources ~indent:child_indent name;
+  Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+    (location_text sources function_pointer.declarator_closing_parenthesis);
+  Printf.bprintf buffer "%ssignature_opening_parenthesis span=%s\n" child_indent
+    (location_text sources function_pointer.signature_opening_parenthesis);
+  List.iteri
+    (print_function_parameter buffer sources ~indent:child_indent)
+    function_pointer.signature_parameters;
+  Option.iter
+    (print_variadic_marker buffer sources ~indent:child_indent)
+    function_pointer.signature_variadic;
+  Printf.bprintf buffer "%ssignature_closing_parenthesis span=%s\n" child_indent
+    (location_text sources function_pointer.signature_closing_parenthesis)
+
+and print_variadic_marker buffer sources ~indent
+    (variadic : Ast.variadic_marker) =
+  Printf.bprintf buffer "%svariadic spelling=%S span=%s\n" indent
+    variadic.spelling
+    (location_text sources variadic.location);
+  print_register_qualifiers buffer sources ~indent:(indent ^ "  ")
+    ~position:Ast.Before_type variadic.register_qualifiers
+
 let human sources module_ =
   let buffer = Buffer.create 256 in
   Printf.bprintf buffer "schema %s\n" schema;
@@ -196,39 +263,10 @@ let human sources module_ =
           Printf.bprintf buffer "    opening_parenthesis span=%s\n"
             (location_text sources prototype.opening_parenthesis);
           List.iteri
-            (fun index (parameter : Ast.function_parameter) ->
-              Printf.bprintf buffer "    parameter index=%d span=%s\n" index
-                (location_text sources parameter.location);
-              print_register_qualifiers buffer sources ~indent:"      "
-                ~position:Ast.Before_type parameter.register_qualifiers;
-              print_type buffer sources ~indent:"      "
-                parameter.type_specifier;
-              print_register_qualifiers buffer sources ~indent:"      "
-                ~position:Ast.After_type parameter.register_qualifiers;
-              print_pointer_layers buffer sources ~indent:"      "
-                parameter.pointer_layers;
-              (match parameter.name with
-              | Some name ->
-                  Printf.bprintf buffer "      name spelling=%S span=%s\n"
-                    name.spelling
-                    (location_text sources name.location)
-              | None -> Buffer.add_string buffer "      name omitted\n");
-              Option.iter
-                (fun (delimiter : Ast.declaration_delimiter) ->
-                  Printf.bprintf buffer
-                    "      delimiter kind=%s spelling=%S span=%s\n"
-                    (delimiter_kind_name delimiter.kind)
-                    delimiter.spelling
-                    (location_text sources delimiter.location))
-                parameter.delimiter)
+            (print_function_parameter buffer sources ~indent:"    ")
             prototype.parameters;
           Option.iter
-            (fun variadic ->
-              Printf.bprintf buffer "    variadic spelling=%S span=%s\n"
-                variadic.Ast.spelling
-                (location_text sources variadic.location);
-              print_register_qualifiers buffer sources ~indent:"      "
-                ~position:Ast.Before_type variadic.register_qualifiers)
+            (print_variadic_marker buffer sources ~indent:"    ")
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
             (location_text sources prototype.closing_parenthesis);
@@ -377,25 +415,71 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
         ("location", location_to_yojson sources declarator.location);
       ])
 
-let parameter_to_yojson sources (parameter : Ast.function_parameter) =
+let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
+  `Assoc
+    ([ ("spelling", `String variadic.spelling) ]
+    @ register_qualifier_fields sources variadic.register_qualifiers
+    @ [ ("location", location_to_yojson sources variadic.location) ])
+
+let rec parameter_to_yojson sources (parameter : Ast.function_parameter) =
   `Assoc
     (register_qualifier_fields sources parameter.register_qualifiers
     @ [ ("type", primitive_to_yojson sources parameter.type_specifier) ]
     @ pointer_layer_fields sources parameter.pointer_layers
-    @ (match parameter.name with
-      | None -> []
-      | Some name -> [ ("name", identifier_to_yojson sources name) ])
+    @ (match parameter.function_pointer with
+      | None -> (
+          match parameter.name with
+          | None -> []
+          | Some name -> [ ("name", identifier_to_yojson sources name) ])
+      | Some function_pointer ->
+          [
+            ( "function_pointer",
+              function_pointer_to_yojson sources ~name:parameter.name
+                function_pointer );
+          ])
     @ (match parameter.delimiter with
       | None -> []
       | Some delimiter ->
           [ ("delimiter", delimiter_to_yojson sources delimiter) ])
     @ [ ("location", location_to_yojson sources parameter.location) ])
 
-let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
+and function_pointer_to_yojson sources ~name
+    (function_pointer : Ast.function_pointer_declarator) =
   `Assoc
-    ([ ("spelling", `String variadic.spelling) ]
-    @ register_qualifier_fields sources variadic.register_qualifiers
-    @ [ ("location", location_to_yojson sources variadic.location) ])
+    ([
+       ("kind", `String "function_pointer");
+       ( "opening_parenthesis",
+         location_to_yojson sources
+           function_pointer.declarator_opening_parenthesis );
+     ]
+    @ pointer_layer_fields sources function_pointer.indirection_layers
+    @ (match name with
+      | None -> []
+      | Some name -> [ ("name", identifier_to_yojson sources name) ])
+    @ [
+        ( "closing_parenthesis",
+          location_to_yojson sources
+            function_pointer.declarator_closing_parenthesis );
+        ( "signature_opening_parenthesis",
+          location_to_yojson sources
+            function_pointer.signature_opening_parenthesis );
+        ( "parameters",
+          `List
+            (List.map
+               (parameter_to_yojson sources)
+               function_pointer.signature_parameters) );
+      ]
+    @ (match function_pointer.signature_variadic with
+      | None -> []
+      | Some variadic -> [ ("variadic", variadic_to_yojson sources variadic) ])
+    @ [
+        ( "signature_closing_parenthesis",
+          location_to_yojson sources
+            function_pointer.signature_closing_parenthesis );
+        ( "location",
+          location_to_yojson sources function_pointer.function_pointer_location
+        );
+      ])
 
 let item_to_yojson sources = function
   | Ast.Global_variable variable ->

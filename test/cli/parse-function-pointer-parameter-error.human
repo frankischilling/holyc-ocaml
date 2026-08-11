@@ -1,0 +1,3 @@
+cli/parse-function-pointer-parameter-error.hc:2:31: error[HCPARSE0014]: expected '*' after '(' in function-pointer parameter, but found identifier "callback"
+    2 | extern U0 BrokenCallback(I64 (callback)());
+      |                               ^^^^^^^^

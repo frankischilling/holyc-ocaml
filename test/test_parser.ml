@@ -98,6 +98,11 @@ let expect_one_prototype ast =
       Alcotest.failf "expected one function prototype, got %d items"
         (List.length items)
 
+let expect_function_pointer (parameter : Ast.function_parameter) =
+  match parameter.function_pointer with
+  | Some function_pointer -> function_pointer
+  | None -> Alcotest.fail "expected a function-pointer parameter"
+
 let globals ast =
   List.map
     (function
@@ -1532,6 +1537,348 @@ let function_prototype_source_behavior () =
     "ordinary parameterless prototype" true
     (contains compiler_api "extern U8 *CmdLinePmt();")
 
+let function_pointer_parameter_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ("function-pointer declarator branch", "if (cc->token=='(') {");
+      ("function-pointer requires a star", "if (Lex(cc)!='*')");
+      ("function-pointer starts at one star", "ptr_stars_cnt=1; //fun_ptr");
+      ("function-pointer accepts more stars", "while (Lex(cc)=='*')");
+      ( "function-pointer joins a nested signature",
+        "fun_ptr=PrsFunJoin(cc,tmpc1,NULL,fsp_flags)+ptr_stars_cnt;" );
+      ("function-pointer metadata reaches members", "tmpm->flags|=MLF_FUN;");
+    ];
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  Alcotest.(check bool)
+    "nested signature reuses the function-argument parser" true
+    (contains statement_parser "PrsVarLst(cc,tmpf,PRS0_NULL|PRS1_FUN_ARG);");
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  Alcotest.(check bool)
+    "function-pointer depth uses the shared star limit" true
+    (contains kernel_header "#define PTR_STARS_NUM\t4");
+  let kernel_api = pinned "Kernel/KernelB.HH" in
+  Alcotest.(check bool)
+    "pinned API contains a variadic double function pointer" true
+    (contains kernel_api "I64 (**ext)(...);");
+  let kernel_public_api = pinned "Kernel/KernelC.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains kernel_public_api fragment))
+    [
+      ("FarCall32 callback", "Bool FarCall32(U0 (*fp_addr)());");
+      ("pointer-returning callback", "U8  *(*fp_getstr2)(I64 flags=0);");
+    ];
+  let quicksort = pinned "Kernel/QSort.HC" in
+  Alcotest.(check bool)
+    "quicksort comparator callback" true
+    (contains quicksort "I64 (*fp_compare)(I64 e1,I64 e2)")
+
+let pinned_function_pointer_prototypes () =
+  let source =
+    "public _extern _FAR_CALL32 Bool FarCall32(U0 (*fp_addr)());\n\
+     public argpop extern I64 CallStkGrow(I64 stk_size_threshold,I64 stk_size,\n\
+     I64 (*fp_addr)(...),...);\n\
+     extern U0 QSortI64(I64 *base,I64 num,\n\
+     I64 (*fp_compare)(I64 e1,I64 e2));"
+  in
+  let _, _, output = parse_string source in
+  match expect_ast output |> prototypes with
+  | [ far_call; stack_grow; quicksort ] ->
+      Alcotest.(check string)
+        "FarCall32 alternate target" "_FAR_CALL32"
+        (far_call.binding.target |> Option.get |> fun target -> target.spelling);
+      let far_address =
+        far_call.parameters |> List.hd |> expect_function_pointer
+      in
+      Alcotest.(check int)
+        "FarCall32 callback has an empty signature" 0
+        (List.length far_address.signature_parameters);
+      Alcotest.(check bool)
+        "CallStkGrow is variadic" true
+        (Option.is_some stack_grow.variadic);
+      Alcotest.(check int)
+        "CallStkGrow fixed parameter count" 3
+        (List.length stack_grow.parameters);
+      let grow_address =
+        List.nth stack_grow.parameters 2 |> expect_function_pointer
+      in
+      Alcotest.(check bool)
+        "CallStkGrow callback is variadic" true
+        (Option.is_some grow_address.signature_variadic);
+      let compare =
+        List.nth quicksort.parameters 2 |> expect_function_pointer
+      in
+      Alcotest.(check int)
+        "QSort comparator arity" 2
+        (List.length compare.signature_parameters)
+  | items ->
+      Alcotest.failf "expected three pinned callback prototypes, got %d"
+        (List.length items)
+
+let direct_function_pointer_parameters () =
+  let source =
+    "extern U0 Callbacks(I64 (*one)(),I64 (**two)(),I64 (***three)(),\n\
+     I64 (****four)(),U8 *(*get)(I64 flags),I64 (*)(I64 value),\n\
+     I64 (**dispatch)(...),\n\
+     I64 (*outer)(I64 (*inner)(reg R12 noreg U8 **value)));"
+  in
+  let session, _, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  Alcotest.(check int)
+    "function-pointer parameter count" 8
+    (List.length prototype.parameters);
+  let pointers = List.map expect_function_pointer prototype.parameters in
+  Alcotest.(check (list int))
+    "declarator pointer depths" [ 1; 2; 3; 4; 1; 1; 2; 1 ]
+    (List.map
+       (fun (pointer : Ast.function_pointer_declarator) ->
+         List.length pointer.indirection_layers)
+       pointers);
+  Alcotest.(check (list int))
+    "return pointer depths stay separate" [ 0; 0; 0; 0; 1; 0; 0; 0 ]
+    (List.map
+       (fun (parameter : Ast.function_parameter) ->
+         List.length parameter.pointer_layers)
+       prototype.parameters);
+  Alcotest.(check (list (option string)))
+    "function-pointer names"
+    [
+      Some "one";
+      Some "two";
+      Some "three";
+      Some "four";
+      Some "get";
+      None;
+      Some "dispatch";
+      Some "outer";
+    ]
+    (List.map
+       (fun (parameter : Ast.function_parameter) ->
+         Option.map
+           (fun (name : Ast.identifier) -> name.spelling)
+           parameter.name)
+       prototype.parameters);
+  let get = List.nth pointers 4 in
+  Alcotest.(check string)
+    "pointer-returning signature parameter" "flags"
+    ( get.signature_parameters |> List.hd |> fun parameter ->
+      parameter.name |> Option.get |> fun name -> name.spelling );
+  let unnamed = List.nth pointers 5 in
+  Alcotest.(check int)
+    "unnamed callback signature parameter count" 1
+    (List.length unnamed.signature_parameters);
+  let dispatch = List.nth pointers 6 in
+  Alcotest.(check bool)
+    "variadic callback marker" true
+    (Option.is_some dispatch.signature_variadic);
+  let outer = List.nth pointers 7 in
+  let inner_parameter = List.hd outer.signature_parameters in
+  Alcotest.(check string)
+    "nested callback name" "inner"
+    (inner_parameter.name |> Option.get |> fun name -> name.spelling);
+  let inner = expect_function_pointer inner_parameter in
+  let value = List.hd inner.signature_parameters in
+  Alcotest.(check int)
+    "nested callback parameter pointer depth" 2
+    (List.length value.pointer_layers);
+  Alcotest.(check (list string))
+    "nested callback register qualifiers"
+    [ "reg:before_type:R12"; "noreg:before_type:none" ]
+    (List.map register_qualifier_signature value.register_qualifiers);
+  List.iter
+    (fun (pointer : Ast.function_pointer_declarator) ->
+      Alcotest.(check int)
+        "declarator opening width" 1
+        (pointer.declarator_opening_parenthesis.span.stop
+       - pointer.declarator_opening_parenthesis.span.start);
+      Alcotest.(check int)
+        "declarator closing width" 1
+        (pointer.declarator_closing_parenthesis.span.stop
+       - pointer.declarator_closing_parenthesis.span.start);
+      Alcotest.(check int)
+        "signature opening width" 1
+        (pointer.signature_opening_parenthesis.span.stop
+       - pointer.signature_opening_parenthesis.span.start);
+      Alcotest.(check int)
+        "signature closing width" 1
+        (pointer.signature_closing_parenthesis.span.stop
+       - pointer.signature_closing_parenthesis.span.start);
+      Alcotest.(check int)
+        "function-pointer span starts at declarator"
+        pointer.declarator_opening_parenthesis.span.start
+        pointer.function_pointer_location.span.start;
+      Alcotest.(check int)
+        "function-pointer span ends at signature"
+        pointer.signature_closing_parenthesis.span.stop
+        pointer.function_pointer_location.span.stop)
+    pointers;
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check string)
+    "JSON function-pointer kind" "function_pointer"
+    (json_pointer |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "JSON function-pointer depth" 1
+    (json_pointer |> member "pointer_layers" |> to_list |> List.length)
+
+let definition_backed_function_pointer_parameter () =
+  let source =
+    "#define LP (\n\
+     #define STAR *\n\
+     #define CALLBACK callback\n\
+     #define RP )\n\
+     extern U0 Generated(I64 LP STAR CALLBACK RP LP I64 value RP);"
+  in
+  let session, root, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let parameter = List.hd prototype.parameters in
+  let pointer = expect_function_pointer parameter in
+  let name = Option.get parameter.name in
+  let star = List.hd pointer.indirection_layers in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " retains its invocation")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " retains its definition")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("declarator opening", pointer.declarator_opening_parenthesis);
+      ("declarator star", star.location);
+      ("function-pointer name", name.location);
+      ("declarator closing", pointer.declarator_closing_parenthesis);
+      ("signature opening", pointer.signature_opening_parenthesis);
+      ("signature closing", pointer.signature_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated declarator provenance" true
+    (json_pointer
+    |> member "opening_parenthesis"
+    |> member "generated_from" <> `Null)
+
+let function_pointer_streaming_visibility () =
+  let source =
+    "extern U0 Callback(I64 (*callback)());\n\
+     #ifdef Callback\n\
+     U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable variable ] ->
+      Alcotest.(check string)
+        "published callback prototype" "Callback" prototype.name.spelling;
+      Alcotest.(check string)
+        "selected conditional branch" "selected" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected a callback prototype and global, got %d items"
+        (List.length items)
+
+let function_pointer_parameter_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected callback prototype %s became visible" name)
+    [
+      ( "missing declarator star",
+        "extern U0 MissingStar(I64 (callback)());",
+        "MissingStar",
+        "HCPARSE0014",
+        "expected '*' after '('" );
+      ( "missing declarator closing parenthesis",
+        "extern U0 MissingDeclaratorClose(I64 (*callback());",
+        "MissingDeclaratorClose",
+        "HCPARSE0014",
+        "expected ')' after function-pointer name" );
+      ( "missing signature opening parenthesis",
+        "extern U0 MissingSignatureOpen(I64 (*callback));",
+        "MissingSignatureOpen",
+        "HCPARSE0014",
+        "expected '(' for function-pointer signature" );
+      ( "missing nested parameter type",
+        "extern U0 MissingNestedType(I64 (*callback)(,));",
+        "MissingNestedType",
+        "HCPARSE0009",
+        "parameter type" );
+      ( "missing nested parameter delimiter",
+        "extern U0 MissingNestedDelimiter(I64 (*callback)(I64 first U8 \
+         second));",
+        "MissingNestedDelimiter",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "missing signature closing parenthesis",
+        "extern U0 MissingSignatureClose(I64 (*callback)(I64 value;",
+        "MissingSignatureClose",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "function-pointer depth",
+        "extern U0 TooDeep(I64 (*****callback)());",
+        "TooDeep",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+    ];
+  let rec nested depth =
+    if depth = 0 then "I64 value"
+    else Printf.sprintf "I64 (*level%d)(%s)" depth (nested (depth - 1))
+  in
+  let name = "TooNested" in
+  let source = Printf.sprintf "extern U0 %s(%s);" name (nested 33) in
+  let session, _, output = parse_string source in
+  Alcotest.(check bool)
+    "excessive nesting has no AST" true
+    (Option.is_none output.ast);
+  let diagnostic = first_diagnostic output in
+  Alcotest.(check string) "excessive nesting code" "HCPARSE0017" diagnostic.code;
+  Alcotest.(check bool)
+    "excessive nesting message" true
+    (contains diagnostic.message "hosted limit of 32");
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      name
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "excessively nested callback prototype became visible"
+
 let direct_function_prototypes () =
   let source =
     "extern U8 *CmdLinePmt();\n\
@@ -1803,11 +2150,6 @@ let function_prototype_failures () =
         "Registered",
         "HCPARSE0013",
         "must appear before" );
-      ( "function-pointer parameter",
-        "extern U0 Callback(I64 (*callback)());",
-        "Callback",
-        "HCPARSE0014",
-        "function-pointer parameters" );
       ( "parameter pointer depth",
         "extern U0 TooDeep(U8 *****value);",
         "TooDeep",
@@ -2108,6 +2450,18 @@ let tests =
       function_streaming_visibility;
     Alcotest.test_case "function prototype failures" `Quick
       function_prototype_failures;
+    Alcotest.test_case "pinned function-pointer parameter behavior" `Quick
+      function_pointer_parameter_source_behavior;
+    Alcotest.test_case "pinned function-pointer prototypes" `Quick
+      pinned_function_pointer_prototypes;
+    Alcotest.test_case "function-pointer parameters" `Quick
+      direct_function_pointer_parameters;
+    Alcotest.test_case "definition-backed function-pointer parameter" `Quick
+      definition_backed_function_pointer_parameter;
+    Alcotest.test_case "function-pointer prototype visibility" `Quick
+      function_pointer_streaming_visibility;
+    Alcotest.test_case "function-pointer parameter failures" `Quick
+      function_pointer_parameter_failures;
     Alcotest.test_case "pinned parameter register behavior" `Quick
       function_parameter_register_source_behavior;
     Alcotest.test_case "function parameter register qualifiers" `Quick
