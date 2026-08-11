@@ -11,12 +11,14 @@ type located_token = {
 type cursor = {
   stream : Preprocessor.t;
   symbols : Symbol_visibility.Environment.t;
+  compilation_mode : Preprocessor.compilation_mode;
   mutable lookahead : located_token option;
   mutable diagnostics_rev : Common.Diagnostic.t list;
 }
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
+type parsed_binding = { node : Ast.declaration_binding; item : located_token }
 
 let max_pointer_depth = 4
 
@@ -174,7 +176,7 @@ let declaration_modifier_kind token =
   | Token_kind.Keyword Keyword.Static -> Some Ast.Static
   | _ -> None
 
-let rec parse_modifiers cursor modifiers_rev =
+let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
   let item = peek cursor in
   match declaration_modifier_kind item.token with
   | None -> List.rev modifiers_rev
@@ -185,6 +187,24 @@ let rec parse_modifiers cursor modifiers_rev =
           ~location:(token_location item.token)
       in
       parse_modifiers cursor ({ node; item } :: modifiers_rev)
+
+let declaration_binding_kind token =
+  match token.Token.kind with
+  | Token_kind.Keyword Keyword.Extern -> Some Ast.Extern
+  | Token_kind.Keyword Keyword.Import -> Some Ast.Import
+  | _ -> None
+
+let parse_binding cursor =
+  let item = peek cursor in
+  match declaration_binding_kind item.token with
+  | None -> None
+  | Some kind ->
+      let item = take cursor in
+      let node =
+        Ast.make_declaration_binding ~kind ~spelling:item.token.raw
+          ~location:(token_location item.token)
+      in
+      Some ({ node; item } : parsed_binding)
 
 let parse_declarator cursor primitive_spelling =
   match parse_pointer_layers cursor 0 [] [] with
@@ -264,70 +284,104 @@ let parse_global cursor =
       (fun (modifier : parsed_modifier) -> modifier.item.token)
       parsed_modifiers
   in
-  let type_item = take cursor in
-  let spelling = token_text type_item.token in
-  match
-    (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
-  with
-  | Token_kind.Identifier, Some primitive -> (
-      match parse_declarators cursor spelling [] with
-      | None -> None
-      | Some declarators -> (
-          let type_specifier =
-            Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-              ~location:(token_location type_item.token)
-          in
-          let declaration_tokens =
-            modifier_tokens
-            @ type_item.token
-              :: List.concat_map
-                   (fun (item : parsed_declarator) -> item.tokens)
-                   declarators
-          in
-          match declarators with
-          | [ declarator ] ->
-              let variable =
-                Ast.make_global_variable ~modifiers ~type_specifier
-                  ~pointer_layers:declarator.node.pointer_layers
-                  ~name:declarator.node.name
-                  ~semicolon:declarator.node.delimiter.location.span
-                  ~location:(location_from_tokens declaration_tokens)
-              in
-              Some (Ast.Global_variable variable)
-          | _ ->
-              let declaration =
-                Ast.make_global_declaration ~modifiers ~type_specifier
-                  ~declarators:
-                    (List.map
-                       (fun (item : parsed_declarator) -> item.node)
-                       declarators)
-                  ~location:(location_from_tokens declaration_tokens)
-              in
-              Some (Ast.Global_declaration declaration)))
-  | _ ->
-      let prefix =
-        match modifiers with
-        | [] -> "at the start of a global declaration"
-        | _ ->
-            Printf.sprintf "after declaration modifier%s %S"
-              (if List.length modifiers = 1 then "" else "s")
-              (modifiers
-              |> List.map (fun (modifier : Ast.declaration_modifier) ->
-                  modifier.spelling)
-              |> String.concat " ")
-      in
-      report cursor type_item ~code:"HCPARSE0001"
+  let parsed_binding = parse_binding cursor in
+  match parsed_binding with
+  | Some binding
+    when binding.node.kind = Ast.Import
+         && cursor.compilation_mode = Preprocessor.Jit ->
+      report cursor binding.item ~code:"HCPARSE0006"
         ~message:
-          (Printf.sprintf "expected a primitive type %s, but found %s" prefix
-             (token_description type_item.token));
+          "import declarations require AOT mode; select AOT mode before \
+           parsing this declaration";
       recover_declaration cursor;
       None
+  | _ -> (
+      let binding =
+        Option.map (fun (item : parsed_binding) -> item.node) parsed_binding
+      in
+      let binding_tokens =
+        parsed_binding
+        |> Option.map (fun (item : parsed_binding) -> item.item.token)
+        |> Option.to_list
+      in
+      let type_item = take cursor in
+      let spelling = token_text type_item.token in
+      match
+        (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
+      with
+      | Token_kind.Identifier, Some primitive -> (
+          match parse_declarators cursor spelling [] with
+          | None -> None
+          | Some declarators -> (
+              let type_specifier =
+                Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
+                  ~location:(token_location type_item.token)
+              in
+              let declaration_tokens =
+                modifier_tokens @ binding_tokens
+                @ type_item.token
+                  :: List.concat_map
+                       (fun (item : parsed_declarator) -> item.tokens)
+                       declarators
+              in
+              match declarators with
+              | [ declarator ] ->
+                  let variable =
+                    Ast.make_global_variable ~modifiers ~binding ~type_specifier
+                      ~pointer_layers:declarator.node.pointer_layers
+                      ~name:declarator.node.name
+                      ~semicolon:declarator.node.delimiter.location.span
+                      ~location:(location_from_tokens declaration_tokens)
+                  in
+                  Some (Ast.Global_variable variable)
+              | _ ->
+                  let declaration =
+                    Ast.make_global_declaration ~modifiers ~binding
+                      ~type_specifier
+                      ~declarators:
+                        (List.map
+                           (fun (item : parsed_declarator) -> item.node)
+                           declarators)
+                      ~location:(location_from_tokens declaration_tokens)
+                  in
+                  Some (Ast.Global_declaration declaration)))
+      | _ ->
+          let prefix =
+            match binding with
+            | Some (binding : Ast.declaration_binding) ->
+                Printf.sprintf "after declaration binding %S" binding.spelling
+            | None -> (
+                match modifiers with
+                | [] -> "at the start of a global declaration"
+                | _ ->
+                    Printf.sprintf "after declaration modifier%s %S"
+                      (if List.length modifiers = 1 then "" else "s")
+                      (modifiers
+                      |> List.map (fun (modifier : Ast.declaration_modifier) ->
+                          modifier.spelling)
+                      |> String.concat " "))
+          in
+          report cursor type_item ~code:"HCPARSE0001"
+            ~message:
+              (Printf.sprintf "expected a primitive type %s, but found %s"
+                 prefix
+                 (token_description type_item.token));
+          recover_declaration cursor;
+          None)
 
 let parse ~sources ~definitions ~symbols ~config source =
   let stream =
     Preprocessor.create ~sources ~definitions ~symbols ~config source
   in
-  let cursor = { stream; symbols; lookahead = None; diagnostics_rev = [] } in
+  let cursor =
+    {
+      stream;
+      symbols;
+      compilation_mode = Preprocessor.Config.compilation_mode config;
+      lookahead = None;
+      diagnostics_rev = [];
+    }
+  in
   let items_rev = ref [] in
   let finished = ref false in
   while not !finished do

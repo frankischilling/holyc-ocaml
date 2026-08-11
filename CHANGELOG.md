@@ -21,3 +21,4 @@
 - Added explicit pointer layers for primitive global declarations, including the pinned four-star limit, definition-generated source provenance, stable depth and function-pointer diagnostics, and human and JSON CLI goldens.
 - Added comma-separated primitive globals with a shared base type, independent pointer depths, explicit delimiter provenance, streaming symbol publication, and human and JSON CLI goldens.
 - Added source-linked `public` and `static` prefixes on primitive globals, preserving their order and definition provenance without claiming linkage or storage behavior.
+- Added source-linked `extern` and AOT-only `import` bindings on primitive globals, with a stable JIT rejection that does not publish the rejected name.

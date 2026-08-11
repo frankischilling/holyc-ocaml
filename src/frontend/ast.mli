@@ -13,6 +13,14 @@ type declaration_modifier = private {
   location : location;
 }
 
+type declaration_binding_kind = Extern | Import
+
+type declaration_binding = private {
+  kind : declaration_binding_kind;
+  spelling : string;
+  location : location;
+}
+
 type primitive_type = private {
   primitive : Sema.Primitive_type.t;
   spelling : string;
@@ -44,6 +52,7 @@ type global_declarator = private {
 
 type global_variable = private {
   modifiers : declaration_modifier list;
+  binding : declaration_binding option;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier;
@@ -53,6 +62,7 @@ type global_variable = private {
 
 type global_declaration = private {
   modifiers : declaration_modifier list;
+  binding : declaration_binding option;
   type_specifier : primitive_type;
   declarators : global_declarator list;
   location : location;
@@ -82,6 +92,12 @@ val make_declaration_modifier :
   location:location ->
   declaration_modifier
 
+val make_declaration_binding :
+  kind:declaration_binding_kind ->
+  spelling:string ->
+  location:location ->
+  declaration_binding
+
 val make_primitive_type :
   primitive:Sema.Primitive_type.t ->
   spelling:string ->
@@ -108,6 +124,7 @@ val make_global_declarator :
 
 val make_global_variable :
   modifiers:declaration_modifier list ->
+  binding:declaration_binding option ->
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier ->
@@ -117,6 +134,7 @@ val make_global_variable :
 
 val make_global_declaration :
   modifiers:declaration_modifier list ->
+  binding:declaration_binding option ->
   type_specifier:primitive_type ->
   declarators:global_declarator list ->
   location:location ->
