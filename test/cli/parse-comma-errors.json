@@ -1,0 +1,36 @@
+[
+  {
+    "code": "HCPARSE0004",
+    "severity": "error",
+    "message": "HolyC types may have at most 4 pointer stars; this star exceeds that limit",
+    "primary": {
+      "path": "cli/parse-comma-errors.hc",
+      "line": 2,
+      "column": 15,
+      "source_id": 0,
+      "start": 90,
+      "stop": 91
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  },
+  {
+    "code": "HCPARSE0003",
+    "severity": "error",
+    "message": "expected ';' after global variable \"right\", but found end of input",
+    "primary": {
+      "path": "cli/parse-comma-errors.hc",
+      "line": 4,
+      "column": 1,
+      "source_id": 0,
+      "start": 115,
+      "stop": 115
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
