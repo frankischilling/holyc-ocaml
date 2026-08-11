@@ -49,6 +49,23 @@ The generator preserves these records so changes in the reference cannot pass un
 
 `RT_PTR` has raw ID 10, the same ID as signed `RT_I64`. The source comment explains that signed representation permits negative error codes. `Primitive_type.pointer_representation` records the alias for later pointer work, but `I64` values do not thereby become pointers.
 
+## Direct primitive global declarations
+
+The first parser grammar is deliberately narrow:
+
+```text
+module          := global-variable*
+global-variable := primitive identifier ";"
+primitive       := I0 | I8 | I16 | I32 | I64
+                 | U0 | U8 | U16 | U32 | U64 | F64 | Bool
+```
+
+Empty and comment-only inputs are valid modules. Direct declarations retain source order, the exact type and identifier spellings, the semicolon span, and ordered source segments. Includes and definitions run through the integrated stream before parsing. A parser diagnostic produced inside an include retains its include stack, while a diagnostic on definition-generated text records both the expansion and declaration sites.
+
+`Compiler/PrsStmt.HC:PrsStmt` recognizes a type at top level and calls `PrsGlblVarLst`. `PrsGlblVarLst` and `Compiler/PrsVar.HC:PrsType` also support commas, initializers, pointers, arrays, functions, and other forms. Those forms are not silently stored as raw tokens here. They produce `HCPARSE0001`, `HCPARSE0002`, or `HCPARSE0003`, recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
+
+`holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
+
 ## Operators and precedence
 
 The generated operator table follows `Compiler/CInit.HC:CmpFillTables`. The binary entries appear in these source bands:
@@ -82,16 +99,16 @@ Compiler options are bit indices stored in `CCmpCtrl.opts`. `Compiler/Lex.HC:Cmp
 
 | Source name | Bit | Default | Observed phase | Source note |
 | --- | ---: | --- | --- | --- |
-| `OPTf_ECHO` | 0 | Off | Lexing | — |
-| `OPTf_TRACE` | 1 | Off | Parsing and trace output | — |
+| `OPTf_ECHO` | 0 | Off | Lexing | None |
+| `OPTf_TRACE` | 1 | Off | Parsing and trace output | None |
 | `OPTf_WARN_UNUSED_VAR` | 16 | On | Function diagnostics | Applied to functions, not statements |
 | `OPTf_WARN_PAREN` | 17 | Off | Diagnostics | Warns about unnecessary parentheses |
 | `OPTf_WARN_DUP_TYPES` | 18 | Off | Parsing and diagnostics | Warns about duplicate local type statements |
-| `OPTf_WARN_HEADER_MISMATCH` | 19 | On | Function declarations | — |
-| `OPTf_EXTERNS_TO_IMPORTS` | 32 | Off | Parsing and linkage | — |
-| `OPTf_KEEP_PRIVATE` | 33 | Off | Symbol registration | — |
+| `OPTf_WARN_HEADER_MISMATCH` | 19 | On | Function declarations | None |
+| `OPTf_EXTERNS_TO_IMPORTS` | 32 | Off | Parsing and linkage | None |
+| `OPTf_KEEP_PRIVATE` | 33 | Off | Symbol registration | None |
 | `OPTf_NO_REG_VAR` | 34 | Off | Optimization | Applied to functions, not statements |
-| `OPTf_GLBLS_ON_DATA_HEAP` | 35 | Off | Allocation | — |
+| `OPTf_GLBLS_ON_DATA_HEAP` | 35 | Off | Allocation | None |
 | `OPTf_NO_BUILTIN_CONST` | 36 | Off | Code emission | Applied to functions, not statements |
 | `OPTf_USE_IMM64` | 37 | Off | Optimization and code emission | Not completely implemented in the pinned source |
 
@@ -101,4 +118,4 @@ HolyC's `Option(bit, state)` changes the current compile controller and returns 
 
 ## Current boundary
 
-The implemented language specification currently supplies immutable primitive type facts, operator tables, and compiler-option facts. It does not implement expression parsing, type declarations, promotions, conversions, pointers, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for direct primitive global variables. It does not implement extended declarators, initializers, expressions, statements, functions, classes, unions, promotions, conversions, pointers, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
