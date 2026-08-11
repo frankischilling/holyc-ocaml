@@ -1,6 +1,8 @@
 type location = private {
   span : Common.Span.t;
   source_segments : Common.Span.t list;
+  generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
 }
 
 type primitive_type = private {
@@ -11,8 +13,15 @@ type primitive_type = private {
 
 type identifier = private { spelling : string; location : location }
 
+type pointer_layer = private {
+  depth : int;
+  spelling : string;
+  location : location;
+}
+
 type global_variable = private {
   type_specifier : primitive_type;
+  pointer_layers : pointer_layer list;
   name : identifier;
   semicolon : Common.Span.t;
   location : location;
@@ -27,7 +36,12 @@ type module_ = private {
 }
 
 val make_location :
-  span:Common.Span.t -> source_segments:Common.Span.t list -> location
+  ?generated_from:Common.Span.t ->
+  ?defined_at:Common.Span.t ->
+  span:Common.Span.t ->
+  source_segments:Common.Span.t list ->
+  unit ->
+  location
 
 val make_primitive_type :
   primitive:Sema.Primitive_type.t ->
@@ -37,8 +51,12 @@ val make_primitive_type :
 
 val make_identifier : spelling:string -> location:location -> identifier
 
+val make_pointer_layer :
+  depth:int -> spelling:string -> location:location -> pointer_layer
+
 val make_global_variable :
   type_specifier:primitive_type ->
+  pointer_layers:pointer_layer list ->
   name:identifier ->
   semicolon:Common.Span.t ->
   location:location ->

@@ -3,6 +3,8 @@ type output = {
   diagnostics : Common.Diagnostic.t list;
 }
 
+val max_pointer_depth : int
+
 val parse :
   sources:Common.Source_manager.t ->
   definitions:Definition.Environment.t ->
