@@ -12,4 +12,6 @@ let () =
       ("operator table", Test_operator_table.tests);
       ("compiler option source", Test_compiler_option_source.tests);
       ("compiler option", Test_compiler_option.tests);
+      ("intermediate code source", Test_intermediate_code_source.tests);
+      ("intermediate code", Test_intermediate_code.tests);
     ]
