@@ -30,7 +30,23 @@ let seed_compiler_symbols symbols =
         ~kind:Symbol_visibility.Internal_type
         ~path:Generated.Primitive_raw_types.cinit_source_path
         ~line:entry.source_line)
-    Generated.Primitive_raw_types.internal_types
+    Generated.Primitive_raw_types.internal_types;
+  List.iter
+    (fun (register : Generated.Opcode_keywords.register) ->
+      add_pinned symbols ~name:register.spelling
+        ~kind:Symbol_visibility.Register
+        ~path:Generated.Opcode_keywords.source_path ~line:register.source_line)
+    Generated.Opcode_keywords.registers;
+  List.iter
+    (fun (opcode : Generated.Opcode_keywords.opcode) ->
+      add_pinned symbols ~name:opcode.spelling ~kind:Symbol_visibility.Opcode
+        ~path:Generated.Opcode_keywords.source_path ~line:opcode.source_line;
+      List.iter
+        (fun (alias : Generated.Opcode_keywords.opcode_alias) ->
+          add_pinned symbols ~name:alias.spelling ~kind:Symbol_visibility.Opcode
+            ~path:Generated.Opcode_keywords.source_path ~line:alias.source_line)
+        opcode.aliases)
+    Generated.Opcode_keywords.opcodes
 
 let create () =
   let symbols = Symbol_visibility.Environment.create () in

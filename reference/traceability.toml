@@ -55,6 +55,39 @@ tests = ["test/test_lexer.ml", "test/test_opcode_table_source.ml"]
 status = "implemented"
 
 [[feature]]
+id = "HC-ASM-OPCODE-DATABASE"
+description = "The complete pinned register and opcode grammar produces deterministic records for every instruction form and compiler-visible spelling."
+sources = [
+  "Compiler/AsmInit.HC:AsmPrsInsFlags",
+  "Compiler/AsmInit.HC:AsmHashLoad",
+  "Compiler/OpCodes.DD",
+  "Compiler/CInit.HC:ST_ARG_TYPES",
+  "Kernel/KernelA.HH:CInst",
+  "Kernel/KernelA.HH:CHashOpcode",
+  "Kernel/KernelA.HH:HTT_OPCODE",
+  "Kernel/KernelA.HH:HTT_REG"
+]
+implementation = [
+  "src/generated/opcode_keywords.ml",
+  "src/frontend/symbol_visibility.ml",
+  "src/driver/session.ml",
+  "tools/opcode_table_source.ml",
+  "tools/opcode_table_gen.ml"
+]
+tests = [
+  "test/test_opcode_table_source.ml",
+  "test/test_symbol_visibility.ml",
+  "test/test_preprocessor.ml"
+]
+status = "implemented"
+issue = 30
+registers = 106
+canonical_opcodes = 325
+aliases = 49
+instruction_forms = 924
+encoding_status = "planned"
+
+[[feature]]
 id = "HC-LEX-LITERALS"
 description = "The lexer recognizes wrapping 64-bit integers, F64 literals, strings, and little-endian character constants up to eight bytes."
 sources = ["Compiler/Lex.HC:Lex", "Compiler/Lex.HC:LexInStr", "Doc/HolyC.DD"]
@@ -372,7 +405,7 @@ tests = [
 ]
 status = "implemented"
 issue = 29
-known_difference_issues = [24, 27, 30]
+known_difference_issues = [24, 27]
 
 [[feature]]
 id = "HC-PREPROCESSOR-CONSTANT-IF"

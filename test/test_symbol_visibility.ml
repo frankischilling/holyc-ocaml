@@ -65,7 +65,7 @@ let session_builtins () =
   let session = Session.create () in
   let symbols = Session.symbols session in
   let entries = Symbol_visibility.Environment.all symbols in
-  Alcotest.(check int) "checked built-in entries" 90 (List.length entries);
+  Alcotest.(check int) "checked built-in entries" 570 (List.length entries);
   List.iter
     (fun (name, expected_kind) ->
       match Symbol_visibility.Environment.find_preprocessor symbols name with
@@ -80,11 +80,22 @@ let session_builtins () =
       ("ifjit", Symbol_visibility.Keyword);
       ("ALIGN", Symbol_visibility.Assembly_keyword);
       ("I64i", Symbol_visibility.Internal_type);
+      ("RAX", Symbol_visibility.Register);
+      ("FS", Symbol_visibility.Register);
+      ("ST3", Symbol_visibility.Register);
+      ("MM7", Symbol_visibility.Register);
+      ("XMM7", Symbol_visibility.Register);
+      ("MOV", Symbol_visibility.Opcode);
+      ("JZ", Symbol_visibility.Opcode);
+      ("SAL", Symbol_visibility.Opcode);
     ];
   let first = List.hd entries in
   let last = List.hd (List.rev entries) in
   Alcotest.(check int) "first stable ID" 0 (Symbol_visibility.id first);
-  Alcotest.(check int) "last stable ID" 89 (Symbol_visibility.id last)
+  Alcotest.(check int) "last stable ID" 569 (Symbol_visibility.id last);
+  Alcotest.(check string)
+    "last seeded spelling" "MOV_RAX_CR4"
+    (Symbol_visibility.name last)
 
 let import_filtering () =
   let symbols = Symbol_visibility.Environment.create () in
@@ -163,7 +174,7 @@ let deterministic_dump () =
   Alcotest.(check bool)
     "source origin" true
     (contains_text first
-       "symbol 90 name=\"UserFunction\" kind=function \
+       "symbol 570 name=\"UserFunction\" kind=function \
         origin=visibility.HC:1:1..1:2")
 
 let tests =
