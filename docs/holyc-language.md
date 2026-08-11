@@ -49,6 +49,33 @@ The generator preserves these records so changes in the reference cannot pass un
 
 `RT_PTR` has raw ID 10, the same ID as signed `RT_I64`. The source comment explains that signed representation permits negative error codes. `Primitive_type.pointer_representation` records the alias for later pointer work, but `I64` values do not thereby become pointers.
 
+## Operators and precedence
+
+The generated operator table follows `Compiler/CInit.HC:CmpFillTables`. The binary entries appear in these source bands:
+
+| Precedence constant | Value | Operators |
+| --- | ---: | --- |
+| `PREC_EXP` | `0x10` | `` ` ``, `<<`, `>>` |
+| `PREC_MUL` | `0x14` | `*`, `/`, `%` |
+| `PREC_AND` | `0x18` | `&` |
+| `PREC_XOR` | `0x1C` | `^` |
+| `PREC_OR` | `0x20` | `\|` |
+| `PREC_ADD` | `0x24` | `+`, `-` |
+| `PREC_CMP` | `0x28` | `<`, `>`, `<=`, `>=` |
+| `PREC_CMP2` | `0x2C` | `==`, `!=` |
+| `PREC_AND_AND` | `0x30` | `&&` |
+| `PREC_XOR_XOR` | `0x34` | `^^` |
+| `PREC_OR_OR` | `0x38` | `\|\|` |
+| `PREC_ASSIGN` | `0x3C` | `=`, `<<=`, `>>=`, `*=`, `/=`, `%=`, `&=`, `\|=`, `^=`, `+=`, `-=` |
+
+Power and assignments carry `ASSOCF_RIGHT`. Shifts, division, modulo, and subtraction carry `ASSOCF_LEFT`. Other records have no association flag in the source, so the API reports `Unspecified`. A later expression parser must preserve the original parser's use of these flags rather than treating `Unspecified` as a guessed C default.
+
+The backtick operator maps to `IC_POWER`. HolyC logical XOR is `^^` and maps to `IC_XOR_XOR`. No ternary operator appears in the table, matching the language documentation.
+
+The prose precedence list in `Doc/HolyC.DD` omits `%=`. The executable table includes `TK_MOD_EQU` at `PREC_ASSIGN`, mapped to `IC_MOD_EQU`; that source record is authoritative.
+
+Compound recognition is not a flat list in TempleOS. Three ordered arrays resolve shared prefixes, while `Lex` handles `<<=`, `>>=`, `..`, `...`, and `$$` separately. The current lexer consumes the generated spellings in longest-first order, but the generated audit data retains each original recognition group and source line.
+
 ## Current boundary
 
-This slice supplies immutable type identity and representation facts. It does not implement type declarations, promotions, conversions, pointers, aggregate layout, floating execution, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification currently supplies immutable primitive type facts and operator tables. It does not implement expression parsing, type declarations, promotions, conversions, pointers, aggregate layout, floating execution, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
