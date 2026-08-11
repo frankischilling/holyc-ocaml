@@ -18,6 +18,12 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 The first slice keeps the complete language keyword list and operator spellings in one module each. Numeric TempleOS token IDs remain available for audit and deterministic dumps, but OCaml variants provide compiler identity after lexing.
 
+## Keyword and assembler directive records
+
+`Compiler/AsmInit.HC:AsmHashLoad` parses `Compiler/OpCodes.DD` with the compiler lexer. Its `KEYWORD` and `ASM_KEYWORD` statements each contain a spelling, an integer ID, and a terminating semicolon. The pinned file contains 48 language records with IDs 0 through 47 and 25 assembler directive records with IDs 64 through 88.
+
+`tools/opcode_table_source.ml` accepts only that statement shape inside the two table sections. It rejects missing semicolons, duplicate names, duplicate IDs, unexpected statements, reordered records, and incomplete ranges. `tools/opcode_table_gen.ml` writes the checked OCaml table with the reference commit, the `Compiler/OpCodes.DD` blob checksum, and each original source line. The lexer maps its keyword variants onto those generated records. `Asm_directive` exposes exact-spelling lookup for later assembler work but does not parse assembly yet.
+
 ## Literals
 
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.
