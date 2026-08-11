@@ -18,6 +18,15 @@ module Trivia = Frontend.Trivia
 module Token_kind = Frontend.Token_kind
 module Token = Frontend.Token
 module Lexer = Frontend.Lexer
+module Include_resolver = Frontend.Include_resolver
+module Lexer_frame = Frontend.Lexer_frame
+module Preprocessor = Frontend.Preprocessor
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
+
+val preprocess :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  (Token.t list, Diagnostic.t list) result

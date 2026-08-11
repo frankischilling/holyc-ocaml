@@ -19,9 +19,9 @@ let add_string manager ~path ~contents =
   let id = fresh_id manager in
   Source_file.create ~id ~path ~display_path:path ~contents |> register manager
 
-let load ?max_bytes manager ~path =
+let load ?max_bytes ?display_path manager ~path =
   let id = fresh_id manager in
-  match Source_file.load ?max_bytes ~id ~path () with
+  match Source_file.load ?max_bytes ?display_path ~id ~path () with
   | Error _ as error -> error
   | Ok source -> Ok (register manager source)
 

@@ -2,6 +2,7 @@ type t
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
 
 val create : ?mode:Token.mode -> Common.Source_file.t -> t
+val offset : t -> int
 val next : t -> item
 
 val lex_all :

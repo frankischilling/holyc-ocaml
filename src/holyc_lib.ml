@@ -18,5 +18,12 @@ module Trivia = Frontend.Trivia
 module Token_kind = Frontend.Token_kind
 module Token = Frontend.Token
 module Lexer = Frontend.Lexer
+module Include_resolver = Frontend.Include_resolver
+module Lexer_frame = Frontend.Lexer_frame
+module Preprocessor = Frontend.Preprocessor
 
 let lex _session ~source = Frontend.Lexer.lex_all source
+
+let preprocess session ~config ~source =
+  Frontend.Preprocessor.lex_all ~sources:(Session.sources session) ~config
+    source

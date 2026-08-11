@@ -8,9 +8,17 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 ## Lexer state
 
-`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the include stack, while `LexGetChar` owns one-byte pushback and line tracking. The OCaml source model stores the full byte buffer and precomputed line starts, and each lexer instance owns its current offset. Include frames will be added with the integrated preprocessor.
+`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the include stack, while `LexGetChar` owns one-byte pushback and line tracking. Root depth is -1 and the first included frame has depth 0. `LexBackupLastChar` saves the caller cursor and one-character lookahead before a push; `LexGetChar` restores that state and continues without an intermediate EOF after an included buffer ends. The OCaml source model stores the full byte buffer and precomputed line starts. Each `Lexer_frame` owns one lexer cursor, its source, caller, include origin, spelling, and depth.
 
 `Kernel/StrA.HC` shows that the lexer is byte oriented. Identifier starts include ASCII letters, underscore, at sign, and bytes 128 through 255. Digits are accepted after the first byte. The hosted lexer preserves non-ASCII bytes rather than requiring UTF-8.
+
+## Include paths and source frames
+
+The `KW_INCLUDE` branch in `Compiler/Lex.HC:Lex` requires a string token, calls `ExtDft` with `HC.Z`, resolves the result through `FileNameAbs`, and pushes the file with `LexIncludeStr`. `Doc/PreProcessor.DD` rules out a C-style angle-bracket form.
+
+`Kernel/BlkDev/DskStrA.HC:FileNameAbs` delegates to `DirNameAbs`, which starts relative paths from `Fs->cur_dir`; it does not consult the including file's directory. `DirNameAbs` handles root, `::`, home, drive, dot, and parent components. `ExtDft` adds its default only when no extension is present.
+
+`Frontend.Include_resolver` preserves that working-directory rule and adds ordered hosted include roots. `Frontend.Lexer_frame` retains the active canonical path, display spelling, source ID, cursor, include origin, caller, and source depth. `Frontend.Preprocessor` consumes only `#include` in this slice, pushes the resolved source, and resumes the caller at included EOF. It labels canonical root confinement, cycle checks, and depth and byte caps as hosted security behavior because the pinned lexer does not provide those rejections. [The preprocessor notes](preprocessor.md) record the command, diagnostics, and current directive boundary.
 
 ## Tokens and operators
 
@@ -141,5 +149,7 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 
 - Files are finite OCaml byte strings. An embedded NUL is diagnosed because TempleOS uses NUL as an internal buffer terminator.
 - Lines increment on LF, matching `LexGetChar`. CR is whitespace but does not start a new line by itself.
-- A raw lexer command returns `#` as punctuation. Directive execution begins in issue #3 and will replace that tooling behavior only in preprocessed mode.
+- A raw lexer command returns `#` as punctuation. `#include` executes only through the separate preprocessed stream, so tooling can still inspect directive tokens.
+- Extensionless hosted includes try `.HC.Z` and then the decompressed `.HC` form used by the pinned Git checkout. Transparent TempleOS `.Z` decompression remains unimplemented.
+- Allowed-root enforcement, active-path cycle diagnostics, and nesting and size limits are hosted security differences. They are not attributed to the native TempleOS lexer.
 - Dollar-delimited text is retained as comment trivia in raw-source mode. Interpreting DolDoc markup is outside this slice, while `$$` is recognized as the HolyC current-position token.

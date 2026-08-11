@@ -4,6 +4,7 @@
   test_main
   test_source
   test_lexer
+  test_preprocessor
   test_diagnostic
   test_version
   test_opcode_table_source
