@@ -71,6 +71,8 @@ let expect_one_global ast =
   | [ Ast.Global_variable variable ] -> variable
   | [ Ast.Global_declaration _ ] ->
       Alcotest.fail "expected a singleton global, got a declaration group"
+  | [ Ast.Function_prototype _ ] ->
+      Alcotest.fail "expected a singleton global, got a function prototype"
   | items ->
       Alcotest.failf "expected one global, got %d items" (List.length items)
 
@@ -79,8 +81,21 @@ let expect_one_declaration ast =
   | [ Ast.Global_declaration declaration ] -> declaration
   | [ Ast.Global_variable _ ] ->
       Alcotest.fail "expected a declaration group, got a singleton global"
+  | [ Ast.Function_prototype _ ] ->
+      Alcotest.fail "expected a declaration group, got a function prototype"
   | items ->
       Alcotest.failf "expected one declaration group, got %d items"
+        (List.length items)
+
+let expect_one_prototype ast =
+  match ast.Ast.items with
+  | [ Ast.Function_prototype prototype ] -> prototype
+  | [ Ast.Global_variable _ ] ->
+      Alcotest.fail "expected a function prototype, got a singleton global"
+  | [ Ast.Global_declaration _ ] ->
+      Alcotest.fail "expected a function prototype, got a declaration group"
+  | items ->
+      Alcotest.failf "expected one function prototype, got %d items"
         (List.length items)
 
 let globals ast =
@@ -88,7 +103,9 @@ let globals ast =
     (function
       | Ast.Global_variable variable -> variable
       | Ast.Global_declaration _ ->
-          Alcotest.fail "expected singleton globals, got a declaration group")
+          Alcotest.fail "expected singleton globals, got a declaration group"
+      | Ast.Function_prototype _ ->
+          Alcotest.fail "expected singleton globals, got a function prototype")
     ast.Ast.items
 
 let first_diagnostic output =
@@ -119,7 +136,9 @@ let supported_primitives () =
             (Primitive_type.to_string primitive)
             variable.type_specifier.spelling
       | Ast.Global_declaration _ ->
-          Alcotest.fail "primitive fixture unexpectedly formed a group")
+          Alcotest.fail "primitive fixture unexpectedly formed a group"
+      | Ast.Function_prototype _ ->
+          Alcotest.fail "primitive fixture unexpectedly formed a prototype")
     Primitive_type.all ast.items
 
 let pointer_depth_source_limit () =
@@ -973,6 +992,354 @@ let alternate_binding_failures () =
         "at the start of a global declaration" );
     ]
 
+let function_prototype_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("function declarator dispatch", "if (cc->token=='(') {");
+      ("ordinary extern joins a header", "PrsFunJoin(cc,tmpc,st,fsp_flags);");
+      ( "function arguments use their dedicated parser mode",
+        "PrsVarLst(cc,tmpf,PRS0_NULL|PRS1_FUN_ARG);" );
+    ];
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ( "variadic marker dispatch",
+        "cc->token==TK_ELLIPSIS && mode.u8[1]==PRS1B_FUN_ARG" );
+      ("function arrays are rejected", "No arrays in fun args at ");
+      ( "function commas advance to another type",
+        "mode.u8[1]==PRS1B_FUN_ARG && !(mode&PRSF_UNION)" );
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "function-argument mode identity" true
+    (contains compiler_header "#define PRS1_FUN_ARG\t\t0x000200");
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_header fragment))
+    [
+      ("variadic function flag identity", "#define Ff_DOT_DOT_DOT\t\t14");
+      ("ellipsis token identity", "#define TK_ELLIPSIS\t0x124");
+    ];
+  let kernel_api = pinned "Kernel/KernelB.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_api fragment))
+    [
+      ( "bound pointer parameter prototype",
+        "public _extern _CALL I64 Call(U8 *machine_code);" );
+      ("bound parameterless prototype", "public _extern _SYS_HLT U0 SysHlt();");
+    ];
+  let compiler_api = pinned "Compiler/CExts.HC" in
+  Alcotest.(check bool)
+    "ordinary parameterless prototype" true
+    (contains compiler_api "extern U8 *CmdLinePmt();")
+
+let direct_function_prototypes () =
+  let source =
+    "extern U8 *CmdLinePmt();\n\
+     public _extern _SYS_HLT U0 SysHlt();\n\
+     public _extern _CALL I64 Call(U8 *machine_code);\n\
+     extern U8 **Format(I64,U8 **message,...);\n\
+     extern U0 Deep(U8 ****value);"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  match ast.items with
+  | [
+   Ast.Function_prototype cmd_line;
+   Ast.Function_prototype sys_hlt;
+   Ast.Function_prototype call;
+   Ast.Function_prototype format;
+   Ast.Function_prototype deep;
+  ] ->
+      Alcotest.(check string)
+        "ordinary name" "CmdLinePmt" cmd_line.name.spelling;
+      Alcotest.(check int)
+        "ordinary parameter count" 0
+        (List.length cmd_line.parameters);
+      Alcotest.(check bool)
+        "ordinary function is not variadic" false
+        (Option.is_some cmd_line.variadic);
+      Alcotest.(check int)
+        "ordinary return pointer" 1
+        (List.length cmd_line.return_pointer_layers);
+      Alcotest.(check string)
+        "alternate parameterless name" "SysHlt" sys_hlt.name.spelling;
+      Alcotest.(check int)
+        "alternate parameterless count" 0
+        (List.length sys_hlt.parameters);
+      Alcotest.(check string)
+        "alternate target" "_CALL"
+        (call.binding.target |> Option.get |> fun target -> target.spelling);
+      Alcotest.(check (list string))
+        "public modifier" [ "public" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           call.modifiers);
+      let call_parameter = List.hd call.parameters in
+      Alcotest.(check string)
+        "named pointer parameter" "machine_code"
+        (call_parameter.name |> Option.get |> fun name -> name.spelling);
+      Alcotest.(check int)
+        "pointer parameter depth" 1
+        (List.length call_parameter.pointer_layers);
+      Alcotest.(check int)
+        "return pointer depth" 2
+        (List.length format.return_pointer_layers);
+      Alcotest.(check int)
+        "format parameter count" 2
+        (List.length format.parameters);
+      let unnamed = List.hd format.parameters in
+      Alcotest.(check bool)
+        "first format parameter is unnamed" true
+        (Option.is_none unnamed.name);
+      Alcotest.(check string)
+        "unnamed parameter delimiter" ","
+        (unnamed.delimiter |> Option.get |> fun item -> item.spelling);
+      let message = List.nth format.parameters 1 in
+      Alcotest.(check int)
+        "message pointer depth" 2
+        (List.length message.pointer_layers);
+      Alcotest.(check string)
+        "message delimiter" ","
+        (message.delimiter |> Option.get |> fun item -> item.spelling);
+      Alcotest.(check string)
+        "variadic spelling" "..."
+        (format.variadic |> Option.get |> fun item -> item.spelling);
+      Alcotest.(check int)
+        "prototype covers its semicolon" format.semicolon.span.stop
+        format.location.span.stop;
+      Alcotest.(check int)
+        "four pointer layers are accepted" 4
+        ( deep.parameters |> List.hd |> fun parameter ->
+          List.length parameter.pointer_layers )
+  | items ->
+      Alcotest.failf "expected five function prototypes, got %d items"
+        (List.length items)
+
+let function_import_mode_boundary () =
+  List.iter
+    (fun (source, name) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " JIT import has no AST")
+        true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " JIT diagnostic") "HCPARSE0006" (first_diagnostic output).code;
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected JIT prototype %s became visible" name)
+    [
+      ("import I64 OrdinaryImport();", "OrdinaryImport");
+      ("_import REMOTE_ENTRY I64 AlternateImport();", "AlternateImport");
+    ];
+  let session, _, output =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "import I64 OrdinaryImport();\n\
+       _import REMOTE_ENTRY I64 AlternateImport(I64 value);"
+  in
+  let ast = expect_ast output in
+  Alcotest.(check int) "two AOT imports" 2 (List.length ast.items);
+  List.iter
+    (fun name ->
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check string)
+            (name ^ " symbol kind") "function"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "accepted AOT prototype %s is not visible" name)
+    [ "OrdinaryImport"; "AlternateImport" ]
+
+let definition_backed_function_prototype () =
+  let source =
+    "#define OPEN (\n\
+     #define COMMA ,\n\
+     #define CLOSE )\n\
+     extern U0 Generated OPEN I64 value COMMA U8 * CLOSE;"
+  in
+  let session, root, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  Alcotest.(check int)
+    "two generated parameters" 2
+    (List.length prototype.parameters);
+  let opening = prototype.opening_parenthesis in
+  Alcotest.(check bool)
+    "opening parenthesis uses a generated frame" false
+    (Source_id.equal opening.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "opening parenthesis retains its invocation" true
+    (Option.is_some opening.generated_from);
+  Alcotest.(check bool)
+    "opening parenthesis retains its definition" true
+    (Option.is_some opening.defined_at);
+  let comma =
+    prototype.parameters |> List.hd |> fun parameter ->
+    Option.get parameter.delimiter
+  in
+  Alcotest.(check bool)
+    "comma retains its invocation" true
+    (Option.is_some comma.location.generated_from);
+  Alcotest.(check bool)
+    "closing parenthesis retains its definition" true
+    (Option.is_some prototype.closing_parenthesis.defined_at);
+  let open Yojson.Safe.Util in
+  let item =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON prototype kind" "function_prototype"
+    (item |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON retains generated opening origin" true
+    (item |> member "opening_parenthesis" |> member "generated_from" <> `Null)
+
+let function_streaming_visibility () =
+  let source =
+    "extern I64 Visible();\n\
+     #ifdef Visible\n\
+     U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  match ast.items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable variable ] ->
+      Alcotest.(check string)
+        "published function" "Visible" prototype.name.spelling;
+      Alcotest.(check string)
+        "selected branch" "selected" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected a prototype and selected global, got %d items"
+        (List.length items)
+
+let function_prototype_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected prototype %s became visible" name)
+    [
+      ( "unbound function",
+        "U0 Unbound();",
+        "Unbound",
+        "HCPARSE0008",
+        "has no declaration binding" );
+      ( "missing opening parenthesis",
+        "extern U0 NoOpen);",
+        "NoOpen",
+        "HCPARSE0003",
+        "after global variable" );
+      ( "missing parameter type",
+        "extern U0 NoType(,I64 value);",
+        "NoType",
+        "HCPARSE0009",
+        "parameter type" );
+      ( "unknown parameter type",
+        "extern U0 Unknown(Widget value);",
+        "Unknown",
+        "HCPARSE0009",
+        "parameter type" );
+      ( "missing parameter comma",
+        "extern U0 NoComma(I64 first U8 second);",
+        "NoComma",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "missing closing parenthesis",
+        "extern U0 NoClose(I64 value;",
+        "NoClose",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "missing prototype semicolon",
+        "extern U0 NoSemicolon()",
+        "NoSemicolon",
+        "HCPARSE0016",
+        "expected ';'" );
+      ( "trailing parameter comma",
+        "extern U0 Trailing(I64 value,);",
+        "Trailing",
+        "HCPARSE0009",
+        "after ','" );
+      ( "nonterminal variadic marker",
+        "extern U0 Nonterminal(...,I64 value);",
+        "Nonterminal",
+        "HCPARSE0015",
+        "after variadic marker" );
+      ( "default parameter",
+        "extern U0 Defaulted(I64 value=0);",
+        "Defaulted",
+        "HCPARSE0012",
+        "default parameter expressions" );
+      ( "array parameter",
+        "extern U0 Arrayed(I64 values[2]);",
+        "Arrayed",
+        "HCPARSE0011",
+        "array parameters" );
+      ( "register-qualified parameter",
+        "extern U0 Registered(reg I64 value);",
+        "Registered",
+        "HCPARSE0013",
+        "register-qualified parameters" );
+      ( "function-pointer parameter",
+        "extern U0 Callback(I64 (*callback)());",
+        "Callback",
+        "HCPARSE0014",
+        "function-pointer parameters" );
+      ( "parameter pointer depth",
+        "extern U0 TooDeep(U8 *****value);",
+        "TooDeep",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+    ]
+
+let deterministic_function_dumps () =
+  let session, _, output =
+    parse_string "public extern U8 *Print(U8 *format,...);"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human prototype dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON prototype dump repeats byte for byte" json
+    (Ast_dump.json sources ast)
+
 let empty_and_comment_only () =
   List.iter
     (fun contents ->
@@ -994,12 +1361,17 @@ let order_and_spans () =
       (function
         | Ast.Global_variable variable -> variable
         | Ast.Global_declaration _ ->
-            Alcotest.fail "independent declarations unexpectedly formed a group")
+            Alcotest.fail "independent declarations unexpectedly formed a group"
+        | Ast.Function_prototype _ ->
+            Alcotest.fail
+              "independent declarations unexpectedly formed a prototype")
       ast.items
   in
   Alcotest.(check (list string))
     "source order" [ "first"; "second" ]
-    (List.map (fun variable -> variable.Ast.name.spelling) variables);
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       variables);
   let first = List.hd variables in
   Alcotest.(check int) "declaration start" 0 first.location.span.start;
   Alcotest.(check int) "declaration stop" 10 first.location.span.stop;
@@ -1116,7 +1488,9 @@ let declarations_update_symbol_conditionals () =
        (function
          | Ast.Global_variable variable -> variable.Ast.name.spelling
          | Ast.Global_declaration _ ->
-             Alcotest.fail "conditional fixture unexpectedly formed a group")
+             Alcotest.fail "conditional fixture unexpectedly formed a group"
+         | Ast.Function_prototype _ ->
+             Alcotest.fail "conditional fixture unexpectedly formed a prototype")
        ast.items)
 
 let unsupported_forms () =
@@ -1127,7 +1501,7 @@ let unsupported_forms () =
       ("array", "I64 value[3];", "HCPARSE0003");
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
-      ("function", "I64 Function();", "HCPARSE0003");
+      ("function", "I64 Function();", "HCPARSE0008");
       ("statement", "return;", "HCPARSE0001");
     ]
   in
@@ -1220,6 +1594,20 @@ let tests =
       alternate_import_mode_boundary;
     Alcotest.test_case "alternate-name binding failures" `Quick
       alternate_binding_failures;
+    Alcotest.test_case "pinned function prototype behavior" `Quick
+      function_prototype_source_behavior;
+    Alcotest.test_case "bound primitive function prototypes" `Quick
+      direct_function_prototypes;
+    Alcotest.test_case "function import compilation mode boundary" `Quick
+      function_import_mode_boundary;
+    Alcotest.test_case "definition-backed function prototype" `Quick
+      definition_backed_function_prototype;
+    Alcotest.test_case "function prototypes update symbol conditionals" `Quick
+      function_streaming_visibility;
+    Alcotest.test_case "function prototype failures" `Quick
+      function_prototype_failures;
+    Alcotest.test_case "deterministic function dumps" `Quick
+      deterministic_function_dumps;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;

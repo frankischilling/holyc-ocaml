@@ -68,9 +68,34 @@ type global_declaration = private {
   location : location;
 }
 
+type function_parameter = private {
+  type_specifier : primitive_type;
+  pointer_layers : pointer_layer list;
+  name : identifier option;
+  delimiter : declaration_delimiter option;
+  location : location;
+}
+
+type variadic_marker = private { spelling : string; location : location }
+
+type function_prototype = private {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding;
+  return_type : primitive_type;
+  return_pointer_layers : pointer_layer list;
+  name : identifier;
+  opening_parenthesis : location;
+  parameters : function_parameter list;
+  variadic : variadic_marker option;
+  closing_parenthesis : location;
+  semicolon : location;
+  location : location;
+}
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
+  | Function_prototype of function_prototype
 
 type module_ = private {
   source : Common.Source_id.t;
@@ -140,6 +165,31 @@ val make_global_declaration :
   declarators:global_declarator list ->
   location:location ->
   global_declaration
+
+val make_function_parameter :
+  type_specifier:primitive_type ->
+  pointer_layers:pointer_layer list ->
+  name:identifier option ->
+  delimiter:declaration_delimiter option ->
+  location:location ->
+  function_parameter
+
+val make_variadic_marker :
+  spelling:string -> location:location -> variadic_marker
+
+val make_function_prototype :
+  modifiers:declaration_modifier list ->
+  binding:declaration_binding ->
+  return_type:primitive_type ->
+  return_pointer_layers:pointer_layer list ->
+  name:identifier ->
+  opening_parenthesis:location ->
+  parameters:function_parameter list ->
+  variadic:variadic_marker option ->
+  closing_parenthesis:location ->
+  semicolon:location ->
+  location:location ->
+  function_prototype
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_

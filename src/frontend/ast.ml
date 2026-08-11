@@ -63,9 +63,34 @@ type global_declaration = {
   location : location;
 }
 
+type function_parameter = {
+  type_specifier : primitive_type;
+  pointer_layers : pointer_layer list;
+  name : identifier option;
+  delimiter : declaration_delimiter option;
+  location : location;
+}
+
+type variadic_marker = { spelling : string; location : location }
+
+type function_prototype = {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding;
+  return_type : primitive_type;
+  return_pointer_layers : pointer_layer list;
+  name : identifier;
+  opening_parenthesis : location;
+  parameters : function_parameter list;
+  variadic : variadic_marker option;
+  closing_parenthesis : location;
+  semicolon : location;
+  location : location;
+}
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
+  | Function_prototype of function_prototype
 
 type module_ = {
   source : Common.Source_id.t;
@@ -89,10 +114,10 @@ let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
     ~location ~target : declaration_binding =
   { kind; spelling; location; target }
 
-let make_primitive_type ~primitive ~spelling ~location =
+let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }
 
-let make_identifier ~spelling ~location = { spelling; location }
+let make_identifier ~spelling ~location : identifier = { spelling; location }
 
 let make_pointer_layer ~depth ~spelling ~location =
   { depth; spelling; location }
@@ -118,5 +143,29 @@ let make_global_variable ~modifiers ~binding ~type_specifier ~pointer_layers
 let make_global_declaration ~modifiers ~binding ~type_specifier ~declarators
     ~location =
   { modifiers; binding; type_specifier; declarators; location }
+
+let make_function_parameter ~type_specifier ~pointer_layers ~name ~delimiter
+    ~location =
+  { type_specifier; pointer_layers; name; delimiter; location }
+
+let make_variadic_marker ~spelling ~location : variadic_marker =
+  { spelling; location }
+
+let make_function_prototype ~modifiers ~binding ~return_type
+    ~return_pointer_layers ~name ~opening_parenthesis ~parameters ~variadic
+    ~closing_parenthesis ~semicolon ~location =
+  {
+    modifiers;
+    binding;
+    return_type;
+    return_pointer_layers;
+    name;
+    opening_parenthesis;
+    parameters;
+    variadic;
+    closing_parenthesis;
+    semicolon;
+    location;
+  }
 
 let make_module ~source ~span ~items = { source; span; items }

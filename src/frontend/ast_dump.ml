@@ -143,7 +143,60 @@ let human sources module_ =
                 (delimiter_kind_name declarator.delimiter.kind)
                 declarator.delimiter.spelling
                 (location_text sources declarator.delimiter.location))
-            declaration.declarators)
+            declaration.declarators
+      | Ast.Function_prototype prototype ->
+          Printf.bprintf buffer
+            "  function_prototype span=%s parameters=%d variadic=%b\n"
+            (location_text sources prototype.location)
+            (List.length prototype.parameters)
+            (Option.is_some prototype.variadic);
+          print_modifiers buffer sources ~indent:"    " prototype.modifiers;
+          print_binding buffer sources ~indent:"    " (Some prototype.binding);
+          Printf.bprintf buffer
+            "    return_type primitive=%s spelling=%S span=%s\n"
+            (Sema.Primitive_type.to_string prototype.return_type.primitive)
+            prototype.return_type.spelling
+            (location_text sources prototype.return_type.location);
+          print_pointer_layers buffer sources ~indent:"    "
+            prototype.return_pointer_layers;
+          Printf.bprintf buffer "    name spelling=%S span=%s\n"
+            prototype.name.spelling
+            (location_text sources prototype.name.location);
+          Printf.bprintf buffer "    opening_parenthesis span=%s\n"
+            (location_text sources prototype.opening_parenthesis);
+          List.iteri
+            (fun index (parameter : Ast.function_parameter) ->
+              Printf.bprintf buffer "    parameter index=%d span=%s\n" index
+                (location_text sources parameter.location);
+              print_type buffer sources ~indent:"      "
+                parameter.type_specifier;
+              print_pointer_layers buffer sources ~indent:"      "
+                parameter.pointer_layers;
+              (match parameter.name with
+              | Some name ->
+                  Printf.bprintf buffer "      name spelling=%S span=%s\n"
+                    name.spelling
+                    (location_text sources name.location)
+              | None -> Buffer.add_string buffer "      name omitted\n");
+              Option.iter
+                (fun delimiter ->
+                  Printf.bprintf buffer
+                    "      delimiter kind=%s spelling=%S span=%s\n"
+                    (delimiter_kind_name delimiter.Ast.kind)
+                    delimiter.spelling
+                    (location_text sources delimiter.location))
+                parameter.delimiter)
+            prototype.parameters;
+          Option.iter
+            (fun variadic ->
+              Printf.bprintf buffer "    variadic spelling=%S span=%s\n"
+                variadic.Ast.spelling
+                (location_text sources variadic.location))
+            prototype.variadic;
+          Printf.bprintf buffer "    closing_parenthesis span=%s\n"
+            (location_text sources prototype.closing_parenthesis);
+          Printf.bprintf buffer "    semicolon span=%s\n"
+            (location_text sources prototype.semicolon))
     module_.items;
   Buffer.contents buffer
 
@@ -264,6 +317,26 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
         ("location", location_to_yojson sources declarator.location);
       ])
 
+let parameter_to_yojson sources (parameter : Ast.function_parameter) =
+  `Assoc
+    ([ ("type", primitive_to_yojson sources parameter.type_specifier) ]
+    @ pointer_layer_fields sources parameter.pointer_layers
+    @ (match parameter.name with
+      | None -> []
+      | Some name -> [ ("name", identifier_to_yojson sources name) ])
+    @ (match parameter.delimiter with
+      | None -> []
+      | Some delimiter ->
+          [ ("delimiter", delimiter_to_yojson sources delimiter) ])
+    @ [ ("location", location_to_yojson sources parameter.location) ])
+
+let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
+  `Assoc
+    [
+      ("spelling", `String variadic.spelling);
+      ("location", location_to_yojson sources variadic.location);
+    ]
+
 let item_to_yojson sources = function
   | Ast.Global_variable variable ->
       `Assoc
@@ -290,6 +363,31 @@ let item_to_yojson sources = function
                    (declarator_to_yojson sources)
                    declaration.declarators) );
             ("location", location_to_yojson sources declaration.location);
+          ])
+  | Ast.Function_prototype prototype ->
+      `Assoc
+        ([ ("kind", `String "function_prototype") ]
+        @ modifier_fields sources prototype.modifiers
+        @ [ ("binding", binding_to_yojson sources prototype.binding) ]
+        @ [ ("return_type", primitive_to_yojson sources prototype.return_type) ]
+        @ pointer_layer_fields sources prototype.return_pointer_layers
+        @ [
+            ("name", identifier_to_yojson sources prototype.name);
+            ( "opening_parenthesis",
+              location_to_yojson sources prototype.opening_parenthesis );
+            ( "parameters",
+              `List
+                (List.map (parameter_to_yojson sources) prototype.parameters) );
+          ]
+        @ (match prototype.variadic with
+          | None -> []
+          | Some variadic ->
+              [ ("variadic", variadic_to_yojson sources variadic) ])
+        @ [
+            ( "closing_parenthesis",
+              location_to_yojson sources prototype.closing_parenthesis );
+            ("semicolon", location_to_yojson sources prototype.semicolon);
+            ("location", location_to_yojson sources prototype.location);
           ])
 
 let to_yojson sources module_ =
