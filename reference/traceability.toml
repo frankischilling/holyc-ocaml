@@ -861,7 +861,7 @@ tests = [
 status = "implemented"
 issue = 61
 ast_schema = "holyc-ast-v1"
-accepted_bindings = ["extern", "_extern", "import", "_import"]
+accepted_bindings = ["extern", "_extern", "import", "_import", "_intern"]
 import_mode = "aot-only"
 parameter_type_status = "primitive types with zero through four pointer layers"
 parameter_name_status = "optional"
@@ -906,7 +906,7 @@ tests = [
 status = "implemented"
 issue = 69
 ast_schema = "holyc-ast-v1"
-contexts = ["ordinary parameters", "nested function-pointer parameters"]
+contexts = ["ordinary parameters", "nested function-pointer parameters", "global array dimensions", "_intern targets"]
 primary_terms = [
   "integer",
   "floating",
@@ -1120,8 +1120,48 @@ missing_target_diagnostic = "HCPARSE0007"
 rejected_name_publication = "disabled"
 target_lookup_status = "planned"
 alias_resolution_status = "planned"
-intern_expression_status = "planned"
+intern_expression_status = "implemented in HC-PARSER-INTERN-EXPRESSION-BINDINGS"
 extern_to_import_option_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-INTERN-EXPRESSION-BINDINGS"
+description = "_intern declarations retain a source-positioned target expression and remain available in both JIT and AOT parser modes."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW__INTERN branch",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst PRS0__INTERN function branch",
+  "Compiler/PrsExp.HC:LexExpressionI64",
+  "Compiler/CompilerA.HH:KW__INTERN and PRS0__INTERN",
+  "Kernel/KernelA.HH:Cf_EXTERN and Ff_INTERNAL",
+  "Kernel/KernelB.HH:all 60 _intern declarations"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-intern-binding.hc",
+  "test/cli/parse-intern-binding.human",
+  "test/cli/parse-intern-binding.json",
+  "test/cli/parse-intern-error.hc",
+  "test/cli/parse-intern-error.human",
+  "test/cli/parse-intern-error.json"
+]
+status = "implemented"
+issue = 73
+ast_schema = "holyc-ast-v1"
+accepted_binding = "_intern"
+target_representation = "source-positioned expression"
+target_expression_grammar = "shared with HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+compilation_modes = ["jit", "aot"]
+pinned_declaration_count = 60
+definition_and_include_provenance = "preserved"
+rejected_name_publication = "disabled"
+target_evaluation_status = "planned"
+function_address_status = "planned"
+internal_flag_status = "planned"
+linkage_status = "planned"
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
