@@ -1,0 +1,181 @@
+{
+  "fixture_version": 1,
+  "id": "lexer/frame-boundaries-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-08-11",
+    "hypervisor": "QEMU 10.2.50 (v10.2.0-14086-g840320663e)",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false
+  },
+  "source_references": [
+    "Compiler/LexLib.HC:LexBackupLastChar",
+    "Compiler/Lex.HC:LexGetChar",
+    "Compiler/Lex.HC:LexIncludeStr",
+    "Compiler/Lex.HC:Lex",
+    "Kernel/KernelA.HH:CLexFile"
+  ],
+  "setup": [
+    "AutoComplete(OFF);"
+  ],
+  "cases": [
+    {
+      "id": "definition-greater-equal",
+      "commands": [
+        "#define JOIN >",
+        "\"FRAME_GE=%d\\n\",3 JOIN=2;"
+      ],
+      "observed_output": [
+        "FRAME_GE=1"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "direct-token-and-caller-position",
+      "commands": [
+        "CCmpCtrl *oracle_cc=CmpCtrlNew(StrNew(\"#define ORACLE_JOIN >\\nORACLE_JOIN= tail\"));",
+        "I64 oracle_token=Lex(oracle_cc);",
+        "\"GE_KIND=%d\\n\",oracle_token==TK_GREATER_EQU;",
+        "oracle_token=Lex(oracle_cc);",
+        "\"GE_TAIL=%d:%s\\n\",oracle_token==TK_IDENT,oracle_cc->cur_str;",
+        "CmpCtrlDel(oracle_cc);"
+      ],
+      "observed_output": [
+        "GE_KIND=1",
+        "GE_TAIL=1:tail"
+      ],
+      "token_kind": "TK_GREATER_EQU",
+      "contributing_bytes": [
+        ">",
+        "="
+      ],
+      "next_token_kind": "TK_IDENT",
+      "next_token_spelling": "tail",
+      "result": "matched"
+    },
+    {
+      "id": "definition-number",
+      "commands": [
+        "#define WHOLE 1",
+        "\"FRAME_NUM=%d\\n\",WHOLE.5==1.5;"
+      ],
+      "observed_output": [
+        "FRAME_NUM=1"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "definition-string",
+      "commands": [
+        "#define OPEN \"left",
+        "\"FRAME_STRING=%s\\n\",OPEN\";"
+      ],
+      "observed_output": [
+        "FRAME_STRING=left"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "definition-character",
+      "commands": [
+        "#define OPEN_CHAR 'A",
+        "\"FRAME_CHAR=%d\\n\",OPEN_CHAR';"
+      ],
+      "observed_output": [
+        "FRAME_CHAR=65"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "definition-block-comment",
+      "commands": [
+        "#define SLASH /",
+        "SLASH* hidden */",
+        "\"FRAME_BLOCK=1\\n\";"
+      ],
+      "observed_output": [
+        "FRAME_BLOCK=1"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "definition-line-comment",
+      "commands": [
+        "#define SLASH /",
+        "SLASH/ hidden",
+        "\"FRAME_LINE=1\\n\";"
+      ],
+      "observed_output": [
+        "FRAME_LINE=1"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "nested-definition-operator",
+      "commands": [
+        "#define ORACLE_INNER +",
+        "#define ORACLE_OUTER ORACLE_INNER",
+        "I64 oracle_i=0;",
+        "ORACLE_OUTER+oracle_i;",
+        "\"FRAME_NESTED=%d\\n\",oracle_i;"
+      ],
+      "observed_output": [
+        "FRAME_NESTED=1"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "include-identifier",
+      "commands": [
+        "FileWrite(\"B:/Tmp/FramePart.HC\",\"Head\",4);",
+        "I64 HeadTail=7;",
+        "\"FRAME_INCLUDE=%d\\n\",#include \"B:/Tmp/FramePart.HC\"Tail;"
+      ],
+      "observed_output": [
+        "FRAME_INCLUDE=7"
+      ],
+      "result": "matched"
+    },
+    {
+      "id": "include-line-continuation",
+      "commands": [
+        "FileWrite(\"B:/Tmp/Continuation.HC\",\"\\\\\",1);",
+        "#include \"B:/Tmp/Continuation.HC\"",
+        "\"FRAME_CONT=1\\n\";"
+      ],
+      "observed_output": [
+        "FRAME_CONT=1"
+      ],
+      "result": "matched"
+    }
+  ],
+  "capture_sha256": {
+    "definition-values": "ac4db12d8d35b92f4d5f66480d8a0aaa08931b88cf7a76efa0e58b91d097a955",
+    "direct-token": "e88bbb2e098ab140508230d33896d65da2c825a56ad5d9aae92fedbe80b2cabf",
+    "nested-definition": "8233a05d9e2fed43ebd55fb09bb5a7aba9b24af42b57b20ae06b3e5888507a59",
+    "include-identifier": "0fd647d53e2787a8b39e8634dca1adb55b2673cdb20eec173c4ed848a382c42e",
+    "include-continuation": "fed985083a9970f7e023c9a715f38fd04c671be26a666893c6af661342c1b27e"
+  },
+  "capture_retention": "The checksums identify local validation screenshots. The screenshots and ISO are not repository artifacts.",
+  "implementation_tests": [
+    "test/test_preprocessor.ml:include_tokens_span_nested_frames",
+    "test/test_preprocessor.ml:definition_tokens_span_frames",
+    "test/test_preprocessor.ml:compound_operators_span_definition_frames",
+    "test/test_preprocessor.ml:nested_definition_frames_join_token",
+    "test/test_preprocessor.ml:comments_span_definition_frames",
+    "test/test_preprocessor.ml:line_continuation_spans_include_frame",
+    "test/test_preprocessor.ml:included_trivia_precedes_caller_token",
+    "test/test_preprocessor.ml:cross_frame_diagnostic_segments"
+  ]
+}

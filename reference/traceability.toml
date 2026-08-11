@@ -359,6 +359,34 @@ status = "implemented"
 issue = 21
 
 [[feature]]
+id = "HC-LEX-FRAME-CONTINUATION"
+description = "An active lexical scan continues through exhausted include, definition, and predefined-value frames while preserving every contributing source segment and the caller cursor."
+sources = [
+  "Compiler/LexLib.HC:LexBackupLastChar",
+  "Compiler/Lex.HC:LexFilePop",
+  "Compiler/Lex.HC:LexGetChar",
+  "Compiler/Lex.HC:LexIncludeStr",
+  "Compiler/Lex.HC:Lex",
+  "Kernel/KernelA.HH:CLexFile"
+]
+implementation = [
+  "src/frontend/lexer.ml",
+  "src/frontend/lexer_frame.ml",
+  "src/frontend/preprocessor.ml",
+  "src/frontend/token.ml",
+  "src/frontend/trivia.ml"
+]
+tests = [
+  "test/test_preprocessor.ml",
+  "test/oracle/frame-boundaries.json"
+]
+status = "implemented"
+issue = 24
+oracle_status = "matched"
+oracle_date = "2026-08-11"
+oracle_fixture = "test/oracle/frame-boundaries.json"
+
+[[feature]]
 id = "HC-PREPROCESSOR-DEFINITION-STRINGS"
 description = "TempleOS #define stores raw replacement text and expands the newest visible definition through a distinct lexical frame with source provenance."
 sources = [
@@ -388,7 +416,6 @@ implementation = [
 tests = ["test/test_preprocessor.ml"]
 status = "implemented"
 issue = 23
-known_difference_issues = [24]
 
 [[feature]]
 id = "HC-PREPROCESSOR-MODE-CONDITIONALS"
@@ -417,7 +444,7 @@ implementation = [
 tests = ["test/test_preprocessor.ml"]
 status = "implemented"
 issue = 26
-known_difference_issues = [24, 27]
+known_difference_issues = [27]
 
 [[feature]]
 id = "HC-PREPROCESSOR-SYMBOL-CONDITIONALS"
@@ -448,7 +475,7 @@ tests = [
 ]
 status = "implemented"
 issue = 29
-known_difference_issues = [24, 27]
+known_difference_issues = [27]
 
 [[feature]]
 id = "HC-PREPROCESSOR-CONSTANT-IF"
@@ -477,7 +504,7 @@ tests = [
 ]
 status = "implemented"
 issue = 32
-known_difference_issues = [24, 27, 33]
+known_difference_issues = [27, 33]
 
 [[feature]]
 id = "HC-PREPROCESSOR-ASSERT"
@@ -504,7 +531,7 @@ tests = [
 ]
 status = "implemented"
 issue = 35
-known_difference_issues = [24, 33]
+known_difference_issues = [33]
 source_diagnostic_location = "retained lookahead token"
 hosted_diagnostic_location = "assert directive with a retained-lookahead note"
 
@@ -541,7 +568,6 @@ tests = [
 ]
 status = "implemented"
 issue = 37
-known_difference_issues = [24]
 kernel_c_index_directives = 104
 kernel_c_help_files = 20
 hosted_path_behavior = "confined lexical resolution without opening the target help file"
