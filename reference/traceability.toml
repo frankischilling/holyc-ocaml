@@ -79,6 +79,28 @@ tests = ["test/test_lexer.ml", "test/negative/unterminated-comment.hc"]
 status = "implemented"
 
 [[feature]]
+id = "HC-TYPE-PRIMITIVES"
+description = "Supported primitive types retain their raw IDs, byte sizes, signedness, internal storage names, and public union backing."
+sources = [
+  "Kernel/KernelA.HH:U16i union U16",
+  "Kernel/KernelA.HH:RT_I0",
+  "Compiler/CInit.HC:internal_types_table",
+  "Compiler/AsmInit.HC:AsmHashLoad",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/generated/primitive_raw_types.ml",
+  "src/sema/primitive_type.ml",
+  "tools/primitive_type_source.ml",
+  "tools/primitive_type_gen.ml"
+]
+tests = [
+  "test/test_primitive_type_source.ml",
+  "test/test_primitive_type.ml"
+]
+status = "implemented"
+
+[[feature]]
 id = "HC-DIAGNOSTIC-LEXER"
 description = "Lexical failures carry stable codes, source spans, and rendered source context."
 sources = ["Compiler/CExcept.HC:LexExcept", "Compiler/CExcept.HC:LexPutPos"]
