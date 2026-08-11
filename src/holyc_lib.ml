@@ -7,6 +7,7 @@ module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
 module Version = Driver.Version
 module Primitive_type = Sema.Primitive_type
+module Compiler_option = Sema.Compiler_option
 module Asm_directive = Asm.Directive
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator

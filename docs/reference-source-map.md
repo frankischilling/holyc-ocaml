@@ -46,6 +46,33 @@ The public `I16`, `U16`, `I32`, `U32`, `I64`, and `U64` names are unions declare
 
 `tools/primitive_type_source.ml` validates the constants, the six union headers, and every internal record. `tools/primitive_type_gen.ml` embeds the pinned commit, both source checksums, and original line numbers in `src/generated/primitive_raw_types.ml`. `Sema.Primitive_type` uses those records for the 12 supported semantic identities.
 
+## Compiler option state
+
+`Kernel/KernelA.HH` assigns 12 compiler-option bit indices. They are not pre-shifted masks. Bits 0 and 1 control echo and trace behavior, bits 16 through 19 control warnings, and bits 32 through 37 affect linkage, symbol retention, allocation, optimization, and code emission. The ranges 2 through 15 and 20 through 31 are unused in the pinned definitions.
+
+`Compiler/Lex.HC:CmpCtrlNew` creates a controller with `OPTf_WARN_UNUSED_VAR` and `OPTf_WARN_HEADER_MISMATCH` enabled, giving an initial mask of `0x90000`. `Compiler/CMain.HC` copies a parent controller's option mask when compilation is nested. This makes the options part of compile-stream state rather than process-wide settings.
+
+`Compiler/CMisc.HC:Option` and `GetOption` operate on `Fs->last_cc->opts`. `Option` calls `BEqu`, whose `_BEQU` implementation in `Kernel/KUtils.HC` uses `BTS` or `BTR` followed by `ADC`; its result is the bit's state before the change. The OCaml API exposes the same return contract as a pure update that yields the new mask and previous state.
+
+The audited core consumers establish these phase assignments:
+
+| Option | Bit | Initially enabled | Observed core use |
+| --- | ---: | --- | --- |
+| `OPTf_ECHO` | 0 | No | Lexer echo and compiler option display |
+| `OPTf_TRACE` | 1 | No | Parser and compiler trace output |
+| `OPTf_WARN_UNUSED_VAR` | 16 | Yes | Function-level unused-variable diagnostics |
+| `OPTf_WARN_PAREN` | 17 | No | Unnecessary-parenthesis diagnostics |
+| `OPTf_WARN_DUP_TYPES` | 18 | No | Duplicate local type diagnostics |
+| `OPTf_WARN_HEADER_MISMATCH` | 19 | Yes | Function header comparison |
+| `OPTf_EXTERNS_TO_IMPORTS` | 32 | No | Declaration parsing and AOT linkage |
+| `OPTf_KEEP_PRIVATE` | 33 | No | Private source symbol retention |
+| `OPTf_NO_REG_VAR` | 34 | No | Register-variable optimization passes |
+| `OPTf_GLBLS_ON_DATA_HEAP` | 35 | No | Global allocation and AOT initialization rules |
+| `OPTf_NO_BUILTIN_CONST` | 36 | No | Floating constant selection in the backend |
+| `OPTf_USE_IMM64` | 37 | No | Import call lowering and emission; marked incomplete in the source |
+
+`tools/compiler_option_source.ml` validates the definitions, source comments, initial mask, public API, `_BEQU` behavior, and core references while ignoring occurrences in comments and literals. `tools/compiler_option_gen.ml` writes the pinned checksums and line references to `src/generated/compiler_options.ml`. `Sema.Compiler_option` provides immutable lookup and mask operations. It does not yet connect these values to a compiler controller or implement their downstream effects.
+
 ## Literals
 
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.

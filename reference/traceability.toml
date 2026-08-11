@@ -133,6 +133,28 @@ tests = [
 status = "implemented"
 
 [[feature]]
+id = "HC-COMPILER-OPTION-REGISTRY"
+description = "The immutable compiler-option registry retains every pinned bit index, initial state, intentional gap, API contract, and core source consumer."
+sources = [
+  "Kernel/KernelA.HH:OPTf_ECHO",
+  "Compiler/Lex.HC:CmpCtrlNew",
+  "Compiler/CMisc.HC:Option",
+  "Compiler/CMisc.HC:GetOption",
+  "Kernel/KUtils.HC:_BEQU"
+]
+implementation = [
+  "src/generated/compiler_options.ml",
+  "src/sema/compiler_option.ml",
+  "tools/compiler_option_source.ml",
+  "tools/compiler_option_gen.ml"
+]
+tests = [
+  "test/test_compiler_option_source.ml",
+  "test/test_compiler_option.ml"
+]
+status = "implemented"
+
+[[feature]]
 id = "HC-DIAGNOSTIC-LEXER"
 description = "Lexical failures carry stable codes, source spans, and rendered source context."
 sources = ["Compiler/CExcept.HC:LexExcept", "Compiler/CExcept.HC:LexPutPos"]

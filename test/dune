@@ -10,9 +10,12 @@
   test_primitive_type_source
   test_primitive_type
   test_operator_table_source
-  test_operator_table)
+  test_operator_table
+  test_compiler_option_source
+  test_compiler_option)
  (libraries
   alcotest
+  compiler_option_tools
   holyc_lib
   opcode_table_tools
   operator_table_tools
@@ -21,8 +24,22 @@
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
   ../third_party/TempleOS/Compiler/CInit.HC
+  ../third_party/TempleOS/Compiler/CExcept.HC
+  ../third_party/TempleOS/Compiler/CMain.HC
+  ../third_party/TempleOS/Compiler/CMisc.HC
   ../third_party/TempleOS/Compiler/CompilerA.HH
+  ../third_party/TempleOS/Compiler/BackFA.HC
+  ../third_party/TempleOS/Compiler/BackLib.HC
   ../third_party/TempleOS/Compiler/Lex.HC
+  ../third_party/TempleOS/Compiler/LexLib.HC
+  ../third_party/TempleOS/Compiler/OptPass3.HC
+  ../third_party/TempleOS/Compiler/OptPass6.HC
+  ../third_party/TempleOS/Compiler/OptPass789A.HC
   ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Compiler/PrsLib.HC
+  ../third_party/TempleOS/Compiler/PrsStmt.HC
+  ../third_party/TempleOS/Compiler/PrsVar.HC
+  ../third_party/TempleOS/Kernel/KHashB.HC
+  ../third_party/TempleOS/Kernel/KUtils.HC
   (glob_files golden/*)
   (glob_files negative/*)))
