@@ -63,6 +63,7 @@
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
@@ -652,6 +653,64 @@
    (diff
     cli/parse-default-parameters.json
     parse-default-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-arrays.human.actual)
+ (deps cli/parse-arrays.hc cli/parse-arrays.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-arrays.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-arrays.hc))
+   (diff cli/parse-arrays.human parse-arrays.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-arrays.json.actual)
+ (deps cli/parse-arrays.hc cli/parse-arrays.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-arrays.json.actual
+    (run %{exe:../bin/holyc.exe} dump-ast --format=json cli/parse-arrays.hc))
+   (diff cli/parse-arrays.json parse-arrays.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-array-error.human.actual
+  parse-array-error.human.stdout.actual)
+ (deps cli/parse-array-error.hc cli/parse-array-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-array-error.human.stdout.actual
+    (with-stderr-to
+     parse-array-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-array-error.hc))))
+   (diff cli/parse-array-error.human parse-array-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-array-error.json.actual parse-array-error.json.stdout.actual)
+ (deps cli/parse-array-error.hc cli/parse-array-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-array-error.json.stdout.actual
+    (with-stderr-to
+     parse-array-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-array-error.hc))))
+   (diff cli/parse-array-error.json parse-array-error.json.actual))))
 
 (rule
  (alias runtest)

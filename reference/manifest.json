@@ -56,6 +56,7 @@
     {"path": "Kernel/StrPrint.HC", "sha256": "5faa7c97acae07d38a2775e15fa73844f36480eca4c8023a9f55362d7be05daa"},
     {"path": "StartOS.HC", "sha256": "501a463128ce77b66668a9ed8adbcfdc7da71db2bbf3d857534378da71990346"},
     {"path": "Demo/GlblVars.HC", "sha256": "70d2ef4e34378455ddf42dcf62a77093e3f415f8e73623cca0b3dd68ba8f2d21"},
+    {"path": "Adam/Gr/GrGlbls.HC", "sha256": "8f952ca14766ec24e7c2dae5629ca31a2873e9d557a0e842d1c852a497b44baa"},
     {"path": "Doc/HolyC.DD", "sha256": "bacd70e46107b03949a3ded7459e1acb771ffbb1864e2b5ef9166d8a81bf10d6"},
     {"path": "Doc/PreProcessor.DD", "sha256": "36e52625d9cde57a9873bada9c39a6e6ccec65d9603a01a7bda48aa93dd50d54"},
     {"path": "Doc/Directives.DD", "sha256": "80fdc3c4303c6f4ff547add32494932db96c1fb6c5207edba192fc97c1dcdbeb"},

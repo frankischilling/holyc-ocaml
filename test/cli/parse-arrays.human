@@ -1,0 +1,29 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-arrays.hc:1:1..2:1 items=1
+  global_declaration span=cli/parse-arrays.hc:1:1..1:28 declarators=2
+    type primitive=I64 spelling="I64" span=cli/parse-arrays.hc:1:1..1:4
+    declarator index=0 span=cli/parse-arrays.hc:1:5..1:19
+      name spelling="matrix" span=cli/parse-arrays.hc:1:5..1:11
+      array_dimension index=0 sized=false span=cli/parse-arrays.hc:1:11..1:13
+        opening_bracket span=cli/parse-arrays.hc:1:11..1:12
+        expression omitted
+        closing_bracket span=cli/parse-arrays.hc:1:12..1:13
+      array_dimension index=1 sized=true span=cli/parse-arrays.hc:1:13..1:18
+        opening_bracket span=cli/parse-arrays.hc:1:13..1:14
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-arrays.hc:1:14..1:17
+          left
+            expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-arrays.hc:1:14..1:15
+          operator spelling="+" span=cli/parse-arrays.hc:1:15..1:16
+          right
+            expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-arrays.hc:1:16..1:17
+        closing_bracket span=cli/parse-arrays.hc:1:17..1:18
+      delimiter kind=comma spelling="," span=cli/parse-arrays.hc:1:18..1:19
+    declarator index=1 span=cli/parse-arrays.hc:1:19..1:28
+      pointer_layer depth=1 spelling="*" span=cli/parse-arrays.hc:1:19..1:20
+      name spelling="rows" span=cli/parse-arrays.hc:1:20..1:24
+      array_dimension index=0 sized=true span=cli/parse-arrays.hc:1:24..1:27
+        opening_bracket span=cli/parse-arrays.hc:1:24..1:25
+        expression kind=integer_literal spelling="4" value="0x0000000000000004" span=cli/parse-arrays.hc:1:25..1:26
+        closing_bracket span=cli/parse-arrays.hc:1:26..1:27
+      delimiter kind=semicolon spelling=";" span=cli/parse-arrays.hc:1:27..1:28

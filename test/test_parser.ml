@@ -108,6 +108,19 @@ let expect_parameter_default (parameter : Ast.function_parameter) =
   | Some default -> default
   | None -> Alcotest.fail "expected a parameter default"
 
+let expect_dimension_expression (dimension : Ast.array_dimension) =
+  match dimension.dimension_expression with
+  | Some expression -> expression
+  | None -> Alcotest.fail "expected a sized array dimension"
+
+let expect_integer_expression = function
+  | Ast.Integer_literal literal -> (
+      match literal.literal_value with
+      | Ast.Integer_value value -> value
+      | Ast.Float_value _ | Ast.Bytes_value _ ->
+          Alcotest.fail "integer literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected an integer expression"
+
 let expect_binary_expression = function
   | Ast.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a binary expression"
@@ -2419,6 +2432,331 @@ let included_default_expression () =
         (Unix.realpath declaration_file)
         (Source_file.path expression_source))
 
+let array_dimension_source_behavior () =
+  let parser_source = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("array dimension entry point", "U0 PrsArrayDims(CCmpCtrl *cc");
+      ("array suffix starts at a bracket", "if (cc->token=='[')");
+      ("function arguments reject arrays", "mode.u8[1]==PRS1B_FUN_ARG");
+      ("only the first dimension may be empty", "Lex(cc)==']' && !dim->next");
+      ("dimension uses the integer expression path", "j=LexExpressionI64(cc)");
+      ("closing bracket is required", "if (cc->token!=']')");
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Kernel/KernelC.HH", "public extern U16 mon_start_days1[12];");
+      ("Compiler/Lex.HC", "cmp_type_flags_src_code[(DOCT_TYPES_NUM+63)/64]");
+      ("Compiler/Asm.HC", "U8 asm_seg_prefixes[6]");
+      ("Adam/Gr/GrGlbls.HC", "circle_lo[GR_PEN_BRUSHES_NUM]");
+    ];
+  let _, _, output =
+    parse_string
+      "public extern U16 mon_start_days1[12];\n\
+       I64 cmp_type_flags_src_code[(DOCT_TYPES_NUM+63)/64];"
+  in
+  let variables = expect_ast output |> globals in
+  Alcotest.(check (list string))
+    "pinned primitive array names"
+    [ "mon_start_days1"; "cmp_type_flags_src_code" ]
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       variables)
+
+let direct_array_declarators () =
+  let source = "I64 values[16];\nU8 *buffers[2][3];\nI32 inferred[];" in
+  let _, _, output = parse_string source in
+  let values, buffers, inferred =
+    match expect_ast output |> globals with
+    | [ values; buffers; inferred ] -> (values, buffers, inferred)
+    | variables ->
+        Alcotest.failf "expected three array globals, got %d"
+          (List.length variables)
+  in
+  Alcotest.(check int)
+    "one direct dimension" 1
+    (List.length values.array_dimensions);
+  let values_dimension = List.hd values.array_dimensions in
+  Alcotest.(check int64)
+    "direct dimension value" 16L
+    (values_dimension |> expect_dimension_expression
+   |> expect_integer_expression);
+  Alcotest.(check int)
+    "opening bracket offset" 10 values_dimension.opening_bracket.span.start;
+  Alcotest.(check int)
+    "closing bracket offset" 13 values_dimension.closing_bracket.span.start;
+  Alcotest.(check int)
+    "dimension covers both brackets" 4
+    (values_dimension.location.span.stop - values_dimension.location.span.start);
+  Alcotest.(check int)
+    "pointer depth remains separate" 1
+    (List.length buffers.pointer_layers);
+  Alcotest.(check (list int64))
+    "multidimensional source order" [ 2L; 3L ]
+    (List.map
+       (fun dimension ->
+         dimension |> expect_dimension_expression |> expect_integer_expression)
+       buffers.array_dimensions);
+  Alcotest.(check int)
+    "unsized first dimension" 1
+    (List.length inferred.array_dimensions);
+  Alcotest.(check bool)
+    "unsized remains distinct" true
+    (Option.is_none (List.hd inferred.array_dimensions).dimension_expression)
+
+let grouped_array_declarators () =
+  let _, _, output = parse_string "U32 direct[16],*pointers[2][3],plain;" in
+  let declaration = expect_ast output |> expect_one_declaration in
+  Alcotest.(check (list string))
+    "array group names"
+    [ "direct"; "pointers"; "plain" ]
+    (List.map
+       (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+       declaration.declarators);
+  Alcotest.(check (list int))
+    "array dimensions are per declarator" [ 1; 2; 0 ]
+    (List.map
+       (fun (declarator : Ast.global_declarator) ->
+         List.length declarator.array_dimensions)
+       declaration.declarators);
+  Alcotest.(check (list int))
+    "pointer layers remain per declarator" [ 0; 1; 0 ]
+    (List.map
+       (fun (declarator : Ast.global_declarator) ->
+         List.length declarator.pointer_layers)
+       declaration.declarators);
+  let _, _, distinction_output =
+    parse_string "I64 unsized[],explicit_zero[0],matrix[][2];"
+  in
+  let declarators =
+    (expect_ast distinction_output |> expect_one_declaration).declarators
+  in
+  let unsized, explicit_zero, matrix =
+    match declarators with
+    | [ unsized; explicit_zero; matrix ] -> (unsized, explicit_zero, matrix)
+    | items ->
+        Alcotest.failf "expected three distinction declarators, got %d"
+          (List.length items)
+  in
+  Alcotest.(check bool)
+    "empty first dimension is absent" true
+    (Option.is_none (List.hd unsized.array_dimensions).dimension_expression);
+  Alcotest.(check int64)
+    "explicit zero remains an expression" 0L
+    (List.hd explicit_zero.array_dimensions
+    |> expect_dimension_expression |> expect_integer_expression);
+  Alcotest.(check (list bool))
+    "only the first matrix dimension is unsized" [ false; true ]
+    (List.map
+       (fun (dimension : Ast.array_dimension) ->
+         Option.is_some dimension.dimension_expression)
+       matrix.array_dimensions)
+
+let array_dimension_expression_registry () =
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "I64 dimension_%d[1%s2];" index operator.spelling
+      in
+      let _, _, output = parse_string source in
+      let dimension =
+        expect_ast output |> expect_one_global |> fun variable ->
+        List.hd variable.array_dimensions
+      in
+      let binary =
+        dimension |> expect_dimension_expression |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " dimension operator")
+        operator.ic_name binary.binary_operator_spec.ic_name)
+    Operator.binary_operators;
+  let _, _, output = parse_string "I64 grouped[(1+2)*3];" in
+  let expression =
+    expect_ast output |> expect_one_global |> fun variable ->
+    List.hd variable.array_dimensions |> expect_dimension_expression
+  in
+  let outer = expect_binary_expression expression in
+  Alcotest.(check string)
+    "grouped dimension root" "*" outer.binary_operator.operator_spelling;
+  match outer.binary_left with
+  | Ast.Parenthesized_expression grouped ->
+      ignore (expect_binary_expression grouped.grouped_expression)
+  | _ -> Alcotest.fail "expected grouping inside the array dimension"
+
+let array_dimension_provenance () =
+  let source = "#define DIMS [1+2][4]\nI64 generated DIMS;" in
+  let session, root, output = parse_string source in
+  let variable = expect_ast output |> expect_one_global in
+  Alcotest.(check int)
+    "two generated dimensions" 2
+    (List.length variable.array_dimensions);
+  let first = List.hd variable.array_dimensions in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.Ast.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("opening bracket", first.opening_bracket);
+      ( "dimension expression",
+        Ast.expression_location (expect_dimension_expression first) );
+      ("closing bracket", first.closing_bracket);
+    ];
+  let open Yojson.Safe.Util in
+  let dimensions =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "array_dimensions" |> to_list
+  in
+  Alcotest.(check int) "JSON dimension count" 2 (List.length dimensions);
+  Alcotest.(check string)
+    "JSON expression kind" "binary"
+    (List.hd dimensions |> member "expression" |> member "kind" |> to_string);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "arrays.HC" in
+      write_file root_file "#include \"arrays\"";
+      write_file declaration_file "U16 included[12];";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let dimension =
+        expect_ast include_output |> expect_one_global |> fun included ->
+        List.hd included.array_dimensions
+      in
+      let dimension_source =
+        Source_manager.find
+          (Session.sources include_session)
+          dimension.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included dimension keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path dimension_source))
+
+let array_dimension_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected array global %s became visible" name)
+    [
+      ( "empty later dimension",
+        "I64 EmptyLater[2][];",
+        "EmptyLater",
+        "HCPARSE0022",
+        "only the first array dimension may be empty" );
+      ( "missing expression operand",
+        "I64 MissingOperand[1+];",
+        "MissingOperand",
+        "HCPARSE0018",
+        "array dimension expression operand" );
+      ( "missing closing bracket",
+        "I64 MissingBracket[1;",
+        "MissingBracket",
+        "HCPARSE0023",
+        "expected ']'" );
+      ( "unsupported indexing",
+        "I64 Indexed[count[0]];",
+        "Indexed",
+        "HCPARSE0020",
+        "continuation" );
+      ( "unsupported call",
+        "I64 Called[Count()];",
+        "Called",
+        "HCPARSE0020",
+        "continuation" );
+      ( "unsupported atom",
+        "I64 LastClass[lastclass];",
+        "LastClass",
+        "HCPARSE0020",
+        "not implemented" );
+    ];
+  let nesting = Parser.max_expression_depth in
+  let nested_source =
+    Printf.sprintf "I64 TooNested[%s1%s];" (String.make nesting '(')
+      (String.make nesting ')')
+  in
+  let nested_session, _, nested_output = parse_string nested_source in
+  Alcotest.(check string)
+    "array expression nesting diagnostic" "HCPARSE0021"
+    (first_diagnostic nested_output).code;
+  Alcotest.(check bool)
+    "array nesting message names its context" true
+    (contains (first_diagnostic nested_output).message
+       "array dimension expression nesting");
+  (match
+     Symbol_visibility.Environment.find_preprocessor
+       (Session.symbols nested_session)
+       "TooNested"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the excessive array expression became visible");
+  let session, _, output = parse_string "I64 accepted[1],rejected[2][];" in
+  Alcotest.(check bool)
+    "malformed group has no AST" true
+    (Option.is_none output.ast);
+  (match
+     Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "rejected"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the malformed group published its rejected declarator");
+  let _, _, parameter_output =
+    parse_string "extern U0 ArrayArgument(I64 values[2]);"
+  in
+  Alcotest.(check string)
+    "function argument arrays retain their source rejection" "HCPARSE0011"
+    (first_diagnostic parameter_output).code
+
+let deterministic_array_dumps () =
+  let session, _, output = parse_string "I64 matrix[][2+3];" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human array dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON array dump repeats byte for byte" json
+    (Ast_dump.json sources ast)
+
 let default_expression_failures () =
   List.iter
     (fun (description, source, name, code, message_fragment) ->
@@ -2747,7 +3085,6 @@ let unsupported_forms () =
     [
       ("unknown type", "Widget value;", "HCPARSE0001");
       ("missing name", "I64 ;", "HCPARSE0002");
-      ("array", "I64 value[3];", "HCPARSE0003");
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
       ("function", "I64 Function();", "HCPARSE0008");
@@ -2883,6 +3220,20 @@ let tests =
       default_expression_nested_and_provenance;
     Alcotest.test_case "included default expression" `Quick
       included_default_expression;
+    Alcotest.test_case "pinned array dimension behavior" `Quick
+      array_dimension_source_behavior;
+    Alcotest.test_case "direct global array declarators" `Quick
+      direct_array_declarators;
+    Alcotest.test_case "grouped global array declarators" `Quick
+      grouped_array_declarators;
+    Alcotest.test_case "array dimension expression registry" `Quick
+      array_dimension_expression_registry;
+    Alcotest.test_case "array dimension provenance" `Quick
+      array_dimension_provenance;
+    Alcotest.test_case "array dimension failures" `Quick
+      array_dimension_failures;
+    Alcotest.test_case "deterministic array dumps" `Quick
+      deterministic_array_dumps;
     Alcotest.test_case "default-expression failures" `Quick
       default_expression_failures;
     Alcotest.test_case "function prototype failures" `Quick
