@@ -840,7 +840,10 @@
   (progn
    (with-stdout-to
     parse-function-pointer-parameters.human.actual
-    (run %{exe:../bin/holyc.exe} parse cli/parse-function-pointer-parameters.hc))
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     cli/parse-function-pointer-parameters.hc))
    (diff
     cli/parse-function-pointer-parameters.human
     parse-function-pointer-parameters.human.actual))))
