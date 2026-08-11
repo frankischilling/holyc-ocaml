@@ -124,7 +124,8 @@ let source_path config path = Filename.concat config.reference_root path
 let verify_source path checksum source =
   match Source.verify_sha256 ~expected:checksum source with
   | Ok () -> ()
-  | Error problem -> fail "%s" (Source.error_to_string { problem with path = Some path })
+  | Error problem ->
+      fail "%s" (Source.error_to_string { problem with path = Some path })
 
 let source contents path =
   match List.assoc_opt path contents with
@@ -173,7 +174,8 @@ let modifier_constructor = function
   | "Underscore_name" -> "Underscore_name"
   | name -> fail "no modifier constructor is defined for %s" name
 
-let add_variant buffer constructor = Printf.bprintf buffer "    | %s\n" constructor
+let add_variant buffer constructor =
+  Printf.bprintf buffer "    | %s\n" constructor
 
 let add_source_reference buffer (reference : Source.source_reference) =
   Printf.bprintf buffer "{ path = %S; line = %d }" reference.path reference.line
@@ -195,7 +197,8 @@ let add_flag_info buffer constructor (entry : Source.flag_entry) =
   add_source_reference_list buffer entry.consumers;
   Buffer.add_string buffer " }\n"
 
-let add_flag_module buffer ~name ~constructor (entries : Source.flag_entry list) =
+let add_flag_module buffer ~name ~constructor (entries : Source.flag_entry list)
+    =
   Printf.bprintf buffer "module %s = struct\n" name;
   Buffer.add_string buffer "  type t =\n";
   List.iter
@@ -225,26 +228,28 @@ let add_flag_module buffer ~name ~constructor (entries : Source.flag_entry list)
       add_flag_info buffer (constructor entry.name) entry)
     entries;
   Buffer.add_string buffer
-    "\n  let to_bit_index flag = (info flag).bit_index\n\
-     \  let to_mask flag = (info flag).mask\n\
-     \  let is_set ~mask flag = Int64.logand mask (to_mask flag) <> 0L\n\
-     \  let set ~mask flag = Int64.logor mask (to_mask flag)\n\
-     \  let clear ~mask flag = Int64.logand mask (Int64.lognot (to_mask flag))\n\
+    "\n\
+    \  let to_bit_index flag = (info flag).bit_index\n\
+    \  let to_mask flag = (info flag).mask\n\
+    \  let is_set ~mask flag = Int64.logand mask (to_mask flag) <> 0L\n\
+    \  let set ~mask flag = Int64.logor mask (to_mask flag)\n\
+    \  let clear ~mask flag = Int64.logand mask (Int64.lognot (to_mask flag))\n\
      end\n\n"
 
 let add_flag_module_signature buffer ~name ~constructors =
   Printf.bprintf buffer "module %s : sig\n  type t =\n" name;
   List.iter (add_variant buffer) constructors;
   Buffer.add_string buffer
-    "\n  val all : t list\n\
-     \  val to_source_name : t -> string\n\
-     \  val of_source_name : string -> t option\n\
-     \  val to_bit_index : t -> int\n\
-     \  val to_mask : t -> int64\n\
-     \  val info : t -> flag_info\n\
-     \  val is_set : mask:int64 -> t -> bool\n\
-     \  val set : mask:int64 -> t -> int64\n\
-     \  val clear : mask:int64 -> t -> int64\n\
+    "\n\
+    \  val all : t list\n\
+    \  val to_source_name : t -> string\n\
+    \  val of_source_name : string -> t option\n\
+    \  val to_bit_index : t -> int\n\
+    \  val to_mask : t -> int64\n\
+    \  val info : t -> flag_info\n\
+    \  val is_set : mask:int64 -> t -> bool\n\
+    \  val set : mask:int64 -> t -> int64\n\
+    \  val clear : mask:int64 -> t -> int64\n\
      end\n\n"
 
 let expanded_group_members = function
@@ -276,7 +281,8 @@ let add_group_info buffer (entry : Source.group_entry) =
       if index > 0 then Buffer.add_string buffer "; ";
       Printf.bprintf buffer "%S" name)
     entry.members;
-  Printf.bprintf buffer "]; definition_line = %d; consumers = " entry.definition_line;
+  Printf.bprintf buffer "]; definition_line = %d; consumers = "
+    entry.definition_line;
   add_source_reference_list buffer entry.consumers;
   Buffer.add_string buffer " }\n"
 
@@ -284,8 +290,8 @@ let add_operation buffer = function
   | Source.Add_bits bits -> Printf.bprintf buffer "Add_bits 0x%LxL" bits
   | Source.Replace_preserving { keep_mask; add_mask } ->
       Printf.bprintf buffer
-        "Replace_preserving { keep_mask = 0x%LxL; add_mask = 0x%LxL }"
-        keep_mask add_mask
+        "Replace_preserving { keep_mask = 0x%LxL; add_mask = 0x%LxL }" keep_mask
+        add_mask
 
 let add_modifier_info buffer (entry : Source.transition_entry) =
   let constructor = modifier_constructor entry.name in
@@ -305,13 +311,14 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
   let buffer = Buffer.create 32768 in
   Buffer.add_string buffer
     "(* Generated from the pinned TempleOS function and parser flag definitions.\n\
-     \   Regenerate this file only after reviewing the source behavior. *)\n\n";
+    \   Regenerate this file only after reviewing the source behavior. *)\n\n";
   Buffer.add_string buffer "[@@@ocamlformat \"disable\"]\n\n";
   Printf.bprintf buffer "let reference_commit = %S\n\n" commit;
   Buffer.add_string buffer
     "type source = { path : string; sha256 : string }\n\n\
      type source_reference = { path : string; line : int }\n\n\
-     let sources =\n  [\n";
+     let sources =\n\
+    \  [\n";
   List.iter
     (fun (path, checksum) ->
       Printf.bprintf buffer "    { path = %S; sha256 = %S };\n" path checksum)
@@ -319,11 +326,11 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
   Buffer.add_string buffer
     "  ]\n\n\
      type flag_info = {\n\
-     \  source_name : string;\n\
-     \  bit_index : int;\n\
-     \  mask : int64;\n\
-     \  definition_line : int;\n\
-     \  consumers : source_reference list;\n\
+    \  source_name : string;\n\
+    \  bit_index : int;\n\
+    \  mask : int64;\n\
+    \  definition_line : int;\n\
+    \  consumers : source_reference list;\n\
      }\n\n";
   add_flag_module buffer ~name:"Shared" ~constructor:shared_constructor
     tables.shared_flags;
@@ -337,16 +344,18 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
       add_variant buffer (group_constructor entry.name))
     tables.groups;
   Buffer.add_string buffer
-    "\n  type info = {\n\
-     \    group : t;\n\
-     \    source_name : string;\n\
-     \    mask : int64;\n\
-     \    members : Staging.t list;\n\
-     \    source_terms : string list;\n\
-     \    definition_line : int;\n\
-     \    consumers : source_reference list;\n\
-     \  }\n\n\
-     \  let all =\n    [\n";
+    "\n\
+    \  type info = {\n\
+    \    group : t;\n\
+    \    source_name : string;\n\
+    \    mask : int64;\n\
+    \    members : Staging.t list;\n\
+    \    source_terms : string list;\n\
+    \    definition_line : int;\n\
+    \    consumers : source_reference list;\n\
+    \  }\n\n\
+    \  let all =\n\
+    \    [\n";
   List.iter
     (fun (entry : Source.group_entry) ->
       Printf.bprintf buffer "      %s;\n" (group_constructor entry.name))
@@ -354,35 +363,36 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
   Buffer.add_string buffer "    ]\n\n  let info = function\n";
   List.iter (add_group_info buffer) tables.groups;
   Buffer.add_string buffer
-    "\n  let to_source_name group = (info group).source_name\n\
-     \  let of_source_name = function\n";
+    "\n\
+    \  let to_source_name group = (info group).source_name\n\
+    \  let of_source_name = function\n";
   List.iter
     (fun (entry : Source.group_entry) ->
       Printf.bprintf buffer "    | %S -> Some %s\n" entry.name
         (group_constructor entry.name))
     tables.groups;
   Buffer.add_string buffer
-    "    | _ -> None\n\n\
-     \  let to_mask group = (info group).mask\n\
-     end\n\n";
+    "    | _ -> None\n\n  let to_mask group = (info group).mask\nend\n\n";
   Buffer.add_string buffer
     "type transition_operation =\n\
-     \  | Add_bits of int64\n\
-     \  | Replace_preserving of { keep_mask : int64; add_mask : int64 }\n\n\
+    \  | Add_bits of int64\n\
+    \  | Replace_preserving of { keep_mask : int64; add_mask : int64 }\n\n\
      module Modifier = struct\n\
-     \  type t =\n";
+    \  type t =\n";
   List.iter
     (fun (entry : Source.transition_entry) ->
       add_variant buffer (modifier_constructor entry.name))
     tables.transitions;
   Buffer.add_string buffer
-    "\n  type info = {\n\
-     \    modifier : t;\n\
-     \    spelling : string;\n\
-     \    operation : transition_operation;\n\
-     \    sources : source_reference list;\n\
-     \  }\n\n\
-     \  let all =\n    [\n";
+    "\n\
+    \  type info = {\n\
+    \    modifier : t;\n\
+    \    spelling : string;\n\
+    \    operation : transition_operation;\n\
+    \    sources : source_reference list;\n\
+    \  }\n\n\
+    \  let all =\n\
+    \    [\n";
   List.iter
     (fun (entry : Source.transition_entry) ->
       Printf.bprintf buffer "      %s;\n" (modifier_constructor entry.name))
@@ -390,54 +400,58 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
   Buffer.add_string buffer "    ]\n\n  let info = function\n";
   List.iter (add_modifier_info buffer) tables.transitions;
   Buffer.add_string buffer
-    "\n  let to_spelling modifier = (info modifier).spelling\n\
+    "\n\
+    \  let to_spelling modifier = (info modifier).spelling\n\
      end\n\n\
      let apply_modifier ~mask modifier =\n\
-     \  match (Modifier.info modifier).operation with\n\
-     \  | Add_bits bits -> Int64.logor mask bits\n\
-     \  | Replace_preserving { keep_mask; add_mask } ->\n\
-     \      Int64.logor (Int64.logand mask keep_mask) add_mask\n\n\
+    \  match (Modifier.info modifier).operation with\n\
+    \  | Add_bits bits -> Int64.logor mask bits\n\
+    \  | Replace_preserving { keep_mask; add_mask } ->\n\
+    \      Int64.logor (Int64.logand mask keep_mask) add_mask\n\n\
      let stored_of_staging = function\n\
-     \  | Staging.Interrupt -> Some Stored.Interrupt\n\
-     \  | Staging.Has_error_code -> Some Stored.Has_error_code\n\
-     \  | Staging.Argument_pop -> Some Stored.Argument_pop\n\
-     \  | Staging.No_argument_pop -> Some Stored.No_argument_pop\n\
-     \  | Staging.Public | Staging.Assembly | Staging.Static | Staging.Underscore_name -> None\n\n\
+    \  | Staging.Interrupt -> Some Stored.Interrupt\n\
+    \  | Staging.Has_error_code -> Some Stored.Has_error_code\n\
+    \  | Staging.Argument_pop -> Some Stored.Argument_pop\n\
+    \  | Staging.No_argument_pop -> Some Stored.No_argument_pop\n\
+    \  | Staging.Public | Staging.Assembly | Staging.Static | \
+     Staging.Underscore_name -> None\n\n\
      let stored_mask_of_staging mask =\n\
-     \  Int64.logand mask (Group.to_mask Group.Function_flags)\n\n\
+    \  Int64.logand mask (Group.to_mask Group.Function_flags)\n\n\
      let public_requested mask = Staging.is_set ~mask Staging.Public\n\
      let assembly_mode mask = Staging.is_set ~mask Staging.Assembly\n\n\
      let derives_ret1 ~argument_count ~variadic =\n\
-     \  (not variadic)\n\
-     \  && Int64.compare argument_count 0L > 0\n\
-     \  && Int64.compare argument_count 4095L <= 0\n\n\
+    \  (not variadic)\n\
+    \  && Int64.compare argument_count 0L > 0\n\
+    \  && Int64.compare argument_count 4095L <= 0\n\n\
      let caller_expects_callee_pop ~stored_mask =\n\
-     \  (Stored.is_set ~mask:stored_mask Stored.Ret1\n\
-     \  || Stored.is_set ~mask:stored_mask Stored.Argument_pop)\n\
-     \  && not (Stored.is_set ~mask:stored_mask Stored.No_argument_pop)\n\n\
+    \  (Stored.is_set ~mask:stored_mask Stored.Ret1\n\
+    \  || Stored.is_set ~mask:stored_mask Stored.Argument_pop)\n\
+    \  && not (Stored.is_set ~mask:stored_mask Stored.No_argument_pop)\n\n\
      let interrupt_discards_error_code ~stored_mask =\n\
-     \  Stored.is_set ~mask:stored_mask Stored.Interrupt\n\
-     \  && Stored.is_set ~mask:stored_mask Stored.Has_error_code\n\n\
-     let is_internal ~stored_mask = Stored.is_set ~mask:stored_mask Stored.Internal\n\n";
+    \  Stored.is_set ~mask:stored_mask Stored.Interrupt\n\
+    \  && Stored.is_set ~mask:stored_mask Stored.Has_error_code\n\n\
+     let is_internal ~stored_mask = Stored.is_set ~mask:stored_mask \
+     Stored.Internal\n\n";
   Buffer.add_string buffer
     "type behavior_sources = {\n\
-     \  symbol_flag_transfer : source_reference;\n\
-     \  public_type_transfer : source_reference;\n\
-     \  automatic_ret1 : source_reference;\n\
-     \  variadic_declaration : source_reference;\n\
-     \  variadic_optimizer : source_reference;\n\
-     \  caller_cleanup : source_reference;\n\
-     \  try_cleanup : source_reference;\n\
-     \  internal_dispatch : source_reference;\n\
-     \  internal_clobber : source_reference;\n\
-     \  symbol_lookup_exclusion : source_reference;\n\
-     \  interrupt_restore : source_reference;\n\
-     \  interrupt_return : source_reference;\n\
-     \  interrupt_error_code : source_reference;\n\
-     \  callee_cleanup : source_reference;\n\
-     \  interrupt_save : source_reference;\n\
+    \  symbol_flag_transfer : source_reference;\n\
+    \  public_type_transfer : source_reference;\n\
+    \  automatic_ret1 : source_reference;\n\
+    \  variadic_declaration : source_reference;\n\
+    \  variadic_optimizer : source_reference;\n\
+    \  caller_cleanup : source_reference;\n\
+    \  try_cleanup : source_reference;\n\
+    \  internal_dispatch : source_reference;\n\
+    \  internal_clobber : source_reference;\n\
+    \  symbol_lookup_exclusion : source_reference;\n\
+    \  interrupt_restore : source_reference;\n\
+    \  interrupt_return : source_reference;\n\
+    \  interrupt_error_code : source_reference;\n\
+    \  callee_cleanup : source_reference;\n\
+    \  interrupt_save : source_reference;\n\
      }\n\n\
-     let behavior_sources =\n  {\n";
+     let behavior_sources =\n\
+    \  {\n";
   let behavior = tables.behavior in
   add_behavior_field buffer "symbol_flag_transfer" behavior.symbol_flag_transfer;
   add_behavior_field buffer "public_type_transfer" behavior.public_type_transfer;
@@ -448,7 +462,8 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
   add_behavior_field buffer "try_cleanup" behavior.try_cleanup;
   add_behavior_field buffer "internal_dispatch" behavior.internal_dispatch;
   add_behavior_field buffer "internal_clobber" behavior.internal_clobber;
-  add_behavior_field buffer "symbol_lookup_exclusion" behavior.symbol_lookup_exclusion;
+  add_behavior_field buffer "symbol_lookup_exclusion"
+    behavior.symbol_lookup_exclusion;
   add_behavior_field buffer "interrupt_restore" behavior.interrupt_restore;
   add_behavior_field buffer "interrupt_return" behavior.interrupt_return;
   add_behavior_field buffer "interrupt_error_code" behavior.interrupt_error_code;
@@ -460,16 +475,17 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
 let render_mli (tables : Source.tables) =
   let buffer = Buffer.create 16384 in
   Buffer.add_string buffer
-    "(* Generated interface for the pinned TempleOS function-flag specification. *)\n\n\
+    "(* Generated interface for the pinned TempleOS function-flag \
+     specification. *)\n\n\
      [@@@ocamlformat \"disable\"]\n\n\
      type source = { path : string; sha256 : string }\n\n\
      type source_reference = { path : string; line : int }\n\n\
      type flag_info = private {\n\
-     \  source_name : string;\n\
-     \  bit_index : int;\n\
-     \  mask : int64;\n\
-     \  definition_line : int;\n\
-     \  consumers : source_reference list;\n\
+    \  source_name : string;\n\
+    \  bit_index : int;\n\
+    \  mask : int64;\n\
+    \  definition_line : int;\n\
+    \  consumers : source_reference list;\n\
      }\n\n\
      val reference_commit : string\n\
      val sources : source list\n\n";
@@ -494,40 +510,42 @@ let render_mli (tables : Source.tables) =
       add_variant buffer (group_constructor entry.name))
     tables.groups;
   Buffer.add_string buffer
-    "\n  type info = private {\n\
-     \    group : t;\n\
-     \    source_name : string;\n\
-     \    mask : int64;\n\
-     \    members : Staging.t list;\n\
-     \    source_terms : string list;\n\
-     \    definition_line : int;\n\
-     \    consumers : source_reference list;\n\
-     \  }\n\n\
-     \  val all : t list\n\
-     \  val to_source_name : t -> string\n\
-     \  val of_source_name : string -> t option\n\
-     \  val to_mask : t -> int64\n\
-     \  val info : t -> info\n\
+    "\n\
+    \  type info = private {\n\
+    \    group : t;\n\
+    \    source_name : string;\n\
+    \    mask : int64;\n\
+    \    members : Staging.t list;\n\
+    \    source_terms : string list;\n\
+    \    definition_line : int;\n\
+    \    consumers : source_reference list;\n\
+    \  }\n\n\
+    \  val all : t list\n\
+    \  val to_source_name : t -> string\n\
+    \  val of_source_name : string -> t option\n\
+    \  val to_mask : t -> int64\n\
+    \  val info : t -> info\n\
      end\n\n\
      type transition_operation =\n\
-     \  | Add_bits of int64\n\
-     \  | Replace_preserving of { keep_mask : int64; add_mask : int64 }\n\n\
+    \  | Add_bits of int64\n\
+    \  | Replace_preserving of { keep_mask : int64; add_mask : int64 }\n\n\
      module Modifier : sig\n\
-     \  type t =\n";
+    \  type t =\n";
   List.iter
     (fun (entry : Source.transition_entry) ->
       add_variant buffer (modifier_constructor entry.name))
     tables.transitions;
   Buffer.add_string buffer
-    "\n  type info = private {\n\
-     \    modifier : t;\n\
-     \    spelling : string;\n\
-     \    operation : transition_operation;\n\
-     \    sources : source_reference list;\n\
-     \  }\n\n\
-     \  val all : t list\n\
-     \  val to_spelling : t -> string\n\
-     \  val info : t -> info\n\
+    "\n\
+    \  type info = private {\n\
+    \    modifier : t;\n\
+    \    spelling : string;\n\
+    \    operation : transition_operation;\n\
+    \    sources : source_reference list;\n\
+    \  }\n\n\
+    \  val all : t list\n\
+    \  val to_spelling : t -> string\n\
+    \  val info : t -> info\n\
      end\n\n\
      val apply_modifier : mask:int64 -> Modifier.t -> int64\n\
      val stored_of_staging : Staging.t -> Stored.t option\n\
@@ -539,21 +557,21 @@ let render_mli (tables : Source.tables) =
      val interrupt_discards_error_code : stored_mask:int64 -> bool\n\
      val is_internal : stored_mask:int64 -> bool\n\n\
      type behavior_sources = private {\n\
-     \  symbol_flag_transfer : source_reference;\n\
-     \  public_type_transfer : source_reference;\n\
-     \  automatic_ret1 : source_reference;\n\
-     \  variadic_declaration : source_reference;\n\
-     \  variadic_optimizer : source_reference;\n\
-     \  caller_cleanup : source_reference;\n\
-     \  try_cleanup : source_reference;\n\
-     \  internal_dispatch : source_reference;\n\
-     \  internal_clobber : source_reference;\n\
-     \  symbol_lookup_exclusion : source_reference;\n\
-     \  interrupt_restore : source_reference;\n\
-     \  interrupt_return : source_reference;\n\
-     \  interrupt_error_code : source_reference;\n\
-     \  callee_cleanup : source_reference;\n\
-     \  interrupt_save : source_reference;\n\
+    \  symbol_flag_transfer : source_reference;\n\
+    \  public_type_transfer : source_reference;\n\
+    \  automatic_ret1 : source_reference;\n\
+    \  variadic_declaration : source_reference;\n\
+    \  variadic_optimizer : source_reference;\n\
+    \  caller_cleanup : source_reference;\n\
+    \  try_cleanup : source_reference;\n\
+    \  internal_dispatch : source_reference;\n\
+    \  internal_clobber : source_reference;\n\
+    \  symbol_lookup_exclusion : source_reference;\n\
+    \  interrupt_restore : source_reference;\n\
+    \  interrupt_return : source_reference;\n\
+    \  interrupt_error_code : source_reference;\n\
+    \  callee_cleanup : source_reference;\n\
+    \  interrupt_save : source_reference;\n\
      }\n\n\
      val behavior_sources : behavior_sources\n";
   Buffer.contents buffer

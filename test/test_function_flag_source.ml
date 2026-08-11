@@ -57,7 +57,8 @@ let compiler_source =
       "#define FSF_HASERRCODE (1<<Ff_HASERRCODE)";
       "#define FSF_ARGPOP (1<<Ff_ARGPOP)";
       "#define FSF_NOARGPOP (1<<Ff_NOARGPOP)";
-      "#define FSG_FUN_FLAGS1 (FSF_INTERRUPT|FSF_HASERRCODE|FSF_ARGPOP|FSF_NOARGPOP)";
+      "#define FSG_FUN_FLAGS1 \
+       (FSF_INTERRUPT|FSF_HASERRCODE|FSF_ARGPOP|FSF_NOARGPOP)";
       "#define FSG_FUN_FLAGS2 (FSG_FUN_FLAGS1|FSF_PUBLIC)";
       "";
     ]
@@ -112,19 +113,11 @@ let prs_exp_source =
 
 let opt_pass3_source =
   String.concat "\n"
-    [
-      "if (Bt(&cc->htc.fun->flags,Ff_DOT_DOT_DOT))";
-      "  member_cnt+=2;";
-      "";
-    ]
+    [ "if (Bt(&cc->htc.fun->flags,Ff_DOT_DOT_DOT))"; "  member_cnt+=2;"; "" ]
 
 let opt_pass6_source =
   String.concat "\n"
-    [
-      "if (Bt(&tmpf->flags,Ff_INTERNAL))";
-      "  clobbered_stk_tmp_mask=0;";
-      "";
-    ]
+    [ "if (Bt(&tmpf->flags,Ff_INTERNAL))"; "  clobbered_stk_tmp_mask=0;"; "" ]
 
 let opt_pass789a_source =
   String.concat "\n"
@@ -161,13 +154,12 @@ let parse ?(kernel = kernel_source) ?(compiler = compiler_source)
     ?(opt_pass6 = opt_pass6_source) ?(opt_pass789a = opt_pass789a_source)
     ?(fun_seg = fun_seg_source) () =
   Source.parse ~kernel_source:kernel ~compiler_source:compiler
-    ~prs_stmt_source:prs_stmt ~prs_var_source:prs_var
-    ~prs_exp_source:prs_exp ~opt_pass3_source:opt_pass3
-    ~opt_pass6_source:opt_pass6 ~opt_pass789a_source:opt_pass789a
-    ~fun_seg_source:fun_seg
+    ~prs_stmt_source:prs_stmt ~prs_var_source:prs_var ~prs_exp_source:prs_exp
+    ~opt_pass3_source:opt_pass3 ~opt_pass6_source:opt_pass6
+    ~opt_pass789a_source:opt_pass789a ~fun_seg_source:fun_seg
 
-let parse_ok ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3
-    ?opt_pass6 ?opt_pass789a ?fun_seg () =
+let parse_ok ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3 ?opt_pass6
+    ?opt_pass789a ?fun_seg () =
   match
     parse ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3 ?opt_pass6
       ?opt_pass789a ?fun_seg ()
@@ -184,8 +176,7 @@ let expect_error ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3
   | Ok _ -> Alcotest.failf "expected an error containing %S" needle
   | Error problem ->
       let rendered = Source.error_to_string problem in
-      Alcotest.(check bool)
-        "error text" true (contains ~needle rendered)
+      Alcotest.(check bool) "error text" true (contains ~needle rendered)
 
 let complete_registry () =
   let tables = parse_ok () in
@@ -195,15 +186,20 @@ let complete_registry () =
   Alcotest.(check int) "group count" 2 (List.length tables.groups);
   Alcotest.(check int) "transition count" 7 (List.length tables.transitions);
   Alcotest.(check (list int))
-    "stored bits" [ 8; 9; 10; 11; 12; 13; 14; 15 ]
-    (List.map (fun (entry : Source.flag_entry) -> entry.bit_index) tables.function_flags)
+    "stored bits"
+    [ 8; 9; 10; 11; 12; 13; 14; 15 ]
+    (List.map
+       (fun (entry : Source.flag_entry) -> entry.bit_index)
+       tables.function_flags)
 
 let parser_masks_and_groups () =
   let tables = parse_ok () in
   Alcotest.(check (list int64))
     "staging masks"
     [ 0x1L; 0x2L; 0x4L; 0x8L; 0x100L; 0x200L; 0x400L; 0x800L ]
-    (List.map (fun (entry : Source.flag_entry) -> entry.mask) tables.staging_flags);
+    (List.map
+       (fun (entry : Source.flag_entry) -> entry.mask)
+       tables.staging_flags);
   Alcotest.(check (list int64))
     "group masks" [ 0xF00L; 0xF01L ]
     (List.map (fun (entry : Source.group_entry) -> entry.mask) tables.groups)
@@ -231,7 +227,9 @@ let rejects_duplicate_definition () =
     "Cf_EXTERN is defined more than once"
 
 let rejects_missing_definition () =
-  let changed = replace_once kernel_source ~needle:"#define Ff_RET1 15\n" ~replacement:"" in
+  let changed =
+    replace_once kernel_source ~needle:"#define Ff_RET1 15\n" ~replacement:""
+  in
   expect_error ~kernel:changed "missing Ff_RET1"
 
 let rejects_reordered_definition () =
@@ -297,7 +295,8 @@ let rejects_changed_modifier_transition () =
     replace_once prs_stmt_source ~needle:"FSF_INTERRUPT|FSF_NOARGPOP|"
       ~replacement:"FSF_INTERRUPT|"
   in
-  expect_error ~prs_stmt:changed "required source behavior near \"case KW_INTERRUPT:\" is missing"
+  expect_error ~prs_stmt:changed
+    "required source behavior near \"case KW_INTERRUPT:\" is missing"
 
 let rejects_changed_ret1_condition () =
   let changed =
@@ -308,16 +307,19 @@ let rejects_changed_ret1_condition () =
 
 let ignores_noncode_flag_names () =
   let changed =
-    prs_exp_source ^ "// Ff_UNKNOWN\n/* FSF_UNKNOWN */\n\"Cf_UNKNOWN\";\n'Ff_UNKNOWN';\n"
+    prs_exp_source
+    ^ "// Ff_UNKNOWN\n/* FSF_UNKNOWN */\n\"Cf_UNKNOWN\";\n'Ff_UNKNOWN';\n"
   in
   ignore (parse_ok ~prs_exp:changed ())
 
 let rejects_unknown_consumer () =
-  expect_error ~prs_exp:(prs_exp_source ^ "Ff_UNKNOWN;\n")
+  expect_error
+    ~prs_exp:(prs_exp_source ^ "Ff_UNKNOWN;\n")
     "unknown function flag Ff_UNKNOWN"
 
 let rejects_unterminated_consumer_comment () =
-  expect_error ~prs_exp:(prs_exp_source ^ "/* Ff_RET1")
+  expect_error
+    ~prs_exp:(prs_exp_source ^ "/* Ff_RET1")
     "unterminated block comment"
 
 let rejects_checksum_mismatch () =
@@ -367,7 +369,9 @@ let parses_pinned_sources () =
     | Ok tables -> tables
     | Error problem -> Alcotest.fail (Source.error_to_string problem)
   in
-  Alcotest.(check int) "pinned stored flags" 8 (List.length tables.function_flags);
+  Alcotest.(check int)
+    "pinned stored flags" 8
+    (List.length tables.function_flags);
   let interrupt = List.hd tables.function_flags in
   Alcotest.(check (list (pair string int)))
     "interrupt consumers"
@@ -381,7 +385,8 @@ let parses_pinned_sources () =
          (reference.path, reference.line))
        interrupt.consumers);
   Alcotest.(check (pair string int))
-    "caller cleanup source" ("Compiler/PrsExp.HC", 572)
+    "caller cleanup source"
+    ("Compiler/PrsExp.HC", 572)
     (tables.behavior.caller_cleanup.path, tables.behavior.caller_cleanup.line)
 
 let tests =
@@ -389,25 +394,30 @@ let tests =
     Alcotest.test_case "complete registry" `Quick complete_registry;
     Alcotest.test_case "parser masks and groups" `Quick parser_masks_and_groups;
     Alcotest.test_case "source transitions" `Quick source_transitions;
-    Alcotest.test_case "duplicate definition" `Quick rejects_duplicate_definition;
+    Alcotest.test_case "duplicate definition" `Quick
+      rejects_duplicate_definition;
     Alcotest.test_case "missing definition" `Quick rejects_missing_definition;
     Alcotest.test_case "definition order" `Quick rejects_reordered_definition;
     Alcotest.test_case "bit index" `Quick rejects_changed_bit_index;
     Alcotest.test_case "function inheritance" `Quick rejects_changed_inheritance;
     Alcotest.test_case "flag storage" `Quick rejects_changed_flag_storage;
-    Alcotest.test_case "unknown expression name" `Quick rejects_unknown_expression_name;
+    Alcotest.test_case "unknown expression name" `Quick
+      rejects_unknown_expression_name;
     Alcotest.test_case "expression provenance" `Quick
       rejects_equivalent_expression_rewrite;
-    Alcotest.test_case "expression grammar" `Quick rejects_unsupported_expression;
+    Alcotest.test_case "expression grammar" `Quick
+      rejects_unsupported_expression;
     Alcotest.test_case "group expression" `Quick rejects_changed_group;
-    Alcotest.test_case "modifier transition" `Quick rejects_changed_modifier_transition;
+    Alcotest.test_case "modifier transition" `Quick
+      rejects_changed_modifier_transition;
     Alcotest.test_case "RET1 condition" `Quick rejects_changed_ret1_condition;
     Alcotest.test_case "comments and literals" `Quick ignores_noncode_flag_names;
     Alcotest.test_case "unknown consumer" `Quick rejects_unknown_consumer;
     Alcotest.test_case "unterminated consumer comment" `Quick
       rejects_unterminated_consumer_comment;
     Alcotest.test_case "checksum mismatch" `Quick rejects_checksum_mismatch;
-    Alcotest.test_case "checkout line endings" `Quick normalizes_checkout_line_endings;
+    Alcotest.test_case "checkout line endings" `Quick
+      normalizes_checkout_line_endings;
     Alcotest.test_case "deterministic parse" `Quick deterministic_parse;
     Alcotest.test_case "pinned sources" `Quick parses_pinned_sources;
   ]

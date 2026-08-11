@@ -58,9 +58,7 @@ type error = { path : string option; line : int option; message : string }
 
 val error_to_string : error -> string
 val verify_sha256 : expected:string -> string -> (unit, error) result
-
-val apply_transition :
-  transition_entry -> int64 -> int64
+val apply_transition : transition_entry -> int64 -> int64
 
 val parse :
   kernel_source:string ->

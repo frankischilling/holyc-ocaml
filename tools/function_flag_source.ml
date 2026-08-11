@@ -172,10 +172,9 @@ let tokenize_expression ~path ~line expression =
       | '(' -> scan (offset + 1) (Left_parenthesis :: found)
       | ')' -> scan (offset + 1) (Right_parenthesis :: found)
       | '|' -> scan (offset + 1) (Bit_or :: found)
-      | '<'
-        when offset + 1 < length && Char.equal expression.[offset + 1] '<' ->
-          scan (offset + 2) (Shift_left :: found)
-      | ('0' .. '9' as first) ->
+      | '<' when offset + 1 < length && Char.equal expression.[offset + 1] '<'
+        -> scan (offset + 2) (Shift_left :: found)
+      | '0' .. '9' as first -> (
           let hexadecimal =
             Char.equal first '0'
             && offset + 1 < length
@@ -183,7 +182,12 @@ let tokenize_expression ~path ~line expression =
                || Char.equal expression.[offset + 1] 'X')
           in
           let start = if hexadecimal then offset + 2 else offset in
-          let valid = if hexadecimal then is_hex_digit else function '0' .. '9' -> true | _ -> false in
+          let valid =
+            if hexadecimal then is_hex_digit
+            else function
+              | '0' .. '9' -> true
+              | _ -> false
+          in
           let rec finish cursor =
             if cursor < length && valid expression.[cursor] then
               finish (cursor + 1)
@@ -195,11 +199,12 @@ let tokenize_expression ~path ~line expression =
               (Printf.sprintf "invalid integer in flag expression %S" expression)
           else
             let spelling = String.sub expression offset (last - offset) in
-            (match Int64.of_string_opt spelling with
+            match Int64.of_string_opt spelling with
             | Some value -> scan last (Integer value :: found)
             | None ->
                 error ~path ~line
-                  (Printf.sprintf "integer %S does not fit in 64 bits" spelling))
+                  (Printf.sprintf "integer %S does not fit in 64 bits" spelling)
+          )
       | byte when is_identifier_start byte ->
           let rec finish cursor =
             if cursor < length && is_identifier_rest expression.[cursor] then
@@ -211,14 +216,15 @@ let tokenize_expression ~path ~line expression =
           scan last (Identifier name :: found)
       | byte ->
           error ~path ~line
-            (Printf.sprintf "unsupported %C in flag expression %S" byte expression)
+            (Printf.sprintf "unsupported %C in flag expression %S" byte
+               expression)
   in
   scan 0 []
 
 let evaluate_expression ~path ~line ~environment expression =
   match tokenize_expression ~path ~line expression with
   | Error _ as result -> result
-  | Ok tokens ->
+  | Ok tokens -> (
       let length = Array.length tokens in
       let rec parse_or offset =
         match parse_shift offset with
@@ -228,8 +234,7 @@ let evaluate_expression ~path ~line ~environment expression =
         if offset < length && tokens.(offset) = Bit_or then
           match parse_shift (offset + 1) with
           | Error _ as result -> result
-          | Ok (right, offset) ->
-              parse_or_tail (Int64.logor left right) offset
+          | Ok (right, offset) -> parse_or_tail (Int64.logor left right) offset
         else Ok (left, offset)
       and parse_shift offset =
         match parse_atom offset with
@@ -241,10 +246,7 @@ let evaluate_expression ~path ~line ~environment expression =
               | Ok (right, offset) ->
                   if Int64.compare right 0L < 0 || Int64.compare right 63L > 0
                   then error ~path ~line "flag shift must be between 0 and 63"
-                  else
-                    Ok
-                      ( Int64.shift_left left (Int64.to_int right),
-                        offset )
+                  else Ok (Int64.shift_left left (Int64.to_int right), offset)
             else Ok (left, offset)
       and parse_atom offset =
         if offset >= length then error ~path ~line "flag expression ends early"
@@ -256,23 +258,25 @@ let evaluate_expression ~path ~line ~environment expression =
               | Some value -> Ok (value, offset + 1)
               | None ->
                   error ~path ~line
-                    (Printf.sprintf "flag expression references unknown %s" name))
+                    (Printf.sprintf "flag expression references unknown %s" name)
+              )
           | Left_parenthesis -> (
               match parse_or (offset + 1) with
               | Error _ as result -> result
               | Ok (value, offset) ->
                   if offset < length && tokens.(offset) = Right_parenthesis then
                     Ok (value, offset + 1)
-                  else error ~path ~line "flag expression is missing ')'" )
+                  else error ~path ~line "flag expression is missing ')'")
           | Right_parenthesis | Bit_or | Shift_left ->
-              error ~path ~line "flag expression has an operator where a value is required"
+              error ~path ~line
+                "flag expression has an operator where a value is required"
       in
       if length = 0 then error ~path ~line "flag expression is empty"
       else
         match parse_or 0 with
         | Error _ as result -> result
         | Ok (value, offset) when offset = length -> Ok value
-        | Ok _ -> error ~path ~line "flag expression has trailing input"
+        | Ok _ -> error ~path ~line "flag expression has trailing input")
 
 let split_comment line =
   match find_offsets ~needle:"//" line with
@@ -295,8 +299,10 @@ let parse_define line_number line =
   else
     let length = String.length line in
     let rec skip cursor =
-      if cursor < length && (Char.equal line.[cursor] ' ' || Char.equal line.[cursor] '\t') then
-        skip (cursor + 1)
+      if
+        cursor < length
+        && (Char.equal line.[cursor] ' ' || Char.equal line.[cursor] '\t')
+      then skip (cursor + 1)
       else cursor
     in
     let name_start = skip (String.length prefix) in
@@ -330,16 +336,19 @@ let collect_definitions ~path ~relevant ~environment source =
     | [] -> Ok (List.rev definitions)
     | line :: rest -> (
         match parse_define line_number line with
-        | Some (name, expression, line) when relevant name ->
+        | Some (name, expression, line) when relevant name -> (
             if List.mem_assoc name environment then
-              error ~path ~line (Printf.sprintf "%s is defined more than once" name)
-            else (
+              error ~path ~line
+                (Printf.sprintf "%s is defined more than once" name)
+            else
               match evaluate_expression ~path ~line ~environment expression with
               | Error _ as result -> result
               | Ok value ->
                   let definition = { name; expression; value; line } in
-                  collect (line_number + 1) ((name, value) :: environment)
-                    (definition :: definitions) rest)
+                  collect (line_number + 1)
+                    ((name, value) :: environment)
+                    (definition :: definitions)
+                    rest)
         | _ -> collect (line_number + 1) environment definitions rest)
   in
   collect 1 environment [] lines
@@ -402,8 +411,7 @@ let expected_compiler_expressions =
     ("FSF_HASERRCODE", "(1<<Ff_HASERRCODE)");
     ("FSF_ARGPOP", "(1<<Ff_ARGPOP)");
     ("FSF_NOARGPOP", "(1<<Ff_NOARGPOP)");
-    ( "FSG_FUN_FLAGS1",
-      "(FSF_INTERRUPT|FSF_HASERRCODE|FSF_ARGPOP|FSF_NOARGPOP)" );
+    ("FSG_FUN_FLAGS1", "(FSF_INTERRUPT|FSF_HASERRCODE|FSF_ARGPOP|FSF_NOARGPOP)");
     ("FSG_FUN_FLAGS2", "(FSG_FUN_FLAGS1|FSF_PUBLIC)");
   ]
 
@@ -415,7 +423,8 @@ let validate_expression_forms ~path expected definitions =
         error ~path (Printf.sprintf "function flag table is missing %s" name)
     | [], definition :: _ ->
         error ~path ~line:definition.line
-          (Printf.sprintf "function flag table contains unexpected %s" definition.name)
+          (Printf.sprintf "function flag table contains unexpected %s"
+             definition.name)
     | (name, expression) :: expected, definition :: definitions ->
         if not (String.equal name definition.name) then
           error ~path ~line:definition.line
@@ -423,11 +432,13 @@ let validate_expression_forms ~path expected definitions =
                name definition.name)
         else if
           not
-            (String.equal (compact_expression expression)
+            (String.equal
+               (compact_expression expression)
                (compact_expression definition.expression))
         then
           error ~path ~line:definition.line
-            (Printf.sprintf "%s must retain source expression %S" name expression)
+            (Printf.sprintf "%s must retain source expression %S" name
+               expression)
         else check expected definitions
   in
   check expected definitions
@@ -440,7 +451,8 @@ let validate_exact_definitions ~path expected definitions =
         error ~path (Printf.sprintf "function flag table is missing %s" name)
     | [], definition :: _ ->
         error ~path ~line:definition.line
-          (Printf.sprintf "function flag table contains unexpected %s" definition.name)
+          (Printf.sprintf "function flag table contains unexpected %s"
+             definition.name)
     | (name, value) :: expected, definition :: definitions ->
         if not (String.equal name definition.name) then
           error ~path ~line:definition.line
@@ -461,7 +473,8 @@ let validate_exact_masks ~path expected definitions =
         error ~path (Printf.sprintf "parser flag table is missing %s" name)
     | [], definition :: _ ->
         error ~path ~line:definition.line
-          (Printf.sprintf "parser flag table contains unexpected %s" definition.name)
+          (Printf.sprintf "parser flag table contains unexpected %s"
+             definition.name)
     | (name, value) :: expected, definition :: definitions ->
         if not (String.equal name definition.name) then
           error ~path ~line:definition.line
@@ -477,7 +490,8 @@ let validate_exact_masks ~path expected definitions =
 
 let bit_index_of_mask ~path definition =
   let mask = definition.value in
-  if Int64.compare mask 0L <= 0 || Int64.logand mask (Int64.pred mask) <> 0L then
+  if Int64.compare mask 0L <= 0 || Int64.logand mask (Int64.pred mask) <> 0L
+  then
     error ~path ~line:definition.line
       (Printf.sprintf "%s must evaluate to one bit" definition.name)
   else
@@ -500,14 +514,19 @@ let require_compact ~path ~anchor ~snippet source =
   let normalized = normalize_checkout_line_endings source in
   let compacted = compact normalized in
   match find_offsets ~needle:snippet compacted with
-  | [] -> error ~path (Printf.sprintf "required source behavior near %S is missing" anchor)
+  | [] ->
+      error ~path
+        (Printf.sprintf "required source behavior near %S is missing" anchor)
   | _ :: _ :: _ ->
-      error ~path (Printf.sprintf "required source behavior near %S is ambiguous" anchor)
+      error ~path
+        (Printf.sprintf "required source behavior near %S is ambiguous" anchor)
   | [ _ ] -> (
       match find_offsets ~needle:anchor normalized with
       | [ offset ] -> Ok { path; line = line_of_offset normalized offset }
       | [] -> error ~path (Printf.sprintf "source anchor %S is missing" anchor)
-      | _ -> error ~path (Printf.sprintf "source anchor %S appears more than once" anchor))
+      | _ ->
+          error ~path
+            (Printf.sprintf "source anchor %S appears more than once" anchor))
 
 let require_line_occurrences ~path ~line_text ~count source =
   let normalized = normalize_checkout_line_endings source in
@@ -524,7 +543,8 @@ let require_line_occurrences ~path ~line_text ~count source =
   if List.length found = count then Ok found
   else
     error ~path
-      (Printf.sprintf "%S must appear on exactly %d source lines" line_text count)
+      (Printf.sprintf "%S must appear on exactly %d source lines" line_text
+         count)
 
 type scan_state =
   | Line_comment
@@ -572,31 +592,49 @@ let scan_consumers ~known ~path source =
     if offset >= length then
       match state with
       | Line_comment -> Ok (List.rev found)
-      | Block_comment _ -> error ~path ~line "unterminated block comment while scanning function flags"
-      | String_literal -> error ~path ~line "unterminated string while scanning function flags"
-      | Character_literal -> error ~path ~line "unterminated character literal while scanning function flags"
+      | Block_comment _ ->
+          error ~path ~line
+            "unterminated block comment while scanning function flags"
+      | String_literal ->
+          error ~path ~line "unterminated string while scanning function flags"
+      | Character_literal ->
+          error ~path ~line
+            "unterminated character literal while scanning function flags"
     else
       match state with
       | Line_comment ->
-          if Char.equal source.[offset] '\n' then normal (offset + 1) (line + 1) found
+          if Char.equal source.[offset] '\n' then
+            normal (offset + 1) (line + 1) found
           else scan Line_comment (offset + 1) line found
       | Block_comment depth ->
-          if Char.equal source.[offset] '/' && offset + 1 < length && Char.equal source.[offset + 1] '*' then
-            scan (Block_comment (depth + 1)) (offset + 2) line found
-          else if Char.equal source.[offset] '*' && offset + 1 < length && Char.equal source.[offset + 1] '/' then
+          if
+            Char.equal source.[offset] '/'
+            && offset + 1 < length
+            && Char.equal source.[offset + 1] '*'
+          then scan (Block_comment (depth + 1)) (offset + 2) line found
+          else if
+            Char.equal source.[offset] '*'
+            && offset + 1 < length
+            && Char.equal source.[offset + 1] '/'
+          then
             if depth = 1 then normal (offset + 2) line found
             else scan (Block_comment (depth - 1)) (offset + 2) line found
           else if Char.equal source.[offset] '\n' then
             scan (Block_comment depth) (offset + 1) (line + 1) found
           else scan (Block_comment depth) (offset + 1) line found
-      | String_literal | Character_literal as literal ->
-          let terminator = match literal with String_literal -> '"' | _ -> '\'' in
+      | (String_literal | Character_literal) as literal ->
+          let terminator =
+            match literal with
+            | String_literal -> '"'
+            | _ -> '\''
+          in
           if Char.equal source.[offset] '\\' && offset + 1 < length then
             scan literal (offset + 2) line found
           else if Char.equal source.[offset] terminator then
             normal (offset + 1) line found
           else if Char.equal source.[offset] '\n' then
-            error ~path ~line "literal crosses a line while scanning function flags"
+            error ~path ~line
+              "literal crosses a line while scanning function flags"
           else scan literal (offset + 1) line found
   in
   normal 0 1 []
@@ -623,15 +661,27 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
     collect_definitions ~path:kernel_path ~relevant:relevant_kernel_name
       ~environment:[] kernel_source
   in
-  let shared_definitions = List.filteri (fun index _ -> index < 2) kernel_definitions in
-  let function_definitions = List.filteri (fun index _ -> index >= 2) kernel_definitions in
-  let* () = validate_exact_definitions ~path:kernel_path expected_shared shared_definitions in
-  let* () = validate_exact_definitions ~path:kernel_path expected_function function_definitions in
+  let shared_definitions =
+    List.filteri (fun index _ -> index < 2) kernel_definitions
+  in
+  let function_definitions =
+    List.filteri (fun index _ -> index >= 2) kernel_definitions
+  in
+  let* () =
+    validate_exact_definitions ~path:kernel_path expected_shared
+      shared_definitions
+  in
+  let* () =
+    validate_exact_definitions ~path:kernel_path expected_function
+      function_definitions
+  in
   let* () =
     validate_expression_forms ~path:kernel_path expected_kernel_expressions
       kernel_definitions
   in
-  let kernel_compact = compact (normalize_checkout_line_endings kernel_source) in
+  let kernel_compact =
+    compact (normalize_checkout_line_endings kernel_source)
+  in
   let* () =
     let class_marker = "publicclassCHashClass:CHashSrcSym{" in
     let function_marker = "publicclassCHashFun:CHashClass{" in
@@ -652,14 +702,23 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
       if contains ~needle:"U16flags;" class_section then Ok ()
       else error ~path:kernel_path "CHashClass must retain its U16 flag field"
   in
-  let kernel_environment = List.map (fun item -> (item.name, item.value)) kernel_definitions in
+  let kernel_environment =
+    List.map (fun item -> (item.name, item.value)) kernel_definitions
+  in
   let* compiler_definitions =
     collect_definitions ~path:compiler_path ~relevant:relevant_compiler_name
       ~environment:kernel_environment compiler_source
   in
-  let staging_definitions = List.filteri (fun index _ -> index < 8) compiler_definitions in
-  let group_definitions = List.filteri (fun index _ -> index >= 8) compiler_definitions in
-  let* () = validate_exact_masks ~path:compiler_path expected_staging staging_definitions in
+  let staging_definitions =
+    List.filteri (fun index _ -> index < 8) compiler_definitions
+  in
+  let group_definitions =
+    List.filteri (fun index _ -> index >= 8) compiler_definitions
+  in
+  let* () =
+    validate_exact_masks ~path:compiler_path expected_staging
+      staging_definitions
+  in
   let* () =
     validate_exact_masks ~path:compiler_path
       (List.map (fun (name, value, _) -> (name, value)) expected_groups)
@@ -669,7 +728,9 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
     validate_expression_forms ~path:compiler_path expected_compiler_expressions
       compiler_definitions
   in
-  let known = List.map (fun item -> item.name) (kernel_definitions @ compiler_definitions) in
+  let known =
+    List.map (fun item -> item.name) (kernel_definitions @ compiler_definitions)
+  in
   let consumer_sources =
     [
       ("Compiler/PrsStmt.HC", prs_stmt_source);
@@ -739,31 +800,36 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
         Replace_preserving
           { keep_mask = keep_function_and_public_and_asm; add_mask = 0x900L },
         "case KW_INTERRUPT:",
-        "caseKW_INTERRUPT:fsp_flags=FSF_INTERRUPT|FSF_NOARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+        "caseKW_INTERRUPT:fsp_flags=FSF_INTERRUPT|FSF_NOARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);"
+      );
       ( "Has_error_code",
         "haserrcode",
         Replace_preserving
           { keep_mask = keep_function_and_public_and_asm; add_mask = 0x200L },
         "case KW_HASERRCODE:",
-        "caseKW_HASERRCODE:fsp_flags=FSF_HASERRCODE|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+        "caseKW_HASERRCODE:fsp_flags=FSF_HASERRCODE|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);"
+      );
       ( "Argument_pop",
         "argpop",
         Replace_preserving
           { keep_mask = keep_function_and_public_and_asm; add_mask = 0x400L },
         "case KW_ARGPOP:",
-        "caseKW_ARGPOP:fsp_flags=FSF_ARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+        "caseKW_ARGPOP:fsp_flags=FSF_ARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);"
+      );
       ( "No_argument_pop",
         "noargpop",
         Replace_preserving
           { keep_mask = keep_function_and_public_and_asm; add_mask = 0x800L },
         "case KW_NOARGPOP:",
-        "caseKW_NOARGPOP:fsp_flags=FSF_NOARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+        "caseKW_NOARGPOP:fsp_flags=FSF_NOARGPOP|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);"
+      );
       ( "Public",
         "public",
         Replace_preserving
           { keep_mask = keep_function_and_public_and_asm; add_mask = 0x001L },
         "case KW_PUBLIC:",
-        "caseKW_PUBLIC:fsp_flags=FSF_PUBLIC|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);" );
+        "caseKW_PUBLIC:fsp_flags=FSF_PUBLIC|fsp_flags&(FSG_FUN_FLAGS2|FSF_ASM);"
+      );
     ]
   in
   let rec transitions found = function
@@ -773,7 +839,9 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
           require_compact ~path:"Compiler/PrsStmt.HC" ~anchor ~snippet
             prs_stmt_source
         in
-        transitions ({ name; spelling; operation; sources = [ source ] } :: found) rest
+        transitions
+          ({ name; spelling; operation; sources = [ source ] } :: found)
+          rest
   in
   let* transitions = transitions [] transition_specs in
   let* underscore_sources =
@@ -808,7 +876,8 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let* automatic_ret1 =
     behavior_ref ~path:"Compiler/PrsStmt.HC"
       ~anchor:"if (0<tmpf->arg_cnt<<3<=I16_MAX"
-      ~snippet:"if(0<tmpf->arg_cnt<<3<=I16_MAX&&!Bt(&tmpf->flags,Ff_DOT_DOT_DOT))LBts(&tmpf->flags,Ff_RET1);"
+      ~snippet:
+        "if(0<tmpf->arg_cnt<<3<=I16_MAX&&!Bt(&tmpf->flags,Ff_DOT_DOT_DOT))LBts(&tmpf->flags,Ff_RET1);"
       prs_stmt_source
   in
   let* variadic_declaration =
@@ -825,19 +894,22 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let* caller_cleanup =
     behavior_ref ~path:"Compiler/PrsExp.HC"
       ~anchor:"if ((Bt(&tmpf->flags,Ff_RET1)"
-      ~snippet:"if((Bt(&tmpf->flags,Ff_RET1)||Bt(&tmpf->flags,Ff_ARGPOP))&&!Bt(&tmpf->flags,Ff_NOARGPOP)){"
+      ~snippet:
+        "if((Bt(&tmpf->flags,Ff_RET1)||Bt(&tmpf->flags,Ff_ARGPOP))&&!Bt(&tmpf->flags,Ff_NOARGPOP)){"
       prs_exp_source
   in
   let* try_cleanup =
     behavior_ref ~path:"Compiler/PrsStmt.HC"
       ~anchor:"if ((Bt(&tmp_try->flags,Ff_RET1)"
-      ~snippet:"if((Bt(&tmp_try->flags,Ff_RET1)||Bt(&tmp_try->flags,Ff_ARGPOP))&&!Bt(&tmp_try->flags,Ff_NOARGPOP))"
+      ~snippet:
+        "if((Bt(&tmp_try->flags,Ff_RET1)||Bt(&tmp_try->flags,Ff_ARGPOP))&&!Bt(&tmp_try->flags,Ff_NOARGPOP))"
       prs_stmt_source
   in
   let* internal_dispatch =
     behavior_ref ~path:"Compiler/PrsExp.HC"
       ~anchor:"if (Bt(&tmpf->flags,Ff_INTERNAL))"
-      ~snippet:"if(Bt(&tmpf->flags,Ff_INTERNAL))ICAdd(cc,tmpf->exe_addr,0,tmpf->return_class);"
+      ~snippet:
+        "if(Bt(&tmpf->flags,Ff_INTERNAL))ICAdd(cc,tmpf->exe_addr,0,tmpf->return_class);"
       prs_exp_source
   in
   let* internal_clobber =
@@ -849,7 +921,8 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let* symbol_lookup_exclusion =
     behavior_ref ~path:"Kernel/FunSeg.HC"
       ~anchor:"!Bt(&tmpex(CHashFun *)->flags,Ff_INTERNAL))"
-      ~snippet:"if(!Bt(&tmpex(CHashFun*)->flags,Cf_EXTERN)&&!Bt(&tmpex(CHashFun*)->flags,Ff_INTERNAL))"
+      ~snippet:
+        "if(!Bt(&tmpex(CHashFun*)->flags,Cf_EXTERN)&&!Bt(&tmpex(CHashFun*)->flags,Ff_INTERNAL))"
       fun_seg_source
   in
   let* interrupt_restore =
@@ -861,7 +934,8 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let* interrupt_return =
     behavior_ref ~path:"Compiler/OptPass789A.HC"
       ~anchor:"if (cc->htc.fun && Bt(&cc->htc.fun->flags,Ff_INTERRUPT)) {"
-      ~snippet:"if(cc->htc.fun&&Bt(&cc->htc.fun->flags,Ff_INTERRUPT)){if(Bt(&cc->htc.fun->flags,Ff_HASERRCODE))"
+      ~snippet:
+        "if(cc->htc.fun&&Bt(&cc->htc.fun->flags,Ff_INTERRUPT)){if(Bt(&cc->htc.fun->flags,Ff_HASERRCODE))"
       opt_pass789a_source
   in
   let* interrupt_error_code =
@@ -873,7 +947,8 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let* callee_cleanup =
     behavior_ref ~path:"Compiler/OptPass789A.HC"
       ~anchor:"(Bt(&cc->htc.fun->flags,Ff_RET1) ||"
-      ~snippet:"(Bt(&cc->htc.fun->flags,Ff_RET1)||Bt(&cc->htc.fun->flags,Ff_ARGPOP))&&!Bt(&cc->htc.fun->flags,Ff_NOARGPOP)){ICU8(tmpi,0xC2);ICU16(tmpi,cc->htc.fun->arg_cnt<<3);"
+      ~snippet:
+        "(Bt(&cc->htc.fun->flags,Ff_RET1)||Bt(&cc->htc.fun->flags,Ff_ARGPOP))&&!Bt(&cc->htc.fun->flags,Ff_NOARGPOP)){ICU8(tmpi,0xC2);ICU16(tmpi,cc->htc.fun->arg_cnt<<3);"
       opt_pass789a_source
   in
   let* interrupt_save =

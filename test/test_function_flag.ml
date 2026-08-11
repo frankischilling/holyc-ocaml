@@ -2,7 +2,8 @@ module Flag = Holyc_lib.Function_flag
 
 let shared_registry () =
   Alcotest.(check (list string))
-    "shared names" [ "Cf_EXTERN"; "Cf_INTERNAL_TYPE" ]
+    "shared names"
+    [ "Cf_EXTERN"; "Cf_INTERNAL_TYPE" ]
     (List.map Flag.Shared.to_source_name Flag.Shared.all);
   Alcotest.(check (list int))
     "shared bits" [ 0; 1 ]
@@ -23,7 +24,8 @@ let stored_registry () =
     ]
     (List.map Flag.Stored.to_source_name Flag.Stored.all);
   Alcotest.(check (list int))
-    "stored bits" [ 8; 9; 10; 11; 12; 13; 14; 15 ]
+    "stored bits"
+    [ 8; 9; 10; 11; 12; 13; 14; 15 ]
     (List.map Flag.Stored.to_bit_index Flag.Stored.all);
   List.iter
     (fun stored ->
@@ -54,8 +56,7 @@ let expected_modifier mask = function
   | Flag.Modifier.Interrupt -> Int64.logor (Int64.logand mask 0xF03L) 0x900L
   | Flag.Modifier.Has_error_code ->
       Int64.logor (Int64.logand mask 0xF03L) 0x200L
-  | Flag.Modifier.Argument_pop ->
-      Int64.logor (Int64.logand mask 0xF03L) 0x400L
+  | Flag.Modifier.Argument_pop -> Int64.logor (Int64.logand mask 0xF03L) 0x400L
   | Flag.Modifier.No_argument_pop ->
       Int64.logor (Int64.logand mask 0xF03L) 0x800L
   | Flag.Modifier.Public -> Int64.logor (Int64.logand mask 0xF03L) 0x1L
@@ -70,16 +71,22 @@ let exhaustive_modifier_transitions () =
         let actual = Flag.apply_modifier ~mask modifier in
         if not (Int64.equal expected actual) then
           Alcotest.failf "modifier %s changed 0x%Lx to 0x%Lx, expected 0x%Lx"
-            (Flag.Modifier.to_spelling modifier) mask actual expected)
+            (Flag.Modifier.to_spelling modifier)
+            mask actual expected)
       Flag.Modifier.all
   done
 
 let staging_transfer_keeps_concepts_separate () =
   let staged = 0xF0FL in
   Alcotest.(check int64)
-    "stored transfer" 0xF00L (Flag.stored_mask_of_staging staged);
-  Alcotest.(check bool) "public is type state" true (Flag.public_requested staged);
-  Alcotest.(check bool) "assembly is parser state" true (Flag.assembly_mode staged);
+    "stored transfer" 0xF00L
+    (Flag.stored_mask_of_staging staged);
+  Alcotest.(check bool)
+    "public is type state" true
+    (Flag.public_requested staged);
+  Alcotest.(check bool)
+    "assembly is parser state" true
+    (Flag.assembly_mode staged);
   Alcotest.(check bool)
     "public is not stored" true
     (Flag.stored_of_staging Flag.Staging.Public = None);
@@ -90,7 +97,8 @@ let staging_transfer_keeps_concepts_separate () =
 let ret1_boundaries () =
   let check name expected argument_count variadic =
     Alcotest.(check bool)
-      name expected (Flag.derives_ret1 ~argument_count ~variadic)
+      name expected
+      (Flag.derives_ret1 ~argument_count ~variadic)
   in
   check "negative" false (-1L) false;
   check "zero" false 0L false;
@@ -113,7 +121,8 @@ let caller_cleanup_truth_table () =
            (if noargpop then bit Flag.Stored.No_argument_pop else 0L))
     in
     Alcotest.(check bool)
-      "cleanup predicate" ((ret1 || argpop) && not noargpop)
+      "cleanup predicate"
+      ((ret1 || argpop) && not noargpop)
       (Flag.caller_expects_callee_pop ~stored_mask:mask)
   done
 
@@ -140,15 +149,18 @@ let provenance () =
     Flag.reference_commit;
   Alcotest.(check int) "source count" 9 (List.length Flag.sources);
   Alcotest.(check (pair string int))
-    "automatic RET1" ("Compiler/PrsStmt.HC", 116)
+    "automatic RET1"
+    ("Compiler/PrsStmt.HC", 116)
     ( Flag.behavior_sources.automatic_ret1.path,
       Flag.behavior_sources.automatic_ret1.line );
   Alcotest.(check (pair string int))
-    "caller cleanup" ("Compiler/PrsExp.HC", 572)
+    "caller cleanup"
+    ("Compiler/PrsExp.HC", 572)
     ( Flag.behavior_sources.caller_cleanup.path,
       Flag.behavior_sources.caller_cleanup.line );
   Alcotest.(check (pair string int))
-    "interrupt save" ("Compiler/OptPass789A.HC", 704)
+    "interrupt save"
+    ("Compiler/OptPass789A.HC", 704)
     ( Flag.behavior_sources.interrupt_save.path,
       Flag.behavior_sources.interrupt_save.line )
 
@@ -173,7 +185,8 @@ let tests =
     Alcotest.test_case "shared registry" `Quick shared_registry;
     Alcotest.test_case "stored registry" `Quick stored_registry;
     Alcotest.test_case "staging registry" `Quick staging_registry;
-    Alcotest.test_case "modifier transitions" `Quick exhaustive_modifier_transitions;
+    Alcotest.test_case "modifier transitions" `Quick
+      exhaustive_modifier_transitions;
     Alcotest.test_case "staging transfer" `Quick
       staging_transfer_keeps_concepts_separate;
     Alcotest.test_case "RET1 boundaries" `Quick ret1_boundaries;
