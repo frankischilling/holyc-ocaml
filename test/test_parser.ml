@@ -24,6 +24,16 @@ let read_file path =
     ~finally:(fun () -> close_in_noerr channel)
     (fun () -> really_input_string channel (in_channel_length channel))
 
+let contains text needle =
+  let text_length = String.length text in
+  let needle_length = String.length needle in
+  let rec loop index =
+    if index + needle_length > text_length then false
+    else if String.equal (String.sub text index needle_length) needle then true
+    else loop (index + 1)
+  in
+  needle_length = 0 || loop 0
+
 let pinned path =
   [ "third_party/TempleOS"; "../third_party/TempleOS" ]
   |> List.map (fun root -> Filename.concat root path)
@@ -57,13 +67,26 @@ let expect_ast output =
 let expect_one_global ast =
   match ast.Ast.items with
   | [ Ast.Global_variable variable ] -> variable
+  | [ Ast.Global_declaration _ ] ->
+      Alcotest.fail "expected a singleton global, got a declaration group"
   | items ->
       Alcotest.failf "expected one global, got %d items" (List.length items)
+
+let expect_one_declaration ast =
+  match ast.Ast.items with
+  | [ Ast.Global_declaration declaration ] -> declaration
+  | [ Ast.Global_variable _ ] ->
+      Alcotest.fail "expected a declaration group, got a singleton global"
+  | items ->
+      Alcotest.failf "expected one declaration group, got %d items"
+        (List.length items)
 
 let globals ast =
   List.map
     (function
-      | Ast.Global_variable variable -> variable)
+      | Ast.Global_variable variable -> variable
+      | Ast.Global_declaration _ ->
+          Alcotest.fail "expected singleton globals, got a declaration group")
     ast.Ast.items
 
 let first_diagnostic output =
@@ -92,7 +115,9 @@ let supported_primitives () =
           Alcotest.(check string)
             "primitive spelling"
             (Primitive_type.to_string primitive)
-            variable.type_specifier.spelling)
+            variable.type_specifier.spelling
+      | Ast.Global_declaration _ ->
+          Alcotest.fail "primitive fixture unexpectedly formed a group")
     Primitive_type.all ast.items
 
 let pointer_depth_source_limit () =
@@ -241,6 +266,157 @@ let pointer_declarations_update_symbol_conditionals () =
        (fun (variable : Ast.global_variable) -> variable.name.spelling)
        (globals ast))
 
+let comma_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("global-list entry point", "U0 PrsGlblVarLst(CCmpCtrl *cc");
+      ( "saved base type is reused",
+        "tmpc=PrsType(cc,&saved_tmpc,&saved_mode,NULL,&st," );
+      ("comma continues the list", "if (cc->token==',')");
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Demo/MultiCore/Primes.HC", "I64 prime_range,my_mp_cnt,pending;");
+      ("Demo/MultiCore/MPRadix.HC", "I32 *arg1,*arg2;");
+      ("Kernel/KDefine.HC", "U8 *ptr,**idx;");
+    ]
+
+let comma_declaration_group () =
+  let _, _, output = parse_string "I64 first,*second,***third;" in
+  let declaration = expect_ast output |> expect_one_declaration in
+  Alcotest.(check bool)
+    "shared primitive" true
+    (Primitive_type.equal Primitive_type.I64
+       declaration.type_specifier.primitive);
+  Alcotest.(check (list string))
+    "names"
+    [ "first"; "second"; "third" ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> item.name.spelling)
+       declaration.declarators);
+  Alcotest.(check (list int))
+    "independent pointer depths" [ 0; 1; 3 ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> List.length item.pointer_layers)
+       declaration.declarators);
+  let delimiter_name = function
+    | Ast.Comma -> "comma"
+    | Ast.Semicolon -> "semicolon"
+  in
+  Alcotest.(check (list string))
+    "delimiter kinds"
+    [ "comma"; "comma"; "semicolon" ]
+    (List.map
+       (fun (item : Ast.global_declarator) ->
+         delimiter_name item.delimiter.kind)
+       declaration.declarators);
+  Alcotest.(check (list string))
+    "delimiter spellings" [ ","; ","; ";" ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> item.delimiter.spelling)
+       declaration.declarators);
+  Alcotest.(check (list int))
+    "delimiter offsets" [ 9; 17; 26 ]
+    (List.map
+       (fun (item : Ast.global_declarator) ->
+         item.delimiter.location.span.start)
+       declaration.declarators);
+  Alcotest.(check int) "group start" 0 declaration.location.span.start;
+  Alcotest.(check int) "group stop" 27 declaration.location.span.stop
+
+let definition_backed_comma_group () =
+  let session, root, output =
+    parse_string "#define NEXT ,**\nU8 *first NEXT second;"
+  in
+  let ast = expect_ast output in
+  let declaration = expect_one_declaration ast in
+  let first, second =
+    match declaration.declarators with
+    | [ first; second ] -> (first, second)
+    | items ->
+        Alcotest.failf "expected two declarators, got %d" (List.length items)
+  in
+  let generated_location description (location : Ast.location) =
+    Alcotest.(check bool)
+      (description ^ " uses a generated frame")
+      false
+      (Source_id.equal location.span.source (Source_file.id root));
+    let generated_from =
+      location.generated_from |> Option.value ~default:location.span
+    in
+    let defined_at =
+      location.defined_at |> Option.value ~default:location.span
+    in
+    Alcotest.(check bool)
+      (description ^ " retains the invocation")
+      true
+      (Source_id.equal generated_from.source (Source_file.id root));
+    Alcotest.(check bool)
+      (description ^ " retains the definition")
+      true
+      (Source_id.equal defined_at.source (Source_file.id root))
+  in
+  generated_location "comma" first.delimiter.location;
+  Alcotest.(check int)
+    "the next declarator receives two stars" 2
+    (List.length second.pointer_layers);
+  List.iter
+    (fun (pointer : Ast.pointer_layer) ->
+      generated_location "pointer" pointer.location)
+    second.pointer_layers;
+  let open Yojson.Safe.Util in
+  let item =
+    Ast_dump.to_yojson (Session.sources session) ast
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  let declarators = item |> member "declarators" |> to_list in
+  let first_delimiter = List.hd declarators |> member "delimiter" in
+  let second_pointers =
+    List.nth declarators 1 |> member "pointer_layers" |> to_list
+  in
+  Alcotest.(check bool)
+    "JSON retains comma invocation" true
+    (first_delimiter |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON retains pointer definitions" true
+    (List.for_all
+       (fun pointer ->
+         pointer |> member "location" |> member "defined_at" <> `Null)
+       second_pointers)
+
+let comma_streaming_visibility () =
+  let source =
+    "I64 first,\n#ifdef first\n*second;\n#else\nWidget wrong;\n#endif"
+  in
+  let _, _, output = parse_string source in
+  let declaration = expect_ast output |> expect_one_declaration in
+  Alcotest.(check (list string))
+    "the next token sees the preceding declaration" [ "first"; "second" ]
+    (List.map
+       (fun (item : Ast.global_declarator) -> item.name.spelling)
+       declaration.declarators)
+
+let comma_failures () =
+  List.iter
+    (fun (name, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " diagnostic") code (first_diagnostic output).code)
+    [
+      ( "second declarator exceeds pointer depth",
+        "I64 first,*****second;",
+        "HCPARSE0004" );
+      ("list lacks its final semicolon", "I64 first,*second", "HCPARSE0003");
+    ]
+
 let empty_and_comment_only () =
   List.iter
     (fun contents ->
@@ -260,7 +436,9 @@ let order_and_spans () =
   let variables =
     List.map
       (function
-        | Ast.Global_variable variable -> variable)
+        | Ast.Global_variable variable -> variable
+        | Ast.Global_declaration _ ->
+            Alcotest.fail "independent declarations unexpectedly formed a group")
       ast.items
   in
   Alcotest.(check (list string))
@@ -380,7 +558,9 @@ let declarations_update_symbol_conditionals () =
     "the following conditional sees the declaration" [ "declared"; "selected" ]
     (List.map
        (function
-         | Ast.Global_variable variable -> variable.Ast.name.spelling)
+         | Ast.Global_variable variable -> variable.Ast.name.spelling
+         | Ast.Global_declaration _ ->
+             Alcotest.fail "conditional fixture unexpectedly formed a group")
        ast.items)
 
 let unsupported_forms () =
@@ -392,7 +572,6 @@ let unsupported_forms () =
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
       ("function", "I64 Function();", "HCPARSE0003");
-      ("comma", "I64 first, second;", "HCPARSE0003");
       ("statement", "return;", "HCPARSE0001");
     ]
   in
@@ -445,6 +624,14 @@ let tests =
     Alcotest.test_case "pointer failures" `Quick pointer_failures;
     Alcotest.test_case "pointer declarations update symbol conditionals" `Quick
       pointer_declarations_update_symbol_conditionals;
+    Alcotest.test_case "pinned comma declaration behavior" `Quick
+      comma_source_behavior;
+    Alcotest.test_case "comma declaration group" `Quick comma_declaration_group;
+    Alcotest.test_case "definition-backed comma declaration" `Quick
+      definition_backed_comma_group;
+    Alcotest.test_case "comma declarations update symbol conditionals" `Quick
+      comma_streaming_visibility;
+    Alcotest.test_case "comma declaration failures" `Quick comma_failures;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;

@@ -19,6 +19,21 @@ type pointer_layer = private {
   location : location;
 }
 
+type declaration_delimiter_kind = Comma | Semicolon
+
+type declaration_delimiter = private {
+  kind : declaration_delimiter_kind;
+  spelling : string;
+  location : location;
+}
+
+type global_declarator = private {
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  delimiter : declaration_delimiter;
+  location : location;
+}
+
 type global_variable = private {
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
@@ -27,7 +42,15 @@ type global_variable = private {
   location : location;
 }
 
-type item = Global_variable of global_variable
+type global_declaration = private {
+  type_specifier : primitive_type;
+  declarators : global_declarator list;
+  location : location;
+}
+
+type item =
+  | Global_variable of global_variable
+  | Global_declaration of global_declaration
 
 type module_ = private {
   source : Common.Source_id.t;
@@ -54,6 +77,19 @@ val make_identifier : spelling:string -> location:location -> identifier
 val make_pointer_layer :
   depth:int -> spelling:string -> location:location -> pointer_layer
 
+val make_declaration_delimiter :
+  kind:declaration_delimiter_kind ->
+  spelling:string ->
+  location:location ->
+  declaration_delimiter
+
+val make_global_declarator :
+  pointer_layers:pointer_layer list ->
+  name:identifier ->
+  delimiter:declaration_delimiter ->
+  location:location ->
+  global_declarator
+
 val make_global_variable :
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
@@ -61,6 +97,12 @@ val make_global_variable :
   semicolon:Common.Span.t ->
   location:location ->
   global_variable
+
+val make_global_declaration :
+  type_specifier:primitive_type ->
+  declarators:global_declarator list ->
+  location:location ->
+  global_declaration
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_
