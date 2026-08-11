@@ -13,12 +13,14 @@ type declaration_modifier = {
   location : location;
 }
 
+type identifier = { spelling : string; location : location }
 type declaration_binding_kind = Extern | Import
 
 type declaration_binding = {
   kind : declaration_binding_kind;
   spelling : string;
   location : location;
+  target : identifier option;
 }
 
 type primitive_type = {
@@ -27,7 +29,6 @@ type primitive_type = {
   location : location;
 }
 
-type identifier = { spelling : string; location : location }
 type pointer_layer = { depth : int; spelling : string; location : location }
 type declaration_delimiter_kind = Comma | Semicolon
 
@@ -85,8 +86,8 @@ let make_declaration_modifier ~(kind : declaration_modifier_kind) ~spelling
   { kind; spelling; location }
 
 let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
-    ~location : declaration_binding =
-  { kind; spelling; location }
+    ~location ~target : declaration_binding =
+  { kind; spelling; location; target }
 
 let make_primitive_type ~primitive ~spelling ~location =
   { primitive; spelling; location }

@@ -13,12 +13,14 @@ type declaration_modifier = private {
   location : location;
 }
 
+type identifier = private { spelling : string; location : location }
 type declaration_binding_kind = Extern | Import
 
 type declaration_binding = private {
   kind : declaration_binding_kind;
   spelling : string;
   location : location;
+  target : identifier option;
 }
 
 type primitive_type = private {
@@ -26,8 +28,6 @@ type primitive_type = private {
   spelling : string;
   location : location;
 }
-
-type identifier = private { spelling : string; location : location }
 
 type pointer_layer = private {
   depth : int;
@@ -96,6 +96,7 @@ val make_declaration_binding :
   kind:declaration_binding_kind ->
   spelling:string ->
   location:location ->
+  target:identifier option ->
   declaration_binding
 
 val make_primitive_type :
