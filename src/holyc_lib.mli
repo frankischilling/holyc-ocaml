@@ -10,6 +10,7 @@ module Primitive_type = Sema.Primitive_type
 module Compiler_option = Sema.Compiler_option
 module Function_flag = Sema.Function_flag
 module Ir_opcode = Ir.Opcode
+module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator
