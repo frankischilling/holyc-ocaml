@@ -7,18 +7,20 @@ type entry = {
   source_line : int;
 }
 
-type tables = {
-  language : entry list;
-  assembly : entry list;
-}
+type tables = { language : entry list; assembly : entry list }
+type error = { line : int option; message : string }
 
-type error = {
-  line : int option;
-  message : string;
-}
+type parsed_line =
+  | Record of entry
+  | Blank
+  | Other of string
+  | Malformed of error
 
-type parsed_line = Record of entry | Blank | Other of string | Malformed of error
-type state = Before_records | Language_records | Assembly_records | After_records
+type state =
+  | Before_records
+  | Language_records
+  | Assembly_records
+  | After_records
 
 let error ?line message = Error { line; message }
 
@@ -33,7 +35,8 @@ let normalize_checkout_line_endings source =
   let rec copy offset =
     if offset < length then
       if
-        Char.equal source.[offset] '\r' && offset + 1 < length
+        Char.equal source.[offset] '\r'
+        && offset + 1 < length
         && Char.equal source.[offset + 1] '\n'
       then (
         Buffer.add_char buffer '\n';
@@ -53,8 +56,8 @@ let verify_sha256 ~expected source =
   if String.equal actual expected then Ok ()
   else
     error
-      (Printf.sprintf "source SHA-256 is %s, but the manifest requires %s" actual
-         expected)
+      (Printf.sprintf "source SHA-256 is %s, but the manifest requires %s"
+         actual expected)
 
 let strip_carriage_return line =
   let length = String.length line in
@@ -64,13 +67,17 @@ let strip_carriage_return line =
 
 let words line =
   let length = String.length line in
-  let is_space = function ' ' | '\t' -> true | _ -> false in
+  let is_space = function
+    | ' ' | '\t' -> true
+    | _ -> false
+  in
   let rec skip_spaces offset =
     if offset < length && is_space line.[offset] then skip_spaces (offset + 1)
     else offset
   in
   let rec take_word offset =
-    if offset < length && not (is_space line.[offset]) then take_word (offset + 1)
+    if offset < length && not (is_space line.[offset]) then
+      take_word (offset + 1)
     else offset
   in
   let rec collect offset found =
@@ -87,10 +94,15 @@ let valid_spelling spelling =
     | 'A' .. 'Z' | 'a' .. 'z' | '_' -> true
     | _ -> false
   in
-  let is_rest byte = is_letter byte || match byte with '0' .. '9' -> true | _ -> false in
+  let is_rest byte =
+    is_letter byte
+    ||
+    match byte with
+    | '0' .. '9' -> true
+    | _ -> false
+  in
   let length = String.length spelling in
-  length > 0 && is_letter spelling.[0]
-  && String.for_all is_rest spelling
+  length > 0 && is_letter spelling.[0] && String.for_all is_rest spelling
 
 let parse_id field =
   let length = String.length field in
@@ -103,12 +115,14 @@ let classify_line source_line line =
   let line = strip_carriage_return line in
   match words line with
   | [] -> Blank
-  | ("KEYWORD" | "ASM_KEYWORD" as tag) :: fields -> (
+  | (("KEYWORD" | "ASM_KEYWORD") as tag) :: fields -> (
       match fields with
       | [ spelling; id_field ] when valid_spelling spelling -> (
           match parse_id id_field with
           | Some templeos_id ->
-              let kind = if String.equal tag "KEYWORD" then Language else Assembly in
+              let kind =
+                if String.equal tag "KEYWORD" then Language else Assembly
+              in
               Record { kind; spelling; templeos_id; source_line }
           | None ->
               Malformed
@@ -116,7 +130,8 @@ let classify_line source_line line =
                   line = Some source_line;
                   message =
                     Printf.sprintf
-                      "%s record %S must end with one decimal ID and a semicolon"
+                      "%s record %S must end with one decimal ID and a \
+                       semicolon"
                       tag spelling;
                 })
       | _ ->
@@ -147,7 +162,8 @@ let validate_unique label entries =
   match duplicate_by (fun entry -> entry.templeos_id) entries with
   | Some entry ->
       error ~line:entry.source_line
-        (Printf.sprintf "%s ID %d appears more than once" label entry.templeos_id)
+        (Printf.sprintf "%s ID %d appears more than once" label
+           entry.templeos_id)
   | None -> (
       match duplicate_by (fun entry -> entry.spelling) entries with
       | Some entry ->
@@ -166,7 +182,8 @@ let validate_range label first last entries =
         error ~line:entry.source_line
           (Printf.sprintf "%s table contains an extra ID %d" label
              entry.templeos_id)
-    | entry :: rest when entry.templeos_id = expected -> check (expected + 1) rest
+    | entry :: rest when entry.templeos_id = expected ->
+        check (expected + 1) rest
     | entry :: _ ->
         error ~line:entry.source_line
           (Printf.sprintf "%s table requires ID %d here, but found %d" label
@@ -184,7 +201,8 @@ let validate tables =
       | Ok () -> (
           match validate_range "language keyword" 0 47 tables.language with
           | Error _ as result -> result
-          | Ok () -> validate_range "assembler directive" 64 88 tables.assembly))
+          | Ok () -> validate_range "assembler directive" 64 88 tables.assembly)
+      )
 
 let parse source =
   let lines = String.split_on_char '\n' source in
@@ -200,8 +218,7 @@ let parse source =
         | Blank -> read (line_number + 1) state language assembly rest
         | Record entry -> (
             match (state, entry.kind) with
-            | Before_records, Language
-            | Language_records, Language ->
+            | Before_records, Language | Language_records, Language ->
                 read (line_number + 1) Language_records (entry :: language)
                   assembly rest
             | (Before_records | Language_records), Assembly ->
@@ -210,10 +227,11 @@ let parse source =
             | Assembly_records, Assembly ->
                 read (line_number + 1) Assembly_records language
                   (entry :: assembly) rest
-            | Assembly_records, Language
-            | After_records, (Language | Assembly) ->
+            | Assembly_records, Language | After_records, (Language | Assembly)
+              ->
                 error ~line:line_number
-                  "keyword records must stay in their single ordered table sections")
+                  "keyword records must stay in their single ordered table \
+                   sections")
         | Other first -> (
             match state with
             | Before_records ->
@@ -228,7 +246,8 @@ let parse source =
             | Assembly_records ->
                 error ~line:line_number
                   (Printf.sprintf
-                     "unexpected %S statement inside the assembler directive table"
+                     "unexpected %S statement inside the assembler directive \
+                      table"
                      first)
             | After_records ->
                 read (line_number + 1) state language assembly rest))

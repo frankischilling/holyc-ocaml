@@ -90,7 +90,7 @@ let table_source ?(language = List.init 48 language_line)
     ?(assembly = List.init 25 assembly_line) () =
   String.concat "\n"
     ([ "R64 RAX 0;" ] @ language @ [ "" ] @ assembly
-   @ [ ""; "OPCODE PUSH"; " 0x50,+R R64" ])
+    @ [ ""; "OPCODE PUSH"; " 0x50,+R R64" ])
 
 let parse_ok source =
   match Source.parse source with
@@ -109,14 +109,18 @@ let contains ~needle text =
 
 let expect_error needle source =
   match Source.parse source with
-  | Ok _ -> Alcotest.fail "expected the opcode table parser to reject the fixture"
+  | Ok _ ->
+      Alcotest.fail "expected the opcode table parser to reject the fixture"
   | Error problem ->
       Alcotest.(check bool)
-        (Printf.sprintf "error mentions %S" needle) true
+        (Printf.sprintf "error mentions %S" needle)
+        true
         (contains ~needle (Source.error_to_string problem))
 
 let replace index replacement lines =
-  List.mapi (fun current line -> if current = index then replacement else line) lines
+  List.mapi
+    (fun current line -> if current = index then replacement else line)
+    lines
 
 let parses_complete_tables () =
   let tables = parse_ok (table_source ()) in
@@ -143,10 +147,10 @@ let rejects_duplicate_id () =
 
 let rejects_duplicate_spelling () =
   let assembly =
-    List.init 25 assembly_line
-    |> replace 2 "ASM_KEYWORD DIRECTIVE_1 66;"
+    List.init 25 assembly_line |> replace 2 "ASM_KEYWORD DIRECTIVE_1 66;"
   in
-  expect_error "assembler directive spelling \"DIRECTIVE_1\" appears more than once"
+  expect_error
+    "assembler directive spelling \"DIRECTIVE_1\" appears more than once"
     (table_source ~assembly ())
 
 let rejects_unexpected_statement () =
@@ -155,8 +159,7 @@ let rejects_unexpected_statement () =
 
 let rejects_wrong_range () =
   let assembly =
-    List.init 25 assembly_line
-    |> replace 24 "ASM_KEYWORD DIRECTIVE_24 89;"
+    List.init 25 assembly_line |> replace 24 "ASM_KEYWORD DIRECTIVE_24 89;"
   in
   expect_error "requires ID 88 here, but found 89" (table_source ~assembly ())
 
@@ -167,7 +170,9 @@ let rejects_missing_range_member () =
   expect_error "requires ID 12 here, but found 13" (table_source ~language ())
 
 let rejects_checksum_mismatch () =
-  match Source.verify_sha256 ~expected:(String.make 64 '0') (table_source ()) with
+  match
+    Source.verify_sha256 ~expected:(String.make 64 '0') (table_source ())
+  with
   | Ok () -> Alcotest.fail "expected a source checksum mismatch"
   | Error problem ->
       Alcotest.(check bool)
@@ -175,10 +180,16 @@ let rejects_checksum_mismatch () =
         (contains ~needle:"source SHA-256" (Source.error_to_string problem))
 
 let normalizes_checkout_line_endings () =
-  let lf = Source.verify_sha256 ~expected:"911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2" "a\nb\n" in
+  let lf =
+    Source.verify_sha256
+      ~expected:
+        "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2"
+      "a\nb\n"
+  in
   let crlf =
     Source.verify_sha256
-      ~expected:"911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2"
+      ~expected:
+        "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2"
       "a\r\nb\r\n"
   in
   Alcotest.(check bool) "LF source checksum" true (Result.is_ok lf);
@@ -216,14 +227,14 @@ let parses_pinned_source () =
     (List.for_all
        (fun entry -> entry.Source.kind = Source.Assembly)
        tables.assembly);
-  Alcotest.(check string) "first language spelling" "include"
-    first_language.spelling;
-  Alcotest.(check string) "last language spelling" "noargpop"
-    last_language.spelling;
-  Alcotest.(check string) "first assembly spelling" "ALIGN"
-    first_assembly.spelling;
-  Alcotest.(check string) "last assembly spelling" "BINFILE"
-    last_assembly.spelling;
+  Alcotest.(check string)
+    "first language spelling" "include" first_language.spelling;
+  Alcotest.(check string)
+    "last language spelling" "noargpop" last_language.spelling;
+  Alcotest.(check string)
+    "first assembly spelling" "ALIGN" first_assembly.spelling;
+  Alcotest.(check string)
+    "last assembly spelling" "BINFILE" last_assembly.spelling;
   Alcotest.(check (list int))
     "boundary source lines" [ 140; 187; 189; 213 ]
     [
@@ -236,7 +247,8 @@ let parses_pinned_source () =
 let tests =
   [
     Alcotest.test_case "complete synthetic tables" `Quick parses_complete_tables;
-    Alcotest.test_case "missing record semicolon" `Quick rejects_malformed_record;
+    Alcotest.test_case "missing record semicolon" `Quick
+      rejects_malformed_record;
     Alcotest.test_case "duplicate numeric ID" `Quick rejects_duplicate_id;
     Alcotest.test_case "duplicate spelling" `Quick rejects_duplicate_spelling;
     Alcotest.test_case "unexpected table statement" `Quick

@@ -38,9 +38,11 @@ let keyword_table () =
 
 let keyword_provenance () =
   Alcotest.(check int)
-    "include source line" 140 (Keyword.source_line Keyword.Include);
+    "include source line" 140
+    (Keyword.source_line Keyword.Include);
   Alcotest.(check int)
-    "noargpop source line" 187 (Keyword.source_line Keyword.Noargpop);
+    "noargpop source line" 187
+    (Keyword.source_line Keyword.Noargpop);
   Alcotest.(check (option string))
     "lookup keeps source case" None
     (Keyword.find "Include" |> Option.map Keyword.spelling)
@@ -48,12 +50,15 @@ let keyword_provenance () =
 let assembler_directive_table () =
   let actual = Asm_directive.all |> List.map Asm_directive.templeos_id in
   Alcotest.(check (list int))
-    "assembler directive IDs" (List.init 25 (fun index -> index + 64)) actual;
+    "assembler directive IDs"
+    (List.init 25 (fun index -> index + 64))
+    actual;
   let align = Asm_directive.find "ALIGN" |> Option.get in
   let binfile = Asm_directive.find "BINFILE" |> Option.get in
   Alcotest.(check int) "ALIGN source line" 189 (Asm_directive.source_line align);
   Alcotest.(check int)
-    "BINFILE source line" 213 (Asm_directive.source_line binfile);
+    "BINFILE source line" 213
+    (Asm_directive.source_line binfile);
   Alcotest.(check (option string))
     "lookup keeps source case" None
     (Asm_directive.find "align" |> Option.map Asm_directive.spelling)

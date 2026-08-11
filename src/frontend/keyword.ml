@@ -107,9 +107,7 @@ let all =
   then invalid_arg "generated language keyword table has an unexpected length";
   List.map2
     (fun entry keyword ->
-      ( entry.Generated.Opcode_keywords.spelling,
-        keyword,
-        entry.templeos_id ))
+      (entry.Generated.Opcode_keywords.spelling, keyword, entry.templeos_id))
     Generated.Opcode_keywords.language constructors_by_id
 
 let find text =

@@ -1,6 +1,8 @@
 (* This table is generated from the pinned TempleOS opcode database.
    Run the opcode table generator after an approved reference update. *)
 
+[@@@ocamlformat "disable"]
+
 let reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 let source_path = "Compiler/OpCodes.DD"
 let source_sha256 = "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d"

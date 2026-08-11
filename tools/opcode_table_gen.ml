@@ -39,16 +39,17 @@ let write_file path contents =
 let parse_arguments () =
   let rec collect source manifest output mode = function
     | [] -> (source, manifest, output, mode)
-    | "--source" :: path :: rest -> collect (Some path) manifest output mode rest
-    | "--manifest" :: path :: rest -> collect source (Some path) output mode rest
-    | "--output" :: path :: rest -> collect source manifest (Some path) mode rest
+    | "--source" :: path :: rest ->
+        collect (Some path) manifest output mode rest
+    | "--manifest" :: path :: rest ->
+        collect source (Some path) output mode rest
+    | "--output" :: path :: rest ->
+        collect source manifest (Some path) mode rest
     | "--check" :: rest -> collect source manifest output Check rest
     | option :: _ -> fail "unknown or incomplete option %S" option
   in
   let arguments = List.tl (Array.to_list Sys.argv) in
-  let source, manifest, output, mode =
-    collect None None None Write arguments
-  in
+  let source, manifest, output, mode = collect None None None Write arguments in
   let required name = function
     | Some value -> value
     | None -> fail "%s is required" name
@@ -80,11 +81,14 @@ let manifest_metadata path =
       | Some file -> file |> Json_util.member "sha256" |> Json_util.to_string
       | None -> fail "manifest does not contain %s" source_path
     in
-    if String.length checksum <> 64
-       || not
-            (String.for_all
-               (function '0' .. '9' | 'a' .. 'f' -> true | _ -> false)
-               checksum)
+    if
+      String.length checksum <> 64
+      || not
+           (String.for_all
+              (function
+                | '0' .. '9' | 'a' .. 'f' -> true
+                | _ -> false)
+              checksum)
     then fail "manifest has an invalid SHA-256 for %s" source_path;
     (commit, checksum)
   with
@@ -109,12 +113,18 @@ let render ~commit ~checksum tables =
     "(* This table is generated from the pinned TempleOS opcode database.\n";
   Buffer.add_string buffer
     "   Run the opcode table generator after an approved reference update. *)\n\n";
+  Buffer.add_string buffer "[@@@ocamlformat \"disable\"]\n\n";
   Printf.bprintf buffer "let reference_commit = %S\n" commit;
   Printf.bprintf buffer "let source_path = %S\n" source_path;
   Printf.bprintf buffer "let source_sha256 = %S\n\n" checksum;
   Buffer.add_string buffer "type kind = Language | Assembly\n\n";
   Buffer.add_string buffer
-    "type entry = {\n  kind : kind;\n  spelling : string;\n  templeos_id : int;\n  source_line : int;\n}\n\n";
+    "type entry = {\n\
+    \  kind : kind;\n\
+    \  spelling : string;\n\
+    \  templeos_id : int;\n\
+    \  source_line : int;\n\
+     }\n\n";
   add_table buffer "language" "Language" tables.Source.language;
   Buffer.add_char buffer '\n';
   add_table buffer "assembly" "Assembly" tables.Source.assembly;
@@ -124,7 +134,9 @@ let check_output path expected =
   let actual = read_file path in
   if not (String.equal actual expected) then
     fail
-      "%s is stale; regenerate it with `dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml`"
+      "%s is stale; regenerate it with `dune exec tools/opcode_table_gen.exe \
+       -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest \
+       reference/manifest.json --output src/generated/opcode_keywords.ml`"
       path
 
 let () =
