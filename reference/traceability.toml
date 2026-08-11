@@ -675,6 +675,40 @@ semantic_pointer_status = "planned"
 function_pointer_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-COMMA-GLOBALS"
+description = "A primitive global declaration can contain several comma-separated names, with one shared base type and an independent pointer depth for each name."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Demo/MultiCore/Primes.HC:2",
+  "Demo/MultiCore/MPRadix.HC:11",
+  "Kernel/KDefine.HC:16"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-comma-globals.hc",
+  "test/cli/parse-comma-globals.human",
+  "test/cli/parse-comma-globals.json",
+  "test/cli/parse-comma-errors.hc",
+  "test/cli/parse-comma-errors.human",
+  "test/cli/parse-comma-errors.json"
+]
+status = "implemented"
+issue = 53
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-declaration := primitive declarator (',' declarator)* ';'"
+delimiter_provenance = "implemented"
+streaming_symbol_publication = "implemented"
+initializer_status = "planned"
+array_suffix_status = "planned"
+function_declarator_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

@@ -54,18 +54,19 @@ The generator preserves these records so changes in the reference cannot pass un
 The current parser grammar is deliberately narrow:
 
 ```text
-module          := global-variable*
-global-variable := primitive pointer-star{0,4} identifier ";"
-pointer-star    := "*"
-primitive       := I0 | I8 | I16 | I32 | I64
-                 | U0 | U8 | U16 | U32 | U64 | F64 | Bool
+module             := global-declaration*
+global-declaration := primitive declarator ("," declarator)* ";"
+declarator         := pointer-star{0,4} identifier
+pointer-star       := "*"
+primitive          := I0 | I8 | I16 | I32 | I64
+                    | U0 | U8 | U16 | U32 | U64 | F64 | Bool
 ```
 
-Empty and comment-only inputs are valid modules. Declarations retain source order, the exact type and identifier spellings, the semicolon span, and ordered source segments. Each pointer star is a separate layer numbered from one through four. A layer keeps its raw spelling, generated frame, invocation span, and definition span. The declaration location also keeps every contributing segment when a definition supplies the stars. Includes and definitions run through the integrated stream before parsing. A parser diagnostic produced inside an include retains its include stack, while a diagnostic on definition-generated text records both the expansion and declaration sites.
+Empty and comment-only inputs are valid modules. Declarations retain source order, the exact type and identifier spellings, and ordered source segments. A comma-separated group has one shared primitive type and a source-linked declarator for every name. Each declarator records its terminating comma or semicolon explicitly. Each pointer star is a separate layer numbered from one through four, and numbering starts again for every declarator. A layer or delimiter keeps its raw spelling, generated frame, invocation span, and definition span. Includes and definitions run through the integrated stream before parsing. A parser diagnostic produced inside an include retains its include stack, while a diagnostic on definition-generated text records both the expansion and declaration sites.
 
-`Compiler/PrsStmt.HC:PrsStmt` recognizes a type at top level and calls `PrsGlblVarLst`. `Compiler/PrsVar.HC:PrsType` counts stars and rejects a depth greater than `PTR_STARS_NUM`; the pinned `Kernel/KernelA.HH` sets that value to four. `Compiler/PrsLib.HC:PrsClassNew` creates the matching depth-zero through depth-four class records. The syntax tree records the pointer layers, but semantic pointer types, layout, dereference behavior, and conversions are not implemented yet.
+`Compiler/PrsStmt.HC:PrsStmt` recognizes a type at top level and calls `PrsGlblVarLst`. That routine calls `PrsType` again after a comma while passing the saved base class and mode. `Compiler/PrsVar.HC:PrsType` counts stars and rejects a depth greater than `PTR_STARS_NUM`; the pinned `Kernel/KernelA.HH` sets that value to four. `Compiler/PrsLib.HC:PrsClassNew` creates the matching depth-zero through depth-four class records. The syntax tree records the pointer layers and list boundaries, but semantic pointer types, layout, dereference behavior, and conversions are not implemented yet.
 
-`PrsGlblVarLst` and `PrsType` also support commas, initializers, parenthesized function pointers, array suffixes, and other declarator forms. Those forms are not silently stored as raw tokens here. General unsupported syntax uses `HCPARSE0001` through `HCPARSE0003`; a fifth star uses `HCPARSE0004`, and a parenthesized function pointer uses `HCPARSE0005`. Recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
+The current list grammar accepts forms found in the pinned corpus such as `I64 prime_range,my_mp_cnt,pending;`, `I32 *arg1,*arg2;`, and `U8 *ptr,**idx;`. Each completed name is published before the parser asks the integrated stream for the next token, so a following conditional can observe it even when the directive appears after a comma. Initializers, parenthesized function pointers, array suffixes, and other declarator forms are not silently stored as raw tokens. General unsupported syntax uses `HCPARSE0001` through `HCPARSE0003`; a fifth star uses `HCPARSE0004`, and a parenthesized function pointer uses `HCPARSE0005`. Recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
 
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
