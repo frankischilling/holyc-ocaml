@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0001",
+    "severity": "error",
+    "message": "expected a primitive type after declaration modifier \"public\", but found \";\"",
+    "primary": {
+      "path": "cli/parse-modifier-error.hc",
+      "line": 2,
+      "column": 8,
+      "source_id": 0,
+      "start": 77,
+      "stop": 78
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

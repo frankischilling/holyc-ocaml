@@ -379,3 +379,67 @@
        --format=json
        cli/parse-comma-errors.hc))))
    (diff cli/parse-comma-errors.json parse-comma-errors.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-modifiers.human.actual)
+ (deps cli/parse-modifiers.hc cli/parse-modifiers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifiers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-modifiers.hc))
+   (diff cli/parse-modifiers.human parse-modifiers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-modifiers.json.actual)
+ (deps cli/parse-modifiers.hc cli/parse-modifiers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifiers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-modifiers.hc))
+   (diff cli/parse-modifiers.json parse-modifiers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-modifier-error.human.actual
+  parse-modifier-error.human.stdout.actual)
+ (deps cli/parse-modifier-error.hc cli/parse-modifier-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifier-error.human.stdout.actual
+    (with-stderr-to
+     parse-modifier-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-modifier-error.hc))))
+   (diff cli/parse-modifier-error.human parse-modifier-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-modifier-error.json.actual
+  parse-modifier-error.json.stdout.actual)
+ (deps cli/parse-modifier-error.hc cli/parse-modifier-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifier-error.json.stdout.actual
+    (with-stderr-to
+     parse-modifier-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-modifier-error.hc))))
+   (diff cli/parse-modifier-error.json parse-modifier-error.json.actual))))
