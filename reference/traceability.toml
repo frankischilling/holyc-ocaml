@@ -709,6 +709,40 @@ array_suffix_status = "planned"
 function_declarator_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-DECLARATION-MODIFIERS"
+description = "Primitive global declarations preserve ordered public and static prefix tokens with source provenance."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW_PUBLIC, KW_STATIC, FSF_PUBLIC, and FSF_STATIC",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-modifiers.hc",
+  "test/cli/parse-modifiers.human",
+  "test/cli/parse-modifiers.json",
+  "test/cli/parse-modifier-error.hc",
+  "test/cli/parse-modifier-error.human",
+  "test/cli/parse-modifier-error.json"
+]
+status = "implemented"
+issue = 55
+ast_schema = "holyc-ast-v1"
+accepted_modifiers = ["public", "static"]
+modifier_order = "preserved"
+definition_provenance = "implemented"
+linkage_status = "planned"
+storage_status = "planned"
+local_static_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
