@@ -49,31 +49,6 @@ type declaration_delimiter = private {
   location : location;
 }
 
-type global_declarator = private {
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  delimiter : declaration_delimiter;
-  location : location;
-}
-
-type global_variable = private {
-  modifiers : declaration_modifier list;
-  binding : declaration_binding option;
-  type_specifier : primitive_type;
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  semicolon : Common.Span.t;
-  location : location;
-}
-
-type global_declaration = private {
-  modifiers : declaration_modifier list;
-  binding : declaration_binding option;
-  type_specifier : primitive_type;
-  declarators : global_declarator list;
-  location : location;
-}
-
 type register_qualifier_kind = Reg | Noreg
 type register_qualifier_position = Before_type | After_type
 
@@ -148,6 +123,40 @@ and binary_expression = private {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+type array_dimension = private {
+  opening_bracket : location;
+  dimension_expression : expression option;
+  closing_bracket : location;
+  location : location;
+}
+
+type global_declarator = private {
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  delimiter : declaration_delimiter;
+  location : location;
+}
+
+type global_variable = private {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding option;
+  type_specifier : primitive_type;
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  semicolon : Common.Span.t;
+  location : location;
+}
+
+type global_declaration = private {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding option;
+  type_specifier : primitive_type;
+  declarators : global_declarator list;
+  location : location;
 }
 
 type parameter_default = private {
@@ -241,9 +250,17 @@ val make_declaration_delimiter :
   location:location ->
   declaration_delimiter
 
+val make_array_dimension :
+  opening_bracket:location ->
+  dimension_expression:expression option ->
+  closing_bracket:location ->
+  location:location ->
+  array_dimension
+
 val make_global_declarator :
   pointer_layers:pointer_layer list ->
   name:identifier ->
+  array_dimensions:array_dimension list ->
   delimiter:declaration_delimiter ->
   location:location ->
   global_declarator
@@ -254,6 +271,7 @@ val make_global_variable :
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier ->
+  array_dimensions:array_dimension list ->
   semicolon:Common.Span.t ->
   location:location ->
   global_variable

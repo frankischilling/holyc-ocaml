@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0022",
+    "severity": "error",
+    "message": "only the first array dimension may be empty",
+    "primary": {
+      "path": "cli/parse-array-error.hc",
+      "line": 1,
+      "column": 16,
+      "source_id": 0,
+      "start": 15,
+      "stop": 16
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

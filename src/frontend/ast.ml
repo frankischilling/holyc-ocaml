@@ -44,31 +44,6 @@ type declaration_delimiter = {
   location : location;
 }
 
-type global_declarator = {
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  delimiter : declaration_delimiter;
-  location : location;
-}
-
-type global_variable = {
-  modifiers : declaration_modifier list;
-  binding : declaration_binding option;
-  type_specifier : primitive_type;
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  semicolon : Common.Span.t;
-  location : location;
-}
-
-type global_declaration = {
-  modifiers : declaration_modifier list;
-  binding : declaration_binding option;
-  type_specifier : primitive_type;
-  declarators : global_declarator list;
-  location : location;
-}
-
 type register_qualifier_kind = Reg | Noreg
 type register_qualifier_position = Before_type | After_type
 
@@ -143,6 +118,40 @@ and binary_expression = {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+type array_dimension = {
+  opening_bracket : location;
+  dimension_expression : expression option;
+  closing_bracket : location;
+  location : location;
+}
+
+type global_declarator = {
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  delimiter : declaration_delimiter;
+  location : location;
+}
+
+type global_variable = {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding option;
+  type_specifier : primitive_type;
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  semicolon : Common.Span.t;
+  location : location;
+}
+
+type global_declaration = {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding option;
+  type_specifier : primitive_type;
+  declarators : global_declarator list;
+  location : location;
 }
 
 type parameter_default = {
@@ -225,17 +234,23 @@ let make_pointer_layer ~depth ~spelling ~location =
 let make_declaration_delimiter ~kind ~spelling ~location =
   { kind; spelling; location }
 
-let make_global_declarator ~pointer_layers ~name ~delimiter ~location =
-  { pointer_layers; name; delimiter; location }
+let make_array_dimension ~opening_bracket ~dimension_expression ~closing_bracket
+    ~location =
+  { opening_bracket; dimension_expression; closing_bracket; location }
+
+let make_global_declarator ~pointer_layers ~name ~array_dimensions ~delimiter
+    ~location =
+  { pointer_layers; name; array_dimensions; delimiter; location }
 
 let make_global_variable ~modifiers ~binding ~type_specifier ~pointer_layers
-    ~name ~semicolon ~location =
+    ~name ~array_dimensions ~semicolon ~location =
   {
     modifiers;
     binding;
     type_specifier;
     pointer_layers;
     name;
+    array_dimensions;
     semicolon;
     location;
   }

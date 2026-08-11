@@ -28,6 +28,13 @@ type parsed_declarator_prefix = {
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
 
+type parsed_array_dimension = {
+  node : Ast.array_dimension;
+  tokens : Token.t list;
+}
+
+type expression_context = Default_expression | Array_dimension_expression
+
 type parsed_parameter_default = {
   node : Ast.parameter_default;
   tokens : Token.t list;
@@ -382,55 +389,13 @@ let parse_declarator_prefix cursor primitive_spelling =
             definition_trace = pointer_trace;
           }
 
-let parse_variable_declarator_suffix cursor prefix =
-  let delimiter_item = peek cursor in
-  match delimiter_kind delimiter_item.token with
-  | None ->
-      report ~secondary:prefix.definition_trace cursor delimiter_item
-        ~code:"HCPARSE0003"
-        ~message:
-          (Printf.sprintf "expected ';' after global variable %S, but found %s"
-             prefix.name.spelling
-             (token_description delimiter_item.token));
-      recover_declaration cursor;
-      None
-  | Some kind ->
-      let delimiter_item = take cursor in
-      let delimiter =
-        Ast.make_declaration_delimiter ~kind ~spelling:delimiter_item.token.raw
-          ~location:(token_location delimiter_item.token)
-      in
-      let tokens = prefix.tokens @ [ delimiter_item.token ] in
-      let node =
-        Ast.make_global_declarator ~pointer_layers:prefix.pointer_layers
-          ~name:prefix.name ~delimiter
-          ~location:(location_from_tokens tokens)
-      in
-      publish_global cursor prefix.name;
-      Some ({ node; tokens } : parsed_declarator)
-
-let parse_declarator cursor primitive_spelling =
-  match parse_declarator_prefix cursor primitive_spelling with
-  | None -> None
-  | Some prefix -> parse_variable_declarator_suffix cursor prefix
-
-let rec parse_declarators cursor primitive_spelling declarators_rev =
-  match parse_declarator cursor primitive_spelling with
-  | None -> None
-  | Some declarator -> (
-      let declarators_rev = declarator :: declarators_rev in
-      match declarator.node.delimiter.kind with
-      | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma -> parse_declarators cursor primitive_spelling declarators_rev
-      )
-
-let parameter_failure cursor item ~code ~message =
+let declaration_failure cursor item ~code ~message =
   report cursor item ~code ~message;
   recover_declaration cursor;
   None
 
 let unsupported_parameter_form cursor item ~code description =
-  parameter_failure cursor item ~code
+  declaration_failure cursor item ~code
     ~message:
       (Printf.sprintf "%s are not implemented in function prototypes"
          description)
@@ -554,31 +519,39 @@ let combine_binary_expression left operator_item operator_spec right =
   else make_binary_expression left operator_item operator_spec right
 
 let expression_failure cursor item ~code ~message =
-  parameter_failure cursor item ~code ~message
+  declaration_failure cursor item ~code ~message
 
-let rec parse_expression cursor ~depth ~minimum_binding_power :
+let expression_context_name = function
+  | Default_expression -> "default expression"
+  | Array_dimension_expression -> "array dimension expression"
+
+let expression_operand_name = function
+  | Default_expression -> "a default expression operand"
+  | Array_dimension_expression -> "an array dimension expression operand"
+
+let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
     parsed_expression option =
   let item = peek cursor in
   if depth >= max_expression_depth then
     expression_failure cursor item ~code:"HCPARSE0021"
       ~message:
-        (Printf.sprintf
-           "default expression nesting exceeds the hosted limit of %d"
+        (Printf.sprintf "%s nesting exceeds the hosted limit of %d"
+           (expression_context_name context)
            max_expression_depth)
   else
-    match parse_expression_prefix cursor ~depth with
+    match parse_expression_prefix cursor ~context ~depth with
     | None -> None
     | Some left ->
-        parse_expression_tail cursor ~depth ~minimum_binding_power left
+        parse_expression_tail cursor ~context ~depth ~minimum_binding_power left
 
-and parse_expression_prefix cursor ~depth : parsed_expression option =
+and parse_expression_prefix cursor ~context ~depth : parsed_expression option =
   let item = peek cursor in
   match unary_operator_kind item.token with
   | Some operator_kind -> (
       let operator_item = take cursor in
       let operator = make_expression_operator operator_item.token in
       match
-        parse_expression cursor ~depth:(depth + 1)
+        parse_expression cursor ~context ~depth:(depth + 1)
           ~minimum_binding_power:max_int
       with
       | None -> None
@@ -591,9 +564,9 @@ and parse_expression_prefix cursor ~depth : parsed_expression option =
                  ~operand:operand.node ~location)
           in
           Some { node; tokens })
-  | None -> parse_expression_atom cursor ~depth
+  | None -> parse_expression_atom cursor ~context ~depth
 
-and parse_expression_atom cursor ~depth : parsed_expression option =
+and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   let item = peek cursor in
   let take_literal value
       (constructor : Ast.expression_literal -> Ast.expression) :
@@ -636,7 +609,8 @@ and parse_expression_atom cursor ~depth : parsed_expression option =
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
       match
-        parse_expression cursor ~depth:(depth + 1) ~minimum_binding_power:0
+        parse_expression cursor ~context ~depth:(depth + 1)
+          ~minimum_binding_power:0
       with
       | None -> None
       | Some expression ->
@@ -644,8 +618,8 @@ and parse_expression_atom cursor ~depth : parsed_expression option =
           if closing.token.kind <> Token_kind.Punctuation ')' then
             expression_failure cursor closing ~code:"HCPARSE0019"
               ~message:
-                (Printf.sprintf
-                   "expected ')' to close default expression, but found %s"
+                (Printf.sprintf "expected ')' to close %s, but found %s"
+                   (expression_context_name context)
                    (token_description closing.token))
           else
             let closing = take cursor in
@@ -662,19 +636,20 @@ and parse_expression_atom cursor ~depth : parsed_expression option =
                    ~location)
             in
             Some { node; tokens })
-  | (Token_kind.Punctuation (',' | ')' | ';') | Token_kind.Eof), _ ->
+  | (Token_kind.Punctuation (',' | ')' | ']' | ';') | Token_kind.Eof), _ ->
       expression_failure cursor item ~code:"HCPARSE0018"
         ~message:
-          (Printf.sprintf "expected a default expression operand, but found %s"
+          (Printf.sprintf "expected %s, but found %s"
+             (expression_operand_name context)
              (token_description item.token))
   | _ ->
       expression_failure cursor item ~code:"HCPARSE0020"
         ~message:
-          (Printf.sprintf
-             "default expression form starting with %s is not implemented"
+          (Printf.sprintf "%s form starting with %s is not implemented"
+             (expression_context_name context)
              (token_description item.token))
 
-and parse_expression_tail cursor ~depth ~minimum_binding_power
+and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
   match binary_operator item.token with
@@ -688,7 +663,7 @@ and parse_expression_tail cursor ~depth ~minimum_binding_power
         | Operator.Left | Operator.Unspecified -> binding_power + 1
       in
       match
-        parse_expression cursor ~depth:(depth + 1)
+        parse_expression cursor ~context ~depth:(depth + 1)
           ~minimum_binding_power:right_minimum
       with
       | None -> None
@@ -703,12 +678,16 @@ and parse_expression_tail cursor ~depth ~minimum_binding_power
               tokens = left.tokens @ (operator_item.token :: right.tokens);
             }
           in
-          parse_expression_tail cursor ~depth ~minimum_binding_power left)
+          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+            left)
   | _ -> Some left
 
 let parse_parameter_default cursor =
   let equals = take cursor in
-  match parse_expression cursor ~depth:0 ~minimum_binding_power:0 with
+  match
+    parse_expression cursor ~context:Default_expression ~depth:0
+      ~minimum_binding_power:0
+  with
   | None -> None
   | Some (expression : parsed_expression) ->
       let tokens = equals.token :: expression.tokens in
@@ -719,6 +698,126 @@ let parse_parameter_default cursor =
           ~location:(location_from_expression_tokens tokens)
       in
       Some ({ node; tokens } : parsed_parameter_default)
+
+let is_unimplemented_expression_continuation token =
+  match token.Token.kind with
+  | Token_kind.Punctuation ('(' | '[' | '.')
+  | Token_kind.Operator
+      (Operator.Arrow | Operator.Increment | Operator.Decrement) -> true
+  | _ -> false
+
+let parse_array_dimension cursor ~index =
+  let opening = take cursor in
+  let next_item = peek cursor in
+  if next_item.token.kind = Token_kind.Punctuation ']' then
+    if index = 0 then
+      let closing = take cursor in
+      let tokens = [ opening.token; closing.token ] in
+      let node =
+        Ast.make_array_dimension
+          ~opening_bracket:(token_location opening.token)
+          ~dimension_expression:None
+          ~closing_bracket:(token_location closing.token)
+          ~location:(location_from_expression_tokens tokens)
+      in
+      Some ({ node; tokens } : parsed_array_dimension)
+    else
+      expression_failure cursor next_item ~code:"HCPARSE0022"
+        ~message:"only the first array dimension may be empty"
+  else
+    match
+      parse_expression cursor ~context:Array_dimension_expression ~depth:0
+        ~minimum_binding_power:0
+    with
+    | None -> None
+    | Some (expression : parsed_expression) ->
+        let closing = peek cursor in
+        if is_unimplemented_expression_continuation closing.token then
+          expression_failure cursor closing ~code:"HCPARSE0020"
+            ~message:
+              (Printf.sprintf
+                 "array dimension expression continuation %s is not implemented"
+                 (token_description closing.token))
+        else if closing.token.kind <> Token_kind.Punctuation ']' then
+          expression_failure cursor closing ~code:"HCPARSE0023"
+            ~message:
+              (Printf.sprintf
+                 "expected ']' to close array dimension, but found %s"
+                 (token_description closing.token))
+        else
+          let closing = take cursor in
+          let tokens =
+            (opening.token :: expression.tokens) @ [ closing.token ]
+          in
+          let node =
+            Ast.make_array_dimension
+              ~opening_bracket:(token_location opening.token)
+              ~dimension_expression:(Some expression.node)
+              ~closing_bracket:(token_location closing.token)
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Some ({ node; tokens } : parsed_array_dimension)
+
+let rec parse_array_dimensions cursor index dimensions_rev token_groups_rev =
+  let item = peek cursor in
+  if item.token.kind <> Token_kind.Punctuation '[' then
+    Some (List.rev dimensions_rev, token_groups_rev |> List.rev |> List.concat)
+  else
+    match parse_array_dimension cursor ~index with
+    | None -> None
+    | Some dimension ->
+        parse_array_dimensions cursor (index + 1)
+          (dimension.node :: dimensions_rev)
+          (dimension.tokens :: token_groups_rev)
+
+let parse_variable_declarator_suffix cursor prefix =
+  match parse_array_dimensions cursor 0 [] [] with
+  | None -> None
+  | Some (array_dimensions, array_tokens) -> (
+      let delimiter_item = peek cursor in
+      match delimiter_kind delimiter_item.token with
+      | None ->
+          report ~secondary:prefix.definition_trace cursor delimiter_item
+            ~code:"HCPARSE0003"
+            ~message:
+              (Printf.sprintf
+                 "expected ';' after global variable %S, but found %s"
+                 prefix.name.spelling
+                 (token_description delimiter_item.token));
+          recover_declaration cursor;
+          None
+      | Some kind ->
+          let delimiter_item = take cursor in
+          let delimiter =
+            Ast.make_declaration_delimiter ~kind
+              ~spelling:delimiter_item.token.raw
+              ~location:(token_location delimiter_item.token)
+          in
+          let tokens =
+            prefix.tokens @ array_tokens @ [ delimiter_item.token ]
+          in
+          let node =
+            Ast.make_global_declarator ~pointer_layers:prefix.pointer_layers
+              ~name:prefix.name ~array_dimensions ~delimiter
+              ~location:(location_from_tokens tokens)
+          in
+          publish_global cursor prefix.name;
+          Some ({ node; tokens } : parsed_declarator))
+
+let parse_declarator cursor primitive_spelling =
+  match parse_declarator_prefix cursor primitive_spelling with
+  | None -> None
+  | Some prefix -> parse_variable_declarator_suffix cursor prefix
+
+let rec parse_declarators cursor primitive_spelling declarators_rev =
+  match parse_declarator cursor primitive_spelling with
+  | None -> None
+  | Some declarator -> (
+      let declarators_rev = declarator :: declarators_rev in
+      match declarator.node.delimiter.kind with
+      | Ast.Semicolon -> Some (List.rev declarators_rev)
+      | Ast.Comma -> parse_declarators cursor primitive_spelling declarators_rev
+      )
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
@@ -738,7 +837,7 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
             unsupported_parameter_form cursor following_item ~code:"HCPARSE0011"
               "array parameters"
         | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg ->
-            parameter_failure cursor following_item ~code:"HCPARSE0013"
+            declaration_failure cursor following_item ~code:"HCPARSE0013"
               ~message:
                 "register qualifier must appear before function parameter \
                  pointer stars or its name"
@@ -746,13 +845,13 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
         | Token_kind.Operator
             (Operator.Arrow | Operator.Increment | Operator.Decrement)
           when Option.is_some parsed_default ->
-            parameter_failure cursor following_item ~code:"HCPARSE0020"
+            declaration_failure cursor following_item ~code:"HCPARSE0020"
               ~message:
                 (Printf.sprintf
                    "default expression continuation %s is not implemented"
                    (token_description following_item.token))
         | _ ->
-            parameter_failure cursor following_item ~code:"HCPARSE0010"
+            declaration_failure cursor following_item ~code:"HCPARSE0010"
               ~message:
                 (Printf.sprintf
                    "expected ',' or ')' after function parameter, but found %s"
@@ -849,7 +948,7 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
                 ~type_specifier ~pointer_layers ~name:None
                 ~function_pointer:None ~tokens:leading_tokens))
   | _ ->
-      parameter_failure cursor type_item ~code:"HCPARSE0009"
+      declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:
           (Printf.sprintf
              "expected a primitive function parameter type, but found %s"
@@ -858,7 +957,7 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
 and parse_function_pointer_declarator cursor ~function_pointer_depth =
   let opening_item = peek cursor in
   if function_pointer_depth >= max_function_pointer_depth then
-    parameter_failure cursor opening_item ~code:"HCPARSE0017"
+    declaration_failure cursor opening_item ~code:"HCPARSE0017"
       ~message:
         (Printf.sprintf
            "function-pointer type nesting exceeds the hosted limit of %d"
@@ -867,7 +966,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
     let opening_item = take cursor in
     let first_star = peek cursor in
     if first_star.token.kind <> Token_kind.Punctuation '*' then
-      parameter_failure cursor first_star ~code:"HCPARSE0014"
+      declaration_failure cursor first_star ~code:"HCPARSE0014"
         ~message:
           (Printf.sprintf
              "expected '*' after '(' in function-pointer parameter, but found \
@@ -909,7 +1008,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
             let name_tokens = Option.to_list (Option.map snd parsed_name) in
             let closing_item = peek cursor in
             if closing_item.token.kind <> Token_kind.Punctuation ')' then
-              parameter_failure cursor closing_item ~code:"HCPARSE0014"
+              declaration_failure cursor closing_item ~code:"HCPARSE0014"
                 ~message:
                   (Printf.sprintf
                      "expected ')' after function-pointer name, but found %s"
@@ -918,7 +1017,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
               let closing_item = take cursor in
               let signature_opening = peek cursor in
               if signature_opening.token.kind <> Token_kind.Punctuation '(' then
-                parameter_failure cursor signature_opening ~code:"HCPARSE0014"
+                declaration_failure cursor signature_opening ~code:"HCPARSE0014"
                   ~message:
                     (Printf.sprintf
                        "expected '(' for function-pointer signature, but found \
@@ -974,7 +1073,7 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
       let ellipsis = take cursor in
       let closing = peek cursor in
       if closing.token.kind <> Token_kind.Punctuation ')' then
-        parameter_failure cursor closing ~code:"HCPARSE0015"
+        declaration_failure cursor closing ~code:"HCPARSE0015"
           ~message:
             (Printf.sprintf "expected ')' after variadic marker, but found %s"
                (token_description closing.token))
@@ -995,7 +1094,7 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
             closing_parenthesis = token_location closing.token;
           }
   | Token_kind.Punctuation ')' ->
-      parameter_failure cursor item ~code:"HCPARSE0009"
+      declaration_failure cursor item ~code:"HCPARSE0009"
         ~message:
           (if prefix.nodes = [] then
              "expected a primitive function parameter type after ',', but \
@@ -1150,6 +1249,8 @@ let parse_global cursor =
                                   ~type_specifier
                                   ~pointer_layers:declarator.node.pointer_layers
                                   ~name:declarator.node.name
+                                  ~array_dimensions:
+                                    declarator.node.array_dimensions
                                   ~semicolon:
                                     declarator.node.delimiter.location.span
                                   ~location:

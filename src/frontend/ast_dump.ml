@@ -237,6 +237,24 @@ and print_expression_operator buffer sources ~indent
     operator.operator_spelling
     (location_text sources operator.operator_location)
 
+let print_array_dimensions buffer sources ~indent dimensions =
+  List.iteri
+    (fun index (dimension : Ast.array_dimension) ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sarray_dimension index=%d sized=%b span=%s\n"
+        indent index
+        (Option.is_some dimension.dimension_expression)
+        (location_text sources dimension.location);
+      Printf.bprintf buffer "%sopening_bracket span=%s\n" child_indent
+        (location_text sources dimension.opening_bracket);
+      (match dimension.dimension_expression with
+      | None -> Printf.bprintf buffer "%sexpression omitted\n" child_indent
+      | Some expression ->
+          print_expression buffer sources ~indent:child_indent expression);
+      Printf.bprintf buffer "%sclosing_bracket span=%s\n" child_indent
+        (location_text sources dimension.closing_bracket))
+    dimensions
+
 let print_parameter_default buffer sources ~indent
     (default : Ast.parameter_default) =
   let child_indent = indent ^ "  " in
@@ -330,6 +348,8 @@ let human sources module_ =
           Printf.bprintf buffer "    name spelling=%S span=%s\n"
             variable.name.spelling
             (location_text sources variable.name.location);
+          print_array_dimensions buffer sources ~indent:"    "
+            variable.array_dimensions;
           Printf.bprintf buffer "    semicolon span=%s\n"
             (span_text sources variable.semicolon)
       | Ast.Global_declaration declaration ->
@@ -348,6 +368,8 @@ let human sources module_ =
               Printf.bprintf buffer "      name spelling=%S span=%s\n"
                 declarator.name.spelling
                 (location_text sources declarator.name.location);
+              print_array_dimensions buffer sources ~indent:"      "
+                declarator.array_dimensions;
               Printf.bprintf buffer
                 "      delimiter kind=%s spelling=%S span=%s\n"
                 (delimiter_kind_name declarator.delimiter.kind)
@@ -518,15 +540,6 @@ let delimiter_to_yojson sources (delimiter : Ast.declaration_delimiter) =
       ("location", location_to_yojson sources delimiter.location);
     ]
 
-let declarator_to_yojson sources (declarator : Ast.global_declarator) =
-  `Assoc
-    (pointer_layer_fields sources declarator.pointer_layers
-    @ [
-        ("name", identifier_to_yojson sources declarator.name);
-        ("delimiter", delimiter_to_yojson sources declarator.delimiter);
-        ("location", location_to_yojson sources declarator.location);
-      ])
-
 let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
   `Assoc
     ([ ("spelling", `String variadic.spelling) ]
@@ -617,6 +630,37 @@ let rec expression_to_yojson sources = function
           ("location", location_to_yojson sources binary.binary_location);
         ]
 
+let array_dimension_to_yojson sources (dimension : Ast.array_dimension) =
+  `Assoc
+    [
+      ("opening_bracket", location_to_yojson sources dimension.opening_bracket);
+      ( "expression",
+        match dimension.dimension_expression with
+        | None -> `Null
+        | Some expression -> expression_to_yojson sources expression );
+      ("closing_bracket", location_to_yojson sources dimension.closing_bracket);
+      ("location", location_to_yojson sources dimension.location);
+    ]
+
+let array_dimension_fields sources dimensions =
+  match dimensions with
+  | [] -> []
+  | dimensions ->
+      [
+        ( "array_dimensions",
+          `List (List.map (array_dimension_to_yojson sources) dimensions) );
+      ]
+
+let declarator_to_yojson sources (declarator : Ast.global_declarator) =
+  `Assoc
+    (pointer_layer_fields sources declarator.pointer_layers
+    @ [ ("name", identifier_to_yojson sources declarator.name) ]
+    @ array_dimension_fields sources declarator.array_dimensions
+    @ [
+        ("delimiter", delimiter_to_yojson sources declarator.delimiter);
+        ("location", location_to_yojson sources declarator.location);
+      ])
+
 let parameter_default_to_yojson sources (default : Ast.parameter_default) =
   `Assoc
     [
@@ -697,8 +741,9 @@ let item_to_yojson sources = function
         @ binding_fields sources variable.binding
         @ [ ("type", primitive_to_yojson sources variable.type_specifier) ]
         @ pointer_layer_fields sources variable.pointer_layers
+        @ [ ("name", identifier_to_yojson sources variable.name) ]
+        @ array_dimension_fields sources variable.array_dimensions
         @ [
-            ("name", identifier_to_yojson sources variable.name);
             ("semicolon", span_to_yojson sources variable.semicolon);
             ("location", location_to_yojson sources variable.location);
           ])
