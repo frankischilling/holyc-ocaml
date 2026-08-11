@@ -15,6 +15,7 @@ type error =
   | Io_error of { path : string; message : string }
 
 type resolution = { canonical_path : string; source_path : string }
+type metadata_resolution = { resolved_path : string }
 type t
 
 val create :
@@ -25,6 +26,12 @@ val create :
   (t, string) result
 
 val resolve : t -> spelling:string -> (resolution, error) result
+
+val resolve_metadata :
+  t -> spelling:string -> (metadata_resolution, error) result
+(** Resolve a metadata path inside the configured roots without requiring the
+    target to exist or reading it. *)
+
 val equal_path : string -> string -> bool
 val working_directory : t -> string
 val include_roots : t -> string list

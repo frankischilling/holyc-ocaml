@@ -7,6 +7,7 @@
   test_preprocessor
   test_conditional_expression
   test_assert_directive
+  test_help_directive
   test_symbol_visibility
   test_diagnostic
   test_version
@@ -52,6 +53,7 @@
   ../third_party/TempleOS/Compiler/OptPass6.HC
   ../third_party/TempleOS/Compiler/OptPass789A.HC
   ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KernelC.HH
   ../third_party/TempleOS/Compiler/PrsLib.HC
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
@@ -110,3 +112,34 @@
    (diff
     cli/assert-warning.json.diagnostics
     assert-warning.json.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets help-metadata.human.actual)
+ (deps cli/help-metadata.hc cli/help-metadata.human)
+ (action
+  (progn
+   (with-stdout-to
+    help-metadata.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --dump-help-metadata
+     cli/help-metadata.hc))
+   (diff cli/help-metadata.human help-metadata.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets help-metadata.json.actual)
+ (deps cli/help-metadata.hc cli/help-metadata.json)
+ (action
+  (progn
+   (with-stdout-to
+    help-metadata.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --dump-help-metadata
+     --format=json
+     cli/help-metadata.hc))
+   (diff cli/help-metadata.json help-metadata.json.actual))))

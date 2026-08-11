@@ -86,6 +86,7 @@ type t = {
   mutable conditionals : conditional list;
   mutable conditional_poisoned : bool;
   mutable pending_diagnostics : Common.Diagnostic.t list;
+  mutable help_metadata : Help_metadata.t;
 }
 
 type diagnostic_context = {
@@ -93,7 +94,11 @@ type diagnostic_context = {
   definition_trace : Common.Diagnostic.related list;
 }
 
-type output = { tokens : Token.t list; diagnostics : Common.Diagnostic.t list }
+type output = {
+  tokens : Token.t list;
+  diagnostics : Common.Diagnostic.t list;
+  help_metadata : Help_metadata.t;
+}
 
 let create ~sources ~definitions ~symbols ~config source =
   {
@@ -107,6 +112,7 @@ let create ~sources ~definitions ~symbols ~config source =
     conditionals = [];
     conditional_poisoned = false;
     pending_diagnostics = [];
+    help_metadata = Help_metadata.empty;
   }
 
 let zero_span source =
@@ -329,6 +335,65 @@ let path_problem stream primary = function
           (Printf.sprintf "TempleOS drive path %S is not supported on this host"
              spelling)
         ~help:"Map the source tree with --templeos-root and use a root path."
+        primary
+
+let help_path_problem stream primary = function
+  | Include_resolver.Empty_path ->
+      diagnostic stream ~code:"HCPP0030"
+        ~message:"the #help_file path cannot be empty" primary
+  | Include_resolver.Path_contains_nul ->
+      diagnostic stream ~code:"HCPP0030"
+        ~message:"the #help_file path contains a NUL byte" primary
+  | Include_resolver.Outside_allowed_roots { spelling; resolved; allowed_roots }
+    ->
+      let notes =
+        Printf.sprintf "resolved path: %s" resolved
+        :: List.map (Printf.sprintf "allowed root: %s") allowed_roots
+      in
+      diagnostic stream ~notes ~code:"HCPP0004"
+        ~message:
+          (Printf.sprintf "help file %S is outside the allowed roots" spelling)
+        ~help:
+          "Add the containing directory as an allowed root only if the source \
+           is trusted."
+        primary
+  | Include_resolver.Home_path_requires_mapping spelling ->
+      diagnostic stream ~code:"HCPP0009"
+        ~message:
+          (Printf.sprintf
+             "TempleOS home path %S has no hosted directory mapping" spelling)
+        primary
+  | Include_resolver.Templeos_root_requires_mapping spelling ->
+      diagnostic stream ~code:"HCPP0009"
+        ~message:
+          (Printf.sprintf "TempleOS help path %S requires --templeos-root"
+             spelling)
+        primary
+  | Include_resolver.Drive_path_unsupported spelling ->
+      diagnostic stream ~code:"HCPP0009"
+        ~message:
+          (Printf.sprintf "TempleOS drive path %S is not supported on this host"
+             spelling)
+        primary
+  | Include_resolver.Not_found { spelling; searched } ->
+      diagnostic stream
+        ~notes:(List.map (Printf.sprintf "considered %s") searched)
+        ~code:"HCPP0030"
+        ~message:(Printf.sprintf "could not resolve help file %S" spelling)
+        primary
+  | Include_resolver.Is_directory path ->
+      diagnostic stream ~code:"HCPP0030"
+        ~message:(Printf.sprintf "help path is a directory: %s" path)
+        primary
+  | Include_resolver.Not_regular_file path ->
+      diagnostic stream ~code:"HCPP0030"
+        ~message:(Printf.sprintf "help path is not a regular file: %s" path)
+        primary
+  | Include_resolver.Io_error { path; message } ->
+      diagnostic stream
+        ~notes:[ Printf.sprintf "host error: %s" message ]
+        ~code:"HCPP0030"
+        ~message:(Printf.sprintf "could not resolve help path %s" path)
         primary
 
 let cycle_diagnostic stream ~spelling ~canonical_path ~primary active =
@@ -586,6 +651,118 @@ let include_path stream token =
         (diagnostic stream ~code:"HCPP0002"
            ~message:"expected a quoted path after #include" token.Token.span)
 
+let invalid_help_argument stream token keyword =
+  retain_lookahead stream token;
+  diagnostic stream ~code:"HCPP0028"
+    ~message:
+      (Printf.sprintf "expected a string after #%s" (Keyword.spelling keyword))
+    token.Token.span
+
+let next_help_item stream context =
+  let item = next_expanded stream in
+  context :=
+    merge_diagnostic_context !context (current_diagnostic_context stream);
+  item
+
+let help_provenance context ~directive_span ~value_spans :
+    Help_metadata.provenance =
+  {
+    directive_span;
+    value_spans;
+    include_stack = context.include_stack;
+    definition_trace = context.definition_trace;
+  }
+
+let record_help_index stream hash token =
+  let context = ref (current_diagnostic_context stream) in
+  let opener = directive_span hash token in
+  match next_help_item stream context with
+  | Lexer.Diagnostic item -> Error item
+  | Lexer.Token first when first.Token.kind = Token_kind.String ->
+      let buffer = Buffer.create 64 in
+      Buffer.add_string buffer
+        (Option.value (token_text first) ~default:first.Token.raw);
+      let rec continue value_spans =
+        match
+          Lexer.consume_continuation_marker (Lexer_frame.lexer stream.current)
+        with
+        | None -> Ok (List.rev value_spans)
+        | Some marker -> (
+            match next_help_item stream context with
+            | Lexer.Diagnostic item -> Error item
+            | Lexer.Token fragment when fragment.Token.kind = Token_kind.String
+              ->
+                Buffer.add_string buffer
+                  (Option.value (token_text fragment) ~default:fragment.raw);
+                continue (fragment.span :: value_spans)
+            | Lexer.Token lookahead ->
+                retain_lookahead stream lookahead;
+                let related : Common.Diagnostic.related =
+                  {
+                    span = marker;
+                    message = "this continuation marker requests another string";
+                  }
+                in
+                Error
+                  (diagnostic stream ~context:!context ~secondary:[ related ]
+                     ~code:"HCPP0029"
+                     ~message:
+                       "expected a string after the #help_index continuation"
+                     lookahead.span))
+      in
+      Result.map
+        (fun value_spans ->
+          let provenance =
+            help_provenance !context ~directive_span:opener ~value_spans
+          in
+          let entry : Help_metadata.index_entry =
+            { value = Buffer.contents buffer; provenance }
+          in
+          stream.help_metadata <-
+            Help_metadata.record_index stream.help_metadata entry)
+        (continue [ first.span ])
+  | Lexer.Token lookahead ->
+      Error (invalid_help_argument stream lookahead Keyword.Help_index)
+
+let record_help_file stream hash token =
+  let context = ref (current_diagnostic_context stream) in
+  let opener = directive_span hash token in
+  match next_help_item stream context with
+  | Lexer.Diagnostic item -> Error item
+  | Lexer.Token path when path.Token.kind = Token_kind.String -> (
+      let declared_path =
+        Option.value (token_text path) ~default:path.Token.raw
+      in
+      let effective_path =
+        Help_metadata.with_default_extension declared_path
+        |> Help_metadata.sanitize_file_name
+      in
+      let resolver = Config.resolver stream.config in
+      match
+        Include_resolver.resolve_metadata resolver ~spelling:effective_path
+      with
+      | Error problem -> Error (help_path_problem stream path.span problem)
+      | Ok resolution ->
+          let provenance =
+            help_provenance !context ~directive_span:opener
+              ~value_spans:[ path.span ]
+          in
+          let entry : Help_metadata.file_entry =
+            {
+              declared_path;
+              effective_path;
+              resolved_path = resolution.resolved_path;
+              source_link = Help_metadata.source_link stream.sources path.span;
+              index = Help_metadata.current_index stream.help_metadata;
+              provenance;
+            }
+          in
+          stream.help_metadata <-
+            Help_metadata.record_file stream.help_metadata entry;
+          Ok ())
+  | Lexer.Token lookahead ->
+      Error (invalid_help_argument stream lookahead Keyword.Help_file)
+
 let is_conditional_opener = function
   | Keyword.If | Keyword.Ifdef | Keyword.Ifndef | Keyword.Ifaot | Keyword.Ifjit
     -> true
@@ -745,6 +922,10 @@ let directive stream ~inactive hash =
           | Lexer.Diagnostic item -> Error item
           | Lexer.Token path -> include_path stream path)
       | Token_kind.Keyword Keyword.Define -> define stream hash
+      | Token_kind.Keyword Keyword.Help_index ->
+          record_help_index stream hash token
+      | Token_kind.Keyword Keyword.Help_file ->
+          record_help_file stream hash token
       | Token_kind.Keyword keyword ->
           Error (unsupported_directive stream token keyword)
       | Token_kind.Identifier ->
@@ -817,6 +998,8 @@ let definitions stream = Definition.Environment.all stream.definitions
 let definition_dump stream =
   Definition.Environment.dump stream.sources stream.definitions
 
+let help_metadata (stream : t) = stream.help_metadata
+
 let collect_all ~sources ~definitions ~symbols ~config source =
   let stream = create ~sources ~definitions ~symbols ~config source in
   let rec collect tokens diagnostics =
@@ -825,6 +1008,7 @@ let collect_all ~sources ~definitions ~symbols ~config source =
         {
           tokens = List.rev (token :: tokens);
           diagnostics = List.rev diagnostics;
+          help_metadata = stream.help_metadata;
         }
     | Lexer.Token token -> collect (token :: tokens) diagnostics
     | Lexer.Diagnostic item -> collect tokens (item :: diagnostics)

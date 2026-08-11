@@ -78,7 +78,9 @@ let true_and_false_assertions () =
   | Ok tokens ->
       Alcotest.(check (list string))
         "convenience tokens" [ "first"; "second" ]
-        (words ({ tokens; diagnostics = [] } : Preprocessor.output))
+        (words
+           ({ tokens; diagnostics = []; help_metadata = Help_metadata.empty }
+             : Preprocessor.output))
 
 let definitions_and_symbols () =
   let prepare session =

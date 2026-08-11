@@ -46,6 +46,15 @@ let print_tokens format session tokens =
       Holyc_lib.Token.json (Holyc_lib.Session.sources session) tokens
       |> print_endline
 
+let print_help_metadata format session metadata =
+  match format with
+  | Human ->
+      Holyc_lib.Help_metadata.human (Holyc_lib.Session.sources session) metadata
+      |> output_string stdout
+  | Json ->
+      Holyc_lib.Help_metadata.json (Holyc_lib.Session.sources session) metadata
+      |> print_endline
+
 let lex_file format path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
@@ -155,8 +164,15 @@ let compilation_mode_argument =
     & opt (enum values) Holyc_lib.Preprocessor.Jit
     & info [ "mode" ] ~docv:"MODE" ~doc:documentation)
 
-let preprocess_file format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
+let dump_help_metadata_argument =
+  let documentation =
+    "Print the versioned #help_index and #help_file metadata dump instead of \
+     tokens."
+  in
+  Arg.(value & flag & info [ "dump-help-metadata" ] ~doc:documentation)
+
+let preprocess_file format dump_help_metadata include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
     max_conditional_depth max_expression_nodes compilation_mode path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
@@ -180,23 +196,25 @@ let preprocess_file format include_roots templeos_root max_include_depth
             print_diagnostics format session output.diagnostics;
           if Holyc_lib.Preprocessor.has_errors output then 1
           else (
-            print_tokens format session output.tokens;
+            if dump_help_metadata then
+              print_help_metadata format session output.help_metadata
+            else print_tokens format session output.tokens;
             0))
 
 let preprocess_command =
   let documentation =
     "Tokenize a file while resolving bounded includes, definition expansions, \
-     constant #if and #assert expressions, and JIT/AOT conditional frames. \
-     Unsupported directives produce diagnostics."
+     constant #if and #assert expressions, help metadata, and JIT/AOT \
+     conditional frames. Unsupported directives produce diagnostics."
   in
   let info = Cmd.info "preprocess" ~doc:documentation in
   Cmd.v info
     Term.(
-      const preprocess_file $ format_argument $ include_roots_argument
-      $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
-      $ definition_depth_argument $ generated_definition_bytes_argument
-      $ conditional_depth_argument $ expression_nodes_argument
-      $ compilation_mode_argument $ file_argument)
+      const preprocess_file $ format_argument $ dump_help_metadata_argument
+      $ include_roots_argument $ templeos_root_argument $ include_depth_argument
+      $ include_bytes_argument $ definition_depth_argument
+      $ generated_definition_bytes_argument $ conditional_depth_argument
+      $ expression_nodes_argument $ compilation_mode_argument $ file_argument)
 
 let version_command =
   let documentation = "Print compiler and reference revisions." in

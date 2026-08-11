@@ -31,6 +31,7 @@
     {"path": "Compiler/BackC.HC", "sha256": "207ca307204ffa8a29870dae38f9663bd3b2021d78caf35ece0f68380feb6139"},
     {"path": "Compiler/OpCodes.DD", "sha256": "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d"},
     {"path": "Kernel/KernelA.HH", "sha256": "1b4b6d8b6aeeaedfd2b11536b84557d9d2efc05ff38200020cd7a4a94dcd7d41"},
+    {"path": "Kernel/KernelC.HH", "sha256": "d96d3a3364e81724e0b43cc37a0733d85654779b231e145cc5eb889aa4ac2fca"},
     {"path": "Kernel/FunSeg.HC", "sha256": "e499763482dd544696cd9a1318cf366da50f9072440cdd8d4d926f4443819486"},
     {"path": "Kernel/KDefine.HC", "sha256": "d6176184fb06ed79e9e72ded9b276b4111df6e704217c2da7ade4dfcd3394ac7"},
     {"path": "Kernel/KHashA.HC", "sha256": "76780258c5faf76775a57488c0a9747bb90c5c5c7b1f3e7eceb09804598d0da3"},

@@ -17,6 +17,11 @@ val create :
   t
 
 val offset : t -> int
+
+val consume_continuation_marker : t -> Common.Span.t option
+(** Consume an immediate backslash used by source constructs that explicitly
+    request continued lexical input. No trivia is skipped. *)
+
 val capture_definition_replacement : t -> definition_replacement
 val scan_to_directive_marker : t -> (Token.t option, Common.Diagnostic.t) result
 val next : t -> item

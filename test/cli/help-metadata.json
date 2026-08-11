@@ -1,0 +1,56 @@
+{
+  "schema": "holyc-help-metadata-v1",
+  "current_index": {
+    "value": "CLI/Help",
+    "provenance": {
+      "directive": {
+        "path": "cli/help-metadata.hc",
+        "line": 2,
+        "column": 1,
+        "source_id": 0,
+        "start": 57,
+        "stop": 68
+      },
+      "values": [
+        {
+          "path": "cli/help-metadata.hc",
+          "line": 2,
+          "column": 13,
+          "source_id": 0,
+          "start": 69,
+          "stop": 79
+        }
+      ],
+      "include_stack": [],
+      "definition_trace": []
+    }
+  },
+  "index_events": [
+    {
+      "value": "CLI/Help",
+      "provenance": {
+        "directive": {
+          "path": "cli/help-metadata.hc",
+          "line": 2,
+          "column": 1,
+          "source_id": 0,
+          "start": 57,
+          "stop": 68
+        },
+        "values": [
+          {
+            "path": "cli/help-metadata.hc",
+            "line": 2,
+            "column": 13,
+            "source_id": 0,
+            "start": 69,
+            "stop": 79
+          }
+        ],
+        "include_stack": [],
+        "definition_trace": []
+      }
+    }
+  ],
+  "help_files": []
+}

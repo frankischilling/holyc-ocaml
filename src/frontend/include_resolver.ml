@@ -15,6 +15,7 @@ type error =
   | Io_error of { path : string; message : string }
 
 type resolution = { canonical_path : string; source_path : string }
+type metadata_resolution = { resolved_path : string }
 
 type t = {
   working_directory : string;
@@ -205,3 +206,76 @@ let resolve resolver ~spelling =
               | Ok None -> find (path :: searched) rest)
         in
         find [] candidates
+
+let normalize_lexical path =
+  let path =
+    String.map (fun byte -> if Char.equal byte '\\' then '/' else byte) path
+  in
+  let length = String.length path in
+  let prefix, body =
+    if length >= 3 && Char.equal path.[1] ':' && Char.equal path.[2] '/' then
+      (String.sub path 0 3, String.sub path 3 (length - 3))
+    else if starts_with ~prefix:"//" path then
+      ("//", String.sub path 2 (length - 2))
+    else if starts_with ~prefix:"/" path then
+      ("/", String.sub path 1 (length - 1))
+    else ("", path)
+  in
+  let segments = String.split_on_char '/' body in
+  let collapsed_rev =
+    List.fold_left
+      (fun found segment ->
+        match segment with
+        | "" | "." -> found
+        | ".." -> (
+            match found with
+            | previous :: rest when not (String.equal previous "..") -> rest
+            | _ -> segment :: found)
+        | _ -> segment :: found)
+      [] segments
+  in
+  let collapsed = List.rev collapsed_rev |> String.concat "/" in
+  if String.equal collapsed "" then prefix else prefix ^ collapsed
+
+let metadata_candidate resolver spelling =
+  if starts_with ~prefix:"~/" spelling then
+    Error (Home_path_requires_mapping spelling)
+  else if starts_with ~prefix:"::/" spelling then
+    match resolver.templeos_root with
+    | None -> Error (Templeos_root_requires_mapping spelling)
+    | Some root ->
+        let relative = String.sub spelling 3 (String.length spelling - 3) in
+        Ok (Filename.concat root relative)
+  else if starts_with ~prefix:"/" spelling then
+    match resolver.templeos_root with
+    | None -> Error (Templeos_root_requires_mapping spelling)
+    | Some root ->
+        let relative = String.sub spelling 1 (String.length spelling - 1) in
+        Ok (Filename.concat root relative)
+  else if has_drive_prefix spelling then
+    if Sys.win32 then Ok spelling else Error (Drive_path_unsupported spelling)
+  else if Filename.is_relative spelling then
+    Ok (Filename.concat resolver.working_directory spelling)
+  else Ok spelling
+
+let resolve_metadata resolver ~spelling =
+  if String.equal spelling "" then Error Empty_path
+  else if String.contains spelling '\x00' then Error Path_contains_nul
+  else
+    match metadata_candidate resolver spelling with
+    | Error _ as error -> error
+    | Ok source_path ->
+        let resolved_path = normalize_lexical source_path in
+        if
+          List.exists
+            (fun root -> path_within ~root resolved_path)
+            resolver.allowed_roots
+        then Ok { resolved_path }
+        else
+          Error
+            (Outside_allowed_roots
+               {
+                 spelling;
+                 resolved = resolved_path;
+                 allowed_roots = resolver.allowed_roots;
+               })

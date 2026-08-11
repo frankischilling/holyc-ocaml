@@ -30,6 +30,14 @@ Identifier recognition in `Compiler/Lex.HC:Lex` checks `HTT_DEFINE_STR` before i
 
 `Frontend.Definition` assigns source-ordered identities, retains replacement spans and byte-segment maps, and keeps both current lookup state and redefinition history. `Driver.Session` owns that environment because the native `CmpCtrlNew` points definition lookup at the task hash table. `Frontend.Preprocessor` creates a logical source for each expansion, adds invocation and declaration provenance to tokens and diagnostics, and resumes the caller at replacement EOF. Active-definition cycle checks and definition depth and byte budgets are hosted security rules; the pinned lexer has no equivalent guard.
 
+## Help directives and source links
+
+The `KW_HELP_INDEX` branch in `Compiler/Lex.HC:Lex` replaces `CCmpCtrl.cur_help_idx` with one string. `Compiler/LexLib.HC:LexExtStr` receives `lex_next=FALSE`, so it joins more text only through an immediate backslash followed by another string token. `Kernel/KernelC.HH:195-196` contains the pinned continuation example. An empty string remains stored on the controller, but `HashSrcFileSet` treats it as no active index.
+
+The `KW_HELP_FILE` branch applies `ExtDft(...,"DD.Z")`, passes the result to `FileNameAbs`, creates a public `HTT_HELP_FILE` source symbol, and calls `HashSrcFileSet`. `Kernel/BlkDev/DskStrA.HC:FileExtDot` establishes the extension rule. `FileNameAbs` and `DirNameAbs` establish default-directory, root, drive, dot, and parent handling. Their call to `Kernel/StrA.HC:StrUtil` removes leading and trailing whitespace and other control bytes as documented in the preprocessor notes. `Kernel/KHashB.HC:HashSrcFileSet` writes `FL:<full_name>,<line>` and copies a nonempty current index.
+
+`Frontend.Help_metadata` keeps source-ordered index events and help-file records. `Frontend.Preprocessor` attaches source spans, include stacks, and definition traces, while `Frontend.Include_resolver.resolve_metadata` produces a confined hosted path without reading the named file. `holyc preprocess --dump-help-metadata` emits the versioned report. The pinned `Kernel/KernelC.HH` test observes all 104 index directives and 20 help-file directives with no diagnostic. Semantic hash insertion and DolDoc loading remain outside this slice.
+
 ## JIT and AOT conditional selection
 
 `Kernel/KernelA.HH` defines `CCF_AOT_COMPILE` at bit 35. `Compiler/CMain.HC:CmpBuf` sets the flag before it joins an AOT compilation, while a normal controller starts without it. The OCaml preprocessor mirrors that distinction with an explicit `Jit` or `Aot` configuration and defaults to JIT. Host operating-system details do not affect the selection.
