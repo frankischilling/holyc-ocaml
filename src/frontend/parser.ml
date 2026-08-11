@@ -283,6 +283,11 @@ let pointer_definition_trace pointer_items =
 let type_spelling primitive_spelling pointer_layers =
   primitive_spelling ^ String.make (List.length pointer_layers) '*'
 
+let primitive_type_of_token token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> Sema.Primitive_type.of_spelling (token_text token)
+  | _ -> None
+
 let publish_global cursor (name : Ast.identifier) =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
@@ -358,8 +363,8 @@ let parse_declarator_prefix cursor primitive_spelling =
             definition_trace = pointer_trace;
           }
 
-let declaration_failure cursor item ~code ~message =
-  report cursor item ~code ~message;
+let declaration_failure ?(secondary = []) cursor item ~code ~message =
+  report ~secondary cursor item ~code ~message;
   recover_declaration cursor;
   None
 
@@ -500,8 +505,8 @@ let combine_binary_expression left operator_item operator_spec right =
         wrap (make_binary_expression base operator_item operator_spec right)
   else make_binary_expression left operator_item operator_spec right
 
-let expression_failure cursor item ~code ~message =
-  declaration_failure cursor item ~code ~message
+let expression_failure ?(secondary = []) cursor item ~code ~message =
+  declaration_failure ~secondary cursor item ~code ~message
 
 let expression_context_name = function
   | Default_expression -> "default expression"
@@ -596,34 +601,45 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
       Some { node; tokens = [ item.token ] }
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
-      match
-        parse_expression cursor ~context ~depth:(depth + 1)
-          ~minimum_binding_power:0
-      with
-      | None -> None
-      | Some expression ->
-          let closing = peek cursor in
-          if closing.token.kind <> Token_kind.Punctuation ')' then
-            expression_failure cursor closing ~code:"HCPARSE0019"
-              ~message:
-                (Printf.sprintf "expected ')' to close %s, but found %s"
-                   (expression_context_name context)
-                   (token_description closing.token))
-          else
-            let closing = take cursor in
-            let tokens =
-              (opening.token :: expression.tokens) @ [ closing.token ]
-            in
-            let location = location_from_expression_tokens tokens in
-            let node =
-              Ast.Parenthesized_expression
-                (Ast.make_parenthesized_expression
-                   ~opening_parenthesis:(token_location opening.token)
-                   ~expression:expression.node
-                   ~closing_parenthesis:(token_location closing.token)
-                   ~location)
-            in
-            Some { node; tokens })
+      let first = peek cursor in
+      match primitive_type_of_token first.token with
+      | Some _ ->
+          expression_failure cursor first ~code:"HCPARSE0029"
+            ~message:
+              (Printf.sprintf
+                 "C-style cast syntax is not valid HolyC in %s; write the cast \
+                  after its operand, for example value(%s)"
+                 (expression_context_name context)
+                 (token_text first.token))
+      | None -> (
+          match
+            parse_expression cursor ~context ~depth:(depth + 1)
+              ~minimum_binding_power:0
+          with
+          | None -> None
+          | Some expression ->
+              let closing = peek cursor in
+              if closing.token.kind <> Token_kind.Punctuation ')' then
+                expression_failure cursor closing ~code:"HCPARSE0019"
+                  ~message:
+                    (Printf.sprintf "expected ')' to close %s, but found %s"
+                       (expression_context_name context)
+                       (token_description closing.token))
+              else
+                let closing = take cursor in
+                let tokens =
+                  (opening.token :: expression.tokens) @ [ closing.token ]
+                in
+                let location = location_from_expression_tokens tokens in
+                let node =
+                  Ast.Parenthesized_expression
+                    (Ast.make_parenthesized_expression
+                       ~opening_parenthesis:(token_location opening.token)
+                       ~expression:expression.node
+                       ~closing_parenthesis:(token_location closing.token)
+                       ~location)
+                in
+                Some { node; tokens }))
   | (Token_kind.Punctuation (',' | ')' | ']' | ';') | Token_kind.Eof), _ ->
       expression_failure cursor item ~code:"HCPARSE0018"
         ~message:
@@ -637,9 +653,8 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
              (expression_context_name context)
              (token_description item.token))
 
-and parse_call_suffix cursor ~context ~depth (callee : parsed_expression) :
-    parsed_expression option =
-  let opening = take cursor in
+and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
+    opening : parsed_expression option =
   let build arguments_rev interior_tokens_rev closing =
     let suffix_tokens = List.rev (closing.token :: interior_tokens_rev) in
     let tokens = callee.tokens @ (opening.token :: suffix_tokens) in
@@ -731,6 +746,50 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression) :
   in
   parse_arguments [] [] false
 
+and parse_postfix_cast_suffix cursor ~context (operand : parsed_expression)
+    opening primitive : parsed_expression option =
+  let type_item = take cursor in
+  let type_specifier =
+    Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
+      ~location:(token_location type_item.token)
+  in
+  match parse_pointer_layers cursor 0 [] [] with
+  | None -> None
+  | Some (pointer_layers, pointer_items) ->
+      let pointer_tokens = List.map (fun item -> item.token) pointer_items in
+      let definition_trace =
+        append_unique_related opening.context.definition_trace
+          type_item.context.definition_trace
+        |> fun trace ->
+        append_unique_related trace (pointer_definition_trace pointer_items)
+      in
+      let closing = peek cursor in
+      if closing.token.kind <> Token_kind.Punctuation ')' then
+        expression_failure ~secondary:definition_trace cursor closing
+          ~code:"HCPARSE0030"
+          ~message:
+            (Printf.sprintf
+               "expected ')' to close postfix cast to %S in %s, but found %s"
+               (type_spelling (token_text type_item.token) pointer_layers)
+               (expression_context_name context)
+               (token_description closing.token))
+      else
+        let closing = take cursor in
+        let tokens =
+          operand.tokens
+          @ (opening.token :: type_item.token :: pointer_tokens)
+          @ [ closing.token ]
+        in
+        let node =
+          Ast.Postfix_cast_expression
+            (Ast.make_postfix_cast_expression ~operand:operand.node
+               ~opening_parenthesis:(token_location opening.token)
+               ~type_specifier ~pointer_layers
+               ~closing_parenthesis:(token_location closing.token)
+               ~location:(location_from_expression_tokens tokens))
+        in
+        Some { node; tokens }
+
 and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
     parsed_expression option =
   let opening = take cursor in
@@ -817,11 +876,19 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
   let item = peek cursor in
   match item.token.kind with
   | Token_kind.Punctuation '(' -> (
-      match parse_call_suffix cursor ~context ~depth left with
+      let opening = take cursor in
+      let first = peek cursor in
+      let suffix =
+        match primitive_type_of_token first.token with
+        | Some primitive ->
+            parse_postfix_cast_suffix cursor ~context left opening primitive
+        | None -> parse_call_suffix cursor ~context ~depth left opening
+      in
+      match suffix with
       | None -> None
-      | Some call ->
+      | Some expression ->
           parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-            call)
+            expression)
   | Token_kind.Punctuation '[' -> (
       match parse_index_suffix cursor ~context ~depth left with
       | None -> None

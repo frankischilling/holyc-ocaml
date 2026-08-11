@@ -86,6 +86,7 @@ type expression =
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
+  | Postfix_cast_expression of postfix_cast_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
@@ -121,6 +122,15 @@ and postfix_expression = private {
   postfix_operator_kind : postfix_operator_kind;
   postfix_operator : expression_operator;
   postfix_location : location;
+}
+
+and postfix_cast_expression = private {
+  cast_operand : expression;
+  cast_opening_parenthesis : location;
+  cast_type : primitive_type;
+  cast_pointer_layers : pointer_layer list;
+  cast_closing_parenthesis : location;
+  cast_location : location;
 }
 
 and binary_expression = private {
@@ -375,6 +385,15 @@ val make_postfix_expression :
   operator:expression_operator ->
   location:location ->
   postfix_expression
+
+val make_postfix_cast_expression :
+  operand:expression ->
+  opening_parenthesis:location ->
+  type_specifier:primitive_type ->
+  pointer_layers:pointer_layer list ->
+  closing_parenthesis:location ->
+  location:location ->
+  postfix_cast_expression
 
 val make_binary_expression :
   left:expression ->

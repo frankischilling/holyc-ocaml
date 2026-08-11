@@ -1,0 +1,32 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-postfix-cast.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-postfix-cast.hc:1:1..1:48 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-postfix-cast.hc:1:1..1:8
+      target_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-postfix-cast.hc:1:9..1:34
+          left
+            expression kind=postfix operator_kind=post_increment span=cli/parse-postfix-cast.hc:1:9..1:20
+              expression kind=postfix_cast span=cli/parse-postfix-cast.hc:1:9..1:18
+                operand
+                  expression kind=identifier spelling="ptr" span=cli/parse-postfix-cast.hc:1:9..1:12
+                opening_parenthesis span=cli/parse-postfix-cast.hc:1:12..1:13
+                target
+                  type primitive=U8 spelling="U8" span=cli/parse-postfix-cast.hc:1:13..1:15
+                  pointer_layer depth=1 spelling="*" span=cli/parse-postfix-cast.hc:1:16..1:17
+                closing_parenthesis span=cli/parse-postfix-cast.hc:1:17..1:18
+              operator spelling="++" span=cli/parse-postfix-cast.hc:1:18..1:20
+          operator spelling="+" span=cli/parse-postfix-cast.hc:1:21..1:22
+          right
+            expression kind=postfix_cast span=cli/parse-postfix-cast.hc:1:23..1:34
+              operand
+                expression kind=identifier spelling="cursor" span=cli/parse-postfix-cast.hc:1:23..1:29
+              opening_parenthesis span=cli/parse-postfix-cast.hc:1:29..1:30
+              target
+                type primitive=F64 spelling="F64" span=cli/parse-postfix-cast.hc:1:30..1:33
+              closing_parenthesis span=cli/parse-postfix-cast.hc:1:33..1:34
+    return_type primitive=I64 spelling="I64" span=cli/parse-postfix-cast.hc:1:35..1:38
+    name spelling="Casted" span=cli/parse-postfix-cast.hc:1:39..1:45
+    opening_parenthesis span=cli/parse-postfix-cast.hc:1:45..1:46
+    closing_parenthesis span=cli/parse-postfix-cast.hc:1:46..1:47
+    semicolon span=cli/parse-postfix-cast.hc:1:47..1:48

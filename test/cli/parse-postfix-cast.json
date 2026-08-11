@@ -1,0 +1,825 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-postfix-cast.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 48
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-cast.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "binary",
+            "left": {
+              "kind": "postfix",
+              "operator_kind": "post_increment",
+              "operand": {
+                "kind": "postfix_cast",
+                "operand": {
+                  "kind": "identifier",
+                  "spelling": "ptr",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 11
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-cast.hc",
+                        "line": 1,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 8,
+                        "stop": 11
+                      }
+                    ]
+                  }
+                },
+                "opening_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 11,
+                    "stop": 12
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 11,
+                      "stop": 12
+                    }
+                  ]
+                },
+                "target_type": {
+                  "kind": "primitive",
+                  "primitive": "U8",
+                  "spelling": "U8",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 14
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-postfix-cast.hc",
+                        "line": 1,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 12,
+                        "stop": 14
+                      }
+                    ]
+                  }
+                },
+                "pointer_layers": [
+                  {
+                    "depth": 1,
+                    "spelling": "*",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-postfix-cast.hc",
+                        "line": 1,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 15,
+                        "stop": 16
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-postfix-cast.hc",
+                          "line": 1,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 15,
+                          "stop": 16
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 17
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 11
+                    },
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 11,
+                      "stop": 12
+                    },
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 14
+                    },
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "++",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 19
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 19
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 19
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 11
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 11,
+                    "stop": 12
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 12,
+                    "stop": 14
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 19
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 21
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 21
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "postfix_cast",
+              "operand": {
+                "kind": "identifier",
+                "spelling": "cursor",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 28
+                    }
+                  ]
+                }
+              },
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              },
+              "target_type": {
+                "kind": "primitive",
+                "primitive": "F64",
+                "spelling": "F64",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 29,
+                    "stop": 32
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-postfix-cast.hc",
+                      "line": 1,
+                      "column": 30,
+                      "source_id": 0,
+                      "start": 29,
+                      "stop": 32
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 33
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 29,
+                    "stop": 32
+                  },
+                  {
+                    "path": "cli/parse-postfix-cast.hc",
+                    "line": 1,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-postfix-cast.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 33
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 11
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 11,
+                  "stop": 12
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 12,
+                  "stop": 14
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 19
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 21
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 28
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 29,
+                  "stop": 32
+                },
+                {
+                  "path": "cli/parse-postfix-cast.hc",
+                  "line": 1,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 35,
+              "source_id": 0,
+              "start": 34,
+              "stop": 37
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-cast.hc",
+                "line": 1,
+                "column": 35,
+                "source_id": 0,
+                "start": 34,
+                "stop": 37
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Casted",
+          "location": {
+            "span": {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 44
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-postfix-cast.hc",
+                "line": 1,
+                "column": 39,
+                "source_id": 0,
+                "start": 38,
+                "stop": 44
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-postfix-cast.hc",
+            "line": 1,
+            "column": 45,
+            "source_id": 0,
+            "start": 44,
+            "stop": 45
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-postfix-cast.hc",
+            "line": 1,
+            "column": 46,
+            "source_id": 0,
+            "start": 45,
+            "stop": 46
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-postfix-cast.hc",
+            "line": 1,
+            "column": 47,
+            "source_id": 0,
+            "start": 46,
+            "stop": 47
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 47,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-postfix-cast.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 47
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 11
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 13,
+              "source_id": 0,
+              "start": 12,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 23,
+              "source_id": 0,
+              "start": 22,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 29,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 30,
+              "source_id": 0,
+              "start": 29,
+              "stop": 32
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 35,
+              "source_id": 0,
+              "start": 34,
+              "stop": 37
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 44
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-postfix-cast.hc",
+              "line": 1,
+              "column": 47,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

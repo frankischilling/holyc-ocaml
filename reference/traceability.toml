@@ -1345,6 +1345,54 @@ mutation_and_old_value_semantics = "planned"
 ic_lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-PRIMITIVE-POSTFIX-CASTS"
+description = "Primitive HolyC casts follow their operand, retain zero through four pointer stars, and return to postfix modifier parsing."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 PE_MAYBE_MODIFIERS branch",
+  "Compiler/PrsExp.HC:PrsUnaryTerm parenthesized-expression branch",
+  "Compiler/PrsExp.HC:PrsUnaryModifier parenthesis branch",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CompilerA.HH:IC_HOLYC_TYPECAST and PRS0_TYPECAST",
+  "Compiler/CInit.HC:IC_HOLYC_TYPECAST metadata",
+  "Doc/HolyC.DD:postfix type-casting note",
+  "Compiler/UAsm.HC:429-614",
+  "Adam/ADbg.HC:15-128",
+  "Kernel/BlkDev/DskCDDVD.HC:18-19",
+  "Demo/Graphics/Balloon.HC:25-31"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-postfix-cast.hc",
+  "test/cli/parse-postfix-cast.human",
+  "test/cli/parse-postfix-cast.json",
+  "test/cli/parse-postfix-cast-error.hc",
+  "test/cli/parse-postfix-cast-error.human",
+  "test/cli/parse-postfix-cast-error.json"
+]
+status = "implemented"
+issue = 83
+ast_schema = "holyc-ast-v1"
+accepted_targets = ["I0", "I8", "I16", "I32", "I64", "U0", "U8", "U16", "U32", "U64", "F64", "Bool"]
+pointer_depths = [0, 1, 2, 3, 4]
+cast_precedence = "postfix cast binds before every audited binary operator"
+chain_behavior = "calls, indexes, members, and casts may precede or follow a primitive cast; one terminal postfix update may follow"
+call_disambiguation = "a checked primitive spelling immediately after the opening parenthesis selects a cast; other tokens select a call"
+prefix_cast_diagnostic = "HCPARSE0029"
+unclosed_cast_diagnostic = "HCPARSE0030"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+class_union_array_and_function_pointer_targets = "planned"
+operand_type_checking = "planned"
+conversion_and_warning_behavior = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
