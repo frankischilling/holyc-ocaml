@@ -78,7 +78,13 @@ let print_binding buffer sources ~indent = function
       Printf.bprintf buffer "%sbinding kind=%s spelling=%S span=%s\n" indent
         (binding_kind_name binding.kind)
         binding.spelling
-        (location_text sources binding.location)
+        (location_text sources binding.location);
+      Option.iter
+        (fun (target : Ast.identifier) ->
+          Printf.bprintf buffer "%s  target spelling=%S span=%s\n" indent
+            target.spelling
+            (location_text sources target.location))
+        binding.target
 
 let print_type buffer sources ~indent primitive =
   Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
@@ -227,11 +233,15 @@ let modifier_fields sources modifiers =
 
 let binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc
-    [
-      ("kind", `String (binding_kind_name binding.kind));
-      ("spelling", `String binding.spelling);
-      ("location", location_to_yojson sources binding.location);
-    ]
+    ([
+       ("kind", `String (binding_kind_name binding.kind));
+       ("spelling", `String binding.spelling);
+       ("location", location_to_yojson sources binding.location);
+     ]
+    @
+    match binding.target with
+    | None -> []
+    | Some target -> [ ("target", identifier_to_yojson sources target) ])
 
 let binding_fields sources = function
   | None -> []

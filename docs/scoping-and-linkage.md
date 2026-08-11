@@ -14,14 +14,14 @@ A plain `import` names a symbol that the TempleOS loader resolves when an AOT mo
 
 ## Implemented parser boundary
 
-The AST keeps `public` and `static` as ordered staged modifiers. It keeps one plain `extern` or `import` token in a separate optional binding node. That separation follows `PrsStmt`, which consumes staged modifiers before it selects a declaration mode.
+The AST keeps `public` and `static` as ordered staged modifiers. It keeps one ordinary or alternate-name binding in a separate optional node. An `_extern` or `_import` node also retains the target identifier that appears before the type. That separation follows `PrsStmt`, which consumes staged modifiers before it selects a declaration mode.
 
-The default parser mode is JIT. It accepts `extern`, rejects `import` with `HCPARSE0006`, and does not publish the rejected name. An explicit AOT parser configuration accepts both bindings. Each accepted binding retains its spelling, source segments, generated frame, invocation site, and definition site. Singleton and comma-separated primitive declarations use the same representation.
+The default parser mode is JIT. It accepts `extern` and `_extern`, rejects `import` and `_import` with `HCPARSE0006`, and does not publish the rejected name. An explicit AOT parser configuration accepts all four bindings. Each accepted binding and alternate target retains its spelling, source segments, generated frame, invocation site, and definition site. Singleton and comma-separated primitive declarations use the same representation. A missing alternate target receives `HCPARSE0007`.
 
-This is syntax handling plus the source-backed AOT gate. It does not look up an extern, resolve a forward reference, create an import or export record, assign an address, apply `OPTf_EXTERNS_TO_IMPORTS`, or model task-parent lookup. Those behaviors belong to semantic linkage, AOT emission, and the loader model.
+This is syntax handling plus the source-backed AOT gate. It does not look up an ordinary or alternate target, resolve a forward reference or alias, create an import or export record, assign an address, apply `OPTf_EXTERNS_TO_IMPORTS`, or model task-parent lookup. Those behaviors belong to semantic linkage, AOT emission, and the loader model.
 
-The underscored forms, function declarations, class declarations, arrays, initializers, local scope, and duplicate-declaration rules remain unavailable. [Issue #57](https://github.com/frankischilling/holyc-ocaml/issues/57) records the implemented slice, while the declaration, symbol, and BIN milestones track the remaining work.
+`_intern` remains unavailable because its target is a compile-time expression. Function declarations, class declarations, arrays, initializers, local scope, and duplicate-declaration rules also remain unavailable. [Issue #57](https://github.com/frankischilling/holyc-ocaml/issues/57) records ordinary bindings, and [issue #59](https://github.com/frankischilling/holyc-ocaml/issues/59) records alternate-name bindings. The declaration, symbol, and BIN milestones track the remaining work.
 
 ## Reproducible checks
 
-`test/test_parser.ml` checks the exact keyword and parser-mode definitions, the AOT gate, generated-token provenance, streaming symbol visibility, and rejected syntax. `test/cli/parse-bindings.hc` exercises the public CLI in AOT mode. `test/cli/parse-import-jit.hc` records the JIT diagnostic and exit status.
+`test/test_parser.ml` checks the exact keyword, mode, and staging definitions; target provenance; the AOT gate; streaming symbol visibility; and rejected syntax. `test/cli/parse-bindings.hc` and `test/cli/parse-alternate-bindings.hc` exercise the public CLI in AOT mode. `test/cli/parse-import-jit.hc` and `test/cli/parse-alternate-import-jit.hc` record the JIT diagnostics and exit status.

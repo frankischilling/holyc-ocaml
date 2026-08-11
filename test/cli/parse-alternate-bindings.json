@@ -1,0 +1,367 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-alternate-bindings.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 150
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "modifiers": [
+          {
+            "kind": "public",
+            "spelling": "public",
+            "location": {
+              "span": {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 76,
+                "stop": 82
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-alternate-bindings.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 76,
+                  "stop": 82
+                }
+              ]
+            }
+          }
+        ],
+        "binding": {
+          "kind": "extern",
+          "spelling": "_extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 83,
+              "stop": 90
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 83,
+                "stop": 90
+              }
+            ]
+          },
+          "target": {
+            "spelling": "C32_EAX",
+            "location": {
+              "span": {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 2,
+                "column": 16,
+                "source_id": 0,
+                "start": 91,
+                "stop": 98
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-alternate-bindings.hc",
+                  "line": 2,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 98
+                }
+              ]
+            }
+          }
+        },
+        "type": {
+          "kind": "primitive",
+          "primitive": "U32",
+          "spelling": "U32",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 24,
+              "source_id": 0,
+              "start": 99,
+              "stop": 102
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 2,
+                "column": 24,
+                "source_id": 0,
+                "start": 99,
+                "stop": 102
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "c32_eax",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 28,
+              "source_id": 0,
+              "start": 103,
+              "stop": 110
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 2,
+                "column": 28,
+                "source_id": 0,
+                "start": 103,
+                "stop": 110
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-alternate-bindings.hc",
+          "line": 2,
+          "column": 35,
+          "source_id": 0,
+          "start": 110,
+          "stop": 111
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-alternate-bindings.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 76,
+            "stop": 111
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 76,
+              "stop": 82
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 83,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 16,
+              "source_id": 0,
+              "start": 91,
+              "stop": 98
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 24,
+              "source_id": 0,
+              "start": 99,
+              "stop": 102
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 28,
+              "source_id": 0,
+              "start": 103,
+              "stop": 110
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 2,
+              "column": 35,
+              "source_id": 0,
+              "start": 110,
+              "stop": 111
+            }
+          ]
+        }
+      },
+      {
+        "kind": "global_variable",
+        "binding": {
+          "kind": "import",
+          "spelling": "_import",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 112,
+              "stop": 119
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 112,
+                "stop": 119
+              }
+            ]
+          },
+          "target": {
+            "spelling": "REMOTE_CLOCK",
+            "location": {
+              "span": {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 3,
+                "column": 9,
+                "source_id": 0,
+                "start": 120,
+                "stop": 132
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-alternate-bindings.hc",
+                  "line": 3,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 120,
+                  "stop": 132
+                }
+              ]
+            }
+          }
+        },
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 22,
+              "source_id": 0,
+              "start": 133,
+              "stop": 136
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 3,
+                "column": 22,
+                "source_id": 0,
+                "start": 133,
+                "stop": 136
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "clock_ticks",
+          "location": {
+            "span": {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 26,
+              "source_id": 0,
+              "start": 137,
+              "stop": 148
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-alternate-bindings.hc",
+                "line": 3,
+                "column": 26,
+                "source_id": 0,
+                "start": 137,
+                "stop": 148
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-alternate-bindings.hc",
+          "line": 3,
+          "column": 37,
+          "source_id": 0,
+          "start": 148,
+          "stop": 149
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-alternate-bindings.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 112,
+            "stop": 149
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 112,
+              "stop": 119
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 9,
+              "source_id": 0,
+              "start": 120,
+              "stop": 132
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 22,
+              "source_id": 0,
+              "start": 133,
+              "stop": 136
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 26,
+              "source_id": 0,
+              "start": 137,
+              "stop": 148
+            },
+            {
+              "path": "cli/parse-alternate-bindings.hc",
+              "line": 3,
+              "column": 37,
+              "source_id": 0,
+              "start": 148,
+              "stop": 149
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

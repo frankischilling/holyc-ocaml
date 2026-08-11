@@ -650,6 +650,9 @@ let direct_bindings () =
         "extern binding kind" "extern"
         (binding_name binding.kind);
       Alcotest.(check string) "extern spelling" "extern" binding.spelling;
+      Alcotest.(check bool)
+        "ordinary extern has no alternate target" true
+        (Option.is_none binding.target);
       Alcotest.(check int)
         "extern starts at byte zero" 0 binding.location.span.start;
       Alcotest.(check (list string))
@@ -772,14 +775,201 @@ let binding_failures () =
       ( "modifier cannot follow binding",
         "extern public I64 wrong_order;",
         "after declaration binding \"extern\"" );
-      ( "underscored extern is not in this slice",
-        "_extern I64 unavailable;",
-        "at the start of a global declaration" );
-      ( "underscored import is not in this slice",
-        "_import I64 unavailable;",
-        "at the start of a global declaration" );
       ( "underscored intern is not in this slice",
         "_intern I64 unavailable;",
+        "at the start of a global declaration" );
+    ]
+
+let alternate_binding_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("alternate extern branch", "case KW__EXTERN:");
+      ( "alternate extern mode",
+        "PrsGlblVarLst(cc,PRS0__EXTERN|PRS1_NULL,tmpex,i,fsp_flags);" );
+      ("alternate import branch", "case KW__IMPORT:");
+      ("alternate import mode", "PrsGlblVarLst(cc,PRS0__IMPORT|PRS1_NULL,tmpex,");
+      ("extern-to-import option", "Bt(&cc->opts,OPTf_EXTERNS_TO_IMPORTS)");
+    ];
+  let header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains header fragment))
+    [
+      ("alternate extern keyword identity", "#define KW__EXTERN\t11");
+      ("alternate import keyword identity", "#define KW__IMPORT\t28");
+      ("alternate extern parser mode", "#define PRS0__EXTERN\t\t0x000001");
+      ("alternate import parser mode", "#define PRS0__IMPORT\t\t0x000003");
+    ];
+  let kernel = pinned "Kernel/KernelB.HH" in
+  Alcotest.(check bool)
+    "pinned alternate-name global" true
+    (contains kernel "_extern MEM_BOOT_BASE U32 mem_boot_base;")
+
+let direct_alternate_bindings () =
+  let source =
+    "_extern C32_EAX U32 c32_eax;\n\
+     public _extern SYS_BOOT_BASE U32 boot_base,*boot_pointer;"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  (match ast.items with
+  | [ Ast.Global_variable c32_eax; Ast.Global_declaration boot ] ->
+      let c32_binding = Option.get c32_eax.binding in
+      Alcotest.(check string)
+        "alternate extern spelling" "_extern" c32_binding.spelling;
+      Alcotest.(check string)
+        "alternate extern target" "C32_EAX"
+        (c32_binding.target |> Option.get |> fun target -> target.spelling);
+      Alcotest.(check int)
+        "target starts after the binding" 8
+        ( c32_binding.target |> Option.get |> fun target ->
+          target.location.span.start );
+      Alcotest.(check (list string))
+        "group keeps its modifier" [ "public" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           boot.modifiers);
+      Alcotest.(check string)
+        "group target" "SYS_BOOT_BASE"
+        ( boot.binding |> Option.get |> fun binding ->
+          binding.target |> Option.get |> fun target -> target.spelling );
+      Alcotest.(check (list string))
+        "group local names"
+        [ "boot_base"; "boot_pointer" ]
+        (List.map
+           (fun (item : Ast.global_declarator) -> item.name.spelling)
+           boot.declarators)
+  | items ->
+      Alcotest.failf "expected two alternate-name globals, got %d"
+        (List.length items));
+  let _, _, import_output =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "_import REMOTE_CLOCK I64 clock_ticks;"
+  in
+  let binding =
+    expect_ast import_output |> expect_one_global |> fun variable ->
+    Option.get variable.binding
+  in
+  Alcotest.(check string)
+    "alternate import target" "REMOTE_CLOCK"
+    (binding.target |> Option.get |> fun target -> target.spelling)
+
+let definition_backed_alternate_binding () =
+  let session, root, output =
+    parse_string
+      "#define LINK _extern\n\
+       #define TARGET SYS_BOOT_BASE\n\
+       LINK TARGET U32 boot;"
+  in
+  let ast = expect_ast output in
+  let binding =
+    expect_one_global ast |> fun variable -> Option.get variable.binding
+  in
+  let target = Option.get binding.target in
+  Alcotest.(check bool)
+    "binding uses a generated frame" false
+    (Source_id.equal binding.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "target uses a generated frame" false
+    (Source_id.equal target.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "target retains its invocation" true
+    (target.location.generated_from |> Option.is_some);
+  Alcotest.(check bool)
+    "target retains its definition" true
+    (target.location.defined_at |> Option.is_some);
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) ast
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target"
+  in
+  Alcotest.(check string)
+    "JSON target spelling" "SYS_BOOT_BASE"
+    (target_json |> member "spelling" |> to_string);
+  Alcotest.(check bool)
+    "JSON target invocation" true
+    (target_json |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON target definition" true
+    (target_json |> member "location" |> member "defined_at" <> `Null)
+
+let alternate_binding_streaming_visibility () =
+  let source =
+    "_extern SYS_BOOT_BASE I64 declared;\n\
+     #ifdef declared\n\
+     public U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  let variables = expect_ast output |> globals in
+  Alcotest.(check (list string))
+    "the conditional sees the local alias" [ "declared"; "selected" ]
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       variables)
+
+let alternate_import_mode_boundary () =
+  let session, _, output =
+    parse_string "_import REMOTE_CLOCK I64 unavailable;"
+  in
+  Alcotest.(check bool)
+    "JIT alternate import has no AST" true
+    (Option.is_none output.ast);
+  let diagnostic = first_diagnostic output in
+  Alcotest.(check string)
+    "JIT alternate import diagnostic" "HCPARSE0006" diagnostic.code;
+  Alcotest.(check int) "diagnostic points at _import" 0 diagnostic.primary.start;
+  (match
+     Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "unavailable"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "a rejected alternate import became visible");
+  let _, _, aot_output =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "_import REMOTE_CLOCK I64 available;"
+  in
+  ignore (expect_ast aot_output)
+
+let alternate_binding_failures () =
+  List.iter
+    (fun (name, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ( "alternate extern lacks a target",
+        "_extern ;",
+        "HCPARSE0007",
+        "expected a target symbol" );
+      ( "alternate import target must be an identifier",
+        "_import 42 I64 value;",
+        "HCPARSE0007",
+        "found \"42\"" );
+      ( "binding cannot repeat after an alternate target",
+        "_extern TARGET extern I64 duplicate;",
+        "HCPARSE0001",
+        "after declaration binding \"_extern\"" );
+      ( "modifier cannot follow an alternate target",
+        "_extern TARGET public I64 wrong_order;",
+        "HCPARSE0001",
+        "after declaration binding \"_extern\"" );
+      ( "underscored intern still needs an expression AST",
+        "_intern IC_BSF I64 unavailable;",
+        "HCPARSE0001",
         "at the start of a global declaration" );
     ]
 
@@ -1018,6 +1208,18 @@ let tests =
     Alcotest.test_case "import compilation mode boundary" `Quick
       import_mode_boundary;
     Alcotest.test_case "declaration binding failures" `Quick binding_failures;
+    Alcotest.test_case "pinned alternate-name binding behavior" `Quick
+      alternate_binding_source_behavior;
+    Alcotest.test_case "direct alternate-name bindings" `Quick
+      direct_alternate_bindings;
+    Alcotest.test_case "definition-backed alternate-name binding" `Quick
+      definition_backed_alternate_binding;
+    Alcotest.test_case "alternate-name bindings update symbol conditionals"
+      `Quick alternate_binding_streaming_visibility;
+    Alcotest.test_case "alternate import compilation mode boundary" `Quick
+      alternate_import_mode_boundary;
+    Alcotest.test_case "alternate-name binding failures" `Quick
+      alternate_binding_failures;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;

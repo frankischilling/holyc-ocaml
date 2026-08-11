@@ -504,3 +504,82 @@
        --format=json
        cli/parse-import-jit.hc))))
    (diff cli/parse-import-jit.json parse-import-jit.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-alternate-bindings.human.actual)
+ (deps cli/parse-alternate-bindings.hc cli/parse-alternate-bindings.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-bindings.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     --mode=aot
+     cli/parse-alternate-bindings.hc))
+   (diff
+    cli/parse-alternate-bindings.human
+    parse-alternate-bindings.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-alternate-bindings.json.actual)
+ (deps cli/parse-alternate-bindings.hc cli/parse-alternate-bindings.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-bindings.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-alternate-bindings.hc))
+   (diff
+    cli/parse-alternate-bindings.json
+    parse-alternate-bindings.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-alternate-import-jit.human.actual
+  parse-alternate-import-jit.human.stdout.actual)
+ (deps
+  cli/parse-alternate-import-jit.hc
+  cli/parse-alternate-import-jit.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-import-jit.human.stdout.actual
+    (with-stderr-to
+     parse-alternate-import-jit.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-alternate-import-jit.hc))))
+   (diff
+    cli/parse-alternate-import-jit.human
+    parse-alternate-import-jit.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-alternate-import-jit.json.actual
+  parse-alternate-import-jit.json.stdout.actual)
+ (deps cli/parse-alternate-import-jit.hc cli/parse-alternate-import-jit.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-import-jit.json.stdout.actual
+    (with-stderr-to
+     parse-alternate-import-jit.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-alternate-import-jit.hc))))
+   (diff
+    cli/parse-alternate-import-jit.json
+    parse-alternate-import-jit.json.actual))))

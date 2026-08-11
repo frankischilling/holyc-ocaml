@@ -18,7 +18,17 @@ type cursor = {
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
-type parsed_binding = { node : Ast.declaration_binding; item : located_token }
+
+type parsed_binding = {
+  node : Ast.declaration_binding;
+  keyword : located_token;
+  tokens : Token.t list;
+}
+
+type binding_parse =
+  | No_binding
+  | Parsed_binding of parsed_binding
+  | Bad_binding
 
 let max_pointer_depth = 4
 
@@ -190,21 +200,50 @@ let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
 
 let declaration_binding_kind token =
   match token.Token.kind with
-  | Token_kind.Keyword Keyword.Extern -> Some Ast.Extern
-  | Token_kind.Keyword Keyword.Import -> Some Ast.Import
+  | Token_kind.Keyword Keyword.Extern -> Some (Ast.Extern, false)
+  | Token_kind.Keyword Keyword.Import -> Some (Ast.Import, false)
+  | Token_kind.Keyword Keyword.Underscore_extern -> Some (Ast.Extern, true)
+  | Token_kind.Keyword Keyword.Underscore_import -> Some (Ast.Import, true)
   | _ -> None
 
 let parse_binding cursor =
   let item = peek cursor in
   match declaration_binding_kind item.token with
-  | None -> None
-  | Some kind ->
+  | None -> No_binding
+  | Some (kind, false) ->
       let item = take cursor in
       let node =
         Ast.make_declaration_binding ~kind ~spelling:item.token.raw
           ~location:(token_location item.token)
+          ~target:None
       in
-      Some ({ node; item } : parsed_binding)
+      Parsed_binding { node; keyword = item; tokens = [ item.token ] }
+  | Some (kind, true) ->
+      let keyword = take cursor in
+      let target_item = peek cursor in
+      if target_item.token.kind <> Token_kind.Identifier then (
+        report cursor target_item ~code:"HCPARSE0007"
+          ~message:
+            (Printf.sprintf
+               "expected a target symbol after declaration binding %S, but \
+                found %s"
+               keyword.token.raw
+               (token_description target_item.token));
+        recover_declaration cursor;
+        Bad_binding)
+      else
+        let target_item = take cursor in
+        let target =
+          Ast.make_identifier ~spelling:target_item.token.raw
+            ~location:(token_location target_item.token)
+        in
+        let node =
+          Ast.make_declaration_binding ~kind ~spelling:keyword.token.raw
+            ~location:(token_location keyword.token)
+            ~target:(Some target)
+        in
+        Parsed_binding
+          { node; keyword; tokens = [ keyword.token; target_item.token ] }
 
 let parse_declarator cursor primitive_spelling =
   match parse_pointer_layers cursor 0 [] [] with
@@ -284,25 +323,23 @@ let parse_global cursor =
       (fun (modifier : parsed_modifier) -> modifier.item.token)
       parsed_modifiers
   in
-  let parsed_binding = parse_binding cursor in
-  match parsed_binding with
-  | Some binding
+  match parse_binding cursor with
+  | Bad_binding -> None
+  | Parsed_binding binding
     when binding.node.kind = Ast.Import
          && cursor.compilation_mode = Preprocessor.Jit ->
-      report cursor binding.item ~code:"HCPARSE0006"
+      report cursor binding.keyword ~code:"HCPARSE0006"
         ~message:
           "import declarations require AOT mode; select AOT mode before \
            parsing this declaration";
       recover_declaration cursor;
       None
-  | _ -> (
-      let binding =
-        Option.map (fun (item : parsed_binding) -> item.node) parsed_binding
-      in
-      let binding_tokens =
-        parsed_binding
-        |> Option.map (fun (item : parsed_binding) -> item.item.token)
-        |> Option.to_list
+  | binding_parse -> (
+      let binding, binding_tokens =
+        match binding_parse with
+        | No_binding -> (None, [])
+        | Parsed_binding binding -> (Some binding.node, binding.tokens)
+        | Bad_binding -> assert false
       in
       let type_item = take cursor in
       let spelling = token_text type_item.token in

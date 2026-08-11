@@ -777,7 +777,49 @@ import_mode = "aot-only"
 jit_import_diagnostic = "HCPARSE0006"
 rejected_name_publication = "disabled"
 linkage_resolution_status = "planned"
-underscored_binding_status = "planned"
+underscored_binding_status = "implemented in HC-PARSER-ALTERNATE-BINDINGS"
+extern_to_import_option_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-ALTERNATE-BINDINGS"
+description = "Primitive global declarations preserve _extern and _import target identifiers, and _import is accepted only in AOT mode."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW__EXTERN, KW__IMPORT, PRS0__EXTERN, PRS0__IMPORT, and FSF__",
+  "Compiler/CExts.HC:42-46",
+  "Kernel/KernelB.HH:37-41",
+  "Kernel/KernelC.HH:23-29",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-alternate-bindings.hc",
+  "test/cli/parse-alternate-bindings.human",
+  "test/cli/parse-alternate-bindings.json",
+  "test/cli/parse-alternate-import-jit.hc",
+  "test/cli/parse-alternate-import-jit.human",
+  "test/cli/parse-alternate-import-jit.json"
+]
+status = "implemented"
+issue = 59
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["_extern", "_import"]
+target_representation = "source-linked identifier"
+import_mode = "aot-only"
+jit_import_diagnostic = "HCPARSE0006"
+missing_target_diagnostic = "HCPARSE0007"
+rejected_name_publication = "disabled"
+target_lookup_status = "planned"
+alias_resolution_status = "planned"
+intern_expression_status = "planned"
 extern_to_import_option_status = "planned"
 
 [[feature]]
