@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0012",
+    "severity": "error",
+    "message": "default parameter expressions are not implemented in function prototypes",
+    "primary": {
+      "path": "cli/parse-function-prototype-error.hc",
+      "line": 2,
+      "column": 27,
+      "source_id": 0,
+      "start": 110,
+      "stop": 111
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

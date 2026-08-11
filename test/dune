@@ -41,6 +41,7 @@
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
   ../third_party/TempleOS/Compiler/CInit.HC
+  ../third_party/TempleOS/Compiler/CExts.HC
   ../third_party/TempleOS/Compiler/CExcept.HC
   ../third_party/TempleOS/Compiler/CMain.HC
   ../third_party/TempleOS/Compiler/CMisc.HC
@@ -56,6 +57,7 @@
   ../third_party/TempleOS/Compiler/OptPass6.HC
   ../third_party/TempleOS/Compiler/OptPass789A.HC
   ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KernelB.HH
   ../third_party/TempleOS/Kernel/KernelC.HH
   ../third_party/TempleOS/Compiler/PrsLib.HC
   ../third_party/TempleOS/Compiler/PrsStmt.HC
@@ -583,3 +585,87 @@
    (diff
     cli/parse-alternate-import-jit.json
     parse-alternate-import-jit.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-prototypes.human.actual)
+ (deps cli/parse-function-prototypes.hc cli/parse-function-prototypes.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototypes.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     --mode=aot
+     cli/parse-function-prototypes.hc))
+   (diff
+    cli/parse-function-prototypes.human
+    parse-function-prototypes.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-prototypes.json.actual)
+ (deps cli/parse-function-prototypes.hc cli/parse-function-prototypes.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototypes.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-function-prototypes.hc))
+   (diff
+    cli/parse-function-prototypes.json
+    parse-function-prototypes.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-prototype-error.human.actual
+  parse-function-prototype-error.human.stdout.actual)
+ (deps
+  cli/parse-function-prototype-error.hc
+  cli/parse-function-prototype-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototype-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-prototype-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-prototype-error.hc))))
+   (diff
+    cli/parse-function-prototype-error.human
+    parse-function-prototype-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-prototype-error.json.actual
+  parse-function-prototype-error.json.stdout.actual)
+ (deps
+  cli/parse-function-prototype-error.hc
+  cli/parse-function-prototype-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototype-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-prototype-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-prototype-error.hc))))
+   (diff
+    cli/parse-function-prototype-error.json
+    parse-function-prototype-error.json.actual))))

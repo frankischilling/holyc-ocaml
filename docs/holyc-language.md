@@ -54,13 +54,19 @@ The generator preserves these records so changes in the reference cannot pass un
 The current parser grammar is deliberately narrow:
 
 ```text
-module             := global-declaration*
+module             := item*
+item               := global-declaration | bound-function-prototype
 global-declaration := declaration-modifier* declaration-binding? primitive declarator ("," declarator)* ";"
+bound-function-prototype := declaration-modifier* declaration-binding primitive return-declarator
+                            "(" parameter-list? ")" ";"
 declaration-modifier := "public" | "static"
 declaration-binding := ordinary-binding | alternate-binding identifier
 ordinary-binding   := "extern" | "import"
 alternate-binding  := "_extern" | "_import"
 declarator         := pointer-star{0,4} identifier
+return-declarator  := pointer-star{0,4} identifier
+parameter-list     := "..." | parameter ("," parameter)* ("," "...")?
+parameter          := primitive pointer-star{0,4} identifier?
 pointer-star       := "*"
 primitive          := I0 | I8 | I16 | I32 | I64
                     | U0 | U8 | U16 | U32 | U64 | F64 | Bool
@@ -70,7 +76,13 @@ Empty and comment-only inputs are valid modules. Declarations retain source orde
 
 `Compiler/PrsStmt.HC:PrsStmt` handles `KW_PUBLIC` and `KW_STATIC` before it recognizes a binding. The staged flag assignments are order-sensitive: `public` retains calling, public, and assembly state, while `static` keeps assembly state and clears the other staged bits. Ordinary `KW_EXTERN` and `KW_IMPORT` select `PRS0_EXTERN` and `PRS0_IMPORT`. The underscore path consumes a target identifier before the type and selects `PRS0__EXTERN` or `PRS0__IMPORT`. `PrsGlblVarLst` rejects both import modes unless the compile controller is AOT and later consults the public bit when it registers a global name. The current syntax tree preserves the ordered prefix tokens, binding mode, and alternate target, but it does not look up the target, resolve an alias, allocate storage, or emit an import. A missing alternate target reports `HCPARSE0007`. `_intern` remains unsupported because the pinned parser consumes a compile-time expression for its target. The routine calls `PrsType` again after a comma while passing the saved base class and mode. `Compiler/PrsVar.HC:PrsType` counts stars and rejects a depth greater than `PTR_STARS_NUM`; the pinned `Kernel/KernelA.HH` sets that value to four. `Compiler/PrsLib.HC:PrsClassNew` creates the matching depth-zero through depth-four class records. The syntax tree records the pointer layers and list boundaries, but semantic pointer types, layout, dereference behavior, and conversions are not implemented yet.
 
-The current list grammar accepts forms found in the pinned corpus such as `I64 prime_range,my_mp_cnt,pending;`, `I32 *arg1,*arg2;`, `U8 *ptr,**idx;`, `public extern U8 *rev_bits_table,*set_bits_table;`, and `_extern MEM_BOOT_BASE U32 mem_boot_base;`. It also accepts ordered and repeated `public` or `static` prefixes, both extern spellings in every compile mode, and both import spellings in AOT mode. Each completed name is published before the parser asks the integrated stream for the next token, so a following conditional can observe it even when the directive appears after a comma. A JIT `import` or `_import` receives `HCPARSE0006` before its declarator is parsed, so the rejected name cannot become visible. `_intern`, initializers, parenthesized function pointers, array suffixes, register modifiers, and other declarator forms are not silently stored as raw tokens. General unsupported syntax uses `HCPARSE0001` through `HCPARSE0003`; a fifth star uses `HCPARSE0004`, a parenthesized function pointer uses `HCPARSE0005`, and a missing alternate target uses `HCPARSE0007`. A modifier or binding without a supported primitive type receives `HCPARSE0001` at the following token. Recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
+The current list grammar accepts forms found in the pinned corpus such as `I64 prime_range,my_mp_cnt,pending;`, `I32 *arg1,*arg2;`, `U8 *ptr,**idx;`, `public extern U8 *rev_bits_table,*set_bits_table;`, and `_extern MEM_BOOT_BASE U32 mem_boot_base;`. It also accepts ordered and repeated `public` or `static` prefixes, both extern spellings in every compile mode, and both import spellings in AOT mode. Each completed name is published before the parser asks the integrated stream for the next token, so a following conditional can observe it even when the directive appears after a comma. A JIT `import` or `_import` receives `HCPARSE0006` before its declarator is parsed, so the rejected name cannot become visible.
+
+When a bound declaration name is followed by `(`, `Compiler/PrsStmt.HC:PrsGlblVarLst` calls `PrsFunJoin` instead of creating a global variable. `PrsFunJoin` delegates the parentheses and members to `Compiler/PrsVar.HC:PrsVarLst` in `PRS1_FUN_ARG` mode. That path admits omitted parameter names, consumes commas between parameters, and sends `TK_ELLIPSIS` through `PrsDotDotDot`, which establishes `Ff_DOT_DOT_DOT` and the later `argc` and `argv` members. It rejects array dimensions in function arguments.
+
+The corresponding `Function_prototype` AST node requires one of the four supported bindings and a semicolon. It keeps the return type and pointer layers separate from the function name, then records both parentheses, every primitive parameter and pointer layer, optional parameter names, commas, a distinct terminal variadic marker, and the semicolon. `extern U8 *CmdLinePmt();` and `public _extern _SYS_HLT U0 SysHlt();` are parameterless pinned examples. `public _extern _CALL I64 Call(U8 *machine_code);` supplies a named pointer parameter. Accepted prototypes enter the streaming symbol environment as functions only after the complete semicolon is present.
+
+This slice does not compile default expressions, accept `lastclass`, parse `reg` or `noreg`, accept array or function-pointer parameters, or parse an unbound function body. Those forms receive `HCPARSE0008` through `HCPARSE0016` instead of being discarded. `_intern`, global initializers, parenthesized function-pointer globals, array suffixes, and other global declarator forms are likewise not stored as raw tokens. General unsupported global syntax uses `HCPARSE0001` through `HCPARSE0003`; a fifth star uses `HCPARSE0004`, a parenthesized function pointer uses `HCPARSE0005`, and a missing alternate target uses `HCPARSE0007`. A modifier or binding without a supported primitive type receives `HCPARSE0001` at the following token. Recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
 
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
