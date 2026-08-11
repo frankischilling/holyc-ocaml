@@ -315,3 +315,67 @@
        --format=json
        cli/parse-pointer-errors.hc))))
    (diff cli/parse-pointer-errors.json parse-pointer-errors.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-comma-globals.human.actual)
+ (deps cli/parse-comma-globals.hc cli/parse-comma-globals.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-globals.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-comma-globals.hc))
+   (diff cli/parse-comma-globals.human parse-comma-globals.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-comma-globals.json.actual)
+ (deps cli/parse-comma-globals.hc cli/parse-comma-globals.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-globals.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-comma-globals.hc))
+   (diff cli/parse-comma-globals.json parse-comma-globals.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-comma-errors.human.actual
+  parse-comma-errors.human.stdout.actual)
+ (deps cli/parse-comma-errors.hc cli/parse-comma-errors.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-errors.human.stdout.actual
+    (with-stderr-to
+     parse-comma-errors.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-comma-errors.hc))))
+   (diff cli/parse-comma-errors.human parse-comma-errors.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-comma-errors.json.actual
+  parse-comma-errors.json.stdout.actual)
+ (deps cli/parse-comma-errors.hc cli/parse-comma-errors.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-errors.json.stdout.actual
+    (with-stderr-to
+     parse-comma-errors.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-comma-errors.hc))))
+   (diff cli/parse-comma-errors.json parse-comma-errors.json.actual))))
