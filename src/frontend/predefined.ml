@@ -10,7 +10,8 @@ let spelling = function
   | File -> "__FILE__"
   | Directory -> "__DIR__"
 
-let find name = List.find_opt (fun item -> String.equal (spelling item) name) all
+let find name =
+  List.find_opt (fun item -> String.equal (spelling item) name) all
 
 module Settings = struct
   type t = { date : string; time : string; command_line : bool }
@@ -18,7 +19,9 @@ module Settings = struct
   let digit text index = Char.code text.[index] - Char.code '0'
 
   let has_digit text index =
-    match text.[index] with '0' .. '9' -> true | _ -> false
+    match text.[index] with
+    | '0' .. '9' -> true
+    | _ -> false
 
   let two_digits text index = (digit text index * 10) + digit text (index + 1)
 
@@ -50,8 +53,8 @@ module Settings = struct
     && two_digits text 3 < 60
     && two_digits text 6 < 60
 
-  let create ?(date = "01/01/70") ?(time = "00:00:00")
-      ?(command_line = false) () =
+  let create ?(date = "01/01/70") ?(time = "00:00:00") ?(command_line = false)
+      () =
     if not (valid_date date) then
       Error "predefined date must be a valid MM/DD/YY value"
     else if not (valid_time time) then
@@ -66,8 +69,7 @@ end
 let standard_body = function
   | Date -> {|#exe{StreamPrint("\"%D\"",Now);}|}
   | Time -> {|#exe{StreamPrint("\"%T\"",Now);}|}
-  | Line ->
-      {|#exe{StreamPrint("%d",Fs->last_cc->lex_include_stk->line_num);}|}
+  | Line -> {|#exe{StreamPrint("%d",Fs->last_cc->lex_include_stk->line_num);}|}
   | Command_line ->
       {|#exe{StreamPrint("%d",Fs->last_cc->flags&CCF_CMD_LINE&&Fs->last_cc->lex_include_stk->depth<1);}|}
   | File ->
@@ -77,12 +79,12 @@ let standard_body = function
 let token_spellings text =
   match Common.Source_id.of_int 0 with
   | Error _ -> None
-  | Ok id ->
+  | Ok id -> (
       let source =
         Common.Source_file.create ~id ~path:"<predefined-check>"
           ~display_path:"<predefined-check>" ~contents:text
       in
-      (match Lexer.lex_all source with
+      match Lexer.lex_all source with
       | Error _ -> None
       | Ok tokens -> Some (List.map (fun token -> token.Token.raw) tokens))
 

@@ -85,7 +85,8 @@ let error_with_code code output =
 let find_substring text needle =
   let rec find index =
     if index + String.length needle > String.length text then None
-    else if String.sub text index (String.length needle) = needle then Some index
+    else if String.sub text index (String.length needle) = needle then
+      Some index
     else find (index + 1)
   in
   find 0
@@ -106,21 +107,19 @@ let definition_body source name =
   in
   let buffer = Buffer.create 96 in
   let rec capture index =
-    if index < String.length source then
+    if index < String.length source then (
       match source.[index] with
       | '\\'
         when index + 1 < String.length source
-             && Char.equal source.[index + 1] '\n' ->
-          capture (index + 2)
+             && Char.equal source.[index + 1] '\n' -> capture (index + 2)
       | '\\'
         when index + 2 < String.length source
              && Char.equal source.[index + 1] '\r'
-             && Char.equal source.[index + 2] '\n' ->
-          capture (index + 3)
+             && Char.equal source.[index + 2] '\n' -> capture (index + 3)
       | '\r' | '\n' -> Buffer.contents buffer
       | byte ->
           Buffer.add_char buffer byte;
-          capture (index + 1)
+          capture (index + 1))
     else Buffer.contents buffer
   in
   capture (skip_space start)
@@ -128,9 +127,11 @@ let definition_body source name =
 let settings_validation () =
   let defaults = Predefined.Settings.create () |> Result.get_ok in
   Alcotest.(check string)
-    "default date" "01/01/70" (Predefined.Settings.date defaults);
+    "default date" "01/01/70"
+    (Predefined.Settings.date defaults);
   Alcotest.(check string)
-    "default time" "00:00:00" (Predefined.Settings.time defaults);
+    "default time" "00:00:00"
+    (Predefined.Settings.time defaults);
   Alcotest.(check bool)
     "default command-line mode" false
     (Predefined.Settings.command_line defaults);
@@ -160,12 +161,17 @@ let expands_all_values () =
       Alcotest.(check bool) "no diagnostics" true (output.diagnostics = []);
       let tokens = without_eof output.tokens in
       Alcotest.(check int) "six values" 6 (List.length tokens);
-      Alcotest.(check string) "date" "12/31/99" (bytes_value (List.nth tokens 0));
-      Alcotest.(check string) "time" "23:59:58" (bytes_value (List.nth tokens 1));
+      Alcotest.(check string)
+        "date" "12/31/99"
+        (bytes_value (List.nth tokens 0));
+      Alcotest.(check string)
+        "time" "23:59:58"
+        (bytes_value (List.nth tokens 1));
       Alcotest.(check int64) "line" 2L (int_value (List.nth tokens 2));
       Alcotest.(check int64) "command line" 1L (int_value (List.nth tokens 3));
       Alcotest.(check string)
-        "file" (Source_file.path source) (bytes_value (List.nth tokens 4));
+        "file" (Source_file.path source)
+        (bytes_value (List.nth tokens 4));
       Alcotest.(check string)
         "directory"
         (Filename.dirname (Source_file.path source))
@@ -195,13 +201,10 @@ let command_line_depth () =
         (Filename.concat root "one.HC")
         "__CMD_LINE__ #include \"two.HC\"";
       write_file (Filename.concat root "two.HC") "__CMD_LINE__";
-      let _, _, output =
-        preprocess ~command_line_source:true root root_path
-      in
+      let _, _, output = preprocess ~command_line_source:true root root_path in
       Alcotest.(check bool) "no diagnostics" true (output.diagnostics = []);
       Alcotest.(check (list int64))
-        "root and first include count as command-line source"
-        [ 1L; 1L; 0L ]
+        "root and first include count as command-line source" [ 1L; 1L; 0L ]
         (without_eof output.tokens |> List.map int_value))
 
 let values_across_include_frames () =
@@ -209,8 +212,9 @@ let values_across_include_frames () =
       let root_path = Filename.concat root "root.HC" in
       let child_path = Filename.concat root "child.HC" in
       write_file root_path
-        "__DATE__ __TIME__ __LINE__ __CMD_LINE__ __FILE__ __DIR__\n#include \
-         \"child.HC\"\n__LINE__ __LINE__";
+        "__DATE__ __TIME__ __LINE__ __CMD_LINE__ __FILE__ __DIR__\n\
+         #include \"child.HC\"\n\
+         __LINE__ __LINE__";
       write_file child_path
         "__DATE__ __TIME__\n__LINE__ __CMD_LINE__ __FILE__ __DIR__";
       let _, root_source, output =
@@ -219,42 +223,55 @@ let values_across_include_frames () =
       in
       Alcotest.(check bool) "no diagnostics" true (output.diagnostics = []);
       let tokens = without_eof output.tokens in
-      Alcotest.(check int) "root, include, and repeat values" 14
-        (List.length tokens);
-      Alcotest.(check string) "root date" "08/11/26"
+      Alcotest.(check int)
+        "root, include, and repeat values" 14 (List.length tokens);
+      Alcotest.(check string)
+        "root date" "08/11/26"
         (bytes_value (List.nth tokens 0));
-      Alcotest.(check string) "root time" "05:42:17"
+      Alcotest.(check string)
+        "root time" "05:42:17"
         (bytes_value (List.nth tokens 1));
       Alcotest.(check int64) "root line" 1L (int_value (List.nth tokens 2));
-      Alcotest.(check int64) "root command line" 1L
+      Alcotest.(check int64)
+        "root command line" 1L
         (int_value (List.nth tokens 3));
-      Alcotest.(check string) "root file" (Source_file.path root_source)
+      Alcotest.(check string)
+        "root file"
+        (Source_file.path root_source)
         (bytes_value (List.nth tokens 4));
-      Alcotest.(check string) "root directory"
+      Alcotest.(check string)
+        "root directory"
         (Filename.dirname (Source_file.path root_source))
         (bytes_value (List.nth tokens 5));
-      Alcotest.(check string) "include date" "08/11/26"
+      Alcotest.(check string)
+        "include date" "08/11/26"
         (bytes_value (List.nth tokens 6));
-      Alcotest.(check string) "include time" "05:42:17"
+      Alcotest.(check string)
+        "include time" "05:42:17"
         (bytes_value (List.nth tokens 7));
       Alcotest.(check int64) "include line" 2L (int_value (List.nth tokens 8));
-      Alcotest.(check int64) "include command line" 1L
+      Alcotest.(check int64)
+        "include command line" 1L
         (int_value (List.nth tokens 9));
-      Alcotest.(check string) "include file" (Unix.realpath child_path)
+      Alcotest.(check string)
+        "include file" (Unix.realpath child_path)
         (bytes_value (List.nth tokens 10));
-      Alcotest.(check string) "include directory"
+      Alcotest.(check string)
+        "include directory"
         (Filename.dirname (Unix.realpath child_path))
         (bytes_value (List.nth tokens 11));
-      Alcotest.(check (list int64)) "repeated root line" [ 3L; 3L ]
+      Alcotest.(check (list int64))
+        "repeated root line" [ 3L; 3L ]
         [ int_value (List.nth tokens 12); int_value (List.nth tokens 13) ])
 
 let ordinary_override_and_presence () =
   with_temp_directory (fun root ->
       let path = Filename.concat root "root.HC" in
       write_file path
-        "#define __DATE__ \"custom\"\n__DATE__\n#ifdef __TIME__ present \
-         #else missing #endif #if defined(__TIME__) wrong #else expanded_value \
-         #endif";
+        "#define __DATE__ \"custom\"\n\
+         __DATE__\n\
+         #ifdef __TIME__ present #else missing #endif #if defined(__TIME__) \
+         wrong #else expanded_value #endif";
       let _, _, output = preprocess root path in
       Alcotest.(check bool) "no diagnostics" true (output.diagnostics = []);
       let tokens = without_eof output.tokens in
@@ -264,13 +281,14 @@ let ordinary_override_and_presence () =
         (List.map
            (fun token ->
              match token.Token.value with
-           | Token.Bytes value | Token.Text value -> value
-           | _ -> token.raw)
+             | Token.Bytes value | Token.Text value -> value
+             | _ -> token.raw)
            tokens);
       let fresh_path = Filename.concat root "fresh.HC" in
       write_file fresh_path "__DATE__";
       let _, _, fresh = preprocess root fresh_path in
-      Alcotest.(check string) "fresh session restores compiler value" "01/01/70"
+      Alcotest.(check string)
+        "fresh session restores compiler value" "01/01/70"
         (fresh.tokens |> without_eof |> List.hd |> bytes_value))
 
 let pinned_definitions_remain_dynamic () =
@@ -286,10 +304,12 @@ let pinned_definitions_remain_dynamic () =
               (Predefined.matches_standard_body item body);
             Printf.sprintf "#define %s %s" name body)
       in
-      Alcotest.(check bool) "separate identifiers do not fuse" false
+      Alcotest.(check bool)
+        "separate identifiers do not fuse" false
         (Predefined.matches_standard_body Predefined.Date
            {|#exe{Stream Print("\"%D\"",Now);}|});
-      Alcotest.(check bool) "separate operators do not fuse" false
+      Alcotest.(check bool)
+        "separate operators do not fuse" false
         (Predefined.matches_standard_body Predefined.Command_line
            {|#exe{StreamPrint("%d",Fs->last_cc->flags&CCF_CMD_LINE& &Fs->last_cc->lex_include_stk->depth<1);}|});
       let path = Filename.concat root "root.HC" in
@@ -306,14 +326,18 @@ let pinned_definitions_remain_dynamic () =
       let tokens = without_eof output.tokens in
       Alcotest.(check int) "six dynamic values" 6 (List.length tokens);
       Alcotest.(check string)
-        "dynamic date" "08/11/26" (bytes_value (List.nth tokens 0));
+        "dynamic date" "08/11/26"
+        (bytes_value (List.nth tokens 0));
       Alcotest.(check string)
-        "dynamic time" "05:42:17" (bytes_value (List.nth tokens 1));
+        "dynamic time" "05:42:17"
+        (bytes_value (List.nth tokens 1));
+      Alcotest.(check int64) "dynamic line" 7L (int_value (List.nth tokens 2));
       Alcotest.(check int64)
-        "dynamic line" 7L (int_value (List.nth tokens 2));
-      Alcotest.(check int64)
-        "dynamic command line" 1L (int_value (List.nth tokens 3));
-      Alcotest.(check string) "dynamic file" (Source_file.path root_source)
+        "dynamic command line" 1L
+        (int_value (List.nth tokens 3));
+      Alcotest.(check string)
+        "dynamic file"
+        (Source_file.path root_source)
         (bytes_value (List.nth tokens 4));
       Alcotest.(check string)
         "dynamic directory"
@@ -341,7 +365,8 @@ let generated_string_escaping () =
     Alcotest.(check int) "one string" 1 (List.length tokens);
     Alcotest.(check string)
       (Predefined.spelling item ^ " escaped bytes round trip")
-      expected (bytes_value (List.hd tokens))
+      expected
+      (bytes_value (List.hd tokens))
   in
   check Predefined.File path;
   check Predefined.Directory (Filename.dirname path)
