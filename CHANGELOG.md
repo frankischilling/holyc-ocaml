@@ -24,3 +24,4 @@
 - Added source-linked `extern` and AOT-only `import` bindings on primitive globals, with a stable JIT rejection that does not publish the rejected name.
 - Added source-linked target identifiers for `_extern` and AOT-only `_import` primitive globals, with a stable missing-target diagnostic and no symbol publication after a JIT rejection.
 - Added bound primitive function prototypes for ordinary and alternate-name externs and AOT imports, including return pointers, empty or variadic parameter lists, optional parameter names, punctuation provenance, function symbol publication, deterministic dumps, and explicit diagnostics for deferred parameter forms.
+- Added ordered `interrupt`, `haserrcode`, `argpop`, and `noargpop` syntax on bound prototypes, with source provenance and tests against the checked TempleOS staging transitions.

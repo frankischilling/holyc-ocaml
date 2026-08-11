@@ -5,7 +5,13 @@ type location = {
   defined_at : Common.Span.t option;
 }
 
-type declaration_modifier_kind = Public | Static
+type declaration_modifier_kind =
+  | Public
+  | Static
+  | Interrupt
+  | Has_error_code
+  | Argument_pop
+  | No_argument_pop
 
 type declaration_modifier = {
   kind : declaration_modifier_kind;

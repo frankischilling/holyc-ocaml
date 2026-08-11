@@ -207,6 +207,10 @@ let declaration_modifier_kind token =
   match token.Token.kind with
   | Token_kind.Keyword Keyword.Public -> Some Ast.Public
   | Token_kind.Keyword Keyword.Static -> Some Ast.Static
+  | Token_kind.Keyword Keyword.Interrupt -> Some Ast.Interrupt
+  | Token_kind.Keyword Keyword.Haserrcode -> Some Ast.Has_error_code
+  | Token_kind.Keyword Keyword.Argpop -> Some Ast.Argument_pop
+  | Token_kind.Keyword Keyword.Noargpop -> Some Ast.No_argument_pop
   | _ -> None
 
 let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =

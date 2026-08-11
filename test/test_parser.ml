@@ -108,6 +108,16 @@ let globals ast =
           Alcotest.fail "expected singleton globals, got a function prototype")
     ast.Ast.items
 
+let prototypes ast =
+  List.map
+    (function
+      | Ast.Function_prototype prototype -> prototype
+      | Ast.Global_variable _ ->
+          Alcotest.fail "expected function prototypes, got a singleton global"
+      | Ast.Global_declaration _ ->
+          Alcotest.fail "expected function prototypes, got a declaration group")
+    ast.Ast.items
+
 let first_diagnostic output =
   match output.Parser.diagnostics with
   | diagnostic :: _ -> diagnostic
@@ -438,6 +448,28 @@ let comma_failures () =
       ("list lacks its final semicolon", "I64 first,*second", "HCPARSE0003");
     ]
 
+let modifier_name = function
+  | Ast.Public -> "public"
+  | Ast.Static -> "static"
+  | Ast.Interrupt -> "interrupt"
+  | Ast.Has_error_code -> "haserrcode"
+  | Ast.Argument_pop -> "argpop"
+  | Ast.No_argument_pop -> "noargpop"
+
+let function_flag_modifier = function
+  | Ast.Public -> Function_flag.Modifier.Public
+  | Ast.Static -> Function_flag.Modifier.Static
+  | Ast.Interrupt -> Function_flag.Modifier.Interrupt
+  | Ast.Has_error_code -> Function_flag.Modifier.Has_error_code
+  | Ast.Argument_pop -> Function_flag.Modifier.Argument_pop
+  | Ast.No_argument_pop -> Function_flag.Modifier.No_argument_pop
+
+let staged_function_mask modifiers =
+  List.fold_left
+    (fun mask (modifier : Ast.declaration_modifier) ->
+      Function_flag.apply_modifier ~mask (function_flag_modifier modifier.kind))
+    0L modifiers
+
 let modifier_source_behavior () =
   let parser_source = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -472,10 +504,6 @@ let direct_modifiers () =
   in
   let _, _, output = parse_string source in
   let variables = expect_ast output |> globals in
-  let modifier_name = function
-    | Ast.Public -> "public"
-    | Ast.Static -> "static"
-  in
   Alcotest.(check (list (list string)))
     "ordered modifier spellings"
     [
@@ -516,6 +544,190 @@ let direct_modifiers () =
     (public.location.span.stop - public.location.span.start);
   Alcotest.(check int)
     "declaration includes the prefix" 0 exported.location.span.start
+
+let function_calling_modifier_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("interrupt keyword branch", "case KW_INTERRUPT:");
+      ( "interrupt also prevents argument popping",
+        "fsp_flags=FSF_INTERRUPT|FSF_NOARGPOP|" );
+      ("error-code keyword branch", "case KW_HASERRCODE:");
+      ("argument-pop keyword branch", "case KW_ARGPOP:");
+      ("no-argument-pop keyword branch", "case KW_NOARGPOP:");
+      ( "function join transfers the calling group",
+        "tmpf->flags|=fsp_flags&FSG_FUN_FLAGS1;" );
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains compiler_header fragment))
+    [
+      ("interrupt keyword identity", "#define KW_INTERRUPT\t44");
+      ("error-code keyword identity", "#define KW_HASERRCODE\t45");
+      ("argument-pop keyword identity", "#define KW_ARGPOP\t46");
+      ("no-argument-pop keyword identity", "#define KW_NOARGPOP\t47");
+      ( "stored calling group identity",
+        "#define FSG_FUN_FLAGS1 \
+         (FSF_INTERRUPT|FSF_HASERRCODE|FSF_ARGPOP|FSF_NOARGPOP)" );
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_header fragment))
+    [
+      ("stored interrupt bit", "#define Ff_INTERRUPT\t\t8");
+      ("stored error-code bit", "#define Ff_HASERRCODE\t\t9");
+      ("stored argument-pop bit", "#define Ff_ARGPOP\t\t10");
+      ("stored no-argument-pop bit", "#define Ff_NOARGPOP\t\t11");
+    ];
+  let kernel_api = pinned "Kernel/KernelC.HH" in
+  Alcotest.(check bool)
+    "bound argument-pop prototype" true
+    (contains kernel_api "public argpop extern I64 CallStkGrow(");
+  let language_doc = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language documentation names function flags" true
+    (contains language_doc
+       "$FG,2$interrupt$FG$, $FG,2$haserrcode$FG$, $FG,2$public$FG$, \
+        $FG,2$argpop$FG$ or $FG,2$noargpop$FG$ are function flags")
+
+let direct_function_calling_modifiers () =
+  let source =
+    "interrupt extern U0 InterruptOnly();\n\
+     haserrcode extern U0 ErrorCode();\n\
+     argpop extern I64 Pop(I64 value);\n\
+     noargpop _extern _NO_POP U0 NoPop();\n\
+     public argpop import I64 Imported(I64 value);"
+  in
+  let _, _, output = parse_string ~compilation_mode:Preprocessor.Aot source in
+  let parsed = expect_ast output |> prototypes in
+  Alcotest.(check (list (list string)))
+    "calling modifier order"
+    [
+      [ "interrupt" ];
+      [ "haserrcode" ];
+      [ "argpop" ];
+      [ "noargpop" ];
+      [ "public"; "argpop" ];
+    ]
+    (List.map
+       (fun (prototype : Ast.function_prototype) ->
+         List.map
+           (fun (modifier : Ast.declaration_modifier) ->
+             modifier_name modifier.kind)
+           prototype.modifiers)
+       parsed);
+  Alcotest.(check string)
+    "AOT import remains a function" "Imported" (List.nth parsed 4).name.spelling;
+  let _, _, global_output = parse_string "argpop I64 StagedGlobal;" in
+  let global = expect_ast global_output |> expect_one_global in
+  Alcotest.(check (list string))
+    "calling prefix remains visible on a global syntax node" [ "argpop" ]
+    (List.map
+       (fun (modifier : Ast.declaration_modifier) ->
+         modifier_name modifier.kind)
+       global.modifiers)
+
+let function_calling_modifier_transitions () =
+  let source =
+    "interrupt extern U0 InterruptOnly();\n\
+     public interrupt haserrcode argpop noargpop extern U0 AllFlags();\n\
+     interrupt static public argpop extern U0 ResetFlags();"
+  in
+  let _, _, output = parse_string source in
+  match expect_ast output |> prototypes with
+  | [ interrupt_only; all_flags; reset_flags ] ->
+      Alcotest.(check int64)
+        "interrupt adds noargpop" 0x900L
+        (staged_function_mask interrupt_only.modifiers);
+      Alcotest.(check int64)
+        "all stored calling flags and public survive" 0xF01L
+        (staged_function_mask all_flags.modifiers);
+      Alcotest.(check int64)
+        "static clears earlier calling flags" 0x401L
+        (staged_function_mask reset_flags.modifiers)
+  | items ->
+      Alcotest.failf "expected three flagged prototypes, got %d"
+        (List.length items)
+
+let definition_backed_function_calling_modifier () =
+  let source = "#define CALLING interrupt\nCALLING extern U0 Generated();" in
+  let session, root, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let modifier = List.hd prototype.modifiers in
+  Alcotest.(check string)
+    "generated calling modifier" "interrupt"
+    (modifier_name modifier.kind);
+  Alcotest.(check bool)
+    "calling modifier uses generated source" false
+    (Source_id.equal modifier.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "calling modifier retains its invocation" true
+    (Option.is_some modifier.location.generated_from);
+  Alcotest.(check bool)
+    "calling modifier retains its definition" true
+    (Option.is_some modifier.location.defined_at);
+  let open Yojson.Safe.Util in
+  let modifier_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "modifiers" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON calling modifier kind" "interrupt"
+    (modifier_json |> member "kind" |> to_string)
+
+let function_calling_modifier_visibility () =
+  let source =
+    "argpop extern U0 Visible();\n\
+     #ifdef Visible\n\
+     U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable variable ] ->
+      Alcotest.(check string)
+        "published flagged function" "Visible" prototype.name.spelling;
+      Alcotest.(check string)
+        "selected conditional branch" "selected" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected a flagged function and global, got %d items"
+        (List.length items)
+
+let function_calling_modifier_failures () =
+  List.iter
+    (fun (description, source, name, code) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (description ^ " diagnostic")
+        code (first_diagnostic output).code;
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected flagged function %s became visible" name)
+    [
+      ( "unbound interrupt function",
+        "interrupt U0 Unbound();",
+        "Unbound",
+        "HCPARSE0008" );
+      ( "flagged JIT import",
+        "noargpop import U0 Blocked();",
+        "Blocked",
+        "HCPARSE0006" );
+    ]
 
 let modifier_declaration_group () =
   let _, _, output = parse_string "public I64 first,*second;" in
@@ -1572,6 +1784,18 @@ let tests =
     Alcotest.test_case "modified declarations update symbol conditionals" `Quick
       modifier_streaming_visibility;
     Alcotest.test_case "declaration modifier failures" `Quick modifier_failures;
+    Alcotest.test_case "pinned function calling modifier behavior" `Quick
+      function_calling_modifier_source_behavior;
+    Alcotest.test_case "function calling modifiers" `Quick
+      direct_function_calling_modifiers;
+    Alcotest.test_case "function calling modifier transitions" `Quick
+      function_calling_modifier_transitions;
+    Alcotest.test_case "definition-backed function calling modifier" `Quick
+      definition_backed_function_calling_modifier;
+    Alcotest.test_case "function calling modifier visibility" `Quick
+      function_calling_modifier_visibility;
+    Alcotest.test_case "function calling modifier failures" `Quick
+      function_calling_modifier_failures;
     Alcotest.test_case "pinned extern and import behavior" `Quick
       binding_source_behavior;
     Alcotest.test_case "direct declaration bindings" `Quick direct_bindings;

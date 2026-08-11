@@ -70,6 +70,7 @@
   ../third_party/TempleOS/Kernel/KStart32.HC
   ../third_party/TempleOS/Kernel/StrPrint.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
+  ../third_party/TempleOS/Doc/HolyC.DD
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -669,3 +670,82 @@
    (diff
     cli/parse-function-prototype-error.json
     parse-function-prototype-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-modifiers.human.actual)
+ (deps cli/parse-function-modifiers.hc cli/parse-function-modifiers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifiers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-modifiers.hc))
+   (diff
+    cli/parse-function-modifiers.human
+    parse-function-modifiers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-modifiers.json.actual)
+ (deps cli/parse-function-modifiers.hc cli/parse-function-modifiers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifiers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-modifiers.hc))
+   (diff
+    cli/parse-function-modifiers.json
+    parse-function-modifiers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-modifier-error.human.actual
+  parse-function-modifier-error.human.stdout.actual)
+ (deps
+  cli/parse-function-modifier-error.hc
+  cli/parse-function-modifier-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifier-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-modifier-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-modifier-error.hc))))
+   (diff
+    cli/parse-function-modifier-error.human
+    parse-function-modifier-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-modifier-error.json.actual
+  parse-function-modifier-error.json.stdout.actual)
+ (deps
+  cli/parse-function-modifier-error.hc
+  cli/parse-function-modifier-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifier-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-modifier-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-modifier-error.hc))))
+   (diff
+    cli/parse-function-modifier-error.json
+    parse-function-modifier-error.json.actual))))
