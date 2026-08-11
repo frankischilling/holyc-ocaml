@@ -51,8 +51,7 @@ let push_definition ~caller ~source ~definition ~invocation_span =
     lexer =
       Lexer.create ~mode:Token.Holyc ~generated_from:invocation_span
         ~defined_at:(Definition.definition_span definition)
-        ~caller:caller.lexer
-        source;
+        ~caller:caller.lexer source;
     caller = Some caller;
     include_origin = None;
     include_spelling = None;

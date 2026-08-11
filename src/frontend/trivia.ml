@@ -36,8 +36,8 @@ let span_json sources span =
         | Ok item -> [ ("line", `Int item.line); ("column", `Int item.column) ]
       in
       `Assoc
-        (("path", `String (Common.Source_file.display_path source)) :: location
-       @ fields)
+        ((("path", `String (Common.Source_file.display_path source)) :: location)
+        @ fields)
 
 let to_yojson ?containing_source sources trivia =
   let needs_source_segments =

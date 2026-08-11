@@ -591,8 +591,7 @@ let include_tokens_span_nested_frames () =
   with_temp_directory (fun root ->
       let root_file = Filename.concat root "root.HC" in
       write_file root_file "#include \"outer\"Tail";
-      write_file (Filename.concat root "outer.HC")
-        "#include \"inner\"Middle";
+      write_file (Filename.concat root "outer.HC") "#include \"inner\"Middle";
       write_file (Filename.concat root "inner.HC") "Head";
       let session, _, result = preprocess root root_file in
       let tokens = Result.get_ok result |> without_eof in
@@ -600,7 +599,8 @@ let include_tokens_span_nested_frames () =
         "one identifier" [ "HeadMiddleTail" ] (token_raw tokens);
       let token = List.hd tokens in
       Alcotest.(check (list string))
-        "physical source order" [ "Head"; "Middle"; "Tail" ]
+        "physical source order"
+        [ "Head"; "Middle"; "Tail" ]
         (token_segment_texts session token);
       let json = Token.to_yojson (Session.sources session) token in
       let open Yojson.Safe.Util in
@@ -641,61 +641,66 @@ let definition_tokens_span_frames () =
         (token_segment_texts session number);
       Alcotest.(check (float 0.0))
         "number value" 1.5
-        (match number.value with Token.Float64 value -> value | _ -> nan);
+        (match number.value with
+        | Token.Float64 value -> value
+        | _ -> nan);
       let string = List.nth tokens 3 in
       Alcotest.(check (list string))
         "string segments" [ "\"left"; "\"" ]
         (token_segment_texts session string);
       Alcotest.(check string)
         "string value" "left"
-        (match string.value with Token.Bytes value -> value | _ -> "");
+        (match string.value with
+        | Token.Bytes value -> value
+        | _ -> "");
       let character = List.nth tokens 4 in
       Alcotest.(check (list string))
         "character segments" [ "'a"; "'" ]
         (token_segment_texts session character);
       Alcotest.(check int64)
         "character value" 97L
-        (match character.value with Token.Int64 value -> value | _ -> 0L))
+        (match character.value with
+        | Token.Int64 value -> value
+        | _ -> 0L))
 
 let compound_operators_span_definition_frames () =
   Operator.all
   |> List.filter (fun (spelling, _) -> String.length spelling > 1)
   |> List.iter (fun (spelling, operator) ->
-         for split = 1 to String.length spelling - 1 do
-           let prefix = String.sub spelling 0 split in
-           let suffix =
-             String.sub spelling split (String.length spelling - split)
-           in
-           let session = Session.create () in
-           let source =
-             Session.add_source session ~path:"operator-frame.HC"
-               ~contents:
-                 (Printf.sprintf "#define JOIN %s\nJOIN%s tail" prefix suffix)
-           in
-           let result =
-             Holyc_lib.preprocess session ~config:(create_config ".") ~source
-             |> Result.get_ok |> without_eof
-           in
-           Alcotest.(check (list string))
-             (Printf.sprintf "%s split at %d" spelling split)
-             [ spelling; "tail" ] (token_raw result);
-           let token = List.hd result in
-           Alcotest.(check bool)
-             (Printf.sprintf "%s token kind" spelling)
-             true
-             (token.kind = Token_kind.Operator operator);
-           Alcotest.(check (list string))
-             (Printf.sprintf "%s source segments" spelling)
-             [ prefix; suffix ]
-             (token_segment_texts session token)
-         done)
+      for split = 1 to String.length spelling - 1 do
+        let prefix = String.sub spelling 0 split in
+        let suffix =
+          String.sub spelling split (String.length spelling - split)
+        in
+        let session = Session.create () in
+        let source =
+          Session.add_source session ~path:"operator-frame.HC"
+            ~contents:
+              (Printf.sprintf "#define JOIN %s\nJOIN%s tail" prefix suffix)
+        in
+        let result =
+          Holyc_lib.preprocess session ~config:(create_config ".") ~source
+          |> Result.get_ok |> without_eof
+        in
+        Alcotest.(check (list string))
+          (Printf.sprintf "%s split at %d" spelling split)
+          [ spelling; "tail" ] (token_raw result);
+        let token = List.hd result in
+        Alcotest.(check bool)
+          (Printf.sprintf "%s token kind" spelling)
+          true
+          (token.kind = Token_kind.Operator operator);
+        Alcotest.(check (list string))
+          (Printf.sprintf "%s source segments" spelling)
+          [ prefix; suffix ]
+          (token_segment_texts session token)
+      done)
 
 let nested_definition_frames_join_token () =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"nested-operator-frame.HC"
-      ~contents:
-        "#define INNER +\n#define OUTER INNER\nOUTER+ tail"
+      ~contents:"#define INNER +\n#define OUTER INNER\nOUTER+ tail"
   in
   let tokens =
     Holyc_lib.preprocess session ~config:(create_config ".") ~source
@@ -723,7 +728,8 @@ let comments_span_definition_frames () =
       let session, _, result = preprocess root root_file in
       let tokens = Result.get_ok result |> without_eof in
       Alcotest.(check (list string))
-        "commented text is trivia" [ "after_block"; "after_line" ]
+        "commented text is trivia"
+        [ "after_block"; "after_line" ]
         (token_raw tokens);
       let block =
         List.hd tokens |> fun token ->
@@ -731,8 +737,7 @@ let comments_span_definition_frames () =
           (fun trivia -> trivia.Trivia.kind = Trivia.Block_comment)
           token.leading_trivia
       in
-      Alcotest.(check string)
-        "block comment bytes" "/* hidden */" block.raw;
+      Alcotest.(check string) "block comment bytes" "/* hidden */" block.raw;
       Alcotest.(check (list string))
         "block comment segments" [ "/"; "* hidden */" ]
         (List.map (source_segment_text session) block.source_segments);
@@ -762,8 +767,7 @@ let line_continuation_spans_include_frame () =
           (fun trivia -> trivia.Trivia.kind = Trivia.Line_continuation)
           token.leading_trivia
       in
-      Alcotest.(check string)
-        "continuation bytes" "\\\n" continuation.raw;
+      Alcotest.(check string) "continuation bytes" "\\\n" continuation.raw;
       Alcotest.(check (list string))
         "continuation segments" [ "\\"; "\n" ]
         (List.map (source_segment_text session) continuation.source_segments);
@@ -777,8 +781,8 @@ let line_continuation_spans_include_frame () =
       Alcotest.(check bool)
         "human trivia segments" true
         (human |> String.split_on_char ' '
-        |> List.exists
-             (String.starts_with ~prefix:"leading_trivia_segments=[")))
+        |> List.exists (String.starts_with ~prefix:"leading_trivia_segments=[")
+        ))
 
 let included_trivia_precedes_caller_token () =
   with_temp_directory (fun root ->
@@ -811,7 +815,8 @@ let cross_frame_diagnostic_segments () =
       let item = error_with_code "HCLEX0003" result in
       Alcotest.(check string)
         "primary source" "bad"
-        (Source_manager.find (Session.sources session) item.Diagnostic.primary.source
+        (Source_manager.find (Session.sources session)
+           item.Diagnostic.primary.source
         |> Option.get |> Source_file.display_path);
       Alcotest.(check (list string))
         "continuation segment"
@@ -819,8 +824,7 @@ let cross_frame_diagnostic_segments () =
         (List.map
            (fun (related : Diagnostic.related) -> related.message)
            item.secondary);
-      Alcotest.(check int)
-        "include context" 1 (List.length item.include_stack))
+      Alcotest.(check int) "include context" 1 (List.length item.include_stack))
 
 let definitions_are_not_c_macros () =
   with_temp_directory (fun root ->

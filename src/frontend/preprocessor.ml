@@ -134,12 +134,14 @@ let rec discard_exhausted_frames stream =
         discard_exhausted_frames stream
 
 let rec align_current_to_source stream source =
-  if Common.Source_id.equal (Lexer_frame.source_id stream.current) source then ()
+  if Common.Source_id.equal (Lexer_frame.source_id stream.current) source then
+    ()
   else
     match Lexer_frame.caller stream.current with
     | None ->
         invalid_arg
-          "preprocessor lexer item does not belong to the active source frame chain"
+          "preprocessor lexer item does not belong to the active source frame \
+           chain"
     | Some caller ->
         stream.current <- caller;
         align_current_to_source stream source

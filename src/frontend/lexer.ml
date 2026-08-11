@@ -16,15 +16,8 @@ type t = {
 }
 
 type cursor = { positions : (t * int) list }
-
-type consumed_range = {
-  owner : t;
-  start : int;
-  stop : int;
-}
-
+type consumed_range = { owner : t; start : int; stop : int }
 type located_byte = { owner : t; offset : int; byte : char }
-
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
 type definition_terminator = End_of_line | End_of_file | Nul
 
@@ -121,8 +114,8 @@ let ranges_between start_cursor stop_cursor =
 let spans_of_ranges ranges =
   List.map
     (fun (range : consumed_range) ->
-      Common.Span.unsafe_make ~source:(source_id range.owner)
-        ~start:range.start ~stop:range.stop)
+      Common.Span.unsafe_make ~source:(source_id range.owner) ~start:range.start
+        ~stop:range.stop)
     ranges
 
 let point_owner cursor =
@@ -139,7 +132,8 @@ let span_between start_cursor stop_cursor =
   | span :: _ -> span
   | [] ->
       let owner, offset = point_owner start_cursor in
-      Common.Span.unsafe_make ~source:(source_id owner) ~start:offset ~stop:offset
+      Common.Span.unsafe_make ~source:(source_id owner) ~start:offset
+        ~stop:offset
 
 let source_segments_between start_cursor stop_cursor =
   match ranges_between start_cursor stop_cursor |> spans_of_ranges with
@@ -150,8 +144,7 @@ let raw_between start_cursor stop_cursor =
   let ranges = ranges_between start_cursor stop_cursor in
   let size =
     List.fold_left
-      (fun total (range : consumed_range) ->
-        total + range.stop - range.start)
+      (fun total (range : consumed_range) -> total + range.stop - range.start)
       0 ranges
   in
   let buffer = Buffer.create size in
@@ -288,10 +281,10 @@ let make_diagnostic lexer ?help ~code ~message ~start () =
   let secondary =
     List.tl source_segments
     |> List.map (fun span ->
-           {
-             Common.Diagnostic.span;
-             message = "the same lexical item continues here";
-           })
+        {
+          Common.Diagnostic.span;
+          message = "the same lexical item continues here";
+        })
   in
   Common.Diagnostic.make ?help ~secondary ~code
     ~severity:Common.Diagnostic.Error ~message ~primary ()
@@ -787,7 +780,9 @@ let next lexer =
         match peek lexer 0 with
         | None -> Token (eof_token lexer leading_trivia)
         | Some '\x00' when lexer.nul_terminates ->
-            let owner, terminator_offset = Option.get (owner_at_distance lexer 0) in
+            let owner, terminator_offset =
+              Option.get (owner_at_distance lexer 0)
+            in
             let trailing_bytes =
               String.length owner.contents - terminator_offset - 1
             in
@@ -819,10 +814,10 @@ let next lexer =
               (make_diagnostic lexer ~code:"HCLEX0001"
                  ~message:
                    (Printf.sprintf "invalid source byte 0x%02x" (Char.code byte))
-                  ~help:
-                    "Remove the byte or place it inside a string or character \
-                     literal."
-                  ~start ()))
+                 ~help:
+                   "Remove the byte or place it inside a string or character \
+                    literal."
+                 ~start ()))
 
 let lex_all ?mode ?nul_terminates source =
   let lexer = create ?mode ?nul_terminates source in
