@@ -4,6 +4,7 @@ let () =
       ("source", Test_source.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
+      ("symbol visibility", Test_symbol_visibility.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("opcode table source", Test_opcode_table_source.tests);

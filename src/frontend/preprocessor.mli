@@ -32,6 +32,7 @@ type t
 val create :
   sources:Common.Source_manager.t ->
   definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
   config:Config.t ->
   Common.Source_file.t ->
   t
@@ -43,6 +44,7 @@ val definition_dump : t -> string
 val lex_all :
   sources:Common.Source_manager.t ->
   definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
   config:Config.t ->
   Common.Source_file.t ->
   (Token.t list, Common.Diagnostic.t list) result
