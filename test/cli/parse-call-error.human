@@ -1,0 +1,3 @@
+cli/parse-call-error.hc:1:18: error[HCPARSE0024]: expected ',' or ')' after a call argument, but found "2"
+    1 | _intern Target(1 2) I64 Broken();
+      |                  ^

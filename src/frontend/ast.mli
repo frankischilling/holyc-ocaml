@@ -83,6 +83,7 @@ type expression =
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Binary_expression of binary_expression
+  | Call_expression of call_expression
 
 and expression_literal = private {
   literal_spelling : string;
@@ -115,6 +116,24 @@ and binary_expression = private {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+and call_argument_value =
+  | Omitted_call_argument
+  | Provided_call_argument of expression
+
+and call_argument = private {
+  call_argument_value : call_argument_value;
+  following_comma : location option;
+  call_argument_location : location;
+}
+
+and call_expression = private {
+  call_callee : expression;
+  call_opening_parenthesis : location;
+  call_arguments : call_argument list;
+  call_closing_parenthesis : location;
+  call_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -328,6 +347,20 @@ val make_binary_expression :
   right:expression ->
   location:location ->
   binary_expression
+
+val make_call_argument :
+  value:call_argument_value ->
+  following_comma:location option ->
+  location:location ->
+  call_argument
+
+val make_call_expression :
+  callee:expression ->
+  opening_parenthesis:location ->
+  arguments:call_argument list ->
+  closing_parenthesis:location ->
+  location:location ->
+  call_expression
 
 val expression_location : expression -> location
 

@@ -2,7 +2,7 @@
   {
     "code": "HCPARSE0020",
     "severity": "error",
-    "message": "_intern target expression continuation \"(\" is not implemented",
+    "message": "_intern target expression continuation \"[\" is not implemented",
     "primary": {
       "path": "cli/parse-intern-error.hc",
       "line": 1,

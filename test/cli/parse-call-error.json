@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0024",
+    "severity": "error",
+    "message": "expected ',' or ')' after a call argument, but found \"2\"",
+    "primary": {
+      "path": "cli/parse-call-error.hc",
+      "line": 1,
+      "column": 18,
+      "source_id": 0,
+      "start": 17,
+      "stop": 18
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

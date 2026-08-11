@@ -141,6 +141,22 @@ let expect_prefix_expression = function
   | Ast.Prefix_expression prefix -> prefix
   | _ -> Alcotest.fail "expected a prefix expression"
 
+let expect_call_expression = function
+  | Ast.Call_expression call -> call
+  | _ -> Alcotest.fail "expected a call expression"
+
+let expect_provided_call_argument (argument : Ast.call_argument) =
+  match argument.call_argument_value with
+  | Ast.Provided_call_argument expression -> expression
+  | Ast.Omitted_call_argument ->
+      Alcotest.fail "expected a provided call argument"
+
+let expect_omitted_call_argument (argument : Ast.call_argument) =
+  match argument.call_argument_value with
+  | Ast.Omitted_call_argument -> ()
+  | Ast.Provided_call_argument _ ->
+      Alcotest.fail "expected an omitted call argument"
+
 let globals ast =
   List.map
     (function
@@ -1769,8 +1785,8 @@ let intern_binding_failures () =
         None,
         "HCPARSE0001",
         "after declaration binding \"_intern\"" );
-      ( "unsupported call target",
-        "_intern Resolve() I64 Called();",
+      ( "unsupported indexed call target",
+        "_intern Resolve()[0] I64 Called();",
         Some "Called",
         "HCPARSE0020",
         "target expression continuation" );
@@ -1826,6 +1842,360 @@ let deterministic_intern_dumps () =
   Alcotest.(check string)
     "JSON internal dump repeats byte for byte" json
     (Ast_dump.json sources ast)
+
+let call_expression_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("call parser entry point", "I64 PrsFunCall(CCmpCtrl *cc");
+      ("direct call dispatch", "PrsFunCall(cc,ps,FALSE,tmpex)");
+      ("indirect call dispatch", "PrsFunCall(cc,ps,TRUE,PrsPop2(ps))");
+      ("parenthesized call detection", "if (cc->token=='(') {");
+      ("fixed argument default flag", "tmpm->flags & MLF_DFT_AVAILABLE");
+      ( "omitted argument token test",
+        "(cc->token==')' || cc->token==',' || !needs_right_paren)" );
+      ("call closing parenthesis check", "LexExcept(cc,\"Missing ')' at \"");
+    ];
+  let language_guide = pinned "Doc/HolyC.DD" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains language_guide fragment))
+    [
+      ( "parentheses may be omitted for default-only calls",
+        "Function with no args, or just default args can be called without "
+        ^ "parentheses." );
+      ("defaults need not trail", "Default args don't have to be on the end.");
+      ("documented middle hole", "Test(,3);");
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ( "Compiler/AsmInit.HC",
+        "CmpCtrlNew(FileRead(\"OpCodes.DD\"),,\"OpCodes.DD.Z\")" );
+      ("Compiler/CMain.HC", "PrsStmt(cc,,,cmp_flags)");
+      ("Compiler/CMisc.HC", "GetStr(,,GSF_SHIFT_ESC_EXIT)");
+    ]
+
+let call_argument_slots () =
+  let call_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding |> expect_call_expression
+  in
+  let middle_hole = call_from "_intern Test(,3) I64 Linked();" in
+  Alcotest.(check int)
+    "middle-hole argument count" 2
+    (List.length middle_hole.call_arguments);
+  let first = List.nth middle_hole.call_arguments 0 in
+  let second = List.nth middle_hole.call_arguments 1 in
+  expect_omitted_call_argument first;
+  Alcotest.(check int64)
+    "provided value after a hole" 3L
+    (expect_provided_call_argument second |> expect_integer_expression);
+  Alcotest.(check int)
+    "omitted slot has an insertion point" 0
+    (first.call_argument_location.span.stop
+   - first.call_argument_location.span.start);
+  Alcotest.(check bool)
+    "the hole owns its following comma" true
+    (Option.is_some first.following_comma);
+  let explicit_zero = call_from "_intern Test(0,3) I64 Explicit();" in
+  Alcotest.(check int64)
+    "explicit zero remains a provided value" 0L
+    (List.hd explicit_zero.call_arguments
+    |> expect_provided_call_argument |> expect_integer_expression);
+  let empty = call_from "_intern Clock() I64 Empty();" in
+  Alcotest.(check int)
+    "empty call has no argument slots" 0
+    (List.length empty.call_arguments);
+  let consecutive = call_from "_intern F(,,,0,) I64 Sparse();" in
+  Alcotest.(check int)
+    "consecutive and trailing holes" 5
+    (List.length consecutive.call_arguments);
+  List.iter expect_omitted_call_argument
+    [
+      List.nth consecutive.call_arguments 0;
+      List.nth consecutive.call_arguments 1;
+      List.nth consecutive.call_arguments 2;
+      List.nth consecutive.call_arguments 4;
+    ];
+  Alcotest.(check int64)
+    "sparse call retains explicit zero" 0L
+    (List.nth consecutive.call_arguments 3
+    |> expect_provided_call_argument |> expect_integer_expression);
+  Alcotest.(check (list bool))
+    "each comma belongs to the preceding slot"
+    [ true; true; true; true; false ]
+    (List.map
+       (fun (argument : Ast.call_argument) ->
+         Option.is_some argument.following_comma)
+       consecutive.call_arguments)
+
+let call_expression_precedence_and_nesting () =
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "_intern Target(1) %s 2 I64 Call%d();" operator.spelling
+          index
+      in
+      let _, _, output = parse_string source in
+      let root =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_call_expression root.binary_left))
+    Operator.binary_operators;
+  let _, _, nested_output =
+    parse_string "_intern Outer(Inner(),,3)+4 I64 Nested();"
+  in
+  let outer =
+    expect_ast nested_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_binary_expression
+    |> fun binary -> expect_call_expression binary.binary_left
+  in
+  Alcotest.(check int)
+    "nested sparse call argument count" 3
+    (List.length outer.call_arguments);
+  ignore
+    (List.hd outer.call_arguments
+    |> expect_provided_call_argument |> expect_call_expression);
+  expect_omitted_call_argument (List.nth outer.call_arguments 1);
+  let _, _, indirect_output =
+    parse_string "_intern (Factory())(1) I64 Indirect();"
+  in
+  let indirect =
+    expect_ast indirect_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding |> expect_call_expression
+  in
+  match indirect.call_callee with
+  | Ast.Parenthesized_expression parenthesized ->
+      ignore (expect_call_expression parenthesized.grouped_expression)
+  | _ -> Alcotest.fail "expected a parenthesized call callee"
+
+let call_expression_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=Compute());"
+  in
+  let default_call =
+    expect_ast default_output |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+    expect_call_expression default.value
+  in
+  Alcotest.(check int)
+    "default-expression call has no arguments" 0
+    (List.length default_call.call_arguments);
+  let _, _, array_output = parse_string "I64 values[Size()];" in
+  let dimension_call =
+    expect_ast array_output |> expect_one_global |> fun variable ->
+    List.hd variable.array_dimensions
+    |> expect_dimension_expression |> expect_call_expression
+  in
+  Alcotest.(check int)
+    "array-dimension call has no arguments" 0
+    (List.length dimension_call.call_arguments);
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode "_intern Address(,1) I64 Linked();"
+      in
+      let call =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_call_expression
+      in
+      Alcotest.(check int)
+        "call syntax is shared by JIT and AOT" 2
+        (List.length call.call_arguments))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let call_expression_provenance () =
+  let session, root, output =
+    parse_string "#define CALL Target(,3)\n_intern CALL I64 Generated();"
+  in
+  let call =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding |> expect_call_expression
+  in
+  let omitted = List.hd call.call_arguments in
+  let provided = List.nth call.call_arguments 1 in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("callee", Ast.expression_location call.call_callee);
+      ("opening parenthesis", call.call_opening_parenthesis);
+      ("omitted slot", omitted.call_argument_location);
+      ("omitted slot comma", Option.get omitted.following_comma);
+      ( "provided argument",
+        expect_provided_call_argument provided |> Ast.expression_location );
+      ("closing parenthesis", call.call_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated call punctuation provenance" true
+    (target_json
+    |> member "opening_parenthesis"
+    |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "call.HC" in
+      write_file root_file "#include \"call\"";
+      write_file declaration_file "_intern Included(,3) I64 FromInclude();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_call =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_call_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_call.call_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included call keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let call_expression_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected call declaration %s became visible" name)
+        rejected_name)
+    [
+      ( "missing argument separator",
+        "_intern F(1 2) I64 MissingSeparator();",
+        Some "MissingSeparator",
+        "HCPARSE0024",
+        "expected ',' or ')' after a call argument" );
+      ( "missing closing parenthesis",
+        "_intern F(",
+        None,
+        "HCPARSE0025",
+        "expected ')' to close a call" );
+      ( "missing prefix operand",
+        "_intern F(+,2) I64 MissingOperand();",
+        Some "MissingOperand",
+        "HCPARSE0018",
+        "call argument expression operand" );
+      ( "unsupported continuation after a call",
+        "_intern F()[0] I64 Indexed();",
+        Some "Indexed",
+        "HCPARSE0020",
+        "target expression continuation" );
+    ];
+  let nesting = Parser.max_expression_depth in
+  let nested_source =
+    Printf.sprintf "_intern %s1%s I64 TooNested();"
+      (String.concat "" (List.init nesting (fun _ -> "F(")))
+      (String.make nesting ')')
+  in
+  let session, _, output = parse_string nested_source in
+  Alcotest.(check string)
+    "nested call diagnostic" "HCPARSE0021" (first_diagnostic output).code;
+  Alcotest.(check bool)
+    "nested call diagnostic names the argument context" true
+    (contains (first_diagnostic output).message
+       "call argument expression nesting");
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "TooNested"
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the excessively nested call became visible"
+
+let deterministic_call_dumps () =
+  let session, _, output =
+    parse_string "_intern Outer(Inner(),,0) I64 Linked();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human call dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON call dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let call_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check string)
+    "JSON call kind" "call"
+    (call_json |> member "kind" |> to_string);
+  let arguments = call_json |> member "arguments" |> to_list in
+  Alcotest.(check (list string))
+    "JSON call argument kinds"
+    [ "provided"; "omitted"; "provided" ]
+    (List.map
+       (fun argument -> argument |> member "kind" |> to_string)
+       arguments);
+  Alcotest.(check string)
+    "nested JSON call kind" "call"
+    (List.hd arguments |> member "expression" |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "omitted JSON slot keeps its comma" true
+    (List.nth arguments 1 |> member "comma" <> `Null);
+  Alcotest.(check bool)
+    "last JSON argument has no comma" true
+    (List.nth arguments 2 |> member "comma" = `Null)
 
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -3008,8 +3378,8 @@ let array_dimension_failures () =
         "Indexed",
         "HCPARSE0020",
         "continuation" );
-      ( "unsupported call",
-        "I64 Called[Count()];",
+      ( "unsupported indexing after a call",
+        "I64 Called[Count()[0]];",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -3107,8 +3477,8 @@ let default_expression_failures () =
         "Unmatched",
         "HCPARSE0019",
         "close default expression" );
-      ( "unsupported call",
-        "extern U0 Called(I64 value=Factory());",
+      ( "unsupported indexing after a call",
+        "extern U0 Called(I64 value=Factory()[0]);",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -3518,6 +3888,19 @@ let tests =
     Alcotest.test_case "_intern binding failures" `Quick intern_binding_failures;
     Alcotest.test_case "deterministic _intern dumps" `Quick
       deterministic_intern_dumps;
+    Alcotest.test_case "pinned call expression behavior" `Quick
+      call_expression_source_behavior;
+    Alcotest.test_case "call argument slots" `Quick call_argument_slots;
+    Alcotest.test_case "call precedence and nesting" `Quick
+      call_expression_precedence_and_nesting;
+    Alcotest.test_case "call expression contexts and modes" `Quick
+      call_expression_contexts_and_modes;
+    Alcotest.test_case "call expression provenance" `Quick
+      call_expression_provenance;
+    Alcotest.test_case "call expression failures" `Quick
+      call_expression_failures;
+    Alcotest.test_case "deterministic call dumps" `Quick
+      deterministic_call_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

@@ -1,1 +1,1 @@
-_intern Resolve() I64 Invalid();
+_intern Resolve[0] I64 Invalid();

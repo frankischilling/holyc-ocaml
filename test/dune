@@ -1068,3 +1068,63 @@
    (diff
     cli/parse-function-pointer-parameter-error.json
     parse-function-pointer-parameter-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-expression.human.actual)
+ (deps cli/parse-call-expression.hc cli/parse-call-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-call-expression.hc))
+   (diff cli/parse-call-expression.human parse-call-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-expression.json.actual)
+ (deps cli/parse-call-expression.hc cli/parse-call-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-call-expression.hc))
+   (diff cli/parse-call-expression.json parse-call-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-error.human.actual parse-call-error.human.stdout.actual)
+ (deps cli/parse-call-error.hc cli/parse-call-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-error.human.stdout.actual
+    (with-stderr-to
+     parse-call-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-call-error.hc))))
+   (diff cli/parse-call-error.human parse-call-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-error.json.actual parse-call-error.json.stdout.actual)
+ (deps cli/parse-call-error.hc cli/parse-call-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-error.json.stdout.actual
+    (with-stderr-to
+     parse-call-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-call-error.hc))))
+   (diff cli/parse-call-error.json parse-call-error.json.actual))))
