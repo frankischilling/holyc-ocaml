@@ -12,11 +12,14 @@
   test_operator_table_source
   test_operator_table
   test_compiler_option_source
-  test_compiler_option)
+  test_compiler_option
+  test_intermediate_code_source
+  test_intermediate_code)
  (libraries
   alcotest
   compiler_option_tools
   holyc_lib
+  intermediate_code_tools
   opcode_table_tools
   operator_table_tools
   primitive_type_tools

@@ -17,6 +17,8 @@
     {"path": "Compiler/PrsLib.HC", "sha256": "4c29376dea256cc6ca6cc5e2cb042816fb5ef6dc2aafe54f303143a013a555e1"},
     {"path": "Compiler/PrsStmt.HC", "sha256": "6bccf67abed7cc634d07e6b7b0201f51ce00094a039b61a406e75de725c342af"},
     {"path": "Compiler/PrsVar.HC", "sha256": "a4d090d96e13f2358aa9914699aefd58f6b785ba5e444d6e9e59ffafcc28bae8"},
+    {"path": "Compiler/OptLib.HC", "sha256": "dba8601706e5a9bbdb3e57a7eaaf0f6328b66d27656141217ddd1119473a81ce"},
+    {"path": "Compiler/OptPass012.HC", "sha256": "afe81317536c8639c8b755eaba80cf87f6175edd79760c45f7382ee350d15630"},
     {"path": "Compiler/OptPass3.HC", "sha256": "64c3b74d073b2d482751b6129d99e9f4b3b563216ec70f4a17a79aa663a92eae"},
     {"path": "Compiler/OptPass6.HC", "sha256": "7d00fd544e845423da6c354cd11e0956f45bf3b7bb839b518e01a09afd676253"},
     {"path": "Compiler/OptPass789A.HC", "sha256": "7cae9bc11a863d2066df27894449dbb28afb0d550b6b3fae1eeb6bb1362addcc"},

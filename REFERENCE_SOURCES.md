@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state and its core consumers, and the relevant language documentation. `Compiler/AsmInit.HC:AsmHashLoad` establishes how the original compiler consumes the keyword and primitive-type sources. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, and the complete intermediate-code definition and metadata tables. Optimizer and backend reads establish how the original compiler consumes the option and IC fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Generated keyword data
 
@@ -69,4 +69,16 @@ dune exec tools/compiler_option_gen.exe -- --reference-root third_party/TempleOS
 
 The generator checks 16 pinned sources before it writes anything. It extracts the 12 `OPTf_*` bit indices from `Kernel/KernelA.HH`, the initial mask from `Compiler/Lex.HC:CmpCtrlNew`, and the `Option`/`GetOption` contract from `Compiler/CMisc.HC` and `Kernel/KUtils.HC:_BEQU`. It also records code references in the lexer, parser, symbol table, optimizer, and backend. Comments and string literals do not count as consumers.
 
-The gaps at bits 2 through 15 and 20 through 31 are retained. `OPTf_USE_IMM64` carries the pinned source's “Not completely implemented” note instead of being presented as finished behavior. The generated registry describes source facts only; later compiler stages must still implement each option's effect.
+The gaps at bits 2 through 15 and 20 through 31 are retained. `OPTf_USE_IMM64` carries the pinned source's "Not completely implemented" note instead of being presented as finished behavior. The generated registry describes source facts only; later compiler stages must still implement each option's effect.
+
+## Generated intermediate-code data
+
+Regenerate the intermediate-code implementation and interface with:
+
+```text
+dune exec tools/intermediate_code_gen.exe -- --compiler third_party/TempleOS/Compiler/CompilerA.HH --cinit third_party/TempleOS/Compiler/CInit.HC --manifest reference/manifest.json --output-ml src/generated/intermediate_codes.ml --output-mli src/generated/intermediate_codes.mli
+```
+
+The generator verifies both source tables before parsing them. It requires 185 contiguous `IC_*` definitions, the `IC_ICS_NUM` value `0xB9`, the audited `CIntermediateStruct` layout, and one metadata record for each numeric code. Unknown argument shapes, structural types, Boolean values, padding, or extra fields stop generation.
+
+Constant names and display names remain separate. The source contains 13 real differences, including `IC_SWAP_I64` versus `SWAP_U64`; the generator does not rewrite either spelling. `dune build @generated-check` compares both generated files with a fresh rendering.
