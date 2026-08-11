@@ -1,0 +1,3 @@
+cli/parse-error.hc:2:10: error[HCPARSE0003]: expected ';' after global variable "count", but found "="
+    2 | I64 count=1;
+      |          ^

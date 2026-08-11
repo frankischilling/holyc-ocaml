@@ -1,0 +1,14 @@
+type output = {
+  ast : Ast.module_ option;
+  diagnostics : Common.Diagnostic.t list;
+}
+
+val parse :
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Preprocessor.Config.t ->
+  Common.Source_file.t ->
+  output
+
+val has_errors : output -> bool

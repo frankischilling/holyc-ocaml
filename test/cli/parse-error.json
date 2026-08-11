@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0003",
+    "severity": "error",
+    "message": "expected ';' after global variable \"count\", but found \"=\"",
+    "primary": {
+      "path": "cli/parse-error.hc",
+      "line": 2,
+      "column": 10,
+      "source_id": 0,
+      "start": 55,
+      "stop": 56
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

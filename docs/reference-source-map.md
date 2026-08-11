@@ -120,6 +120,14 @@ The public `I16`, `U16`, `I32`, `U32`, `I64`, and `U64` names are unions declare
 
 `tools/primitive_type_source.ml` validates the constants, the six union headers, and every internal record. `tools/primitive_type_gen.ml` embeds the pinned commit, both source checksums, and original line numbers in `src/generated/primitive_raw_types.ml`. `Sema.Primitive_type` uses those records for the 12 supported semantic identities.
 
+## Primitive global declarations
+
+`Compiler/PrsStmt.HC:PrsStmt` checks whether a top-level identifier resolves to `HTT_CLASS` or `HTT_INTERNAL_TYPE`. It advances past that type token and calls `PrsGlblVarLst`. `Compiler/PrsStmt.HC:PrsGlblVarLst` repeatedly calls `Compiler/PrsVar.HC:PrsType`, accepts a comma for another declarator, and otherwise requires and consumes a semicolon. `Compiler/CMain.HC:CmpJoin` calls the statement path repeatedly, preserving top-level source order without requiring `main`.
+
+The complete `PrsType` path also handles pointer stars, function pointers, arrays, class and union prefixes, and anonymous forms. Those constructs are outside the first parser slice. `Frontend.Parser` accepts only `primitive identifier ;`, where `primitive` is one of the 12 public spellings checked by `Sema.Primitive_type`. Type names remain ordinary identifier tokens, matching the compiler hash-table design rather than introducing lexer-only type keywords.
+
+The parser consumes `Frontend.Preprocessor.next` with one token of lookahead. It captures the current include stack and definition trace with each token, publishes an accepted global before requesting the next token, recovers to a semicolon or EOF after unsupported syntax, and returns no public AST if any error occurred. Publishing at that point matches the `HashAdd` placement in `PrsGlblVarLst` and lets a following `#ifdef` observe the declaration. `Frontend.Ast` records the root-module span and the primary span plus ordered source segments for each accepted type, identifier, and declaration. `Frontend.Ast_dump` renders the versioned `holyc-ast-v1` human and JSON formats.
+
 ## Compiler option state
 
 `Kernel/KernelA.HH` assigns 12 compiler-option bit indices. They are not pre-shifted masks. Bits 0 and 1 control echo and trace behavior, bits 16 through 19 control warnings, and bits 32 through 37 affect linkage, symbol retention, allocation, optimization, and code emission. The ranges 2 through 15 and 20 through 31 are unused in the pinned definitions.

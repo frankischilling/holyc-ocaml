@@ -40,6 +40,14 @@ dune exec holyc -- corpus lex --format=json --reference-root=third_party/TempleO
 
 The command verifies the checkout before and after scanning, enumerates only committed `.HC`, `.HH`, and `.PRJ` paths, and reads each object directly from Git. It does not run reference code. Reading committed objects avoids host checkout line-ending conversion. At the pinned root tree `02b508a8ff9739e628f7eca19b0521f76632d325`, all 528 files tokenize without a lexer diagnostic or internal error. The report records 719,304 tokens, 54 NUL terminators, and 1,266,852 trailing payload bytes. These figures establish raw lexing only.
 
+## Primitive-global parser audit
+
+The first parser slice uses complete reads of `Compiler/Compiler.PRJ`, `Compiler/CompilerA.HH`, `Compiler/CompilerB.HH`, `Compiler/PrsLib.HC`, `Compiler/PrsVar.HC`, `Compiler/PrsStmt.HC`, `Compiler/CMain.HC`, `Compiler/CInit.HC`, `Doc/HolyC.DD`, and `Doc/Lex.DD`. The manifest already records every checksum.
+
+`PrsStmt` dispatches a top-level class or internal type to `PrsGlblVarLst`. That routine calls `PrsType`, accepts another declarator after a comma, and otherwise requires a semicolon. `PrsType` owns pointer stars, function pointers, identifiers, and array suffixes. The current OCaml slice stops before each of those extended forms and accepts only one direct identifier after one of the 12 checked public primitive spellings. It still reads from the integrated preprocessor so included and definition-generated tokens keep their diagnostic context.
+
+No parser table or TempleOS code is copied. `Frontend.Ast`, `Frontend.Parser`, and `Frontend.Ast_dump` implement the narrow grammar and versioned output. Issues #46, #47, and #48 track the remaining declaration, expression, and statement grammar.
+
 ## Include-frame audit
 
 The current include implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`, plus the `CLexFile` and `CCmpCtrl` definitions in `Kernel/KernelA.HH` and `DirNameAbs`, `FileNameAbs`, and `ExtDft` in `Kernel/BlkDev/DskStrA.HC`. Their Git blob checksums are in the manifest. The `LexBackupLastChar`, `LexIncludeStr`, `LexGetChar`, and `LexFilePop` control flow establishes that an active scanner may exhaust a frame and continue with the caller's saved lookahead before returning a token.

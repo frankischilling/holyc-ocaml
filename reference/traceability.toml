@@ -605,6 +605,45 @@ hosted_path_behavior = "canonical host paths rather than TempleOS drive paths"
 general_exe_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-PRIMITIVE-GLOBALS"
+description = "The integrated parser accepts empty input and ordered direct global variables using the 12 checked public primitive spellings, while unsupported syntax fails without a raw-token AST fallback."
+sources = [
+  "Compiler/Compiler.PRJ",
+  "Compiler/PrsLib.HC:PrsKeyWord",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CMain.HC:CmpJoin",
+  "Compiler/CInit.HC:internal_types_table",
+  "Compiler/CompilerA.HH:PRS0_* and PRS1_*",
+  "Compiler/CompilerB.HH:PrsKeyWord",
+  "Doc/HolyC.DD",
+  "Doc/Lex.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/preprocessor.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-globals.hc",
+  "test/cli/parse-globals.human",
+  "test/cli/parse-globals.json",
+  "test/cli/parse-error.hc",
+  "test/cli/parse-error.human",
+  "test/cli/parse-error.json"
+]
+status = "implemented"
+issue = 49
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "module := (primitive identifier ';')*"
+remaining_parser_issues = [46, 47, 48]
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
