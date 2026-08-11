@@ -22,3 +22,4 @@
 - Added comma-separated primitive globals with a shared base type, independent pointer depths, explicit delimiter provenance, streaming symbol publication, and human and JSON CLI goldens.
 - Added source-linked `public` and `static` prefixes on primitive globals, preserving their order and definition provenance without claiming linkage or storage behavior.
 - Added source-linked `extern` and AOT-only `import` bindings on primitive globals, with a stable JIT rejection that does not publish the rejected name.
+- Added source-linked target identifiers for `_extern` and AOT-only `_import` primitive globals, with a stable missing-target diagnostic and no symbol publication after a JIT rejection.
