@@ -20,6 +20,7 @@ module Token = Frontend.Token
 module Lexer = Frontend.Lexer
 module Include_resolver = Frontend.Include_resolver
 module Definition = Frontend.Definition
+module Help_metadata = Frontend.Help_metadata
 module Symbol_visibility = Frontend.Symbol_visibility
 module Lexer_frame = Frontend.Lexer_frame
 module Preprocessor = Frontend.Preprocessor
@@ -40,5 +41,5 @@ val preprocess_detailed :
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
   Preprocessor.output
-(** Preprocess a source and retain tokens, warnings, notes, and errors in one
-    result. *)
+(** Preprocess a source and retain tokens, warnings, notes, errors, and
+    source-ordered help metadata in one result. *)

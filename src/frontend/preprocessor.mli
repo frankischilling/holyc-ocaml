@@ -31,9 +31,14 @@ end
 
 type t
 
-type output = { tokens : Token.t list; diagnostics : Common.Diagnostic.t list }
+type output = {
+  tokens : Token.t list;
+  diagnostics : Common.Diagnostic.t list;
+  help_metadata : Help_metadata.t;
+}
 (** Tokens and diagnostics collected from one complete stream. The token list
-    includes EOF, and diagnostics retain their source order. *)
+    includes EOF, diagnostics retain their source order, and help metadata is
+    scoped to this stream. *)
 
 val create :
   sources:Common.Source_manager.t ->
@@ -46,6 +51,7 @@ val create :
 val next : t -> Lexer.item
 val definitions : t -> Definition.t list
 val definition_dump : t -> string
+val help_metadata : t -> Help_metadata.t
 
 val collect_all :
   sources:Common.Source_manager.t ->

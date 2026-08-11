@@ -50,6 +50,14 @@ let raw lexer start stop = String.sub lexer.contents start (stop - start)
 let span lexer start stop =
   Common.Span.unsafe_make ~source:(source_id lexer) ~start ~stop
 
+let consume_continuation_marker lexer =
+  match peek lexer 0 with
+  | Some '\\' ->
+      let start = lexer.offset in
+      ignore (advance lexer);
+      Some (span lexer start lexer.offset)
+  | _ -> None
+
 let is_non_eol_whitespace = function
   | ' ' | '\t' | '\x1f' -> true
   | _ -> false
