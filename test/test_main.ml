@@ -10,4 +10,6 @@ let () =
       ("primitive type", Test_primitive_type.tests);
       ("operator table source", Test_operator_table_source.tests);
       ("operator table", Test_operator_table.tests);
+      ("compiler option source", Test_compiler_option_source.tests);
+      ("compiler option", Test_compiler_option.tests);
     ]

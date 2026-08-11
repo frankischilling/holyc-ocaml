@@ -21,6 +21,12 @@
  (modules operator_table_source)
  (libraries digestif))
 
+(library
+ (name compiler_option_tools)
+ (wrapped false)
+ (modules compiler_option_source)
+ (libraries digestif))
+
 (executable
  (name opcode_table_gen)
  (modules opcode_table_gen)
@@ -35,6 +41,11 @@
  (name operator_table_gen)
  (modules operator_table_gen)
  (libraries operator_table_tools yojson))
+
+(executable
+ (name compiler_option_gen)
+ (modules compiler_option_gen)
+ (libraries compiler_option_tools yojson))
 
 (rule
  (alias generated-check)
@@ -98,3 +109,37 @@
    --output
    %{dep:../src/generated/operator_tables.ml}
    --check)))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KUtils.HC
+  ../third_party/TempleOS/Kernel/KHashB.HC
+  ../third_party/TempleOS/Compiler/Lex.HC
+  ../third_party/TempleOS/Compiler/CMisc.HC
+  ../third_party/TempleOS/Compiler/CExcept.HC
+  ../third_party/TempleOS/Compiler/CMain.HC
+  ../third_party/TempleOS/Compiler/LexLib.HC
+  ../third_party/TempleOS/Compiler/PrsLib.HC
+  ../third_party/TempleOS/Compiler/PrsStmt.HC
+  ../third_party/TempleOS/Compiler/PrsVar.HC
+  ../third_party/TempleOS/Compiler/OptPass3.HC
+  ../third_party/TempleOS/Compiler/OptPass6.HC
+  ../third_party/TempleOS/Compiler/OptPass789A.HC
+  ../third_party/TempleOS/Compiler/BackFA.HC
+  ../third_party/TempleOS/Compiler/BackLib.HC
+  ../src/generated/compiler_options.ml)
+ (action
+  (chdir
+   %{workspace_root}
+   (run
+    %{exe:compiler_option_gen.exe}
+    --reference-root
+    third_party/TempleOS
+    --manifest
+    reference/manifest.json
+    --output
+    src/generated/compiler_options.ml
+    --check))))
