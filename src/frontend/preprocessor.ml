@@ -552,7 +552,11 @@ let symbol_present stream name =
 
 let enter_symbol_conditional stream hash token keyword =
   match next_unexpanded stream with
-  | Lexer.Diagnostic item -> Error item
+  | Lexer.Diagnostic item ->
+      Result.bind
+        (push_conditional ~parent_active:false ~valid:false stream hash token
+           keyword false)
+        (fun () -> Error item)
   | Lexer.Token name_token -> (
       match definition_name name_token with
       | Some name ->

@@ -117,6 +117,12 @@ let local_shadowing () =
   (match Symbol_visibility.Environment.find_preprocessor symbols "Value" with
   | Symbol_visibility.Shadowed_by_local -> ()
   | _ -> Alcotest.fail "the local variable should suppress hash lookup");
+  let local_dump =
+    Symbol_visibility.Environment.dump (Source_manager.create ()) symbols
+  in
+  Alcotest.(check bool)
+    "local context dump" true
+    (contains_text local_dump "local-context 0\n  local name=\"Value\"\n");
   let inner = Symbol_visibility.Environment.begin_local_context symbols in
   Alcotest.(check bool)
     "contexts end in stack order" true

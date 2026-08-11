@@ -1206,7 +1206,17 @@ let symbol_conditional_diagnostics () =
         (json |> index 0 |> member "code" |> to_string);
       write_file root_file "#ifdef";
       let _, _, missing = preprocess root root_file in
-      ignore (error_with_code "HCPP0020" missing))
+      ignore (error_with_code "HCPP0020" missing);
+      write_file root_file
+        "#ifdef \x00 #define HIDDEN value #endif visible";
+      let malformed_session, _, malformed = preprocess root root_file in
+      ignore (error_with_code "HCLEX0006" malformed);
+      Alcotest.(check bool)
+        "malformed operand leaves its branch inert" true
+        (Definition.Environment.find
+           (Session.definitions malformed_session)
+           "HIDDEN"
+        |> Option.is_none))
 
 let deterministic_definition_dump () =
   let session = Session.create () in

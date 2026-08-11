@@ -188,5 +188,11 @@ module Environment = struct
           entry.name (kind_name entry.kind)
           (origin_text sources entry.origin))
       (all environment);
+    List.rev environment.local_contexts
+    |> List.iter (fun (context, names) ->
+           Printf.bprintf buffer "local-context %d\n" context;
+           String_set.elements names
+           |> List.iter (fun name ->
+                  Printf.bprintf buffer "  local name=%S\n" name));
     buffer |> Buffer.contents
 end
