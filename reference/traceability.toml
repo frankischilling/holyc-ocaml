@@ -214,6 +214,44 @@ tests = ["test/test_diagnostic.ml", "test/negative/unterminated-string.hc"]
 status = "implemented"
 
 [[feature]]
+id = "HC-TEMPLEOS-BIN-RECORD-SPECIFICATION"
+description = "The generated TempleOS BIN specification retains the exact header layout, entry values and gaps, record shapes, relocation formulas, loader-pass actions, AOT adjustments, source limitations, and provenance."
+sources = [
+  "Kernel/KernelA.HH:CBinFile",
+  "Kernel/KernelA.HH:BIN_SIGNATURE_VAL",
+  "Kernel/KernelA.HH:IET_END",
+  "Kernel/KernelA.HH:AAT_ADD_U8",
+  "Kernel/KLoad.HC:LoadOneImport",
+  "Kernel/KLoad.HC:LoadPass1",
+  "Kernel/KLoad.HC:LoadPass2",
+  "Kernel/KLoad.HC:Load",
+  "Kernel/KStart16.HC",
+  "Kernel/KStart32.HC:CPatchTableAbsAddr",
+  "Compiler/CMain.HC:CmpFixUpJITAsm",
+  "Compiler/CMain.HC:CmpFixUpAOTAsm",
+  "Compiler/CMain.HC:Cmp",
+  "Compiler/AsmResolve.HC",
+  "Compiler/Asm.HC",
+  "Compiler/PrsVar.HC",
+  "Compiler/BackFA.HC",
+  "Compiler/BackLib.HC",
+  "Compiler/BackC.HC",
+  "Compiler/OptPass3.HC",
+  "Compiler/OptPass789A.HC"
+]
+implementation = [
+  "src/generated/bin_records.ml",
+  "src/backend/bin_spec.ml",
+  "tools/bin_record_source.ml",
+  "tools/bin_record_gen.ml"
+]
+tests = [
+  "test/test_bin_record_source.ml",
+  "test/test_bin_record.ml"
+]
+status = "implemented"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Directives and generated input are part of the lexical stream."
 sources = ["Compiler/Lex.HC:Lex", "Kernel/KernelA.HH:__DATE__"]

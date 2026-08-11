@@ -39,6 +39,12 @@
  (modules function_flag_source)
  (libraries digestif))
 
+(library
+ (name bin_record_tools)
+ (wrapped false)
+ (modules bin_record_source)
+ (libraries digestif))
+
 (executable
  (name opcode_table_gen)
  (modules opcode_table_gen)
@@ -68,6 +74,11 @@
  (name function_flag_gen)
  (modules function_flag_gen)
  (libraries function_flag_tools yojson))
+
+(executable
+ (name bin_record_gen)
+ (modules bin_record_gen)
+ (libraries bin_record_tools yojson))
 
 (rule
  (alias generated-check)
@@ -114,6 +125,40 @@
     src/generated/function_flags.ml
     --output-mli
     src/generated/function_flags.mli
+    --check))))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KLoad.HC
+  ../third_party/TempleOS/Kernel/KStart16.HC
+  ../third_party/TempleOS/Kernel/KStart32.HC
+  ../third_party/TempleOS/Compiler/CMain.HC
+  ../third_party/TempleOS/Compiler/AsmResolve.HC
+  ../third_party/TempleOS/Compiler/Asm.HC
+  ../third_party/TempleOS/Compiler/PrsVar.HC
+  ../third_party/TempleOS/Compiler/BackFA.HC
+  ../third_party/TempleOS/Compiler/BackLib.HC
+  ../third_party/TempleOS/Compiler/BackC.HC
+  ../third_party/TempleOS/Compiler/OptPass3.HC
+  ../third_party/TempleOS/Compiler/OptPass789A.HC
+  ../src/generated/bin_records.ml
+  ../src/generated/bin_records.mli)
+ (action
+  (chdir
+   %{workspace_root}
+   (run
+    %{exe:bin_record_gen.exe}
+    --reference-root
+    third_party/TempleOS
+    --manifest
+    reference/manifest.json
+    --output-ml
+    src/generated/bin_records.ml
+    --output-mli
+    src/generated/bin_records.mli
     --check))))
 
 (rule

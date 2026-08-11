@@ -2,13 +2,14 @@
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
-The current slice has five layers:
+The current slice has six layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
 - `Frontend` owns token definitions, the audited keyword table, streaming lexical state, and stable token dumps.
 - `Generated` contains deterministic source facts produced only after pinned checksum and table-shape validation.
 - `Sema` currently exposes primitive type identity, compiler-option metadata, and the audited function-flag model. Declaration resolution, conversions, call checking, and aggregate layout have not entered this layer yet.
 - `Ir` currently exposes the exhaustive intermediate-code identity and source metadata table. Instructions, control flow, verification, lowering, and execution have not entered this layer yet.
+- `Backend` currently exposes the audited TempleOS BIN header, patch-record, relocation, loader-action, and AOT-adjustment specification. It does not contain a serializer, loader, or code emitter yet.
 
 `holyc_lib` exposes the supported high-level entry points. The command-line program calls the same library functions used by tests.
 
