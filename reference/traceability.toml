@@ -705,8 +705,55 @@ accepted_grammar = "global-declaration := primitive declarator (',' declarator)*
 delimiter_provenance = "implemented"
 streaming_symbol_publication = "implemented"
 initializer_status = "planned"
-array_suffix_status = "planned"
+array_suffix_status = "implemented in HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
 function_declarator_status = "bound primitive prototypes implemented in HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+
+[[feature]]
+id = "HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
+description = "Primitive global declarators retain ordered array dimensions, including an optional expression in the first dimension."
+sources = [
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsExp.HC:LexExpressionI64",
+  "Kernel/KernelC.HH:32-44 and 750-751",
+  "Compiler/Lex.HC:322",
+  "Compiler/Asm.HC:393",
+  "Adam/Gr/GrGlbls.HC:28-35"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-arrays.hc",
+  "test/cli/parse-arrays.human",
+  "test/cli/parse-arrays.json",
+  "test/cli/parse-array-error.hc",
+  "test/cli/parse-array-error.human",
+  "test/cli/parse-array-error.json"
+]
+status = "implemented"
+issue = 71
+ast_schema = "holyc-ast-v1"
+accepted_context = "primitive global declarators"
+direct_arrays = "implemented"
+pointer_arrays = "implemented"
+comma_group_arrays = "implemented"
+multidimensional_arrays = "implemented"
+empty_first_dimension = "represented separately from an explicit zero"
+empty_later_dimension_diagnostic = "HCPARSE0022"
+missing_closing_bracket_diagnostic = "HCPARSE0023"
+dimension_expression_grammar = "shared with HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+definition_and_include_provenance = "preserved"
+array_parameter_status = "rejected with HCPARSE0011 to match PrsArrayDims"
+dimension_evaluation_status = "planned"
+negative_dimension_check_status = "planned"
+total_element_count_status = "planned"
+initializer_status = "planned"
+local_and_member_array_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-DECLARATION-MODIFIERS"
