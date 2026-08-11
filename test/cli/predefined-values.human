@@ -1,0 +1,5 @@
+<predefined:__DATE__>:1:1..1:11 string raw="\"08/11/26\"" value="08/11/26"
+<predefined:__TIME__>:1:1..1:11 string raw="\"05:42:17\"" value="05:42:17"
+<predefined:__LINE__>:1:1..1:2 integer raw="2" value="0x0000000000000002"
+<predefined:__CMD_LINE__>:1:1..1:2 integer raw="1" value="0x0000000000000001"
+cli/predefined-values.hc:3:1..3:1 eof raw=""

@@ -7,6 +7,7 @@ let () =
       ("conditional expressions", Test_conditional_expression.tests);
       ("assert directives", Test_assert_directive.tests);
       ("help directives", Test_help_directive.tests);
+      ("predefined values", Test_predefined.tests);
       ("symbol visibility", Test_symbol_visibility.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);

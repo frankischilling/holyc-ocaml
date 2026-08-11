@@ -1,0 +1,2 @@
+__DATE__ __TIME__
+__LINE__ __CMD_LINE__

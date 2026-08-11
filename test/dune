@@ -8,6 +8,7 @@
   test_conditional_expression
   test_assert_directive
   test_help_directive
+  test_predefined
   test_symbol_visibility
   test_diagnostic
   test_version
@@ -63,6 +64,7 @@
   ../third_party/TempleOS/Kernel/KLoad.HC
   ../third_party/TempleOS/Kernel/KStart16.HC
   ../third_party/TempleOS/Kernel/KStart32.HC
+  ../third_party/TempleOS/Kernel/StrPrint.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
   (glob_files golden/*)
   (glob_files negative/*)))
@@ -143,3 +145,38 @@
      --format=json
      cli/help-metadata.hc))
    (diff cli/help-metadata.json help-metadata.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets predefined-values.human.actual)
+ (deps cli/predefined-values.hc cli/predefined-values.human)
+ (action
+  (progn
+   (with-stdout-to
+    predefined-values.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --predefined-date=08/11/26
+     --predefined-time=05:42:17
+     --command-line-source
+     cli/predefined-values.hc))
+   (diff cli/predefined-values.human predefined-values.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets predefined-values.json.actual)
+ (deps cli/predefined-values.hc cli/predefined-values.json)
+ (action
+  (progn
+   (with-stdout-to
+    predefined-values.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --format=json
+     --predefined-date=08/11/26
+     --predefined-time=05:42:17
+     --command-line-source
+     cli/predefined-values.hc))
+   (diff cli/predefined-values.json predefined-values.json.actual))))

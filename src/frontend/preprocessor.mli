@@ -16,6 +16,9 @@ module Config : sig
     ?max_definition_depth:int ->
     ?max_generated_bytes:int ->
     ?max_expression_nodes:int ->
+    ?predefined_date:string ->
+    ?predefined_time:string ->
+    ?command_line_source:bool ->
     unit ->
     (t, string) result
 
@@ -27,6 +30,7 @@ module Config : sig
   val max_definition_depth : t -> int
   val max_generated_bytes : t -> int
   val max_expression_nodes : t -> int
+  val predefined : t -> Predefined.Settings.t
 end
 
 type t
