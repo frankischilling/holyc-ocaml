@@ -1,3 +1,7 @@
+type compilation_mode = Jit | Aot
+
+val compilation_mode_name : compilation_mode -> string
+
 module Config : sig
   type t
 
@@ -5,6 +9,8 @@ module Config : sig
     ?working_directory:string ->
     ?include_roots:string list ->
     ?templeos_root:string ->
+    ?compilation_mode:compilation_mode ->
+    ?max_conditional_depth:int ->
     ?max_include_depth:int ->
     ?max_source_bytes:int ->
     ?max_definition_depth:int ->
@@ -13,6 +19,8 @@ module Config : sig
     (t, string) result
 
   val resolver : t -> Include_resolver.t
+  val compilation_mode : t -> compilation_mode
+  val max_conditional_depth : t -> int
   val max_include_depth : t -> int
   val max_source_bytes : t -> int
   val max_definition_depth : t -> int

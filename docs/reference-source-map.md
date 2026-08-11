@@ -30,6 +30,16 @@ Identifier recognition in `Compiler/Lex.HC:Lex` checks `HTT_DEFINE_STR` before i
 
 `Frontend.Definition` assigns source-ordered identities, retains replacement spans and byte-segment maps, and keeps both current lookup state and redefinition history. `Driver.Session` owns that environment because the native `CmpCtrlNew` points definition lookup at the task hash table. `Frontend.Preprocessor` creates a logical source for each expansion, adds invocation and declaration provenance to tokens and diagnostics, and resumes the caller at replacement EOF. Active-definition cycle checks and definition depth and byte budgets are hosted security rules; the pinned lexer has no equivalent guard.
 
+## JIT and AOT conditional selection
+
+`Kernel/KernelA.HH` defines `CCF_AOT_COMPILE` at bit 35. `Compiler/CMain.HC:CmpBuf` sets the flag before it joins an AOT compilation, while a normal controller starts without it. The OCaml preprocessor mirrors that distinction with an explicit `Jit` or `Aot` configuration and defaults to JIT. Host operating-system details do not affect the selection.
+
+The `KW_IFAOT` and `KW_IFJIT` cases in `Compiler/Lex.HC:Lex` continue into the matching branch. A false condition scans with `LexGetChar` until the first depth-one `#else` or its `#endif`. Nested depth increases for all five opener spellings: `#if`, `#ifdef`, `#ifndef`, `#ifaot`, and `#ifjit`. The scan calls `Lex` only after it sees `#`, so ordinary discarded identifiers do not expand and inactive includes or definitions do not run. `PrsKeyWord` reads the resolved hash entry, which also permits a definition to supply the directive name.
+
+`LexGetChar` removes exhausted include and definition frames during the search. `Frontend.Preprocessor` therefore owns conditional state above individual `Lexer_frame` values, and `Frontend.Lexer.scan_to_directive_marker` advances through inactive bytes without ordinary tokenization. A conditional can open in an included or definition-backed frame and close after that frame returns to its caller.
+
+Outside `CCF_IN_IF`, the pinned lexer discards an unmatched `#endif`, treats an unmatched `#else` as a request to scan forward, and returns EOF without a mismatch diagnostic when a false branch is unterminated. The hosted stream reports `HCPP0015` through `HCPP0018` instead. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) records that diagnostic difference and the missing oracle fixtures. The `KW_IFJIT` path also returns `TK_IFAOT` while `CCF_IN_IF` is set; that source quirk concerns later `#if` expression parsing and is not part of the mode-only state.
+
 ## Tokens and operators
 
 `Kernel/KernelA.HH` assigns numeric values to compound tokens. `Compiler/CInit.HC:CmpFillTables` defines two-character tokens, three-character shifts, and expression precedence. `Compiler/OpCodes.DD` supplies the keyword spellings consumed by `Compiler/AsmInit.HC`.

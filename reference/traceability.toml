@@ -260,7 +260,7 @@ sources = [
   "Compiler/Lex.HC:LexGetChar",
   "Compiler/Lex.HC:LexIncludeStr",
   "Compiler/Lex.HC:Lex KW_INCLUDE",
-  "Compiler/LexLib.HC:LexFilePop",
+  "Compiler/Lex.HC:LexFilePop",
   "Kernel/KernelA.HH:CLexFile",
   "Kernel/KernelA.HH:CCmpCtrl",
   "Kernel/BlkDev/DskStrA.HC:DirNameAbs",
@@ -313,6 +313,35 @@ tests = ["test/test_preprocessor.ml"]
 status = "implemented"
 issue = 23
 known_difference_issues = [24]
+
+[[feature]]
+id = "HC-PREPROCESSOR-MODE-CONDITIONALS"
+description = "The integrated stream selects nested #ifaot and #ifjit branches from an explicit compilation mode while discarded bytes remain free of include and definition side effects."
+sources = [
+  "Compiler/Lex.HC:Lex KW_ELSE",
+  "Compiler/Lex.HC:Lex KW_IFAOT",
+  "Compiler/Lex.HC:Lex KW_IFJIT",
+  "Compiler/Lex.HC:Lex KW_ENDIF",
+  "Compiler/Lex.HC:LexGetChar",
+  "Compiler/Lex.HC:LexFilePop",
+  "Compiler/CMain.HC:CmpBuf",
+  "Compiler/CompilerA.HH:KW_IFAOT",
+  "Compiler/CompilerA.HH:KW_IFJIT",
+  "Kernel/KernelA.HH:CCF_AOT_COMPILE",
+  "Kernel/KernelA.HH:CCF_IN_IF",
+  "Doc/PreProcessor.DD",
+  "Doc/Directives.DD",
+  "Demo/GlblVars.HC"
+]
+implementation = [
+  "src/frontend/lexer.ml",
+  "src/frontend/preprocessor.ml",
+  "bin/holyc.ml"
+]
+tests = ["test/test_preprocessor.ml"]
+status = "implemented"
+issue = 26
+known_difference_issues = [24, 27]
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
