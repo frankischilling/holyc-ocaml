@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, and the relevant language documentation. The keyword table generator also reads `Compiler/AsmInit.HC` to match the original statement grammar. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, and the relevant language documentation. `Compiler/AsmInit.HC:AsmHashLoad` establishes how the original compiler consumes both generated-table sources. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Generated keyword data
 
@@ -38,3 +38,13 @@ dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/O
 ```
 
 `dune build @generated-check` compares the checked-in file with a fresh deterministic rendering. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.
+
+## Generated primitive type data
+
+Regenerate the audited raw type and internal type records with:
+
+```text
+dune exec tools/primitive_type_gen.exe -- --kernel third_party/TempleOS/Kernel/KernelA.HH --cinit third_party/TempleOS/Compiler/CInit.HC --manifest reference/manifest.json --output src/generated/primitive_raw_types.ml
+```
+
+The generator checks both source files against `reference/manifest.json`. It rejects changes to raw IDs, the `RT_PTR` alias, unavailable floating slots, public integer union headers, `INTERNAL_TYPES_NUM`, or any of the 17 internal type records. The same `@generated-check` target verifies this output in CI.

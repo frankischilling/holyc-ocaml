@@ -2,10 +2,12 @@
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
-The current slice has two layers:
+The current slice has four layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
 - `Frontend` owns token definitions, the audited keyword table, streaming lexical state, and stable token dumps.
+- `Generated` contains deterministic source facts produced only after pinned checksum and table-shape validation.
+- `Sema` currently exposes primitive type identity and representation metadata. Declaration resolution, conversions, and aggregate layout have not entered this layer yet.
 
 `holyc_lib` exposes the supported high-level entry points. The command-line program calls the same library functions used by tests.
 

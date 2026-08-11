@@ -24,6 +24,16 @@ The first slice keeps the complete language keyword list and operator spellings 
 
 `tools/opcode_table_source.ml` accepts only that statement shape inside the two table sections. It rejects missing semicolons, duplicate names, duplicate IDs, unexpected statements, reordered records, and incomplete ranges. `tools/opcode_table_gen.ml` writes the checked OCaml table with the reference commit, the `Compiler/OpCodes.DD` blob checksum, and each original source line. The lexer maps its keyword variants onto those generated records. `Asm_directive` exposes exact-spelling lookup for later assembler work but does not parse assembly yet.
 
+## Primitive raw types and internal names
+
+`Kernel/KernelA.HH` assigns raw IDs 2 through 15. The low bit is `RTF_UNSIGNED`; `RT_PTR` deliberately aliases signed `RT_I64` at ID 10. The same block marks `RT_F32` as unimplemented, `RT_UF32` as unimplemented and fictitious, and `RT_UF64` as fictitious. These slots remain visible in generated audit data but are not semantic HolyC primitive constructors.
+
+`Compiler/CInit.HC:internal_types_table` contains 17 records. Several raw IDs have more than one name. In particular, `Bool` shares `RT_I8`, while the names ending in `i` provide internal storage for public declarations. `Compiler/AsmInit.HC:AsmHashLoad` inserts every record into the compiler hash and leaves the final record for each raw ID in `cmp.internal_types`.
+
+The public `I16`, `U16`, `I32`, `U32`, `I64`, and `U64` names are unions declared near the start of `Kernel/KernelA.HH`. Their leading internal type names select whole-value storage, while their members expose smaller signed and unsigned views. `Primitive_type` records this union-backed declaration form but does not calculate member layout yet.
+
+`tools/primitive_type_source.ml` validates the constants, the six union headers, and every internal record. `tools/primitive_type_gen.ml` embeds the pinned commit, both source checksums, and original line numbers in `src/generated/primitive_raw_types.ml`. `Sema.Primitive_type` uses those records for the 12 supported semantic identities.
+
 ## Literals
 
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.
