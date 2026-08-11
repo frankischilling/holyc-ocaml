@@ -27,6 +27,11 @@ type parsed_declarator_prefix = {
 
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 
+type parsed_register_qualifiers = {
+  nodes : Ast.register_qualifier list;
+  tokens : Token.t list;
+}
+
 type parsed_parameter_list = {
   parameters : Ast.function_parameter list;
   variadic : Ast.variadic_marker option;
@@ -48,6 +53,28 @@ type binding_parse =
   | Bad_binding
 
 let max_pointer_depth = 4
+
+let canonical_u64_registers =
+  List.init 16 (fun register_number ->
+      match
+        List.find_opt
+          (fun (register : Generated.Opcode_keywords.register) ->
+            register.register_kind = Generated.Opcode_keywords.R64
+            && register.register_number = register_number)
+          Generated.Opcode_keywords.registers
+      with
+      | Some register -> register
+      | None ->
+          invalid_arg
+            (Printf.sprintf
+               "checked opcode table lacks canonical U64 register %d"
+               register_number))
+
+let is_canonical_u64_register spelling =
+  List.exists
+    (fun (register : Generated.Opcode_keywords.register) ->
+      String.equal register.spelling spelling)
+    canonical_u64_registers
 
 let has_error diagnostics =
   List.exists
@@ -360,107 +387,154 @@ let unsupported_parameter_form cursor item ~code description =
       (Printf.sprintf "%s are not implemented in function prototypes"
          description)
 
-let parse_function_parameter cursor =
+let rec parse_register_qualifiers cursor ~position nodes_rev tokens_rev =
+  let item = peek cursor in
+  let kind =
+    match item.token.kind with
+    | Token_kind.Keyword Keyword.Reg -> Some Ast.Reg
+    | Token_kind.Keyword Keyword.Noreg -> Some Ast.Noreg
+    | _ -> None
+  in
+  match kind with
+  | None -> { nodes = List.rev nodes_rev; tokens = List.rev tokens_rev }
+  | Some kind ->
+      let keyword_item = take cursor in
+      let tokens_rev = keyword_item.token :: tokens_rev in
+      let explicit_item =
+        match kind with
+        | Ast.Noreg -> None
+        | Ast.Reg ->
+            let candidate = peek cursor in
+            if
+              candidate.token.kind = Token_kind.Identifier
+              && is_canonical_u64_register (token_text candidate.token)
+            then Some (take cursor)
+            else None
+      in
+      let tokens_rev =
+        match explicit_item with
+        | None -> tokens_rev
+        | Some explicit_item -> explicit_item.token :: tokens_rev
+      in
+      let explicit_register =
+        Option.map
+          (fun explicit_item ->
+            Ast.make_identifier ~spelling:explicit_item.token.raw
+              ~location:(token_location explicit_item.token))
+          explicit_item
+      in
+      let node =
+        Ast.make_register_qualifier ~kind ~position
+          ~spelling:keyword_item.token.raw ~explicit_register
+          ~location:(token_location keyword_item.token)
+      in
+      parse_register_qualifiers cursor ~position (node :: nodes_rev) tokens_rev
+
+let parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens =
   let type_item = peek cursor in
-  match type_item.token.kind with
-  | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg ->
-      unsupported_parameter_form cursor type_item ~code:"HCPARSE0013"
-        "register-qualified parameters"
-  | _ -> (
-      let spelling = token_text type_item.token in
-      match
-        (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
-      with
-      | Token_kind.Identifier, Some primitive -> (
-          let type_item = take cursor in
-          let type_specifier =
-            Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-              ~location:(token_location type_item.token)
+  let spelling = token_text type_item.token in
+  match
+    (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
+  with
+  | Token_kind.Identifier, Some primitive -> (
+      let type_item = take cursor in
+      let type_specifier =
+        Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
+          ~location:(token_location type_item.token)
+      in
+      let suffix =
+        parse_register_qualifiers cursor ~position:Ast.After_type [] []
+      in
+      let register_qualifiers = prefix_qualifiers @ suffix.nodes in
+      match parse_pointer_layers cursor 0 [] [] with
+      | None -> None
+      | Some (pointer_layers, pointer_items) -> (
+          let pointer_tokens =
+            List.map (fun item -> item.token) pointer_items
           in
-          match parse_pointer_layers cursor 0 [] [] with
-          | None -> None
-          | Some (pointer_layers, pointer_items) -> (
-              let pointer_tokens =
-                List.map (fun item -> item.token) pointer_items
-              in
-              let next_item = peek cursor in
-              let name_item =
-                match next_item.token.kind with
-                | Token_kind.Identifier -> Some (take cursor)
+          let next_item = peek cursor in
+          let name_item =
+            match next_item.token.kind with
+            | Token_kind.Identifier -> Some (take cursor)
+            | _ -> None
+          in
+          let following_item = peek cursor in
+          let fail_special_form () =
+            match following_item.token.kind with
+            | Token_kind.Punctuation '[' ->
+                unsupported_parameter_form cursor following_item
+                  ~code:"HCPARSE0011" "array parameters"
+            | Token_kind.Punctuation '=' ->
+                unsupported_parameter_form cursor following_item
+                  ~code:"HCPARSE0012" "default parameter expressions"
+            | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg
+              ->
+                parameter_failure cursor following_item ~code:"HCPARSE0013"
+                  ~message:
+                    "register qualifier must appear before function parameter \
+                     pointer stars or its name"
+            | Token_kind.Punctuation '(' ->
+                unsupported_parameter_form cursor following_item
+                  ~code:"HCPARSE0014" "function-pointer parameters"
+            | _ ->
+                parameter_failure cursor following_item ~code:"HCPARSE0010"
+                  ~message:
+                    (Printf.sprintf
+                       "expected ',' or ')' after function parameter, but \
+                        found %s"
+                       (token_description following_item.token))
+          in
+          match following_item.token.kind with
+          | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
+              let delimiter_item =
+                match following_item.token.kind with
+                | Token_kind.Punctuation ',' -> Some (take cursor)
                 | _ -> None
               in
-              let following_item = peek cursor in
-              let fail_special_form () =
-                match following_item.token.kind with
-                | Token_kind.Punctuation '[' ->
-                    unsupported_parameter_form cursor following_item
-                      ~code:"HCPARSE0011" "array parameters"
-                | Token_kind.Punctuation '=' ->
-                    unsupported_parameter_form cursor following_item
-                      ~code:"HCPARSE0012" "default parameter expressions"
-                | Token_kind.Keyword Keyword.Reg
-                | Token_kind.Keyword Keyword.Noreg ->
-                    unsupported_parameter_form cursor following_item
-                      ~code:"HCPARSE0013" "register-qualified parameters"
-                | Token_kind.Punctuation '(' ->
-                    unsupported_parameter_form cursor following_item
-                      ~code:"HCPARSE0014" "function-pointer parameters"
-                | _ ->
-                    parameter_failure cursor following_item ~code:"HCPARSE0010"
-                      ~message:
-                        (Printf.sprintf
-                           "expected ',' or ')' after function parameter, but \
-                            found %s"
-                           (token_description following_item.token))
+              let delimiter =
+                Option.map
+                  (fun item ->
+                    Ast.make_declaration_delimiter ~kind:Ast.Comma
+                      ~spelling:item.token.raw
+                      ~location:(token_location item.token))
+                  delimiter_item
               in
-              match following_item.token.kind with
-              | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
-                  let delimiter_item =
-                    match following_item.token.kind with
-                    | Token_kind.Punctuation ',' -> Some (take cursor)
-                    | _ -> None
-                  in
-                  let delimiter =
-                    Option.map
-                      (fun item ->
-                        Ast.make_declaration_delimiter ~kind:Ast.Comma
-                          ~spelling:item.token.raw
-                          ~location:(token_location item.token))
-                      delimiter_item
-                  in
-                  let name =
-                    Option.map
-                      (fun item ->
-                        Ast.make_identifier ~spelling:item.token.raw
-                          ~location:(token_location item.token))
-                      name_item
-                  in
-                  let tokens =
-                    [ type_item.token ] @ pointer_tokens
-                    @ Option.to_list
-                        (Option.map (fun item -> item.token) name_item)
-                    @ Option.to_list
-                        (Option.map (fun item -> item.token) delimiter_item)
-                  in
-                  let node =
-                    Ast.make_function_parameter ~type_specifier ~pointer_layers
-                      ~name ~delimiter
-                      ~location:(location_from_tokens tokens)
-                  in
-                  Some { node; tokens }
-              | _ -> fail_special_form ()))
-      | _ ->
-          parameter_failure cursor type_item ~code:"HCPARSE0009"
-            ~message:
-              (Printf.sprintf
-                 "expected a primitive function parameter type, but found %s"
-                 (token_description type_item.token)))
+              let name =
+                Option.map
+                  (fun item ->
+                    Ast.make_identifier ~spelling:item.token.raw
+                      ~location:(token_location item.token))
+                  name_item
+              in
+              let tokens =
+                prefix_tokens @ [ type_item.token ] @ suffix.tokens
+                @ pointer_tokens
+                @ Option.to_list (Option.map (fun item -> item.token) name_item)
+                @ Option.to_list
+                    (Option.map (fun item -> item.token) delimiter_item)
+              in
+              let node =
+                Ast.make_function_parameter ~register_qualifiers ~type_specifier
+                  ~pointer_layers ~name ~delimiter
+                  ~location:(location_from_tokens tokens)
+              in
+              Some { node; tokens }
+          | _ -> fail_special_form ()))
+  | _ ->
+      parameter_failure cursor type_item ~code:"HCPARSE0009"
+        ~message:
+          (Printf.sprintf
+             "expected a primitive function parameter type, but found %s"
+             (token_description type_item.token))
 
 let rec parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
     =
+  let prefix =
+    parse_register_qualifiers cursor ~position:Ast.Before_type [] []
+  in
   let item = peek cursor in
   match item.token.kind with
-  | Token_kind.Punctuation ')' when not after_comma ->
+  | Token_kind.Punctuation ')' when (not after_comma) && prefix.nodes = [] ->
       let closing = take cursor in
       Some
         {
@@ -480,9 +554,12 @@ let rec parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
       else
         let closing = take cursor in
         let variadic =
-          Ast.make_variadic_marker ~spelling:ellipsis.token.raw
-            ~location:(token_location ellipsis.token)
+          Ast.make_variadic_marker ~register_qualifiers:prefix.nodes
+            ~spelling:ellipsis.token.raw
+            ~location:
+              (location_from_tokens (prefix.tokens @ [ ellipsis.token ]))
         in
+        let tokens_rev = List.rev_append prefix.tokens tokens_rev in
         Some
           {
             parameters = List.rev parameters_rev;
@@ -493,10 +570,17 @@ let rec parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
   | Token_kind.Punctuation ')' ->
       parameter_failure cursor item ~code:"HCPARSE0009"
         ~message:
-          "expected a primitive function parameter type after ',', but found \
-           ')'"
+          (if prefix.nodes = [] then
+             "expected a primitive function parameter type after ',', but \
+              found ')'"
+           else
+             "expected a primitive function parameter type after register \
+              qualifier, but found ')'")
   | _ -> (
-      match parse_function_parameter cursor with
+      match
+        parse_function_parameter cursor ~prefix_qualifiers:prefix.nodes
+          ~prefix_tokens:prefix.tokens
+      with
       | None -> None
       | Some parameter -> (
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in

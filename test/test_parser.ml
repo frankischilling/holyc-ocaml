@@ -464,6 +464,24 @@ let function_flag_modifier = function
   | Ast.Argument_pop -> Function_flag.Modifier.Argument_pop
   | Ast.No_argument_pop -> Function_flag.Modifier.No_argument_pop
 
+let register_qualifier_signature (qualifier : Ast.register_qualifier) =
+  let kind =
+    match qualifier.kind with
+    | Ast.Reg -> "reg"
+    | Ast.Noreg -> "noreg"
+  in
+  let position =
+    match qualifier.position with
+    | Ast.Before_type -> "before_type"
+    | Ast.After_type -> "after_type"
+  in
+  let explicit_register =
+    match qualifier.explicit_register with
+    | None -> "none"
+    | Some register -> register.spelling
+  in
+  Printf.sprintf "%s:%s:%s" kind position explicit_register
+
 let staged_function_mask modifiers =
   List.fold_left
     (fun mask (modifier : Ast.declaration_modifier) ->
@@ -727,6 +745,266 @@ let function_calling_modifier_failures () =
         "noargpop import U0 Blocked();",
         "Blocked",
         "HCPARSE0006" );
+    ]
+
+let function_parameter_register_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ("register keyword branch", "case KW_REG:");
+      ("automatic register request", "_reg=REG_ALLOC;");
+      ("checked U64 register lookup", "DefineMatch(cc->cur_str,\"ST_U64_REGS\")");
+      ("no-register keyword branch", "case KW_NOREG:");
+      ("stack register request", "_reg=REG_NONE;");
+      ("prefix request reaches a member", "tmpm=MemberLstNew(_reg);");
+      ("variadic request forwarding", "PrsDotDotDot(cc,tmpc,_reg);");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains compiler_header fragment))
+    [
+      ("reg keyword identity", "#define KW_REG\t\t35");
+      ("noreg keyword identity", "#define KW_NOREG\t36");
+      ("function argument parser mode", "#define PRS1_FUN_ARG\t\t0x000200");
+    ];
+  let compiler_init = pinned "Compiler/CInit.HC" in
+  Alcotest.(check bool)
+    "U64 register list" true
+    (contains compiler_init
+       "DefineLstLoad(\"ST_U64_REGS\",\"RAX\\0RCX\\0RDX\\0RBX\\0RSP\\0RBP\\0RSI\\0RDI\\0\"");
+  Alcotest.(check bool)
+    "high U64 register list" true
+    (contains compiler_init "\"R8\\0R9\\0R10\\0R11\\0R12\\0R13\\0R14\\0R15\\0\"");
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_header fragment))
+    [
+      ("noreg stored value", "#define REG_NONE\t32");
+      ("reg stored value", "#define REG_ALLOC\t33");
+      ("unspecified stored value", "#define REG_UNDEF\tI8_MIN");
+    ];
+  let language_doc = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language register qualifier description" true
+    (contains language_doc
+       "$FG,2$noreg$FG$ or $FG,2$reg$FG$ can be placed before a function local \
+        var name");
+  let option_doc = pinned "Doc/Options.DD" in
+  Alcotest.(check bool)
+    "register allocation option boundary" true
+    (contains option_doc
+       "OPTf_NO_REG_VAR\",A=\"MN:OPTf_NO_REG_VAR\"$ forces all function local \
+        vars to the stk not regs")
+
+let direct_function_parameter_register_qualifiers () =
+  let source =
+    "extern U0 Qualified(reg I64 before,noreg U8 *stack,\n\
+     I64 reg R15 exact,U8 noreg *pointer,reg RAX U16,\n\
+     I64 reg EAX,reg R14 noreg I32 reg R13 last);\n\
+     extern U0 Varargs(reg R12 noreg ...);"
+  in
+  let _, _, output = parse_string source in
+  match expect_ast output |> prototypes with
+  | [ qualified; varargs ] ->
+      Alcotest.(check (list (list string)))
+        "ordered register qualifiers"
+        [
+          [ "reg:before_type:none" ];
+          [ "noreg:before_type:none" ];
+          [ "reg:after_type:R15" ];
+          [ "noreg:after_type:none" ];
+          [ "reg:before_type:RAX" ];
+          [ "reg:after_type:none" ];
+          [
+            "reg:before_type:R14";
+            "noreg:before_type:none";
+            "reg:after_type:R13";
+          ];
+        ]
+        (List.map
+           (fun (parameter : Ast.function_parameter) ->
+             List.map register_qualifier_signature parameter.register_qualifiers)
+           qualified.parameters);
+      Alcotest.(check (list (option string)))
+        "parameter names preserve register ambiguity"
+        [
+          Some "before";
+          Some "stack";
+          Some "exact";
+          Some "pointer";
+          None;
+          Some "EAX";
+          Some "last";
+        ]
+        (List.map
+           (fun (parameter : Ast.function_parameter) ->
+             Option.map
+               (fun (name : Ast.identifier) -> name.spelling)
+               parameter.name)
+           qualified.parameters);
+      Alcotest.(check int)
+        "qualified pointer depth" 1
+        (List.length (List.nth qualified.parameters 3).pointer_layers);
+      let variadic = Option.get varargs.variadic in
+      Alcotest.(check (list string))
+        "qualified variadic marker"
+        [ "reg:before_type:R12"; "noreg:before_type:none" ]
+        (List.map register_qualifier_signature variadic.register_qualifiers)
+  | items ->
+      Alcotest.failf "expected two register-qualified prototypes, got %d"
+        (List.length items)
+
+let every_explicit_u64_parameter_register () =
+  let expected =
+    [
+      "RAX";
+      "RCX";
+      "RDX";
+      "RBX";
+      "RSP";
+      "RBP";
+      "RSI";
+      "RDI";
+      "R8";
+      "R9";
+      "R10";
+      "R11";
+      "R12";
+      "R13";
+      "R14";
+      "R15";
+    ]
+  in
+  let parameters =
+    List.mapi
+      (fun index register -> Printf.sprintf "I64 reg %s value%d" register index)
+      expected
+    |> String.concat ","
+  in
+  let _, _, output = parse_string ("extern U0 Every(" ^ parameters ^ ");") in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let actual =
+    List.map
+      (fun (parameter : Ast.function_parameter) ->
+        match parameter.register_qualifiers with
+        | [ qualifier ] -> (
+            match qualifier.explicit_register with
+            | Some register -> register.spelling
+            | None -> Alcotest.fail "expected an explicit U64 register")
+        | qualifiers ->
+            Alcotest.failf "expected one register qualifier, got %d"
+              (List.length qualifiers))
+      prototype.parameters
+  in
+  Alcotest.(check (list string)) "canonical U64 register names" expected actual
+
+let definition_backed_parameter_register_qualifier () =
+  let source =
+    "#define QUAL reg\n\
+     #define FIXED R15\n\
+     extern U0 Generated(I64 QUAL FIXED value);"
+  in
+  let session, root, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let parameter = List.hd prototype.parameters in
+  let qualifier = List.hd parameter.register_qualifiers in
+  let register = Option.get qualifier.explicit_register in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " retains invocation")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " retains definition")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("register qualifier", qualifier.location);
+      ("explicit register", register.location);
+    ];
+  let open Yojson.Safe.Util in
+  let qualifier_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd
+    |> member "register_qualifiers"
+    |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON explicit register" "R15"
+    (qualifier_json |> member "explicit_register" |> member "spelling"
+   |> to_string)
+
+let function_parameter_register_visibility () =
+  let source =
+    "extern U0 Visible(I64 reg R15 value);\n\
+     #ifdef Visible\n\
+     U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable variable ] ->
+      Alcotest.(check string)
+        "published qualified function" "Visible" prototype.name.spelling;
+      Alcotest.(check string)
+        "selected conditional branch" "selected" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected a qualified function and global, got %d items"
+        (List.length items)
+
+let function_parameter_register_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected qualified function %s became visible" name)
+    [
+      ( "qualifier after pointer stars",
+        "extern U0 Misplaced(I64 *reg value);",
+        "Misplaced",
+        "HCPARSE0013",
+        "must appear before" );
+      ( "qualifier without a type",
+        "extern U0 Missing(reg R15);",
+        "Missing",
+        "HCPARSE0009",
+        "after register qualifier" );
+      ( "noreg does not consume a register",
+        "extern U0 NoRegValue(noreg R15 I64 value);",
+        "NoRegValue",
+        "HCPARSE0009",
+        "parameter type" );
+      ( "non-U64 register remains the name",
+        "extern U0 Narrow(I64 reg EAX value);",
+        "Narrow",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
     ]
 
 let modifier_declaration_group () =
@@ -1521,10 +1799,10 @@ let function_prototype_failures () =
         "HCPARSE0011",
         "array parameters" );
       ( "register-qualified parameter",
-        "extern U0 Registered(reg I64 value);",
+        "extern U0 Registered(I64 *reg value);",
         "Registered",
         "HCPARSE0013",
-        "register-qualified parameters" );
+        "must appear before" );
       ( "function-pointer parameter",
         "extern U0 Callback(I64 (*callback)());",
         "Callback",
@@ -1830,6 +2108,18 @@ let tests =
       function_streaming_visibility;
     Alcotest.test_case "function prototype failures" `Quick
       function_prototype_failures;
+    Alcotest.test_case "pinned parameter register behavior" `Quick
+      function_parameter_register_source_behavior;
+    Alcotest.test_case "function parameter register qualifiers" `Quick
+      direct_function_parameter_register_qualifiers;
+    Alcotest.test_case "all explicit U64 parameter registers" `Quick
+      every_explicit_u64_parameter_register;
+    Alcotest.test_case "definition-backed parameter register qualifier" `Quick
+      definition_backed_parameter_register_qualifier;
+    Alcotest.test_case "qualified function updates symbol conditionals" `Quick
+      function_parameter_register_visibility;
+    Alcotest.test_case "parameter register qualifier failures" `Quick
+      function_parameter_register_failures;
     Alcotest.test_case "deterministic function dumps" `Quick
       deterministic_function_dumps;
     Alcotest.test_case "empty and comment-only modules" `Quick

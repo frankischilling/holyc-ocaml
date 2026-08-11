@@ -69,7 +69,19 @@ type global_declaration = {
   location : location;
 }
 
+type register_qualifier_kind = Reg | Noreg
+type register_qualifier_position = Before_type | After_type
+
+type register_qualifier = {
+  kind : register_qualifier_kind;
+  position : register_qualifier_position;
+  spelling : string;
+  explicit_register : identifier option;
+  location : location;
+}
+
 type function_parameter = {
+  register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
@@ -77,7 +89,11 @@ type function_parameter = {
   location : location;
 }
 
-type variadic_marker = { spelling : string; location : location }
+type variadic_marker = {
+  register_qualifiers : register_qualifier list;
+  spelling : string;
+  location : location;
+}
 
 type function_prototype = {
   modifiers : declaration_modifier list;
@@ -150,12 +166,24 @@ let make_global_declaration ~modifiers ~binding ~type_specifier ~declarators
     ~location =
   { modifiers; binding; type_specifier; declarators; location }
 
-let make_function_parameter ~type_specifier ~pointer_layers ~name ~delimiter
+let make_register_qualifier ~kind ~position ~spelling ~explicit_register
     ~location =
-  { type_specifier; pointer_layers; name; delimiter; location }
+  { kind; position; spelling; explicit_register; location }
 
-let make_variadic_marker ~spelling ~location : variadic_marker =
-  { spelling; location }
+let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
+    ~name ~delimiter ~location =
+  {
+    register_qualifiers;
+    type_specifier;
+    pointer_layers;
+    name;
+    delimiter;
+    location;
+  }
+
+let make_variadic_marker ~register_qualifiers ~spelling ~location :
+    variadic_marker =
+  { register_qualifiers; spelling; location }
 
 let make_function_prototype ~modifiers ~binding ~return_type
     ~return_pointer_layers ~name ~opening_parenthesis ~parameters ~variadic

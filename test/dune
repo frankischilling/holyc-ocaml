@@ -71,6 +71,7 @@
   ../third_party/TempleOS/Kernel/StrPrint.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
   ../third_party/TempleOS/Doc/HolyC.DD
+  ../third_party/TempleOS/Doc/Options.DD
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -749,3 +750,82 @@
    (diff
     cli/parse-function-modifier-error.json
     parse-function-modifier-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-register-parameters.human.actual)
+ (deps cli/parse-register-parameters.hc cli/parse-register-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameters.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-register-parameters.hc))
+   (diff
+    cli/parse-register-parameters.human
+    parse-register-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-register-parameters.json.actual)
+ (deps cli/parse-register-parameters.hc cli/parse-register-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-register-parameters.hc))
+   (diff
+    cli/parse-register-parameters.json
+    parse-register-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-register-parameter-error.human.actual
+  parse-register-parameter-error.human.stdout.actual)
+ (deps
+  cli/parse-register-parameter-error.hc
+  cli/parse-register-parameter-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameter-error.human.stdout.actual
+    (with-stderr-to
+     parse-register-parameter-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-register-parameter-error.hc))))
+   (diff
+    cli/parse-register-parameter-error.human
+    parse-register-parameter-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-register-parameter-error.json.actual
+  parse-register-parameter-error.json.stdout.actual)
+ (deps
+  cli/parse-register-parameter-error.hc
+  cli/parse-register-parameter-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameter-error.json.stdout.actual
+    (with-stderr-to
+     parse-register-parameter-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-register-parameter-error.hc))))
+   (diff
+    cli/parse-register-parameter-error.json
+    parse-register-parameter-error.json.actual))))
