@@ -225,6 +225,19 @@ let rec print_expression buffer sources ~indent expression =
         call.call_arguments;
       Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
         (location_text sources call.call_closing_parenthesis)
+  | Ast.Index_expression index ->
+      Printf.bprintf buffer "%sexpression kind=index span=%s\n" indent
+        (location_text sources index.index_location);
+      Printf.bprintf buffer "%sbase\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        index.index_base;
+      Printf.bprintf buffer "%sopening_bracket span=%s\n" child_indent
+        (location_text sources index.index_opening_bracket);
+      Printf.bprintf buffer "%sindex\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        index.index_value;
+      Printf.bprintf buffer "%sclosing_bracket span=%s\n" child_indent
+        (location_text sources index.index_closing_bracket)
 
 and print_call_argument buffer sources ~indent index
     (argument : Ast.call_argument) =
@@ -666,6 +679,18 @@ let rec expression_to_yojson sources = function
           ( "closing_parenthesis",
             location_to_yojson sources call.call_closing_parenthesis );
           ("location", location_to_yojson sources call.call_location);
+        ]
+  | Ast.Index_expression index ->
+      `Assoc
+        [
+          ("kind", `String "index");
+          ("base", expression_to_yojson sources index.index_base);
+          ( "opening_bracket",
+            location_to_yojson sources index.index_opening_bracket );
+          ("index", expression_to_yojson sources index.index_value);
+          ( "closing_bracket",
+            location_to_yojson sources index.index_closing_bracket );
+          ("location", location_to_yojson sources index.index_location);
         ]
 
 and call_argument_to_yojson sources (argument : Ast.call_argument) =

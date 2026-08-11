@@ -1,0 +1,824 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-index-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 43
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "index",
+            "base": {
+              "kind": "index",
+              "base": {
+                "kind": "identifier",
+                "spelling": "Table",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 13
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 13
+                    }
+                  ]
+                }
+              },
+              "opening_bracket": {
+                "span": {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 14
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 13,
+                    "stop": 14
+                  }
+                ]
+              },
+              "index": {
+                "kind": "call",
+                "callee": {
+                  "kind": "identifier",
+                  "spelling": "Outer",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 19
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-index-expression.hc",
+                        "line": 1,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 14,
+                        "stop": 19
+                      }
+                    ]
+                  }
+                },
+                "opening_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 20
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 20
+                    }
+                  ]
+                },
+                "arguments": [
+                  {
+                    "kind": "omitted",
+                    "comma": {
+                      "span": {
+                        "path": "cli/parse-index-expression.hc",
+                        "line": 1,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 21
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-index-expression.hc",
+                          "line": 1,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 20,
+                          "stop": 21
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-index-expression.hc",
+                        "line": 1,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 20
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-index-expression.hc",
+                          "line": 1,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 20,
+                          "stop": 20
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "provided",
+                    "expression": {
+                      "kind": "integer_literal",
+                      "spelling": "3",
+                      "value": "0x0000000000000003",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-index-expression.hc",
+                          "line": 1,
+                          "column": 22,
+                          "source_id": 0,
+                          "start": 21,
+                          "stop": 22
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-index-expression.hc",
+                            "line": 1,
+                            "column": 22,
+                            "source_id": 0,
+                            "start": 21,
+                            "stop": 22
+                          }
+                        ]
+                      }
+                    },
+                    "comma": null,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-index-expression.hc",
+                        "line": 1,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 21,
+                        "stop": 22
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-index-expression.hc",
+                          "line": 1,
+                          "column": 22,
+                          "source_id": 0,
+                          "start": 21,
+                          "stop": 22
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 23
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 23
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 23
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 19
+                    },
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 20
+                    },
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 21
+                    },
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 22
+                    },
+                    {
+                      "path": "cli/parse-index-expression.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 23
+                    }
+                  ]
+                }
+              },
+              "closing_bracket": {
+                "span": {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 24
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 13
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 13,
+                    "stop": 14
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 19
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 20
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 21
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 22
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  }
+                ]
+              }
+            },
+            "opening_bracket": {
+              "span": {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 25,
+                "source_id": 0,
+                "start": 24,
+                "stop": 25
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                }
+              ]
+            },
+            "index": {
+              "kind": "identifier",
+              "spelling": "j",
+              "location": {
+                "span": {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 26
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-index-expression.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 26
+                  }
+                ]
+              }
+            },
+            "closing_bracket": {
+              "span": {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 27,
+                "source_id": 0,
+                "start": 26,
+                "stop": 27
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 27
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 27
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 13
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 14
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 19
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 19,
+                  "stop": 20
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 21
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 22
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 26
+                },
+                {
+                  "path": "cli/parse-index-expression.hc",
+                  "line": 1,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 27
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 29,
+              "source_id": 0,
+              "start": 28,
+              "stop": 31
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 29,
+                "source_id": 0,
+                "start": 28,
+                "stop": 31
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Indexed",
+          "location": {
+            "span": {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 39
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-index-expression.hc",
+                "line": 1,
+                "column": 33,
+                "source_id": 0,
+                "start": 32,
+                "stop": 39
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-index-expression.hc",
+            "line": 1,
+            "column": 40,
+            "source_id": 0,
+            "start": 39,
+            "stop": 40
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-index-expression.hc",
+            "line": 1,
+            "column": 41,
+            "source_id": 0,
+            "start": 40,
+            "stop": 41
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-index-expression.hc",
+            "line": 1,
+            "column": 42,
+            "source_id": 0,
+            "start": 41,
+            "stop": 42
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 42,
+              "source_id": 0,
+              "start": 41,
+              "stop": 42
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-index-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 42
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 13
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 15,
+              "source_id": 0,
+              "start": 14,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 20,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 22,
+              "source_id": 0,
+              "start": 21,
+              "stop": 22
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 23,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 27,
+              "source_id": 0,
+              "start": 26,
+              "stop": 27
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 29,
+              "source_id": 0,
+              "start": 28,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-index-expression.hc",
+              "line": 1,
+              "column": 42,
+              "source_id": 0,
+              "start": 41,
+              "stop": 42
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

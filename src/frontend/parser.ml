@@ -38,6 +38,7 @@ type expression_context =
   | Array_dimension_expression
   | Intern_binding_expression
   | Call_argument_expression
+  | Index_expression
 
 type parsed_parameter_default = {
   node : Ast.parameter_default;
@@ -494,12 +495,14 @@ let expression_context_name = function
   | Array_dimension_expression -> "array dimension expression"
   | Intern_binding_expression -> "_intern target expression"
   | Call_argument_expression -> "call argument expression"
+  | Index_expression -> "index expression"
 
 let expression_operand_name = function
   | Default_expression -> "a default expression operand"
   | Array_dimension_expression -> "an array dimension expression operand"
   | Intern_binding_expression -> "an _intern target expression operand"
   | Call_argument_expression -> "a call argument expression operand"
+  | Index_expression -> "an index expression operand"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
     parsed_expression option =
@@ -715,44 +718,84 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression) :
   in
   parse_arguments [] [] false
 
+and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
+    parsed_expression option =
+  let opening = take cursor in
+  match
+    parse_expression cursor ~context:Index_expression ~depth:(depth + 1)
+      ~minimum_binding_power:0
+  with
+  | None -> None
+  | Some (index : parsed_expression) ->
+      let closing = peek cursor in
+      if closing.token.kind <> Token_kind.Punctuation ']' then
+        expression_failure cursor closing ~code:"HCPARSE0026"
+          ~message:
+            (Printf.sprintf
+               "expected ']' to close an index expression in %s, but found %s"
+               (expression_context_name context)
+               (token_description closing.token))
+      else
+        let closing = take cursor in
+        let tokens =
+          base.tokens @ (opening.token :: index.tokens) @ [ closing.token ]
+        in
+        let node =
+          Ast.Index_expression
+            (Ast.make_index_expression ~base:base.node
+               ~opening_bracket:(token_location opening.token)
+               ~index:index.node
+               ~closing_bracket:(token_location closing.token)
+               ~location:(location_from_expression_tokens tokens))
+        in
+        Some { node; tokens }
+
 and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
-  if item.token.kind = Token_kind.Punctuation '(' then
-    match parse_call_suffix cursor ~context ~depth left with
-    | None -> None
-    | Some call ->
-        parse_expression_tail cursor ~context ~depth ~minimum_binding_power call
-  else
-    match binary_operator item.token with
-    | Some operator_spec
-      when binary_binding_power operator_spec >= minimum_binding_power -> (
-        let operator_item = take cursor in
-        let binding_power = binary_binding_power operator_spec in
-        let right_minimum =
-          match operator_spec.association with
-          | Operator.Right -> binding_power
-          | Operator.Left | Operator.Unspecified -> binding_power + 1
-        in
-        match
-          parse_expression cursor ~context ~depth:(depth + 1)
-            ~minimum_binding_power:right_minimum
-        with
-        | None -> None
-        | Some (right : parsed_expression) ->
-            let node =
-              combine_binary_expression left.node operator_item operator_spec
-                right.node
-            in
-            let left : parsed_expression =
-              {
-                node;
-                tokens = left.tokens @ (operator_item.token :: right.tokens);
-              }
-            in
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              left)
-    | _ -> Some left
+  match item.token.kind with
+  | Token_kind.Punctuation '(' -> (
+      match parse_call_suffix cursor ~context ~depth left with
+      | None -> None
+      | Some call ->
+          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+            call)
+  | Token_kind.Punctuation '[' -> (
+      match parse_index_suffix cursor ~context ~depth left with
+      | None -> None
+      | Some index ->
+          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+            index)
+  | _ -> (
+      match binary_operator item.token with
+      | Some operator_spec
+        when binary_binding_power operator_spec >= minimum_binding_power -> (
+          let operator_item = take cursor in
+          let binding_power = binary_binding_power operator_spec in
+          let right_minimum =
+            match operator_spec.association with
+            | Operator.Right -> binding_power
+            | Operator.Left | Operator.Unspecified -> binding_power + 1
+          in
+          match
+            parse_expression cursor ~context ~depth:(depth + 1)
+              ~minimum_binding_power:right_minimum
+          with
+          | None -> None
+          | Some (right : parsed_expression) ->
+              let node =
+                combine_binary_expression left.node operator_item operator_spec
+                  right.node
+              in
+              let left : parsed_expression =
+                {
+                  node;
+                  tokens = left.tokens @ (operator_item.token :: right.tokens);
+                }
+              in
+              parse_expression_tail cursor ~context ~depth
+                ~minimum_binding_power left)
+      | _ -> Some left)
 
 let parse_parameter_default cursor =
   let equals = take cursor in
@@ -773,7 +816,7 @@ let parse_parameter_default cursor =
 
 let is_unimplemented_expression_continuation token =
   match token.Token.kind with
-  | Token_kind.Punctuation ('[' | '.')
+  | Token_kind.Punctuation '.'
   | Token_kind.Operator
       (Operator.Arrow | Operator.Increment | Operator.Decrement) -> true
   | _ -> false

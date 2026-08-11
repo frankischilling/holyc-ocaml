@@ -1,1 +1,1 @@
-_intern Resolve[0] I64 Invalid();
+_intern Resolve.value I64 Invalid();

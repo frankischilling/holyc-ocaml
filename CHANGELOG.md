@@ -31,3 +31,4 @@
 - Added primitive global array declarators with ordered dimensions, an explicit unsized first dimension, shared core expression syntax, bracket provenance, deterministic dumps, and source-specific diagnostics for malformed suffixes.
 - Added `_intern` bindings with source-positioned target expressions, JIT and AOT syntax coverage, pinned `KernelB.HH` prototypes, deterministic dumps, and bounded malformed-target diagnostics.
 - Added parenthesized call expressions with explicit omitted argument slots, nested-call precedence, punctuation provenance, deterministic dumps, and distinct diagnostics for missing separators and closing parentheses.
+- Added bracket index expressions with repeated and mixed postfix chaining, source-positioned brackets, deterministic dumps, and distinct diagnostics for empty or unclosed indexes.

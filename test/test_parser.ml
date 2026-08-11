@@ -145,6 +145,10 @@ let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
 
+let expect_index_expression = function
+  | Ast.Index_expression index -> index
+  | _ -> Alcotest.fail "expected an index expression"
+
 let expect_provided_call_argument (argument : Ast.call_argument) =
   match argument.call_argument_value with
   | Ast.Provided_call_argument expression -> expression
@@ -1785,13 +1789,13 @@ let intern_binding_failures () =
         None,
         "HCPARSE0001",
         "after declaration binding \"_intern\"" );
-      ( "unsupported indexed call target",
-        "_intern Resolve()[0] I64 Called();",
+      ( "unsupported member after a call target",
+        "_intern Resolve().value I64 Called();",
         Some "Called",
         "HCPARSE0020",
         "target expression continuation" );
-      ( "unsupported indexed target",
-        "_intern Table[0] I64 Indexed();",
+      ( "unsupported member target",
+        "_intern Table.value I64 Indexed();",
         Some "Indexed",
         "HCPARSE0020",
         "target expression continuation" );
@@ -2130,8 +2134,8 @@ let call_expression_failures () =
         Some "MissingOperand",
         "HCPARSE0018",
         "call argument expression operand" );
-      ( "unsupported continuation after a call",
-        "_intern F()[0] I64 Indexed();",
+      ( "unsupported member continuation after a call",
+        "_intern F().value I64 Indexed();",
         Some "Indexed",
         "HCPARSE0020",
         "target expression continuation" );
@@ -2196,6 +2200,303 @@ let deterministic_call_dumps () =
   Alcotest.(check bool)
     "last JSON argument has no comma" true
     (List.nth arguments 2 |> member "comma" = `Null)
+
+let index_expression_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("index modifier dispatch", "case '[':");
+      ("index expression parser", "if (!PrsExpression(cc,NULL,FALSE,ps))");
+      ("index closing bracket check", "if (cc->token!=']')");
+      ("index term precedence", "*unary_post_prec=PREC_TERM;");
+      ("repeated postfix dispatch", "return PE_UNARY_MODIFIERS;");
+    ];
+  Alcotest.(check bool)
+    "language guide indexes argv" true
+    (contains (pinned "Doc/HolyC.DD") "res+=argv[i];");
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ( "Compiler/AsmLib.HC",
+        "tmpbin->body[aotc->rip++ & (AOT_BIN_BLK_SIZE-1)]=b;" );
+      ("Compiler/UAsm.HC", "tmpins1->opcode[j]-tmpins2->opcode[j]");
+      ("Kernel/Compress.HC", "c->compress[code].ch");
+      ("Kernel/Display.HC", "ptr[0]=ch;");
+    ]
+
+let index_expression_shapes_and_precedence () =
+  let index_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_index_expression
+  in
+  let simple = index_from "_intern Table[i] I64 Simple();" in
+  (match simple.index_base with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "simple index base" "Table" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier index base");
+  (match simple.index_value with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "simple index value" "i" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier index value");
+  let explicit_zero = index_from "_intern Table[0] I64 Zero();" in
+  Alcotest.(check int64)
+    "zero remains an explicit index expression" 0L
+    (expect_integer_expression explicit_zero.index_value);
+  let binary = index_from "_intern Table[1+2] I64 Binary();" in
+  Alcotest.(check string)
+    "binary index retains its root" "+"
+    (expect_binary_expression binary.index_value).binary_operator
+      .operator_spelling;
+  let repeated = index_from "_intern Table[Outer(,3)][j] I64 Repeated();" in
+  let first = expect_index_expression repeated.index_base in
+  let inner_call = expect_call_expression first.index_value in
+  Alcotest.(check int)
+    "call in first index keeps its slots" 2
+    (List.length inner_call.call_arguments);
+  expect_omitted_call_argument (List.hd inner_call.call_arguments);
+  (match repeated.index_value with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "second index value" "j" identifier.spelling
+  | _ -> Alcotest.fail "expected the second identifier index");
+  let call_then_index = index_from "_intern Factory()[0] I64 Called();" in
+  ignore (expect_call_expression call_then_index.index_base);
+  let _, _, index_then_call_output =
+    parse_string "_intern Callbacks[0](1) I64 Invoked();"
+  in
+  let index_then_call =
+    expect_ast index_then_call_output |> expect_one_prototype
+    |> fun prototype ->
+    expect_expression_binding_target prototype.binding |> expect_call_expression
+  in
+  ignore (expect_index_expression index_then_call.call_callee);
+  let parenthesized = index_from "_intern (Table)[i] I64 Grouped();" in
+  (match parenthesized.index_base with
+  | Ast.Parenthesized_expression _ -> ()
+  | _ -> Alcotest.fail "expected a parenthesized index base");
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "_intern Table[1] %s 2 I64 Indexed%d();"
+          operator.spelling index
+      in
+      let _, _, output = parse_string source in
+      let root =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_index_expression root.binary_left))
+    Operator.binary_operators
+
+let index_expression_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=Table[0]);"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_index_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[sizes[0]];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_index_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(values[0]) I64 Called();"
+  in
+  let argument_index =
+    expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding |> expect_call_expression
+    |> fun call ->
+    List.hd call.call_arguments
+    |> expect_provided_call_argument |> expect_index_expression
+  in
+  Alcotest.(check int64)
+    "call argument index value" 0L
+    (expect_integer_expression argument_index.index_value);
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode "_intern Table[0] I64 Indexed();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_index_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let index_expression_provenance () =
+  let session, root, output =
+    parse_string "#define INDEX Table[Slot()]\n_intern INDEX I64 Generated();"
+  in
+  let index =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_index_expression
+  in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("base", Ast.expression_location index.index_base);
+      ("opening bracket", index.index_opening_bracket);
+      ("index value", Ast.expression_location index.index_value);
+      ("closing bracket", index.index_closing_bracket);
+      ("full index", index.index_location);
+    ];
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated index punctuation provenance" true
+    (target_json |> member "opening_bracket" |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "index.HC" in
+      write_file root_file "#include \"index\"";
+      write_file declaration_file "_intern Table[0] I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_index =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_index_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_index.index_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included index keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let index_expression_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected index declaration %s became visible" name)
+        rejected_name)
+    [
+      ( "empty index",
+        "_intern Table[] I64 Empty();",
+        Some "Empty",
+        "HCPARSE0018",
+        "index expression operand" );
+      ( "missing closing bracket",
+        "_intern Table[1 I64 Missing();",
+        Some "Missing",
+        "HCPARSE0026",
+        "expected ']' to close an index expression" );
+      ( "missing binary operand",
+        "_intern Table[1+] I64 MissingOperand();",
+        Some "MissingOperand",
+        "HCPARSE0018",
+        "index expression operand" );
+      ( "unsupported member after an index",
+        "_intern Table[0].value I64 Member();",
+        Some "Member",
+        "HCPARSE0020",
+        "target expression continuation" );
+    ];
+  let nesting = Parser.max_expression_depth in
+  let nested_source =
+    Printf.sprintf "_intern %s0%s I64 TooNested();"
+      (String.concat "" (List.init nesting (fun _ -> "Table[")))
+      (String.make nesting ']')
+  in
+  let session, _, output = parse_string nested_source in
+  Alcotest.(check string)
+    "nested index diagnostic" "HCPARSE0021" (first_diagnostic output).code;
+  Alcotest.(check bool)
+    "nested index diagnostic names its context" true
+    (contains (first_diagnostic output).message "index expression nesting");
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "TooNested"
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the excessively nested index became visible"
+
+let deterministic_index_dumps () =
+  let session, _, output =
+    parse_string "_intern Table[Outer(,3)][j] I64 Indexed();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human index dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON index dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let index_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check string)
+    "JSON outer index kind" "index"
+    (index_json |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON nested index kind" "index"
+    (index_json |> member "base" |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON call inside index kind" "call"
+    (index_json |> member "base" |> member "index" |> member "kind" |> to_string)
 
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -3373,13 +3674,13 @@ let array_dimension_failures () =
         "MissingBracket",
         "HCPARSE0023",
         "expected ']'" );
-      ( "unsupported indexing",
-        "I64 Indexed[count[0]];",
+      ( "unsupported member access",
+        "I64 Indexed[count.value];",
         "Indexed",
         "HCPARSE0020",
         "continuation" );
-      ( "unsupported indexing after a call",
-        "I64 Called[Count()[0]];",
+      ( "unsupported member access after a call",
+        "I64 Called[Count().value];",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -3477,8 +3778,8 @@ let default_expression_failures () =
         "Unmatched",
         "HCPARSE0019",
         "close default expression" );
-      ( "unsupported indexing after a call",
-        "extern U0 Called(I64 value=Factory()[0]);",
+      ( "unsupported member access after a call",
+        "extern U0 Called(I64 value=Factory().value);",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -3901,6 +4202,18 @@ let tests =
       call_expression_failures;
     Alcotest.test_case "deterministic call dumps" `Quick
       deterministic_call_dumps;
+    Alcotest.test_case "pinned index expression behavior" `Quick
+      index_expression_source_behavior;
+    Alcotest.test_case "index shapes and precedence" `Quick
+      index_expression_shapes_and_precedence;
+    Alcotest.test_case "index expression contexts and modes" `Quick
+      index_expression_contexts_and_modes;
+    Alcotest.test_case "index expression provenance" `Quick
+      index_expression_provenance;
+    Alcotest.test_case "index expression failures" `Quick
+      index_expression_failures;
+    Alcotest.test_case "deterministic index dumps" `Quick
+      deterministic_index_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick
