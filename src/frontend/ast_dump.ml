@@ -59,6 +59,10 @@ let modifier_kind_name = function
   | Ast.Public -> "public"
   | Ast.Static -> "static"
 
+let binding_kind_name = function
+  | Ast.Extern -> "extern"
+  | Ast.Import -> "import"
+
 let print_modifiers buffer sources ~indent modifiers =
   List.iter
     (fun (modifier : Ast.declaration_modifier) ->
@@ -67,6 +71,14 @@ let print_modifiers buffer sources ~indent modifiers =
         modifier.spelling
         (location_text sources modifier.location))
     modifiers
+
+let print_binding buffer sources ~indent = function
+  | None -> ()
+  | Some (binding : Ast.declaration_binding) ->
+      Printf.bprintf buffer "%sbinding kind=%s spelling=%S span=%s\n" indent
+        (binding_kind_name binding.kind)
+        binding.spelling
+        (location_text sources binding.location)
 
 let print_type buffer sources ~indent primitive =
   Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
@@ -95,6 +107,7 @@ let human sources module_ =
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
           print_modifiers buffer sources ~indent:"    " variable.modifiers;
+          print_binding buffer sources ~indent:"    " variable.binding;
           print_type buffer sources ~indent:"    " variable.type_specifier;
           print_pointer_layers buffer sources ~indent:"    "
             variable.pointer_layers;
@@ -108,6 +121,7 @@ let human sources module_ =
             (location_text sources declaration.location)
             (List.length declaration.declarators);
           print_modifiers buffer sources ~indent:"    " declaration.modifiers;
+          print_binding buffer sources ~indent:"    " declaration.binding;
           print_type buffer sources ~indent:"    " declaration.type_specifier;
           List.iteri
             (fun index (declarator : Ast.global_declarator) ->
@@ -211,6 +225,18 @@ let modifier_fields sources modifiers =
   | modifiers ->
       [ ("modifiers", `List (List.map (modifier_to_yojson sources) modifiers)) ]
 
+let binding_to_yojson sources (binding : Ast.declaration_binding) =
+  `Assoc
+    [
+      ("kind", `String (binding_kind_name binding.kind));
+      ("spelling", `String binding.spelling);
+      ("location", location_to_yojson sources binding.location);
+    ]
+
+let binding_fields sources = function
+  | None -> []
+  | Some binding -> [ ("binding", binding_to_yojson sources binding) ]
+
 let delimiter_to_yojson sources (delimiter : Ast.declaration_delimiter) =
   `Assoc
     [
@@ -233,6 +259,7 @@ let item_to_yojson sources = function
       `Assoc
         ([ ("kind", `String "global_variable") ]
         @ modifier_fields sources variable.modifiers
+        @ binding_fields sources variable.binding
         @ [ ("type", primitive_to_yojson sources variable.type_specifier) ]
         @ pointer_layer_fields sources variable.pointer_layers
         @ [
@@ -244,6 +271,7 @@ let item_to_yojson sources = function
       `Assoc
         ([ ("kind", `String "global_declaration") ]
         @ modifier_fields sources declaration.modifiers
+        @ binding_fields sources declaration.binding
         @ [
             ("type", primitive_to_yojson sources declaration.type_specifier);
             ( "declarators",

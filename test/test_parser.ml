@@ -42,15 +42,17 @@ let pinned path =
   | Some source -> read_file source
   | None -> Alcotest.failf "pinned source is unavailable: %s" path
 
-let config ?include_roots working_directory =
-  Preprocessor.Config.create ~working_directory ?include_roots () |> function
+let config ?include_roots ?compilation_mode working_directory =
+  Preprocessor.Config.create ~working_directory ?include_roots ?compilation_mode
+    ()
+  |> function
   | Ok config -> config
   | Error message -> Alcotest.fail message
 
-let parse_string ?(path = "input.HC") contents =
+let parse_string ?(path = "input.HC") ?compilation_mode contents =
   let session = Session.create () in
   let source = Session.add_source session ~path ~contents in
-  let config = config (Sys.getcwd ()) in
+  let config = config ?compilation_mode (Sys.getcwd ()) in
   let output = Holyc_lib.parse_detailed session ~config ~source in
   (session, source, output)
 
@@ -596,8 +598,188 @@ let modifier_failures () =
       ( "static precedes an unresolved type",
         "static Widget invalid;",
         "after declaration modifier \"static\"" );
-      ( "extern is not in this slice",
-        "extern I64 unavailable;",
+    ]
+
+let binding_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("extern keyword branch", "case KW_EXTERN:");
+      ( "extern declaration mode",
+        "PrsGlblVarLst(cc,PRS0_EXTERN|PRS1_NULL,tmpex,0,fsp_flags);" );
+      ("import keyword branch", "case KW_IMPORT:");
+      ( "import declaration mode",
+        "PrsGlblVarLst(cc,PRS0_IMPORT|PRS1_NULL,tmpex,0,fsp_flags);" );
+      ("import requires AOT", "if (!(cc->flags&CCF_AOT_COMPILE))");
+    ];
+  let header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains header fragment))
+    [
+      ("extern keyword identity", "#define KW_EXTERN\t10");
+      ("import keyword identity", "#define KW_IMPORT\t27");
+      ("extern parser mode", "#define PRS0_EXTERN\t\t0x000004");
+      ("import parser mode", "#define PRS0_IMPORT\t\t0x000005");
+    ];
+  let kernel = pinned "Kernel/KernelC.HH" in
+  Alcotest.(check bool)
+    "pinned grouped extern" true
+    (contains kernel "public extern U8 *rev_bits_table,*set_bits_table;");
+  let declarations = pinned "Compiler/CompilerB.HH" in
+  Alcotest.(check bool)
+    "pinned direct extern" true
+    (contains declarations "public extern CCmpGlbls cmp;")
+
+let direct_bindings () =
+  let source =
+    "extern I64 forwarded;\npublic extern U8 *rev_bits_table,*set_bits_table;"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  let binding_name = function
+    | Ast.Extern -> "extern"
+    | Ast.Import -> "import"
+  in
+  (match ast.items with
+  | [ Ast.Global_variable forwarded; Ast.Global_declaration bits ] ->
+      let binding = Option.get forwarded.binding in
+      Alcotest.(check string)
+        "extern binding kind" "extern"
+        (binding_name binding.kind);
+      Alcotest.(check string) "extern spelling" "extern" binding.spelling;
+      Alcotest.(check int)
+        "extern starts at byte zero" 0 binding.location.span.start;
+      Alcotest.(check (list string))
+        "public prefix stays separate" [ "public" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           bits.modifiers);
+      Alcotest.(check string)
+        "group binding" "extern"
+        (bits.binding |> Option.get |> fun binding -> binding_name binding.kind);
+      Alcotest.(check (list string))
+        "group names"
+        [ "rev_bits_table"; "set_bits_table" ]
+        (List.map
+           (fun (item : Ast.global_declarator) -> item.name.spelling)
+           bits.declarators)
+  | items ->
+      Alcotest.failf "expected two bound globals, got %d" (List.length items));
+  let _, _, import_output =
+    parse_string ~compilation_mode:Preprocessor.Aot "import F64 imported;"
+  in
+  let imported = expect_ast import_output |> expect_one_global in
+  let binding = Option.get imported.binding in
+  Alcotest.(check string)
+    "AOT import binding" "import"
+    (binding_name binding.kind)
+
+let definition_backed_binding () =
+  let session, root, output =
+    parse_string "#define LINK extern\nLINK U64 visible;"
+  in
+  let ast = expect_ast output in
+  let variable = expect_one_global ast in
+  let binding = Option.get variable.binding in
+  Alcotest.(check string) "replacement spelling" "extern" binding.spelling;
+  Alcotest.(check bool)
+    "binding uses a generated frame" false
+    (Source_id.equal binding.location.span.source (Source_file.id root));
+  let generated_from =
+    binding.location.generated_from
+    |> Option.value ~default:binding.location.span
+  in
+  let defined_at =
+    binding.location.defined_at |> Option.value ~default:binding.location.span
+  in
+  Alcotest.(check bool)
+    "binding retains the invocation" true
+    (Source_id.equal generated_from.source (Source_file.id root));
+  Alcotest.(check bool)
+    "binding retains the definition" true
+    (Source_id.equal defined_at.source (Source_file.id root));
+  let open Yojson.Safe.Util in
+  let binding_json =
+    Ast_dump.to_yojson (Session.sources session) ast
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding"
+  in
+  Alcotest.(check bool)
+    "JSON retains the invocation" true
+    (binding_json |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON retains the definition" true
+    (binding_json |> member "location" |> member "defined_at" <> `Null)
+
+let binding_streaming_visibility () =
+  let source =
+    "extern I64 declared;\n\
+     #ifdef declared\n\
+     public U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  let variables = expect_ast output |> globals in
+  Alcotest.(check (list string))
+    "the conditional sees the extern declaration" [ "declared"; "selected" ]
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       variables)
+
+let import_mode_boundary () =
+  let session, _, output = parse_string "import I64 unavailable;" in
+  Alcotest.(check bool) "JIT import has no AST" true (Option.is_none output.ast);
+  let diagnostic = first_diagnostic output in
+  Alcotest.(check string) "JIT import diagnostic" "HCPARSE0006" diagnostic.code;
+  Alcotest.(check bool)
+    "JIT import explains the mode" true
+    (contains diagnostic.message "require AOT mode");
+  (match
+     Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "unavailable"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "a rejected JIT import became visible");
+  let _, _, aot_output =
+    parse_string ~compilation_mode:Preprocessor.Aot "import I64 available;"
+  in
+  ignore (expect_ast aot_output)
+
+let binding_failures () =
+  List.iter
+    (fun (name, source, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (name ^ " diagnostic") "HCPARSE0001" diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ("extern lacks a type", "extern ;", "after declaration binding \"extern\"");
+      ( "binding cannot repeat",
+        "extern import I64 duplicate;",
+        "after declaration binding \"extern\"" );
+      ( "modifier cannot follow binding",
+        "extern public I64 wrong_order;",
+        "after declaration binding \"extern\"" );
+      ( "underscored extern is not in this slice",
+        "_extern I64 unavailable;",
+        "at the start of a global declaration" );
+      ( "underscored import is not in this slice",
+        "_import I64 unavailable;",
+        "at the start of a global declaration" );
+      ( "underscored intern is not in this slice",
+        "_intern I64 unavailable;",
         "at the start of a global declaration" );
     ]
 
@@ -826,6 +1008,16 @@ let tests =
     Alcotest.test_case "modified declarations update symbol conditionals" `Quick
       modifier_streaming_visibility;
     Alcotest.test_case "declaration modifier failures" `Quick modifier_failures;
+    Alcotest.test_case "pinned extern and import behavior" `Quick
+      binding_source_behavior;
+    Alcotest.test_case "direct declaration bindings" `Quick direct_bindings;
+    Alcotest.test_case "definition-backed declaration binding" `Quick
+      definition_backed_binding;
+    Alcotest.test_case "bound declarations update symbol conditionals" `Quick
+      binding_streaming_visibility;
+    Alcotest.test_case "import compilation mode boundary" `Quick
+      import_mode_boundary;
+    Alcotest.test_case "declaration binding failures" `Quick binding_failures;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;
