@@ -66,8 +66,40 @@ status = "implemented"
 id = "HC-LEX-OPERATORS"
 description = "Operator spellings come from the dual-token tables and dot handling in the pinned lexer."
 sources = ["Compiler/CInit.HC:CmpFillTables", "Compiler/Lex.HC:Lex"]
-implementation = ["src/frontend/operator.ml", "src/frontend/lexer.ml"]
-tests = ["test/test_lexer.ml"]
+implementation = [
+  "src/generated/operator_tables.ml",
+  "src/frontend/operator.ml",
+  "src/frontend/lexer.ml",
+  "tools/operator_table_source.ml",
+  "tools/operator_table_gen.ml"
+]
+tests = [
+  "test/test_lexer.ml",
+  "test/test_operator_table_source.ml",
+  "test/test_operator_table.ml"
+]
+status = "implemented"
+
+[[feature]]
+id = "HC-OPERATOR-PRECEDENCE"
+description = "Binary operators retain the pinned precedence constant, explicit association flag, and IC mapping."
+sources = [
+  "Kernel/KernelA.HH:TK_PLUS_PLUS",
+  "Compiler/CompilerA.HH:ASSOCF_LEFT",
+  "Compiler/CompilerA.HH:PREC_NULL",
+  "Compiler/CInit.HC:cmp.binary_ops",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/generated/operator_tables.ml",
+  "src/frontend/operator.ml",
+  "tools/operator_table_source.ml",
+  "tools/operator_table_gen.ml"
+]
+tests = [
+  "test/test_operator_table_source.ml",
+  "test/test_operator_table.ml"
+]
 status = "implemented"
 
 [[feature]]

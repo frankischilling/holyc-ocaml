@@ -48,3 +48,13 @@ dune exec tools/primitive_type_gen.exe -- --kernel third_party/TempleOS/Kernel/K
 ```
 
 The generator checks both source files against `reference/manifest.json`. It rejects changes to raw IDs, the `RT_PTR` alias, unavailable floating slots, public integer union headers, `INTERNAL_TYPES_NUM`, or any of the 17 internal type records. The same `@generated-check` target verifies this output in CI.
+
+## Generated operator data
+
+Regenerate token recognition, precedence, and binary operator records with:
+
+```text
+dune exec tools/operator_table_gen.exe -- --kernel third_party/TempleOS/Kernel/KernelA.HH --compiler third_party/TempleOS/Compiler/CompilerA.HH --cinit third_party/TempleOS/Compiler/CInit.HC --lex third_party/TempleOS/Compiler/Lex.HC --manifest reference/manifest.json --output src/generated/operator_tables.ml
+```
+
+This generator checks all four source files before parsing them. It preserves the three `dual_U16_tokens` arrays, comment openers, lexer-only shift and dot forms, precedence and association constants, and every `cmp.binary_ops` record. `dune build @generated-check` rejects stale operator output alongside the other generated tables.

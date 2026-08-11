@@ -16,7 +16,19 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 `Kernel/KernelA.HH` assigns numeric values to compound tokens. `Compiler/CInit.HC:CmpFillTables` defines two-character tokens, three-character shifts, and expression precedence. `Compiler/OpCodes.DD` supplies the keyword spellings consumed by `Compiler/AsmInit.HC`.
 
-The first slice keeps the complete language keyword list and operator spellings in one module each. Numeric TempleOS token IDs remain available for audit and deterministic dumps, but OCaml variants provide compiler identity after lexing.
+Generated tables retain the complete language keyword list and operator spellings. Numeric TempleOS token IDs remain available for audit and deterministic dumps, while OCaml variants provide compiler identity after lexing.
+
+## Operator recognition and precedence
+
+`CmpFillTables` builds three `dual_U16_tokens` arrays. `Lex` checks them in order. The first array recognizes spellings such as `!=`, `&&`, `*=`, `++`, and `->`; the second handles alternatives with the same first byte, including `&=`, `--`, `<<`, and `^^`; the third supplies `-=` and `/=`. The `/` entries for `/*` and `//` have no token result because they enter nested block-comment or line-comment handling.
+
+Shift assignments are not ordinary entries in those arrays. After recognizing `<<` or `>>`, `Lex` reads one more byte and changes the token when it sees `=`. Dot handling similarly distinguishes a floating literal, `.`, `..`, and `...`. The `$$` form comes from the lexer's dollar handling and has no `TK_*` compound-token ID.
+
+`cmp.binary_ops` contains 31 records. Each record combines a precedence constant and any explicit association flag in the high half with an IC number in the low half. Some entries, including multiplication and addition, have no association flag in the source. `Frontend.Operator` exposes that state as `Unspecified` instead of assigning a conventional default.
+
+`Doc/HolyC.DD` lists the same precedence bands but omits `%=` from its assignment line. `Compiler/CInit.HC` includes `TK_MOD_EQU` mapped to `IC_MOD_EQU`, so the generated source follows the compiler table and records the prose omission as a documentation difference.
+
+`tools/operator_table_source.ml` validates token IDs, association flags, precedence constants, every dual sequence, required IC numbers, all binary mappings, and the lexer-only forms. `tools/operator_table_gen.ml` writes their source lines and the four pinned checksums to `src/generated/operator_tables.ml`. Expression parsing remains outside this slice.
 
 ## Keyword and assembler directive records
 
