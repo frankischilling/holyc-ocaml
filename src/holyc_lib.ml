@@ -29,5 +29,4 @@ let lex _session ~source = Frontend.Lexer.lex_all source
 let preprocess session ~config ~source =
   Frontend.Preprocessor.lex_all ~sources:(Session.sources session)
     ~definitions:(Session.definitions session)
-    ~symbols:(Session.symbols session)
-    ~config source
+    ~symbols:(Session.symbols session) ~config source

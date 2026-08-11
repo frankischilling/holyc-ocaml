@@ -9,7 +9,8 @@ module Symbol_visibility = Frontend.Symbol_visibility
 let add_pinned symbols ~name ~kind ~path ~line =
   ignore
     (Symbol_visibility.Environment.add symbols ~name ~kind
-       ~origin:(Symbol_visibility.Pinned_source { path; line }) ())
+       ~origin:(Symbol_visibility.Pinned_source { path; line })
+       ())
 
 let seed_compiler_symbols symbols =
   List.iter

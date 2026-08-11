@@ -98,7 +98,8 @@ module Environment = struct
     let entry = { id = environment.next_entry_id; name; kind; origin } in
     environment.next_entry_id <- environment.next_entry_id + 1;
     let existing =
-      Option.value (Hashtbl.find_opt environment.entries_by_name name)
+      Option.value
+        (Hashtbl.find_opt environment.entries_by_name name)
         ~default:[]
     in
     Hashtbl.replace environment.entries_by_name name (entry :: existing);
@@ -190,9 +191,9 @@ module Environment = struct
       (all environment);
     List.rev environment.local_contexts
     |> List.iter (fun (context, names) ->
-           Printf.bprintf buffer "local-context %d\n" context;
-           String_set.elements names
-           |> List.iter (fun name ->
-                  Printf.bprintf buffer "  local name=%S\n" name));
+        Printf.bprintf buffer "local-context %d\n" context;
+        String_set.elements names
+        |> List.iter (fun name ->
+            Printf.bprintf buffer "  local name=%S\n" name));
     buffer |> Buffer.contents
 end

@@ -555,8 +555,7 @@ let enter_symbol_conditional stream hash token keyword =
   | Lexer.Diagnostic item ->
       Result.bind
         (push_conditional ~parent_active:false ~valid:false stream hash token
-           keyword false)
-        (fun () -> Error item)
+           keyword false) (fun () -> Error item)
   | Lexer.Token name_token -> (
       match definition_name name_token with
       | Some name ->
@@ -570,9 +569,9 @@ let enter_symbol_conditional stream hash token keyword =
           push_conditional stream hash token keyword condition
       | None ->
           Result.bind
-            (push_conditional ~parent_active:false ~valid:false stream hash token
-               keyword false)
-            (fun () -> Error (invalid_symbol_condition_name stream name_token keyword)))
+            (push_conditional ~parent_active:false ~valid:false stream hash
+               token keyword false) (fun () ->
+              Error (invalid_symbol_condition_name stream name_token keyword)))
 
 let enter_conditional stream ~inactive hash token keyword =
   match keyword with

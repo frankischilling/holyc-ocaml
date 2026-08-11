@@ -11,7 +11,9 @@ let contains_text text needle =
   search 0
 
 let checked result =
-  match result with Ok value -> value | Error message -> Alcotest.fail message
+  match result with
+  | Ok value -> value
+  | Error message -> Alcotest.fail message
 
 let source_kind_bits () =
   let open Symbol_visibility in
@@ -89,7 +91,9 @@ let import_filtering () =
   ignore
     (Symbol_visibility.Environment.add symbols ~name:"OnlyImport"
        ~kind:Symbol_visibility.Import_system_symbol ());
-  (match Symbol_visibility.Environment.find_preprocessor symbols "OnlyImport" with
+  (match
+     Symbol_visibility.Environment.find_preprocessor symbols "OnlyImport"
+   with
   | Symbol_visibility.Absent -> ()
   | _ -> Alcotest.fail "an import must not satisfy the default hash mask");
   let function_entry =

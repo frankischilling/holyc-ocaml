@@ -921,7 +921,8 @@ let active_unsupported_conditionals_are_inert () =
       List.iter
         (fun name ->
           Alcotest.(check bool)
-            ("#if leaves " ^ name ^ " undefined") true
+            ("#if leaves " ^ name ^ " undefined")
+            true
             (Definition.Environment.find (Session.definitions session) name
             |> Option.is_none))
         [ "HIDDEN"; "OTHER" ])
@@ -1057,8 +1058,7 @@ let symbol_conditional_definitions () =
          #ifndef MISSING missing #else wrong_two #endif";
       let _, _, result = preprocess root root_file in
       Alcotest.(check (list string))
-        "definition presence"
-        [ "defined"; "missing" ]
+        "definition presence" [ "defined"; "missing" ]
         (Result.get_ok result |> token_words))
 
 let symbol_conditional_builtins () =
@@ -1140,8 +1140,7 @@ let symbol_environment_updates_during_stream () =
   let stream =
     Preprocessor.create ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
-      ~symbols:(Session.symbols session)
-      ~config source
+      ~symbols:(Session.symbols session) ~config source
   in
   let first =
     match Preprocessor.next stream with
@@ -1190,8 +1189,7 @@ let symbol_conditional_diagnostics () =
       let session, _, result = preprocess root root_file in
       let item = error_with_code "HCPP0020" result in
       Alcotest.(check string)
-        "message" "expected a symbol name after #ifndef"
-        item.Diagnostic.message;
+        "message" "expected a symbol name after #ifndef" item.Diagnostic.message;
       let human = Diagnostic_render.human (Session.sources session) item in
       Alcotest.(check bool)
         "human diagnostic" true
@@ -1207,8 +1205,7 @@ let symbol_conditional_diagnostics () =
       write_file root_file "#ifdef";
       let _, _, missing = preprocess root root_file in
       ignore (error_with_code "HCPP0020" missing);
-      write_file root_file
-        "#ifdef \x00 #define HIDDEN value #endif visible";
+      write_file root_file "#ifdef \x00 #define HIDDEN value #endif visible";
       let malformed_session, _, malformed = preprocess root root_file in
       ignore (error_with_code "HCLEX0006" malformed);
       Alcotest.(check bool)
@@ -1228,8 +1225,7 @@ let deterministic_definition_dump () =
   let stream =
     Preprocessor.create ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
-      ~symbols:(Session.symbols session)
-      ~config source
+      ~symbols:(Session.symbols session) ~config source
   in
   let _, diagnostics = drain stream in
   Alcotest.(check int) "dump diagnostics" 0 (List.length diagnostics);
