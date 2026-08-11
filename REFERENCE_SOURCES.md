@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest currently verifies 47 pinned Git blobs.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest currently verifies 47 pinned Git blobs.
 
 ## Include-frame audit
 
@@ -51,7 +51,7 @@ No conditional table is copied. `Frontend.Lexer` provides the raw inactive scan 
 
 The `#ifdef` and `#ifndef` implementation follows identifier lookup and both directive cases in `Compiler/Lex.HC`; controller hash-chain setup in `Compiler/CMain.HC`; compiler-hash initialization in `Compiler/AsmInit.HC`; the 17 internal type records in `Compiler/CInit.HC`; the `HTT_*` values and masks in `Kernel/KernelA.HH`; hash insertion and lookup in `Kernel/KHashA.HC`; and the wording in `Doc/PreProcessor.DD`. These files already have pinned checksums in the manifest.
 
-`Frontend.Symbol_visibility` retains the 17 source hash kinds, stable entry identities, the default import exclusion, and the separate local-variable shadow result. `Driver.Session` seeds the generated language keywords, assembly keywords, and internal type spellings. Full opcode and register seeding depends on the complete `OpCodes.DD` model and remains tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The live `.HC`, `.HH`, and `.PRJ` corpus has no active use of either directive, so compatibility evidence comes from the pinned implementation and focused fixtures rather than a corpus percentage.
+`Frontend.Symbol_visibility` retains the 17 source hash kinds, stable entry identities, the default import exclusion, and the separate local-variable shadow result. `Driver.Session` seeds the generated language keywords, assembly keywords, internal type spellings, registers, canonical opcodes, and aliases. The live `.HC`, `.HH`, and `.PRJ` corpus has no active use of either directive, so compatibility evidence comes from the pinned implementation and focused fixtures rather than a corpus percentage.
 
 ## Preprocessor-expression audit
 
@@ -65,7 +65,7 @@ The help metadata implementation follows `KW_HELP_INDEX` and `KW_HELP_FILE` in `
 
 No help document is copied or opened. `Frontend.Help_metadata` records source-ordered index changes and help files, while `Frontend.Preprocessor` attaches include and definition provenance. The pinned `KernelC.HH` test records all 104 `#help_index` directives and all 20 `#help_file` directives without a diagnostic. A later semantic pass must publish equivalent help-file hash entries; this slice records the information but does not claim that hash-table consumer yet.
 
-## Generated keyword data
+## Generated opcode data
 
 Regenerate the audited language and assembler directive records with:
 
@@ -73,7 +73,7 @@ Regenerate the audited language and assembler directive records with:
 dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml
 ```
 
-`dune build @generated-check` compares the checked-in file with a fresh deterministic rendering. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.
+`dune build @generated-check` compares the checked-in file with a fresh deterministic rendering. The generator parses all four ordered statement groups used by `AsmHashLoad` and retains 106 registers, 73 keyword records, 325 canonical opcodes, 49 aliases, and 924 instruction forms. It rejects unfamiliar syntax rather than producing a partial table. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.
 
 ## Generated primitive type data
 

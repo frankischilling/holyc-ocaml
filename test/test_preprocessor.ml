@@ -1102,11 +1102,33 @@ let symbol_conditional_builtins () =
       write_file root_file
         "#ifdef ifjit language_keyword #endif\n\
          #ifdef ALIGN assembly_keyword #endif\n\
-         #ifdef I64i internal_type #endif";
+         #ifdef I64i internal_type #endif\n\
+         #ifdef RAX general_register #endif\n\
+         #ifdef FS segment_register #endif\n\
+         #ifdef ST3 x87_register #endif\n\
+         #ifdef MM7 mm_register #endif\n\
+         #ifdef XMM7 xmm_register #endif\n\
+         #ifdef MOV canonical_opcode #endif\n\
+         #ifdef JZ jump_alias #endif\n\
+         #ifdef SAL shift_alias #endif\n\
+         #ifdef LGS wrong #else commented_opcode_absent #endif";
       let _, _, result = preprocess root root_file in
       Alcotest.(check (list string))
         "checked compiler hash entries"
-        [ "language_keyword"; "assembly_keyword"; "internal_type" ]
+        [
+          "language_keyword";
+          "assembly_keyword";
+          "internal_type";
+          "general_register";
+          "segment_register";
+          "x87_register";
+          "mm_register";
+          "xmm_register";
+          "canonical_opcode";
+          "jump_alias";
+          "shift_alias";
+          "commented_opcode_absent";
+        ]
         (Result.get_ok result |> token_words))
 
 let symbol_conditional_registered_kinds () =

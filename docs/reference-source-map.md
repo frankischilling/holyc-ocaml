@@ -54,9 +54,9 @@ The `KW_IFDEF` and `KW_IFNDEF` branches in `Compiler/Lex.HC:Lex` set `CCF_NO_DEF
 
 `CmpCtrlNew` initializes `hash_mask` to `HTG_TYPE_MASK-HTT_IMPORT_SYS_SYM`. The 17 `HTT_*` bits in `Kernel/KernelA.HH` show that this is a compiler-symbol predicate rather than a definition-only predicate. Imports are excluded. `Compiler/CMain.HC:LexStmt2Bin` builds the local and global table chain for the current compilation mode. Before that hash lookup, `Lex` calls `MemberFind` against `local_var_lst`; a local match suppresses `HashFind` and leaves `hash_entry` null.
 
-`Compiler/AsmInit.HC:AsmHashLoad` inserts language keywords, assembly keywords, opcodes, registers, and all 17 records from `Compiler/CInit.HC:internal_types_table` into `cmp.asm_hash`. `Driver.Session` currently seeds the generated language, assembly-keyword, and internal-type subsets. `Frontend.Symbol_visibility` models every hash kind, masked lookup, and local shadows with deterministic identities and source provenance. The parser can publish later declarations to the same environment between calls to `Frontend.Preprocessor.next`.
+`Compiler/AsmInit.HC:AsmHashLoad` inserts language keywords, assembly keywords, opcodes, registers, and all 17 records from `Compiler/CInit.HC:internal_types_table` into `cmp.asm_hash`. `Driver.Session` seeds every one of those static compiler names from checked generated data. `Frontend.Symbol_visibility` models every hash kind, masked lookup, and local shadows with deterministic identities and source provenance. The parser can publish later declarations to the same environment between calls to `Frontend.Preprocessor.next`.
 
-The current generated opcode table does not yet publish opcode or register records, which is tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The standalone preprocessor also cannot discover unparsed HolyC declarations. The source corpus has no active `#ifdef` or `#ifndef` occurrence, so focused fixtures establish this slice's behavior.
+The generated seed contains 48 language keywords, 25 assembly keywords, 17 internal types, 106 registers, 325 canonical opcodes, and 49 opcode aliases. The standalone preprocessor still cannot discover unparsed HolyC declarations. The source corpus has no active `#ifdef` or `#ifndef` occurrence, so focused fixtures establish this slice's behavior.
 
 ## Conditional and assertion expressions
 
@@ -90,11 +90,13 @@ Shift assignments are not ordinary entries in those arrays. After recognizing `<
 
 `tools/operator_table_source.ml` validates token IDs, association flags, precedence constants, every dual sequence, required IC numbers, all binary mappings, and the lexer-only forms. `tools/operator_table_gen.ml` writes their source lines and the four pinned checksums to `src/generated/operator_tables.ml`. Expression parsing remains outside this slice.
 
-## Keyword and assembler directive records
+## Opcode database records
 
-`Compiler/AsmInit.HC:AsmHashLoad` parses `Compiler/OpCodes.DD` with the compiler lexer. Its `KEYWORD` and `ASM_KEYWORD` statements each contain a spelling, an integer ID, and a terminating semicolon. The pinned file contains 48 language records with IDs 0 through 47 and 25 assembler directive records with IDs 64 through 88.
+`Compiler/AsmInit.HC:AsmHashLoad` parses `Compiler/OpCodes.DD` with the compiler lexer. Register statements select one of eight register kinds and pair a spelling with a numeric register value. `KEYWORD` and `ASM_KEYWORD` statements each contain a spelling and integer ID. An `OPCODE` statement contains one canonical spelling, up to 32 implicitly delimited instruction forms, an optional colon-led alias list, and a final semicolon.
 
-`tools/opcode_table_source.ml` accepts only that statement shape inside the two table sections. It rejects missing semicolons, duplicate names, duplicate IDs, unexpected statements, reordered records, and incomplete ranges. `tools/opcode_table_gen.ml` writes the checked OCaml table with the reference commit, the `Compiler/OpCodes.DD` blob checksum, and each original source line. The lexer maps its keyword variants onto those generated records. `Asm_directive` exposes exact-spelling lookup for later assembler work but does not parse assembly yet.
+`AsmPrsInsFlags` accepts the eight opcode modifiers, operand-size markers 16 and 32, `+` and `/` selectors, eight punctuation flags, and `$$`. Each form has no more than four opcode bytes and two `ST_ARG_TYPES` operands. Argument sizes come from the five masks initialized by `AsmHashLoad`. The pinned file contains 106 registers, 48 language keywords with IDs 0 through 47, 25 assembler directives with IDs 64 through 88, 325 canonical opcodes, 49 aliases, and 924 forms. The leading comma on `REP_OUTSB` causes the source loader to create an empty first form; the checked data keeps it.
+
+`tools/opcode_table_source.ml` tokenizes and validates that complete grammar. It rejects missing semicolons, duplicate names or IDs, unexpected and reordered records, incomplete keyword ranges, malformed aliases, unknown arguments, out-of-range numeric fields, excess bytes, and excess forms. `tools/opcode_table_gen.ml` writes the deterministic OCaml table with the reference commit, `Compiler/OpCodes.DD` checksum, original source lines, and every parsed field. The lexer and `Asm_directive` use the keyword subsets, while `Driver.Session` publishes registers, canonical opcodes, and aliases with their source hash kinds. [The assembler notes](assembler.md) give the field-level map. Operand matching and encoding remain future assembler work.
 
 ## Primitive raw types and internal names
 

@@ -97,7 +97,7 @@ let manifest_metadata path =
   | Json_util.Type_error (message, _) ->
       fail "manifest %s has the wrong shape: %s" path message
 
-let add_entry buffer kind entry =
+let add_entry buffer kind (entry : Source.entry) =
   Printf.bprintf buffer
     "    { kind = %s; spelling = %S; templeos_id = %d; source_line = %d };\n"
     kind entry.Source.spelling entry.templeos_id entry.source_line
@@ -105,6 +105,69 @@ let add_entry buffer kind entry =
 let add_table buffer name kind entries =
   Printf.bprintf buffer "let %s =\n  [\n" name;
   List.iter (add_entry buffer kind) entries;
+  Buffer.add_string buffer "  ]\n"
+
+let register_kind_name = function
+  | Source.R8 -> "R8"
+  | Source.R16 -> "R16"
+  | Source.R32 -> "R32"
+  | Source.R64 -> "R64"
+  | Source.Segment -> "Segment"
+  | Source.Float_stack -> "Float_stack"
+  | Source.Mm -> "Mm"
+  | Source.Xmm -> "Xmm"
+
+let add_register buffer (register : Source.register) =
+  Printf.bprintf buffer
+    "    { register_kind = %s; register_type = %d; spelling = %S; \
+     register_number = %d; source_line = %d };\n"
+    (register_kind_name register.register_kind)
+    register.register_type register.spelling register.register_number
+    register.source_line
+
+let add_registers buffer registers =
+  Buffer.add_string buffer "let registers =\n  [\n";
+  List.iter (add_register buffer) registers;
+  Buffer.add_string buffer "  ]\n"
+
+let add_opcode_bytes buffer bytes =
+  Buffer.add_char buffer '[';
+  List.iteri
+    (fun index byte ->
+      if index > 0 then Buffer.add_string buffer "; ";
+      Printf.bprintf buffer "0x%02X" byte)
+    bytes;
+  Buffer.add_char buffer ']'
+
+let add_instruction buffer (instruction : Source.instruction) =
+  Buffer.add_string buffer "        { entry_index = ";
+  Printf.bprintf buffer "%d; opcode_bytes = " instruction.entry_index;
+  add_opcode_bytes buffer instruction.opcode_bytes;
+  Printf.bprintf buffer
+    "; flags = 0x%03X; slash_value = %d; uasm_slash_value = %d; \
+     opcode_modifier = %d; argument1 = %d; argument2 = %d; size1 = %d; size2 = \
+     %d; source_line = %d };\n"
+    instruction.flags instruction.slash_value instruction.uasm_slash_value
+    instruction.opcode_modifier instruction.argument1 instruction.argument2
+    instruction.size1 instruction.size2 instruction.source_line
+
+let add_alias buffer (alias : Source.opcode_alias) =
+  Printf.bprintf buffer "        { spelling = %S; source_line = %d };\n"
+    alias.spelling alias.source_line
+
+let add_opcode buffer (opcode : Source.opcode) =
+  Printf.bprintf buffer "    { spelling = %S;\n" opcode.spelling;
+  Buffer.add_string buffer "      instructions =\n        [\n";
+  List.iter (add_instruction buffer) opcode.instructions;
+  Buffer.add_string buffer "        ];\n";
+  Buffer.add_string buffer "      aliases =\n        [\n";
+  List.iter (add_alias buffer) opcode.aliases;
+  Buffer.add_string buffer "        ];\n";
+  Printf.bprintf buffer "      source_line = %d };\n" opcode.source_line
+
+let add_opcodes buffer opcodes =
+  Buffer.add_string buffer "let opcodes =\n  [\n";
+  List.iter (add_opcode buffer) opcodes;
   Buffer.add_string buffer "  ]\n"
 
 let render ~commit ~checksum tables =
@@ -125,9 +188,47 @@ let render ~commit ~checksum tables =
     \  templeos_id : int;\n\
     \  source_line : int;\n\
      }\n\n";
+  Buffer.add_string buffer
+    "type register_kind = R8 | R16 | R32 | R64 | Segment | Float_stack | Mm | \
+     Xmm\n\n";
+  Buffer.add_string buffer
+    "type register = {\n\
+    \  register_kind : register_kind;\n\
+    \  register_type : int;\n\
+    \  spelling : string;\n\
+    \  register_number : int;\n\
+    \  source_line : int;\n\
+     }\n\n";
+  Buffer.add_string buffer
+    "type instruction = {\n\
+    \  entry_index : int;\n\
+    \  opcode_bytes : int list;\n\
+    \  flags : int;\n\
+    \  slash_value : int;\n\
+    \  uasm_slash_value : int;\n\
+    \  opcode_modifier : int;\n\
+    \  argument1 : int;\n\
+    \  argument2 : int;\n\
+    \  size1 : int;\n\
+    \  size2 : int;\n\
+    \  source_line : int;\n\
+     }\n\n";
+  Buffer.add_string buffer
+    "type opcode_alias = { spelling : string; source_line : int }\n\n";
+  Buffer.add_string buffer
+    "type opcode = {\n\
+    \  spelling : string;\n\
+    \  instructions : instruction list;\n\
+    \  aliases : opcode_alias list;\n\
+    \  source_line : int;\n\
+     }\n\n";
+  add_registers buffer tables.Source.registers;
+  Buffer.add_char buffer '\n';
   add_table buffer "language" "Language" tables.Source.language;
   Buffer.add_char buffer '\n';
   add_table buffer "assembly" "Assembly" tables.Source.assembly;
+  Buffer.add_char buffer '\n';
+  add_opcodes buffer tables.Source.opcodes;
   Buffer.contents buffer
 
 let check_output path expected =

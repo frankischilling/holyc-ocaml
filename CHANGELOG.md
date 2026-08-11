@@ -13,3 +13,4 @@
 - Added deterministic `#if` evaluation for integer, character, and floating literals, definition-expanded constants, `defined`, HolyC precedence and comparison chains, 64-bit target arithmetic, retained branch lookahead, provenance-aware diagnostics, and a configurable expression-size limit.
 - Added constant `#assert` evaluation with nonfatal `HCPP0024` warnings, retained token output, a diagnostic-preserving library result, and human and JSON CLI golden tests.
 - Added source-ordered `#help_index` and `#help_file` metadata with explicit continuation handling, hosted path confinement without target reads, include and definition provenance, versioned dumps, and complete coverage of the pinned `KernelC.HH` directives.
+- Added a checked parser and deterministic generated table for all 106 registers, 325 canonical opcodes, 49 aliases, and 924 instruction forms in the pinned `OpCodes.DD`, then exposed every register and opcode spelling to symbol conditionals.
