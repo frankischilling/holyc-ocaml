@@ -73,6 +73,7 @@ type unary_operator_kind =
   | Pre_increment
   | Pre_decrement
 
+type postfix_operator_kind = Post_increment | Post_decrement
 type member_access_kind = Direct_member | Pointer_member
 
 type expression =
@@ -84,6 +85,7 @@ type expression =
   | Current_position_expression of expression_operator
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
+  | Postfix_expression of postfix_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
@@ -112,6 +114,13 @@ and prefix_expression = private {
   prefix_operator : expression_operator;
   prefix_operand : expression;
   prefix_location : location;
+}
+
+and postfix_expression = private {
+  postfix_operand : expression;
+  postfix_operator_kind : postfix_operator_kind;
+  postfix_operator : expression_operator;
+  postfix_location : location;
 }
 
 and binary_expression = private {
@@ -359,6 +368,13 @@ val make_prefix_expression :
   operand:expression ->
   location:location ->
   prefix_expression
+
+val make_postfix_expression :
+  operand:expression ->
+  operator_kind:postfix_operator_kind ->
+  operator:expression_operator ->
+  location:location ->
+  postfix_expression
 
 val make_binary_expression :
   left:expression ->

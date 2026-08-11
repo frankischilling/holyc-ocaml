@@ -1,0 +1,27 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-postfix-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-postfix-expression.hc:1:1..1:48 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-postfix-expression.hc:1:1..1:8
+      target_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-postfix-expression.hc:1:9..1:33
+          left
+            expression kind=prefix operator_kind=dereference span=cli/parse-postfix-expression.hc:1:9..1:15
+              operator spelling="*" span=cli/parse-postfix-expression.hc:1:9..1:10
+              expression kind=postfix operator_kind=post_increment span=cli/parse-postfix-expression.hc:1:10..1:15
+                expression kind=identifier spelling="ptr" span=cli/parse-postfix-expression.hc:1:10..1:13
+                operator spelling="++" span=cli/parse-postfix-expression.hc:1:13..1:15
+          operator spelling="+" span=cli/parse-postfix-expression.hc:1:16..1:17
+          right
+            expression kind=postfix operator_kind=post_decrement span=cli/parse-postfix-expression.hc:1:18..1:33
+              expression kind=member access_kind=pointer span=cli/parse-postfix-expression.hc:1:18..1:31
+                base
+                  expression kind=identifier spelling="object" span=cli/parse-postfix-expression.hc:1:18..1:24
+                operator spelling="->" span=cli/parse-postfix-expression.hc:1:24..1:26
+                member spelling="field" span=cli/parse-postfix-expression.hc:1:26..1:31
+              operator spelling="--" span=cli/parse-postfix-expression.hc:1:31..1:33
+    return_type primitive=I64 spelling="I64" span=cli/parse-postfix-expression.hc:1:34..1:37
+    name spelling="Updated" span=cli/parse-postfix-expression.hc:1:38..1:45
+    opening_parenthesis span=cli/parse-postfix-expression.hc:1:45..1:46
+    closing_parenthesis span=cli/parse-postfix-expression.hc:1:46..1:47
+    semicolon span=cli/parse-postfix-expression.hc:1:47..1:48

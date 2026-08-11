@@ -1260,3 +1260,71 @@
        --format=json
        cli/parse-member-error.hc))))
    (diff cli/parse-member-error.json parse-member-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-expression.human.actual)
+ (deps cli/parse-postfix-expression.hc cli/parse-postfix-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-expression.hc))
+   (diff
+    cli/parse-postfix-expression.human
+    parse-postfix-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-expression.json.actual)
+ (deps cli/parse-postfix-expression.hc cli/parse-postfix-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-postfix-expression.hc))
+   (diff
+    cli/parse-postfix-expression.json
+    parse-postfix-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-error.human.actual
+  parse-postfix-error.human.stdout.actual)
+ (deps cli/parse-postfix-error.hc cli/parse-postfix-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-error.human.stdout.actual
+    (with-stderr-to
+     parse-postfix-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-error.hc))))
+   (diff cli/parse-postfix-error.human parse-postfix-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-error.json.actual
+  parse-postfix-error.json.stdout.actual)
+ (deps cli/parse-postfix-error.hc cli/parse-postfix-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-error.json.stdout.actual
+    (with-stderr-to
+     parse-postfix-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-postfix-error.hc))))
+   (diff cli/parse-postfix-error.json parse-postfix-error.json.actual))))

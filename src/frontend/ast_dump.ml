@@ -81,6 +81,10 @@ let unary_operator_kind_name = function
   | Ast.Pre_increment -> "pre_increment"
   | Ast.Pre_decrement -> "pre_decrement"
 
+let postfix_operator_kind_name = function
+  | Ast.Post_increment -> "post_increment"
+  | Ast.Post_decrement -> "post_decrement"
+
 let member_access_kind_name = function
   | Ast.Direct_member -> "direct"
   | Ast.Pointer_member -> "pointer"
@@ -196,6 +200,15 @@ let rec print_expression buffer sources ~indent expression =
       print_expression_operator buffer sources ~indent:child_indent
         prefix.prefix_operator;
       print_expression buffer sources ~indent:child_indent prefix.prefix_operand
+  | Ast.Postfix_expression postfix ->
+      Printf.bprintf buffer
+        "%sexpression kind=postfix operator_kind=%s span=%s\n" indent
+        (postfix_operator_kind_name postfix.postfix_operator_kind)
+        (location_text sources postfix.postfix_location);
+      print_expression buffer sources ~indent:child_indent
+        postfix.postfix_operand;
+      print_expression_operator buffer sources ~indent:child_indent
+        postfix.postfix_operator
   | Ast.Binary_expression binary ->
       Printf.bprintf buffer
         "%sexpression kind=binary precedence=%s precedence_value=0x%02x \
@@ -664,6 +677,18 @@ let rec expression_to_yojson sources = function
             expression_operator_to_yojson sources prefix.prefix_operator );
           ("operand", expression_to_yojson sources prefix.prefix_operand);
           ("location", location_to_yojson sources prefix.prefix_location);
+        ]
+  | Ast.Postfix_expression postfix ->
+      `Assoc
+        [
+          ("kind", `String "postfix");
+          ( "operator_kind",
+            `String (postfix_operator_kind_name postfix.postfix_operator_kind)
+          );
+          ("operand", expression_to_yojson sources postfix.postfix_operand);
+          ( "operator",
+            expression_operator_to_yojson sources postfix.postfix_operator );
+          ("location", location_to_yojson sources postfix.postfix_location);
         ]
   | Ast.Binary_expression binary ->
       `Assoc

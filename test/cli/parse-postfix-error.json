@@ -2,9 +2,9 @@
   {
     "code": "HCPARSE0028",
     "severity": "error",
-    "message": "postfix update \"++\" must end the postfix chain in _intern target expression, but found \"(\"",
+    "message": "postfix update \"++\" must end the postfix chain in _intern target expression, but found \"[\"",
     "primary": {
-      "path": "cli/parse-intern-error.hc",
+      "path": "cli/parse-postfix-error.hc",
       "line": 1,
       "column": 18,
       "source_id": 0,
