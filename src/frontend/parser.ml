@@ -16,6 +16,7 @@ type cursor = {
 }
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
+type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
 
 let max_pointer_depth = 4
 
@@ -167,6 +168,24 @@ let delimiter_kind token =
   | Token_kind.Punctuation ';' -> Some Ast.Semicolon
   | _ -> None
 
+let declaration_modifier_kind token =
+  match token.Token.kind with
+  | Token_kind.Keyword Keyword.Public -> Some Ast.Public
+  | Token_kind.Keyword Keyword.Static -> Some Ast.Static
+  | _ -> None
+
+let rec parse_modifiers cursor modifiers_rev =
+  let item = peek cursor in
+  match declaration_modifier_kind item.token with
+  | None -> List.rev modifiers_rev
+  | Some kind ->
+      let item = take cursor in
+      let node =
+        Ast.make_declaration_modifier ~kind ~spelling:item.token.raw
+          ~location:(token_location item.token)
+      in
+      parse_modifiers cursor ({ node; item } :: modifiers_rev)
+
 let parse_declarator cursor primitive_spelling =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
@@ -234,6 +253,17 @@ let rec parse_declarators cursor primitive_spelling declarators_rev =
       )
 
 let parse_global cursor =
+  let parsed_modifiers = parse_modifiers cursor [] in
+  let modifiers =
+    List.map
+      (fun (modifier : parsed_modifier) -> modifier.node)
+      parsed_modifiers
+  in
+  let modifier_tokens =
+    List.map
+      (fun (modifier : parsed_modifier) -> modifier.item.token)
+      parsed_modifiers
+  in
   let type_item = take cursor in
   let spelling = token_text type_item.token in
   match
@@ -248,13 +278,16 @@ let parse_global cursor =
               ~location:(token_location type_item.token)
           in
           let declaration_tokens =
-            type_item.token
-            :: List.concat_map (fun item -> item.tokens) declarators
+            modifier_tokens
+            @ type_item.token
+              :: List.concat_map
+                   (fun (item : parsed_declarator) -> item.tokens)
+                   declarators
           in
           match declarators with
           | [ declarator ] ->
               let variable =
-                Ast.make_global_variable ~type_specifier
+                Ast.make_global_variable ~modifiers ~type_specifier
                   ~pointer_layers:declarator.node.pointer_layers
                   ~name:declarator.node.name
                   ~semicolon:declarator.node.delimiter.location.span
@@ -263,17 +296,29 @@ let parse_global cursor =
               Some (Ast.Global_variable variable)
           | _ ->
               let declaration =
-                Ast.make_global_declaration ~type_specifier
-                  ~declarators:(List.map (fun item -> item.node) declarators)
+                Ast.make_global_declaration ~modifiers ~type_specifier
+                  ~declarators:
+                    (List.map
+                       (fun (item : parsed_declarator) -> item.node)
+                       declarators)
                   ~location:(location_from_tokens declaration_tokens)
               in
               Some (Ast.Global_declaration declaration)))
   | _ ->
+      let prefix =
+        match modifiers with
+        | [] -> "at the start of a global declaration"
+        | _ ->
+            Printf.sprintf "after declaration modifier%s %S"
+              (if List.length modifiers = 1 then "" else "s")
+              (modifiers
+              |> List.map (fun (modifier : Ast.declaration_modifier) ->
+                  modifier.spelling)
+              |> String.concat " ")
+      in
       report cursor type_item ~code:"HCPARSE0001"
         ~message:
-          (Printf.sprintf
-             "expected a primitive type at the start of a global declaration, \
-              but found %s"
+          (Printf.sprintf "expected a primitive type %s, but found %s" prefix
              (token_description type_item.token));
       recover_declaration cursor;
       None

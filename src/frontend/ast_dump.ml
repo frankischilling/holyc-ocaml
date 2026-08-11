@@ -55,6 +55,19 @@ let delimiter_kind_name = function
   | Ast.Comma -> "comma"
   | Ast.Semicolon -> "semicolon"
 
+let modifier_kind_name = function
+  | Ast.Public -> "public"
+  | Ast.Static -> "static"
+
+let print_modifiers buffer sources ~indent modifiers =
+  List.iter
+    (fun (modifier : Ast.declaration_modifier) ->
+      Printf.bprintf buffer "%smodifier kind=%s spelling=%S span=%s\n" indent
+        (modifier_kind_name modifier.Ast.kind)
+        modifier.spelling
+        (location_text sources modifier.location))
+    modifiers
+
 let print_type buffer sources ~indent primitive =
   Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
     (Sema.Primitive_type.to_string primitive.Ast.primitive)
@@ -81,6 +94,7 @@ let human sources module_ =
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
+          print_modifiers buffer sources ~indent:"    " variable.modifiers;
           print_type buffer sources ~indent:"    " variable.type_specifier;
           print_pointer_layers buffer sources ~indent:"    "
             variable.pointer_layers;
@@ -93,6 +107,7 @@ let human sources module_ =
           Printf.bprintf buffer "  global_declaration span=%s declarators=%d\n"
             (location_text sources declaration.location)
             (List.length declaration.declarators);
+          print_modifiers buffer sources ~indent:"    " declaration.modifiers;
           print_type buffer sources ~indent:"    " declaration.type_specifier;
           List.iteri
             (fun index (declarator : Ast.global_declarator) ->
@@ -182,6 +197,20 @@ let pointer_layer_fields sources pointer_layers =
           `List (List.map (pointer_layer_to_yojson sources) pointers) );
       ]
 
+let modifier_to_yojson sources (modifier : Ast.declaration_modifier) =
+  `Assoc
+    [
+      ("kind", `String (modifier_kind_name modifier.kind));
+      ("spelling", `String modifier.spelling);
+      ("location", location_to_yojson sources modifier.location);
+    ]
+
+let modifier_fields sources modifiers =
+  match modifiers with
+  | [] -> []
+  | modifiers ->
+      [ ("modifiers", `List (List.map (modifier_to_yojson sources) modifiers)) ]
+
 let delimiter_to_yojson sources (delimiter : Ast.declaration_delimiter) =
   `Assoc
     [
@@ -202,10 +231,9 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
 let item_to_yojson sources = function
   | Ast.Global_variable variable ->
       `Assoc
-        ([
-           ("kind", `String "global_variable");
-           ("type", primitive_to_yojson sources variable.type_specifier);
-         ]
+        ([ ("kind", `String "global_variable") ]
+        @ modifier_fields sources variable.modifiers
+        @ [ ("type", primitive_to_yojson sources variable.type_specifier) ]
         @ pointer_layer_fields sources variable.pointer_layers
         @ [
             ("name", identifier_to_yojson sources variable.name);
@@ -214,15 +242,17 @@ let item_to_yojson sources = function
           ])
   | Ast.Global_declaration declaration ->
       `Assoc
-        [
-          ("kind", `String "global_declaration");
-          ("type", primitive_to_yojson sources declaration.type_specifier);
-          ( "declarators",
-            `List
-              (List.map (declarator_to_yojson sources) declaration.declarators)
-          );
-          ("location", location_to_yojson sources declaration.location);
-        ]
+        ([ ("kind", `String "global_declaration") ]
+        @ modifier_fields sources declaration.modifiers
+        @ [
+            ("type", primitive_to_yojson sources declaration.type_specifier);
+            ( "declarators",
+              `List
+                (List.map
+                   (declarator_to_yojson sources)
+                   declaration.declarators) );
+            ("location", location_to_yojson sources declaration.location);
+          ])
 
 let to_yojson sources module_ =
   `Assoc

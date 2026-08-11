@@ -5,6 +5,14 @@ type location = private {
   defined_at : Common.Span.t option;
 }
 
+type declaration_modifier_kind = Public | Static
+
+type declaration_modifier = private {
+  kind : declaration_modifier_kind;
+  spelling : string;
+  location : location;
+}
+
 type primitive_type = private {
   primitive : Sema.Primitive_type.t;
   spelling : string;
@@ -35,6 +43,7 @@ type global_declarator = private {
 }
 
 type global_variable = private {
+  modifiers : declaration_modifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier;
@@ -43,6 +52,7 @@ type global_variable = private {
 }
 
 type global_declaration = private {
+  modifiers : declaration_modifier list;
   type_specifier : primitive_type;
   declarators : global_declarator list;
   location : location;
@@ -65,6 +75,12 @@ val make_location :
   source_segments:Common.Span.t list ->
   unit ->
   location
+
+val make_declaration_modifier :
+  kind:declaration_modifier_kind ->
+  spelling:string ->
+  location:location ->
+  declaration_modifier
 
 val make_primitive_type :
   primitive:Sema.Primitive_type.t ->
@@ -91,6 +107,7 @@ val make_global_declarator :
   global_declarator
 
 val make_global_variable :
+  modifiers:declaration_modifier list ->
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier ->
@@ -99,6 +116,7 @@ val make_global_variable :
   global_variable
 
 val make_global_declaration :
+  modifiers:declaration_modifier list ->
   type_specifier:primitive_type ->
   declarators:global_declarator list ->
   location:location ->
