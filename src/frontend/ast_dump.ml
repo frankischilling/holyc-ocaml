@@ -58,6 +58,10 @@ let delimiter_kind_name = function
 let modifier_kind_name = function
   | Ast.Public -> "public"
   | Ast.Static -> "static"
+  | Ast.Interrupt -> "interrupt"
+  | Ast.Has_error_code -> "haserrcode"
+  | Ast.Argument_pop -> "argpop"
+  | Ast.No_argument_pop -> "noargpop"
 
 let binding_kind_name = function
   | Ast.Extern -> "extern"
