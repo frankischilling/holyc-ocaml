@@ -443,3 +443,64 @@
        --format=json
        cli/parse-modifier-error.hc))))
    (diff cli/parse-modifier-error.json parse-modifier-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-bindings.human.actual)
+ (deps cli/parse-bindings.hc cli/parse-bindings.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-bindings.human.actual
+    (run %{exe:../bin/holyc.exe} parse --mode=aot cli/parse-bindings.hc))
+   (diff cli/parse-bindings.human parse-bindings.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-bindings.json.actual)
+ (deps cli/parse-bindings.hc cli/parse-bindings.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-bindings.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-bindings.hc))
+   (diff cli/parse-bindings.json parse-bindings.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-import-jit.human.actual parse-import-jit.human.stdout.actual)
+ (deps cli/parse-import-jit.hc cli/parse-import-jit.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-import-jit.human.stdout.actual
+    (with-stderr-to
+     parse-import-jit.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-import-jit.hc))))
+   (diff cli/parse-import-jit.human parse-import-jit.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-import-jit.json.actual parse-import-jit.json.stdout.actual)
+ (deps cli/parse-import-jit.hc cli/parse-import-jit.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-import-jit.json.stdout.actual
+    (with-stderr-to
+     parse-import-jit.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-import-jit.hc))))
+   (diff cli/parse-import-jit.json parse-import-jit.json.actual))))

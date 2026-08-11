@@ -1,0 +1,20 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-bindings.hc:1:1..4:1 items=2
+  global_declaration span=cli/parse-bindings.hc:2:1..2:50 declarators=2
+    modifier kind=public spelling="public" span=cli/parse-bindings.hc:2:1..2:7
+    binding kind=extern spelling="extern" span=cli/parse-bindings.hc:2:8..2:14
+    type primitive=U8 spelling="U8" span=cli/parse-bindings.hc:2:15..2:17
+    declarator index=0 span=cli/parse-bindings.hc:2:18..2:34
+      pointer_layer depth=1 spelling="*" span=cli/parse-bindings.hc:2:18..2:19
+      name spelling="rev_bits_table" span=cli/parse-bindings.hc:2:19..2:33
+      delimiter kind=comma spelling="," span=cli/parse-bindings.hc:2:33..2:34
+    declarator index=1 span=cli/parse-bindings.hc:2:34..2:50
+      pointer_layer depth=1 spelling="*" span=cli/parse-bindings.hc:2:34..2:35
+      name spelling="set_bits_table" span=cli/parse-bindings.hc:2:35..2:49
+      delimiter kind=semicolon spelling=";" span=cli/parse-bindings.hc:2:49..2:50
+  global_variable span=cli/parse-bindings.hc:3:1..3:21
+    binding kind=import spelling="import" span=cli/parse-bindings.hc:3:1..3:7
+    type primitive=I64 spelling="I64" span=cli/parse-bindings.hc:3:8..3:11
+    name spelling="imported" span=cli/parse-bindings.hc:3:12..3:20
+    semicolon span=cli/parse-bindings.hc:3:20..3:21

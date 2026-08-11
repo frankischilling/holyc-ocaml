@@ -1,0 +1,3 @@
+cli/parse-import-jit.hc:2:1: error[HCPARSE0006]: import declarations require AOT mode; select AOT mode before parsing this declaration
+    2 | import I64 unavailable;
+      | ^^^^^^
