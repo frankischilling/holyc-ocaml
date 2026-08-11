@@ -144,6 +144,49 @@ tests = ["test/test_lexer.ml", "test/negative/unterminated-comment.hc"]
 status = "implemented"
 
 [[feature]]
+id = "HC-LEX-LINE-CONTINUATION"
+description = "Backslash followed by LF, CRLF, or CR is retained as line-continuation trivia, while a lone backslash remains invalid."
+sources = [
+  "Compiler/Lex.HC:KW_DEFINE",
+  "Compiler/LexLib.HC:LexExtStr",
+  "Kernel/KernelA.HH",
+  "Kernel/KernelC.HH"
+]
+implementation = ["src/frontend/lexer.ml", "src/frontend/trivia.ml"]
+tests = ["test/test_lexer.ml", "test/test_corpus.ml"]
+status = "implemented"
+issue = 42
+
+[[feature]]
+id = "HC-LEX-NUL-TERMINATION"
+description = "The verified corpus path treats the first NUL as a source terminator and records the unlexed trailing payload, while ordinary hosted lexing retains its embedded-NUL diagnostic."
+sources = ["Compiler/Lex.HC:LexGetChar", "Adam/AMouse.HC"]
+implementation = ["src/frontend/lexer.ml", "src/driver/corpus.ml"]
+tests = ["test/test_lexer.ml", "test/test_corpus.ml"]
+status = "implemented"
+issue = 42
+
+[[feature]]
+id = "HC-LEX-CORPUS"
+description = "Every committed HC, HH, and PRJ Git blob at the pinned revision tokenizes to EOF without a lexer diagnostic or crash."
+sources = ["Compiler/Lex.HC:LexGetChar", "Compiler/Lex.HC:Lex"]
+implementation = [
+  "src/driver/corpus.ml",
+  "bin/holyc.ml",
+  ".github/workflows/corpus.yml"
+]
+tests = ["test/test_corpus.ml", "test/cli/corpus-lexer.human"]
+status = "implemented"
+issue = 42
+files = 528
+tokenizes = 528
+lexer_diagnostics = 0
+internal_errors = 0
+tokens = 719304
+nul_terminated_files = 54
+trailing_payload_bytes = 1266852
+
+[[feature]]
 id = "HC-TYPE-PRIMITIVES"
 description = "Supported primitive types retain their raw IDs, byte sizes, signedness, internal storage names, and public union backing."
 sources = [

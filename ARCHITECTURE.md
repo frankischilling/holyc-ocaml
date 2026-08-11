@@ -2,7 +2,7 @@
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
-The current slice has six layers:
+The current slice has seven layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
 - `Frontend` owns token definitions, the audited keyword table, streaming lexical state, canonical include resolution, nested file, definition, and predefined-value frames, `#include`, `#define`, constant `#if` and `#assert` evaluation, mode and symbol conditionals, help-directive metadata, and stable token, definition, symbol-visibility, and help-metadata dumps. The preprocessor expression evaluator uses explicit 64-bit target values and the generated HolyC precedence table. Each preprocessing stream owns its mutable cursors, one-token expression lookahead, conditional stack, current help index, ordered help-file records, selected compilation mode, deterministic date and time settings, command-line source state, generated-byte budget, expression-node budget, and ordered pending diagnostics. The session owns source IDs, the source-ordered definition environment, and a typed view of compiler hash entries. Parser and semantic work can publish declarations to that view between calls to the token stream. It is not the final semantic symbol table.
@@ -10,8 +10,9 @@ The current slice has six layers:
 - `Sema` currently exposes primitive type identity, compiler-option metadata, and the audited function-flag model. Declaration resolution, conversions, call checking, and aggregate layout have not entered this layer yet.
 - `Ir` currently exposes the exhaustive intermediate-code identity and source metadata table. Instructions, control flow, verification, lowering, and execution have not entered this layer yet.
 - `Backend` currently exposes the audited TempleOS BIN header, patch-record, relocation, loader-action, and AOT-adjustment specification. It does not contain a serializer, loader, or code emitter yet.
+- `Driver` owns compilation sessions, build identity, and deterministic corpus scans. A verified corpus scan checks the reference worktree before and after the run, enumerates the pinned Git tree, and reads committed objects so checkout line endings cannot change its result.
 
-`holyc_lib` exposes the supported high-level entry points. `preprocess_detailed` returns tokens, every diagnostic, and per-stream help metadata so callers can keep nonfatal warnings and compiler annotations together. The older `preprocess` convenience result remains available when only tokens and fatal errors matter. The command-line program calls the same detailed path exercised by the CLI golden tests.
+`holyc_lib` exposes the supported high-level entry points. `preprocess_detailed` returns tokens, every diagnostic, and per-stream help metadata so callers can keep nonfatal warnings and compiler annotations together. The older `preprocess` convenience result remains available when only tokens and fatal errors matter. `Corpus.lex_reference` returns every per-file lexer result and aggregate byte, token, terminator, and payload count. The command-line program uses the same library paths exercised by the CLI golden tests.
 
 Later frontend work will route nonconstant preprocessor expressions and general `#exe` blocks through semantic analysis, verified IR, and the compile-time VM. Parsing, semantic analysis, IR instructions and verification, interpretation, optimization, assembly, hosted code generation, and TempleOS module emission follow after that. A stage enters the supported list only after its verifier boundary and focused tests exist.
 

@@ -12,6 +12,10 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 `Kernel/StrA.HC` shows that the lexer is byte oriented. Identifier starts include ASCII letters, underscore, at sign, and bytes 128 through 255. Digits are accepted after the first byte. The hosted lexer preserves non-ASCII bytes rather than requiring UTF-8.
 
+`LexGetChar` treats byte zero as the end of its current buffer. Several committed `.HC` files place an inserted binary payload after that terminator. The corpus lexer enables this behavior explicitly and records the terminator offset and trailing byte count. The ordinary hosted lexer keeps its stricter embedded-NUL diagnostic for untrusted standalone source.
+
+The `KW_DEFINE` replacement loop removes backslash followed by LF or CR, including CRLF. `Compiler/LexLib.HC:LexExtStr` also consumes an immediate backslash before it asks the normal lexer for the next string. `Kernel/KernelA.HH` uses the first form in continued definitions, and `Kernel/KernelC.HH` uses the second form in help metadata. The raw lexer retains these newline forms as `line-continuation` trivia. A backslash without a following line ending remains an invalid source byte.
+
 ## Include paths and source frames
 
 The `KW_INCLUDE` branch in `Compiler/Lex.HC:Lex` requires a string token, calls `ExtDft` with `HC.Z`, resolves the result through `FileNameAbs`, and pushes the file with `LexIncludeStr`. `Doc/PreProcessor.DD` rules out a C-style angle-bracket form.
@@ -209,7 +213,7 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 
 ## Interpretation decisions
 
-- Files are finite OCaml byte strings. An embedded NUL is diagnosed because TempleOS uses NUL as an internal buffer terminator.
+- Files are finite OCaml byte strings. Ordinary hosted lexing diagnoses an embedded NUL. The verified corpus path can instead apply the pinned buffer-termination rule and reports every trailing payload byte.
 - Lines increment on LF, matching `LexGetChar`. CR is whitespace but does not start a new line by itself.
 - A raw lexer command returns `#` as punctuation. `#include` and `#define` execute only through the separate preprocessed stream, so tooling can still inspect directive and replacement tokens.
 - Extensionless hosted includes try `.HC.Z` and then the decompressed `.HC` form used by the pinned Git checkout. Transparent TempleOS `.Z` decompression remains unimplemented.
