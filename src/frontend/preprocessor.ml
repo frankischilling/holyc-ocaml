@@ -4,10 +4,17 @@ let compilation_mode_name = function
   | Jit -> "jit"
   | Aot -> "aot"
 
+type conditional_recovery = Hosted_strict | Templeos_permissive
+
+let conditional_recovery_name = function
+  | Hosted_strict -> "hosted-strict"
+  | Templeos_permissive -> "templeos-permissive"
+
 module Config = struct
   type t = {
     resolver : Include_resolver.t;
     compilation_mode : compilation_mode;
+    conditional_recovery : conditional_recovery;
     max_conditional_depth : int;
     max_include_depth : int;
     max_source_bytes : int;
@@ -22,7 +29,8 @@ module Config = struct
       ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024)
       ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024)
       ?(max_expression_nodes = 512) ?predefined_date ?predefined_time
-      ?(command_line_source = false) () =
+      ?(command_line_source = false) ?(conditional_recovery = Hosted_strict) ()
+      =
     if max_conditional_depth < 0 then
       Error "conditional depth limit must be nonnegative"
     else if max_include_depth < 0 then
@@ -52,6 +60,7 @@ module Config = struct
                 {
                   resolver;
                   compilation_mode;
+                  conditional_recovery;
                   max_conditional_depth;
                   max_include_depth;
                   max_source_bytes;
@@ -63,6 +72,7 @@ module Config = struct
 
   let resolver config = config.resolver
   let compilation_mode config = config.compilation_mode
+  let conditional_recovery config = config.conditional_recovery
   let max_conditional_depth config = config.max_conditional_depth
   let max_include_depth config = config.max_include_depth
   let max_source_bytes config = config.max_source_bytes
@@ -108,6 +118,7 @@ type output = {
   tokens : Token.t list;
   diagnostics : Common.Diagnostic.t list;
   help_metadata : Help_metadata.t;
+  conditional_recovery : conditional_recovery;
 }
 
 let create ~sources ~definitions ~symbols ~config source =
@@ -261,8 +272,14 @@ let opener_related conditional : Common.Diagnostic.related =
         (Keyword.spelling conditional.keyword);
   }
 
-let conditional_else stream token =
+let uses_templeos_recovery stream =
+  Config.conditional_recovery stream.config = Templeos_permissive
+
+let conditional_else stream hash token =
   match stream.conditionals with
+  | [] when uses_templeos_recovery stream ->
+      push_conditional ~parent_active:true ~valid:false stream hash token
+        Keyword.Else false
   | [] ->
       Error
         (diagnostic stream ~code:"HCPP0015"
@@ -272,6 +289,9 @@ let conditional_else stream token =
       match conditional.branch with
       | Then_branch ->
           conditional.branch <- Else_branch;
+          Ok ()
+      | Else_branch when uses_templeos_recovery stream ->
+          conditional.valid <- false;
           Ok ()
       | Else_branch ->
           conditional.valid <- false;
@@ -284,6 +304,7 @@ let conditional_else stream token =
 
 let conditional_endif stream token =
   match stream.conditionals with
+  | [] when uses_templeos_recovery stream -> Ok ()
   | [] ->
       Error
         (diagnostic stream ~code:"HCPP0017"
@@ -1008,7 +1029,7 @@ let directive stream ~inactive hash =
       match token.Token.kind with
       | Token_kind.Keyword keyword when is_conditional_opener keyword ->
           enter_conditional stream ~inactive hash token keyword
-      | Token_kind.Keyword Keyword.Else -> conditional_else stream token
+      | Token_kind.Keyword Keyword.Else -> conditional_else stream hash token
       | Token_kind.Keyword Keyword.Endif -> conditional_endif stream token
       | _ when inactive -> Ok ()
       | Token_kind.Keyword Keyword.Assert ->
@@ -1035,9 +1056,13 @@ let directive stream ~inactive hash =
       | _ -> Error (expected_directive stream token))
 
 let finish_eof stream token =
-  match finish_conditionals stream with
-  | None -> Lexer.Token token
-  | Some item -> Lexer.Diagnostic item
+  if uses_templeos_recovery stream then (
+    stream.conditionals <- [];
+    Lexer.Token token)
+  else
+    match finish_conditionals stream with
+    | None -> Lexer.Token token
+    | Some item -> Lexer.Diagnostic item
 
 let rec next stream =
   match stream.pending_diagnostics with
@@ -1111,6 +1136,7 @@ let collect_all ~sources ~definitions ~symbols ~config source =
           tokens = List.rev (token :: tokens);
           diagnostics = List.rev diagnostics;
           help_metadata = stream.help_metadata;
+          conditional_recovery = Config.conditional_recovery config;
         }
     | Lexer.Token token -> collect (token :: tokens) diagnostics
     | Lexer.Diagnostic item -> collect tokens (item :: diagnostics)
@@ -1121,6 +1147,53 @@ let has_errors output =
   List.exists
     (fun item -> item.Common.Diagnostic.severity = Common.Diagnostic.Error)
     output.diagnostics
+
+let report_schema = "holyc-preprocessor-report-v1"
+
+let diagnostic_counts diagnostics =
+  List.fold_left
+    (fun (errors, warnings, notes) diagnostic ->
+      match diagnostic.Common.Diagnostic.severity with
+      | Common.Diagnostic.Error -> (errors + 1, warnings, notes)
+      | Common.Diagnostic.Warning -> (errors, warnings + 1, notes)
+      | Common.Diagnostic.Note -> (errors, warnings, notes + 1))
+    (0, 0, 0) diagnostics
+
+let report_to_yojson ~reference_commit output =
+  let errors, warnings, notes = diagnostic_counts output.diagnostics in
+  `Assoc
+    [
+      ("schema", `String report_schema);
+      ("templeos_reference", `String reference_commit);
+      ( "conditional_recovery",
+        `String (conditional_recovery_name output.conditional_recovery) );
+      ("tokens_including_eof", `Int (List.length output.tokens));
+      ( "diagnostics",
+        `Assoc
+          [
+            ("total", `Int (List.length output.diagnostics));
+            ("errors", `Int errors);
+            ("warnings", `Int warnings);
+            ("notes", `Int notes);
+          ] );
+    ]
+
+let report_json ~reference_commit output =
+  report_to_yojson ~reference_commit output |> Yojson.Safe.pretty_to_string
+
+let report_human ~reference_commit output =
+  let errors, warnings, notes = diagnostic_counts output.diagnostics in
+  let buffer = Buffer.create 192 in
+  Printf.bprintf buffer "%s\n" report_schema;
+  Printf.bprintf buffer "templeos-reference %s\n" reference_commit;
+  Printf.bprintf buffer "conditional-recovery %s\n"
+    (conditional_recovery_name output.conditional_recovery);
+  Printf.bprintf buffer "tokens-including-eof %d\n" (List.length output.tokens);
+  Printf.bprintf buffer "diagnostics %d\n" (List.length output.diagnostics);
+  Printf.bprintf buffer "errors %d\n" errors;
+  Printf.bprintf buffer "warnings %d\n" warnings;
+  Printf.bprintf buffer "notes %d\n" notes;
+  Buffer.contents buffer
 
 let lex_all ~sources ~definitions ~symbols ~config source =
   let output = collect_all ~sources ~definitions ~symbols ~config source in

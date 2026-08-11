@@ -1,0 +1,94 @@
+{
+  "schema": "holyc-conditional-recovery-cases-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "source_references": [
+    "Compiler/Lex.HC:Lex KW_ELSE",
+    "Compiler/Lex.HC:lex_else",
+    "Compiler/Lex.HC:Lex KW_IFJIT",
+    "Compiler/Lex.HC:Lex KW_ENDIF",
+    "Kernel/KernelA.HH:CCF_IN_IF"
+  ],
+  "native_oracle": {
+    "status": "pending",
+    "reason": "The cases are source-derived until a controlled TempleOS run records the native token and diagnostic counters."
+  },
+  "cases": [
+    {
+      "id": "stray-else",
+      "fixture": "negative/conditional-stray-else.hc",
+      "boundary": { "line": 2, "column": 1 },
+      "hosted_strict": {
+        "tokens": ["dropped", "kept"],
+        "error_count": 2,
+        "warning_count": 0,
+        "diagnostics": [
+          { "code": "HCPP0015", "line": 2, "column": 2 },
+          { "code": "HCPP0017", "line": 2, "column": 16 }
+        ]
+      },
+      "templeos_permissive": {
+        "tokens": ["kept"],
+        "error_count": 0,
+        "warning_count": 0,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "stray-endif",
+      "fixture": "negative/conditional-stray-endif.hc",
+      "boundary": { "line": 2, "column": 1 },
+      "hosted_strict": {
+        "tokens": ["kept"],
+        "error_count": 1,
+        "warning_count": 0,
+        "diagnostics": [
+          { "code": "HCPP0017", "line": 2, "column": 2 }
+        ]
+      },
+      "templeos_permissive": {
+        "tokens": ["kept"],
+        "error_count": 0,
+        "warning_count": 0,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "duplicate-else",
+      "fixture": "negative/conditional-duplicate-else.hc",
+      "boundary": { "line": 2, "column": 33 },
+      "hosted_strict": {
+        "tokens": ["selected", "kept"],
+        "error_count": 1,
+        "warning_count": 0,
+        "diagnostics": [
+          { "code": "HCPP0016", "line": 2, "column": 34 }
+        ]
+      },
+      "templeos_permissive": {
+        "tokens": ["selected", "kept"],
+        "error_count": 0,
+        "warning_count": 0,
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "eof-before-endif",
+      "fixture": "negative/conditional-unterminated.hc",
+      "boundary": { "line": 2, "column": 1 },
+      "hosted_strict": {
+        "tokens": [],
+        "error_count": 1,
+        "warning_count": 0,
+        "diagnostics": [
+          { "code": "HCPP0018", "line": 2, "column": 1 }
+        ]
+      },
+      "templeos_permissive": {
+        "tokens": [],
+        "error_count": 0,
+        "warning_count": 0,
+        "diagnostics": []
+      }
+    }
+  ]
+}

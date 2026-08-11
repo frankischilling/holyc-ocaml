@@ -55,6 +55,17 @@ let print_help_metadata format session metadata =
       Holyc_lib.Help_metadata.json (Holyc_lib.Session.sources session) metadata
       |> print_endline
 
+let print_preprocessor_report format output =
+  match format with
+  | Human ->
+      Holyc_lib.Preprocessor.report_human
+        ~reference_commit:Holyc_lib.Version.reference_commit output
+      |> output_string stdout
+  | Json ->
+      Holyc_lib.Preprocessor.report_json
+        ~reference_commit:Holyc_lib.Version.reference_commit output
+      |> print_endline
+
 let lex_file format path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
@@ -164,6 +175,23 @@ let compilation_mode_argument =
     & opt (enum values) Holyc_lib.Preprocessor.Jit
     & info [ "mode" ] ~docv:"MODE" ~doc:documentation)
 
+let conditional_recovery_argument =
+  let values =
+    [
+      ("hosted-strict", Holyc_lib.Preprocessor.Hosted_strict);
+      ("templeos", Holyc_lib.Preprocessor.Templeos_permissive);
+    ]
+  in
+  let documentation =
+    "Choose how unmatched conditional boundaries recover. hosted-strict \
+     reports each mismatch. templeos follows the pinned Lex scan, which may \
+     discard source without a diagnostic."
+  in
+  Arg.(
+    value
+    & opt (enum values) Holyc_lib.Preprocessor.Hosted_strict
+    & info [ "conditional-recovery" ] ~docv:"POLICY" ~doc:documentation)
+
 let predefined_date_argument =
   let documentation =
     "Set the deterministic MM/DD/YY string returned by __DATE__."
@@ -193,37 +221,56 @@ let dump_help_metadata_argument =
   in
   Arg.(value & flag & info [ "dump-help-metadata" ] ~doc:documentation)
 
-let preprocess_file format dump_help_metadata include_roots templeos_root
-    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+let dump_preprocessor_report_argument =
+  let documentation =
+    "Print a versioned preprocessing report, including the conditional \
+     recovery policy, instead of tokens."
+  in
+  Arg.(value & flag & info [ "dump-preprocessor-report" ] ~doc:documentation)
+
+let preprocess_file format dump_help_metadata dump_preprocessor_report
+    include_roots templeos_root max_include_depth max_source_bytes
+    max_definition_depth max_generated_bytes max_conditional_depth
+    max_expression_nodes compilation_mode conditional_recovery predefined_date
     predefined_time command_line_source path =
-  let session = Holyc_lib.Session.create () in
-  match Holyc_lib.Session.load_source session ~path with
-  | Error message ->
-      Printf.eprintf "holyc: could not read %s: %s\n" path message;
-      1
-  | Ok source -> (
-      match
-        Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
-          ~include_roots ?templeos_root ~compilation_mode ~max_include_depth
-          ~max_source_bytes ~max_definition_depth ~max_generated_bytes
-          ~max_conditional_depth ~max_expression_nodes ~predefined_date
-          ~predefined_time ~command_line_source ()
-      with
-      | Error message ->
-          Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
-            message;
-          1
-      | Ok config ->
-          let output = Holyc_lib.preprocess_detailed session ~config ~source in
-          if output.diagnostics <> [] then
-            print_diagnostics format session output.diagnostics;
-          if Holyc_lib.Preprocessor.has_errors output then 1
-          else (
-            if dump_help_metadata then
-              print_help_metadata format session output.help_metadata
-            else print_tokens format session output.tokens;
-            0))
+  if dump_help_metadata && dump_preprocessor_report then (
+    Printf.eprintf
+      "holyc: choose either --dump-help-metadata or --dump-preprocessor-report\n";
+    1)
+  else
+    let session = Holyc_lib.Session.create () in
+    match Holyc_lib.Session.load_source session ~path with
+    | Error message ->
+        Printf.eprintf "holyc: could not read %s: %s\n" path message;
+        1
+    | Ok source -> (
+        match
+          Holyc_lib.Preprocessor.Config.create
+            ~working_directory:(Sys.getcwd ()) ~include_roots ?templeos_root
+            ~compilation_mode ~conditional_recovery ~max_include_depth
+            ~max_source_bytes ~max_definition_depth ~max_generated_bytes
+            ~max_conditional_depth ~max_expression_nodes ~predefined_date
+            ~predefined_time ~command_line_source ()
+        with
+        | Error message ->
+            Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
+              message;
+            1
+        | Ok config ->
+            let output =
+              Holyc_lib.preprocess_detailed session ~config ~source
+            in
+            if output.diagnostics <> [] then
+              print_diagnostics format session output.diagnostics;
+            if dump_preprocessor_report then
+              print_preprocessor_report format output;
+            if Holyc_lib.Preprocessor.has_errors output then 1
+            else (
+              if dump_help_metadata then
+                print_help_metadata format session output.help_metadata
+              else if not dump_preprocessor_report then
+                print_tokens format session output.tokens;
+              0))
 
 let preprocess_command =
   let documentation =
@@ -236,10 +283,11 @@ let preprocess_command =
   Cmd.v info
     Term.(
       const preprocess_file $ format_argument $ dump_help_metadata_argument
-      $ include_roots_argument $ templeos_root_argument $ include_depth_argument
-      $ include_bytes_argument $ definition_depth_argument
-      $ generated_bytes_argument $ conditional_depth_argument
-      $ expression_nodes_argument $ compilation_mode_argument
+      $ dump_preprocessor_report_argument $ include_roots_argument
+      $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
+      $ definition_depth_argument $ generated_bytes_argument
+      $ conditional_depth_argument $ expression_nodes_argument
+      $ compilation_mode_argument $ conditional_recovery_argument
       $ predefined_date_argument $ predefined_time_argument
       $ command_line_source_argument $ file_argument)
 

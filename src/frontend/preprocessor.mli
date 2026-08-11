@@ -2,6 +2,13 @@ type compilation_mode = Jit | Aot
 
 val compilation_mode_name : compilation_mode -> string
 
+(** [Hosted_strict] reports unmatched boundaries. [Templeos_permissive] follows
+    the pinned lexer's silent scan and EOF behavior. Hosted limits remain active
+    under both policies. *)
+type conditional_recovery = Hosted_strict | Templeos_permissive
+
+val conditional_recovery_name : conditional_recovery -> string
+
 module Config : sig
   type t
 
@@ -19,11 +26,13 @@ module Config : sig
     ?predefined_date:string ->
     ?predefined_time:string ->
     ?command_line_source:bool ->
+    ?conditional_recovery:conditional_recovery ->
     unit ->
     (t, string) result
 
   val resolver : t -> Include_resolver.t
   val compilation_mode : t -> compilation_mode
+  val conditional_recovery : t -> conditional_recovery
   val max_conditional_depth : t -> int
   val max_include_depth : t -> int
   val max_source_bytes : t -> int
@@ -39,6 +48,7 @@ type output = {
   tokens : Token.t list;
   diagnostics : Common.Diagnostic.t list;
   help_metadata : Help_metadata.t;
+  conditional_recovery : conditional_recovery;
 }
 (** Tokens and diagnostics collected from one complete stream. The token list
     includes EOF, diagnostics retain their source order, and help metadata is
@@ -68,6 +78,13 @@ val collect_all :
 val has_errors : output -> bool
 (** [has_errors output] is true when at least one diagnostic has error severity.
     Warnings and notes do not make the output fatal. *)
+
+val report_human : reference_commit:string -> output -> string
+val report_to_yojson : reference_commit:string -> output -> Yojson.Safe.t
+
+val report_json : reference_commit:string -> output -> string
+(** Versioned preprocessing reports. Callers must pass the exact TempleOS
+    reference commit used for the compatibility result. *)
 
 val lex_all :
   sources:Common.Source_manager.t ->

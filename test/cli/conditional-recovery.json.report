@@ -1,0 +1,7 @@
+{
+  "schema": "holyc-preprocessor-report-v1",
+  "templeos_reference": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "conditional_recovery": "templeos-permissive",
+  "tokens_including_eof": 2,
+  "diagnostics": { "total": 0, "errors": 0, "warnings": 0, "notes": 0 }
+}

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPP0017",
+    "severity": "error",
+    "message": "found #endif without an active conditional",
+    "primary": {
+      "path": "cli/conditional-recovery.hc",
+      "line": 2,
+      "column": 2,
+      "source_id": 0,
+      "start": 53,
+      "stop": 58
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": "Remove #endif or add its opening conditional."
+  }
+]
