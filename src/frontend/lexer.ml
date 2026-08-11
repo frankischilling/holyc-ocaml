@@ -268,6 +268,29 @@ let make_token lexer leading_trivia ~kind ~value start =
     mode = lexer.mode;
   }
 
+let scan_to_directive_marker lexer =
+  let rec scan () =
+    match peek lexer 0 with
+    | None -> Ok None
+    | Some '\x00' ->
+        let start = lexer.offset in
+        ignore (advance lexer);
+        Error
+          (make_diagnostic lexer ~code:"HCLEX0006"
+             ~message:"embedded NUL byte in source" ~start ~stop:lexer.offset ())
+    | Some '#' ->
+        let start = lexer.offset in
+        ignore (advance lexer);
+        Ok
+          (Some
+             (make_token lexer [] ~kind:(Token_kind.Punctuation '#')
+                ~value:Token.No_value start))
+    | Some _ ->
+        ignore (advance lexer);
+        scan ()
+  in
+  scan ()
+
 let hex_digit byte =
   match Char.uppercase_ascii byte with
   | '0' .. '9' as digit -> Some (Char.code digit - Char.code '0')

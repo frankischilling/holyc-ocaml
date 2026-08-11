@@ -1,6 +1,14 @@
+type compilation_mode = Jit | Aot
+
+let compilation_mode_name = function
+  | Jit -> "jit"
+  | Aot -> "aot"
+
 module Config = struct
   type t = {
     resolver : Include_resolver.t;
+    compilation_mode : compilation_mode;
+    max_conditional_depth : int;
     max_include_depth : int;
     max_source_bytes : int;
     max_definition_depth : int;
@@ -8,10 +16,13 @@ module Config = struct
   }
 
   let create ?working_directory ?include_roots ?templeos_root
+      ?(compilation_mode = Jit) ?(max_conditional_depth = 64)
       ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024)
       ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024) ()
       =
-    if max_include_depth < 0 then
+    if max_conditional_depth < 0 then
+      Error "conditional depth limit must be nonnegative"
+    else if max_include_depth < 0 then
       Error "include depth limit must be nonnegative"
     else if max_source_bytes < 0 then
       Error "included source size limit must be nonnegative"
@@ -29,6 +40,8 @@ module Config = struct
           Ok
             {
               resolver;
+              compilation_mode;
+              max_conditional_depth;
               max_include_depth;
               max_source_bytes;
               max_definition_depth;
@@ -36,11 +49,26 @@ module Config = struct
             }
 
   let resolver config = config.resolver
+  let compilation_mode config = config.compilation_mode
+  let max_conditional_depth config = config.max_conditional_depth
   let max_include_depth config = config.max_include_depth
   let max_source_bytes config = config.max_source_bytes
   let max_definition_depth config = config.max_definition_depth
   let max_generated_bytes config = config.max_generated_bytes
 end
+
+type conditional_branch = Then_branch | Else_branch
+
+type conditional = {
+  keyword : Keyword.t;
+  opener : Common.Span.t;
+  parent_active : bool;
+  condition : bool;
+  mutable branch : conditional_branch;
+  mutable valid : bool;
+  include_stack : Common.Diagnostic.related list;
+  definition_trace : Common.Diagnostic.related list;
+}
 
 type t = {
   sources : Common.Source_manager.t;
@@ -48,6 +76,9 @@ type t = {
   config : Config.t;
   mutable current : Lexer_frame.t;
   mutable generated_bytes : int;
+  mutable conditionals : conditional list;
+  mutable conditional_poisoned : bool;
+  mutable pending_diagnostics : Common.Diagnostic.t list;
 }
 
 let create ~sources ~definitions ~config source =
@@ -57,6 +88,9 @@ let create ~sources ~definitions ~config source =
     config;
     current = Lexer_frame.root ~mode:Token.Holyc source;
     generated_bytes = 0;
+    conditionals = [];
+    conditional_poisoned = false;
+    pending_diagnostics = [];
   }
 
 let zero_span source =
@@ -77,6 +111,116 @@ let decorate_lexer_diagnostic stream (item : Common.Diagnostic.t) =
     Common.Diagnostic.include_stack = Lexer_frame.include_stack stream.current;
     secondary = item.secondary @ Lexer_frame.definition_trace stream.current;
   }
+
+let current_active stream =
+  if stream.conditional_poisoned then false
+  else
+    match stream.conditionals with
+    | [] -> true
+    | conditional :: _ -> (
+        conditional.valid && conditional.parent_active
+        &&
+        match conditional.branch with
+        | Then_branch -> conditional.condition
+        | Else_branch -> not conditional.condition)
+
+let directive_span hash token =
+  if Common.Source_id.equal hash.Token.span.source token.Token.span.source then
+    Common.Span.unsafe_make ~source:hash.Token.span.source
+      ~start:hash.Token.span.start ~stop:token.Token.span.stop
+  else token.Token.span
+
+let push_conditional ?parent_active ?(valid = true) stream hash token keyword
+    condition =
+  let limit = Config.max_conditional_depth stream.config in
+  if List.length stream.conditionals >= limit then (
+    stream.conditionals <- [];
+    stream.conditional_poisoned <- true;
+    Error
+      (diagnostic stream ~code:"HCPP0019"
+         ~message:
+           (Printf.sprintf "#%s would exceed the conditional depth limit of %d"
+              (Keyword.spelling keyword) limit)
+         ~help:"Raise the conditional depth limit only for trusted source."
+         token.Token.span))
+  else
+    let parent_active =
+      Option.value parent_active ~default:(current_active stream)
+    in
+    let conditional =
+      {
+        keyword;
+        opener = directive_span hash token;
+        parent_active;
+        condition;
+        branch = Then_branch;
+        valid;
+        include_stack = Lexer_frame.include_stack stream.current;
+        definition_trace = Lexer_frame.definition_trace stream.current;
+      }
+    in
+    stream.conditionals <- conditional :: stream.conditionals;
+    Ok ()
+
+let opener_related conditional : Common.Diagnostic.related =
+  {
+    span = conditional.opener;
+    message =
+      Printf.sprintf "the #%s conditional starts here"
+        (Keyword.spelling conditional.keyword);
+  }
+
+let conditional_else stream token =
+  match stream.conditionals with
+  | [] ->
+      Error
+        (diagnostic stream ~code:"HCPP0015"
+           ~message:"found #else without an active conditional"
+           ~help:"Remove #else or add its opening conditional." token.Token.span)
+  | conditional :: _ -> (
+      match conditional.branch with
+      | Then_branch ->
+          conditional.branch <- Else_branch;
+          Ok ()
+      | Else_branch ->
+          conditional.valid <- false;
+          Error
+            (diagnostic stream
+               ~secondary:[ opener_related conditional ]
+               ~code:"HCPP0016" ~message:"this conditional already has an #else"
+               ~help:"Keep one #else branch for each conditional."
+               token.Token.span))
+
+let conditional_endif stream token =
+  match stream.conditionals with
+  | [] ->
+      Error
+        (diagnostic stream ~code:"HCPP0017"
+           ~message:"found #endif without an active conditional"
+           ~help:"Remove #endif or add its opening conditional."
+           token.Token.span)
+  | _ :: rest ->
+      stream.conditionals <- rest;
+      Ok ()
+
+let unterminated_conditional conditional =
+  Common.Diagnostic.make ~secondary:conditional.definition_trace
+    ~include_stack:conditional.include_stack ~code:"HCPP0018"
+    ~severity:Common.Diagnostic.Error
+    ~message:
+      (Printf.sprintf "#%s has no matching #endif"
+         (Keyword.spelling conditional.keyword))
+    ~primary:conditional.opener
+    ~help:"Add #endif before the end of the preprocessing stream." ()
+
+let finish_conditionals stream =
+  match List.rev stream.conditionals with
+  | [] -> None
+  | first :: rest ->
+      stream.conditionals <- [];
+      stream.pending_diagnostics <-
+        List.map unterminated_conditional rest @ stream.pending_diagnostics;
+      Some (unterminated_conditional first)
 
 let token_text token =
   match token.Token.value with
@@ -380,11 +524,39 @@ let include_path stream token =
         (diagnostic stream ~code:"HCPP0002"
            ~message:"expected a quoted path after #include" token.Token.span)
 
-let directive stream hash =
+let is_conditional_opener = function
+  | Keyword.If | Keyword.Ifdef | Keyword.Ifndef | Keyword.Ifaot | Keyword.Ifjit
+    -> true
+  | _ -> false
+
+let mode_condition stream = function
+  | Keyword.Ifaot -> Config.compilation_mode stream.config = Aot
+  | Keyword.Ifjit -> Config.compilation_mode stream.config = Jit
+  | _ -> false
+
+let enter_conditional stream hash token keyword =
+  match keyword with
+  | Keyword.Ifaot | Keyword.Ifjit ->
+      push_conditional stream hash token keyword (mode_condition stream keyword)
+  | Keyword.If | Keyword.Ifdef | Keyword.Ifndef ->
+      if current_active stream then
+        Result.bind
+          (push_conditional ~parent_active:false ~valid:false stream hash token
+             keyword false) (fun () ->
+            Error (unsupported_directive stream token keyword))
+      else push_conditional stream hash token keyword false
+  | _ -> invalid_arg "expected a conditional opener"
+
+let directive stream ~inactive hash =
   match next_expanded stream with
   | Lexer.Diagnostic item -> Error item
   | Lexer.Token token -> (
       match token.Token.kind with
+      | Token_kind.Keyword keyword when is_conditional_opener keyword ->
+          enter_conditional stream hash token keyword
+      | Token_kind.Keyword Keyword.Else -> conditional_else stream token
+      | Token_kind.Keyword Keyword.Endif -> conditional_endif stream token
+      | _ when inactive -> Ok ()
       | Token_kind.Keyword Keyword.Include -> (
           match next_expanded stream with
           | Lexer.Diagnostic item -> Error item
@@ -402,13 +574,47 @@ let directive stream hash =
       | Token_kind.Eof -> Error (expected_directive stream hash)
       | _ -> Error (expected_directive stream token))
 
+let finish_eof stream token =
+  match finish_conditionals stream with
+  | None -> Lexer.Token token
+  | Some item -> Lexer.Diagnostic item
+
 let rec next stream =
+  match stream.pending_diagnostics with
+  | item :: rest ->
+      stream.pending_diagnostics <- rest;
+      Lexer.Diagnostic item
+  | [] ->
+      if current_active stream then next_active stream else next_inactive stream
+
+and next_active stream =
   match next_expanded stream with
   | Lexer.Token token when token.Token.kind = Token_kind.Punctuation '#' -> (
-      match directive stream token with
+      match directive stream ~inactive:false token with
       | Ok () -> next stream
       | Error item -> Lexer.Diagnostic item)
+  | Lexer.Token token when token.Token.kind = Token_kind.Eof ->
+      finish_eof stream token
   | item -> item
+
+and next_inactive stream =
+  match Lexer.scan_to_directive_marker (Lexer_frame.lexer stream.current) with
+  | Error item -> Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
+  | Ok (Some _) when stream.conditional_poisoned -> next stream
+  | Ok (Some hash) -> (
+      match directive stream ~inactive:true hash with
+      | Ok () -> next stream
+      | Error item -> Lexer.Diagnostic item)
+  | Ok None -> (
+      match Lexer_frame.caller stream.current with
+      | Some caller ->
+          stream.current <- caller;
+          next stream
+      | None -> (
+          match Lexer.next (Lexer_frame.lexer stream.current) with
+          | Lexer.Token token -> finish_eof stream token
+          | Lexer.Diagnostic item ->
+              Lexer.Diagnostic (decorate_lexer_diagnostic stream item)))
 
 let definitions stream = Definition.Environment.all stream.definitions
 

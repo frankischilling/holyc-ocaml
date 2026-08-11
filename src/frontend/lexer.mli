@@ -18,6 +18,7 @@ val create :
 
 val offset : t -> int
 val capture_definition_replacement : t -> definition_replacement
+val scan_to_directive_marker : t -> (Token.t option, Common.Diagnostic.t) result
 val next : t -> item
 
 val lex_all :
