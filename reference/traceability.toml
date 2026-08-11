@@ -283,11 +283,43 @@ status = "implemented"
 issue = 21
 
 [[feature]]
+id = "HC-PREPROCESSOR-DEFINITION-STRINGS"
+description = "TempleOS #define stores raw replacement text and expands the newest visible definition through a distinct lexical frame with source provenance."
+sources = [
+  "Compiler/Lex.HC:Lex KW_DEFINE",
+  "Compiler/Lex.HC:Lex identifier lookup",
+  "Compiler/Lex.HC:LexIncludeStr",
+  "Compiler/CHash.HC",
+  "Compiler/CExcept.HC:ParenWarning",
+  "Compiler/PrsExp.HC",
+  "Kernel/KernelA.HH:CHashDefineStr",
+  "Kernel/KernelA.HH:LFSF_DEFINE",
+  "Kernel/KDefine.HC",
+  "Kernel/KHashA.HC:HashAdd",
+  "Kernel/KHashA.HC:HashFind",
+  "Kernel/StrA.HC:char_bmp_non_eol_white_space",
+  "Doc/PreProcessor.DD"
+]
+implementation = [
+  "src/frontend/definition.ml",
+  "src/frontend/lexer.ml",
+  "src/frontend/lexer_frame.ml",
+  "src/frontend/preprocessor.ml",
+  "src/frontend/token.ml",
+  "src/driver/session.ml",
+  "bin/holyc.ml"
+]
+tests = ["test/test_preprocessor.ml"]
+status = "implemented"
+issue = 23
+known_difference_issues = [24]
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
   "Compiler/Lex.HC:Lex",
-  "Compiler/Lex.HC:LexHashDefine",
+  "Compiler/Lex.HC:Lex KW_DEFINE",
   "Kernel/KernelA.HH:__DATE__"
 ]
 implementation = []

@@ -1,1 +1,1 @@
-I64 included_value = 42;
+#define INCLUDED_VALUE 42
