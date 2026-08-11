@@ -20,14 +20,6 @@ type declaration_modifier = private {
 }
 
 type identifier = private { spelling : string; location : location }
-type declaration_binding_kind = Extern | Import
-
-type declaration_binding = private {
-  kind : declaration_binding_kind;
-  spelling : string;
-  location : location;
-  target : identifier option;
-}
 
 type primitive_type = private {
   primitive : Sema.Primitive_type.t;
@@ -123,6 +115,20 @@ and binary_expression = private {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+type declaration_binding_kind = Extern | Import | Intern
+
+type declaration_binding_target =
+  | No_binding_target
+  | Symbol_binding_target of identifier
+  | Expression_binding_target of expression
+
+type declaration_binding = private {
+  kind : declaration_binding_kind;
+  spelling : string;
+  location : location;
+  target : declaration_binding_target;
 }
 
 type array_dimension = private {
@@ -230,7 +236,7 @@ val make_declaration_binding :
   kind:declaration_binding_kind ->
   spelling:string ->
   location:location ->
-  target:identifier option ->
+  target:declaration_binding_target ->
   declaration_binding
 
 val make_primitive_type :

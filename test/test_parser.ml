@@ -108,6 +108,18 @@ let expect_parameter_default (parameter : Ast.function_parameter) =
   | Some default -> default
   | None -> Alcotest.fail "expected a parameter default"
 
+let expect_symbol_binding_target (binding : Ast.declaration_binding) =
+  match binding.target with
+  | Ast.Symbol_binding_target target -> target
+  | Ast.No_binding_target | Ast.Expression_binding_target _ ->
+      Alcotest.fail "expected a symbol binding target"
+
+let expect_expression_binding_target (binding : Ast.declaration_binding) =
+  match binding.target with
+  | Ast.Expression_binding_target target -> target
+  | Ast.No_binding_target | Ast.Symbol_binding_target _ ->
+      Alcotest.fail "expected an expression binding target"
+
 let expect_dimension_expression (dimension : Ast.array_dimension) =
   match dimension.dimension_expression with
   | Some expression -> expression
@@ -1182,6 +1194,7 @@ let direct_bindings () =
   let binding_name = function
     | Ast.Extern -> "extern"
     | Ast.Import -> "import"
+    | Ast.Intern -> "intern"
   in
   (match ast.items with
   | [ Ast.Global_variable forwarded; Ast.Global_declaration bits ] ->
@@ -1192,7 +1205,7 @@ let direct_bindings () =
       Alcotest.(check string) "extern spelling" "extern" binding.spelling;
       Alcotest.(check bool)
         "ordinary extern has no alternate target" true
-        (Option.is_none binding.target);
+        (binding.target = Ast.No_binding_target);
       Alcotest.(check int)
         "extern starts at byte zero" 0 binding.location.span.start;
       Alcotest.(check (list string))
@@ -1315,9 +1328,6 @@ let binding_failures () =
       ( "modifier cannot follow binding",
         "extern public I64 wrong_order;",
         "after declaration binding \"extern\"" );
-      ( "underscored intern is not in this slice",
-        "_intern I64 unavailable;",
-        "at the start of a global declaration" );
     ]
 
 let alternate_binding_source_behavior () =
@@ -1362,11 +1372,10 @@ let direct_alternate_bindings () =
         "alternate extern spelling" "_extern" c32_binding.spelling;
       Alcotest.(check string)
         "alternate extern target" "C32_EAX"
-        (c32_binding.target |> Option.get |> fun target -> target.spelling);
+        (expect_symbol_binding_target c32_binding).spelling;
       Alcotest.(check int)
         "target starts after the binding" 8
-        ( c32_binding.target |> Option.get |> fun target ->
-          target.location.span.start );
+        (expect_symbol_binding_target c32_binding).location.span.start;
       Alcotest.(check (list string))
         "group keeps its modifier" [ "public" ]
         (List.map
@@ -1375,7 +1384,7 @@ let direct_alternate_bindings () =
       Alcotest.(check string)
         "group target" "SYS_BOOT_BASE"
         ( boot.binding |> Option.get |> fun binding ->
-          binding.target |> Option.get |> fun target -> target.spelling );
+          (expect_symbol_binding_target binding).spelling );
       Alcotest.(check (list string))
         "group local names"
         [ "boot_base"; "boot_pointer" ]
@@ -1395,7 +1404,7 @@ let direct_alternate_bindings () =
   in
   Alcotest.(check string)
     "alternate import target" "REMOTE_CLOCK"
-    (binding.target |> Option.get |> fun target -> target.spelling)
+    (expect_symbol_binding_target binding).spelling
 
 let definition_backed_alternate_binding () =
   let session, root, output =
@@ -1408,7 +1417,7 @@ let definition_backed_alternate_binding () =
   let binding =
     expect_one_global ast |> fun variable -> Option.get variable.binding
   in
-  let target = Option.get binding.target in
+  let target = expect_symbol_binding_target binding in
   Alcotest.(check bool)
     "binding uses a generated frame" false
     (Source_id.equal binding.location.span.source (Source_file.id root));
@@ -1507,11 +1516,316 @@ let alternate_binding_failures () =
         "_extern TARGET public I64 wrong_order;",
         "HCPARSE0001",
         "after declaration binding \"_extern\"" );
-      ( "underscored intern still needs an expression AST",
-        "_intern IC_BSF I64 unavailable;",
-        "HCPARSE0001",
-        "at the start of a global declaration" );
     ]
+
+let intern_binding_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("_intern keyword branch", "case KW__INTERN:");
+      ("target uses integer expression evaluation", "i=LexExpressionI64(cc);");
+      ( "internal declaration mode",
+        "PrsGlblVarLst(cc,PRS0__INTERN|PRS1_NULL,tmpex,i,fsp_flags);" );
+      ("internal function branch", "case PRS0__INTERN:");
+      ("target becomes the function address", "tmpf->exe_addr=val;");
+      ("internal function flag is set", "Bts(&tmpf->flags,Ff_INTERNAL);");
+      ("extern function flag is cleared", "LBtr(&tmpf->flags,Cf_EXTERN);");
+    ];
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "LexExpressionI64 evaluates and converts F64" true
+    (contains expression_parser "res=ToI64(res(F64));");
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains compiler_header fragment))
+    [
+      ("_intern keyword identity", "#define KW__INTERN\t14");
+      ("internal parser mode", "#define PRS0__INTERN\t\t0x000002");
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_header fragment))
+    [
+      ("extern flag identity", "#define Cf_EXTERN\t\t0");
+      ("internal flag identity", "#define Ff_INTERNAL\t\t12");
+    ];
+  let kernel_api = pinned "Kernel/KernelB.HH" in
+  let intern_declarations =
+    kernel_api |> String.split_on_char '\n'
+    |> List.filter (fun line -> contains line "_intern")
+  in
+  Alcotest.(check int)
+    "pinned _intern declaration count" 60
+    (List.length intern_declarations);
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains kernel_api fragment))
+    [
+      ("bit scan prototype", "public _intern IC_BSF I64 Bsf(");
+      ("bit test prototype", "public _intern IC_BT Bool Bt(");
+      ("floating prototype", "public _intern IC_ATAN F64 ATan(F64 d);");
+      ("parameterless prototype", "public _intern IC_RDTSC I64 GetTSC();");
+    ]
+
+let pinned_intern_bindings () =
+  let source =
+    "public _intern IC_BSF I64 Bsf(I64 bit_field_val);\n\
+     public _intern IC_BT Bool Bt(U8 *bit_field,I64 bit);\n\
+     public _intern IC_ATAN F64 ATan(F64 d);\n\
+     public _intern IC_RDTSC I64 GetTSC();"
+  in
+  let _, _, output = parse_string source in
+  let functions = expect_ast output |> prototypes in
+  Alcotest.(check (list string))
+    "pinned internal function names"
+    [ "Bsf"; "Bt"; "ATan"; "GetTSC" ]
+    (List.map
+       (fun (prototype : Ast.function_prototype) -> prototype.name.spelling)
+       functions);
+  Alcotest.(check (list string))
+    "pinned internal target expressions"
+    [ "IC_BSF"; "IC_BT"; "IC_ATAN"; "IC_RDTSC" ]
+    (List.map
+       (fun (prototype : Ast.function_prototype) ->
+         match expect_expression_binding_target prototype.binding with
+         | Ast.Identifier_expression identifier -> identifier.spelling
+         | _ -> Alcotest.fail "expected a pinned identifier target")
+       functions);
+  let bit_test = List.nth functions 1 in
+  Alcotest.(check int)
+    "bit test parameter count" 2
+    (List.length bit_test.parameters);
+  Alcotest.(check int)
+    "bit field parameter pointer depth" 1
+    (List.length (List.hd bit_test.parameters).pointer_layers);
+  let get_tsc = List.nth functions 3 in
+  Alcotest.(check int)
+    "parameterless internal function" 0
+    (List.length get_tsc.parameters);
+  let _, _, global_output = parse_string "_intern 4096 U64 address;" in
+  let global = expect_ast global_output |> expect_one_global in
+  Alcotest.(check int64)
+    "shared global path retains an integer target" 4096L
+    (global.binding |> Option.get |> expect_expression_binding_target
+   |> expect_integer_expression);
+  let _, _, aot_output =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "_intern IC_RDTSC I64 AotClock();"
+  in
+  ignore (expect_ast aot_output)
+
+let intern_target_expression_registry () =
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "_intern 1%s2 I64 Internal%d();" operator.spelling index
+      in
+      let _, _, output = parse_string source in
+      let binary =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " internal target operator")
+        operator.ic_name binary.binary_operator_spec.ic_name)
+    Operator.binary_operators;
+  let _, _, output = parse_string "_intern -(IC_BSF+1) I64 Adjusted();" in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let prefix =
+    prototype.binding |> expect_expression_binding_target
+    |> expect_prefix_expression
+  in
+  Alcotest.(check string)
+    "prefix target operator" "-" prefix.prefix_operator.operator_spelling;
+  (match prefix.prefix_operand with
+  | Ast.Parenthesized_expression grouped ->
+      ignore (expect_binary_expression grouped.grouped_expression)
+  | _ -> Alcotest.fail "expected a grouped internal target operand");
+  Alcotest.(check bool)
+    "the following type remains the function return type" true
+    (Primitive_type.equal Primitive_type.I64 prototype.return_type.primitive)
+
+let intern_binding_provenance () =
+  let session, root, output =
+    parse_string
+      "#define LINK _intern\n\
+       #define TARGET (IC_BSF+1)\n\
+       LINK TARGET I64 Generated();"
+  in
+  let prototype = expect_ast output |> expect_one_prototype in
+  let binding = prototype.binding in
+  let target = expect_expression_binding_target binding in
+  Alcotest.(check bool)
+    "generated binding leaves the root source" false
+    (Source_id.equal binding.location.span.source (Source_file.id root));
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("binding", binding.location); ("target", Ast.expression_location target);
+    ];
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check string)
+    "JSON target expression kind" "parenthesized"
+    (target_json |> member "kind" |> to_string);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "internal.HC" in
+      write_file root_file "#include \"internal\"";
+      write_file declaration_file "_intern IC_BSF I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let expression =
+        expect_ast include_output |> expect_one_prototype |> fun included ->
+        expect_expression_binding_target included.binding
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          (Ast.expression_location expression).span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included target keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let intern_binding_visibility () =
+  let source =
+    "_intern IC_BSF I64 Declared();\n\
+     #ifdef Declared\n\
+     public U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Function_prototype declared; Ast.Global_variable selected ] ->
+      Alcotest.(check string)
+        "published internal function" "Declared" declared.name.spelling;
+      Alcotest.(check string)
+        "conditional selected global" "selected" selected.name.spelling
+  | items ->
+      Alcotest.failf "expected an internal function and selected global, got %d"
+        (List.length items)
+
+let intern_binding_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected internal name %s became visible" name)
+        rejected_name)
+    [
+      ( "missing target",
+        "_intern ;",
+        None,
+        "HCPARSE0018",
+        "_intern target expression operand" );
+      ( "missing type",
+        "_intern IC_BSF;",
+        None,
+        "HCPARSE0001",
+        "after declaration binding \"_intern\"" );
+      ( "unsupported call target",
+        "_intern Resolve() I64 Called();",
+        Some "Called",
+        "HCPARSE0020",
+        "target expression continuation" );
+      ( "unsupported indexed target",
+        "_intern Table[0] I64 Indexed();",
+        Some "Indexed",
+        "HCPARSE0020",
+        "target expression continuation" );
+      ( "binding cannot repeat",
+        "_intern IC_BSF extern I64 Duplicate();",
+        Some "Duplicate",
+        "HCPARSE0001",
+        "after declaration binding \"_intern\"" );
+      ( "missing declarator",
+        "_intern IC_BSF I64 ;",
+        None,
+        "HCPARSE0002",
+        "expected an identifier" );
+    ];
+  let nesting = Parser.max_expression_depth in
+  let nested_source =
+    Printf.sprintf "_intern %s1%s I64 TooNested();" (String.make nesting '(')
+      (String.make nesting ')')
+  in
+  let nested_session, _, nested_output = parse_string nested_source in
+  Alcotest.(check string)
+    "internal target nesting diagnostic" "HCPARSE0021"
+    (first_diagnostic nested_output).code;
+  Alcotest.(check bool)
+    "internal target nesting message names its context" true
+    (contains (first_diagnostic nested_output).message
+       "_intern target expression nesting");
+  match
+    Symbol_visibility.Environment.find_preprocessor
+      (Session.symbols nested_session)
+      "TooNested"
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the excessive internal target became visible"
+
+let deterministic_intern_dumps () =
+  let session, _, output =
+    parse_string "public _intern (IC_BSF+1) I64 Adjusted(I64 value=0);"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human internal dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON internal dump repeats byte for byte" json
+    (Ast_dump.json sources ast)
 
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -1617,7 +1931,7 @@ let pinned_function_pointer_prototypes () =
   | [ far_call; stack_grow; quicksort ] ->
       Alcotest.(check string)
         "FarCall32 alternate target" "_FAR_CALL32"
-        (far_call.binding.target |> Option.get |> fun target -> target.spelling);
+        (expect_symbol_binding_target far_call.binding).spelling;
       let far_address =
         far_call.parameters |> List.hd |> expect_function_pointer
       in
@@ -1941,7 +2255,7 @@ let direct_function_prototypes () =
         (List.length sys_hlt.parameters);
       Alcotest.(check string)
         "alternate target" "_CALL"
-        (call.binding.target |> Option.get |> fun target -> target.spelling);
+        (expect_symbol_binding_target call.binding).spelling;
       Alcotest.(check (list string))
         "public modifier" [ "public" ]
         (List.map
@@ -3192,6 +3506,18 @@ let tests =
       alternate_import_mode_boundary;
     Alcotest.test_case "alternate-name binding failures" `Quick
       alternate_binding_failures;
+    Alcotest.test_case "pinned _intern binding behavior" `Quick
+      intern_binding_source_behavior;
+    Alcotest.test_case "pinned _intern prototypes" `Quick pinned_intern_bindings;
+    Alcotest.test_case "_intern target expression registry" `Quick
+      intern_target_expression_registry;
+    Alcotest.test_case "_intern binding provenance" `Quick
+      intern_binding_provenance;
+    Alcotest.test_case "_intern binding updates symbol conditionals" `Quick
+      intern_binding_visibility;
+    Alcotest.test_case "_intern binding failures" `Quick intern_binding_failures;
+    Alcotest.test_case "deterministic _intern dumps" `Quick
+      deterministic_intern_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

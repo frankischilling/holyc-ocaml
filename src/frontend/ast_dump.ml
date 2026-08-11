@@ -105,6 +105,7 @@ let literal_value_text = function
 let binding_kind_name = function
   | Ast.Extern -> "extern"
   | Ast.Import -> "import"
+  | Ast.Intern -> "intern"
 
 let print_modifiers buffer sources ~indent modifiers =
   List.iter
@@ -133,20 +134,6 @@ let print_register_qualifiers buffer sources ~indent ~position qualifiers =
               (location_text sources register.location))
           qualifier.explicit_register))
     qualifiers
-
-let print_binding buffer sources ~indent = function
-  | None -> ()
-  | Some (binding : Ast.declaration_binding) ->
-      Printf.bprintf buffer "%sbinding kind=%s spelling=%S span=%s\n" indent
-        (binding_kind_name binding.kind)
-        binding.spelling
-        (location_text sources binding.location);
-      Option.iter
-        (fun (target : Ast.identifier) ->
-          Printf.bprintf buffer "%s  target spelling=%S span=%s\n" indent
-            target.spelling
-            (location_text sources target.location))
-        binding.target
 
 let print_type buffer sources ~indent primitive =
   Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
@@ -236,6 +223,23 @@ and print_expression_operator buffer sources ~indent
   Printf.bprintf buffer "%soperator spelling=%S span=%s\n" indent
     operator.operator_spelling
     (location_text sources operator.operator_location)
+
+let print_binding buffer sources ~indent = function
+  | None -> ()
+  | Some (binding : Ast.declaration_binding) -> (
+      Printf.bprintf buffer "%sbinding kind=%s spelling=%S span=%s\n" indent
+        (binding_kind_name binding.kind)
+        binding.spelling
+        (location_text sources binding.location);
+      match binding.target with
+      | Ast.No_binding_target -> ()
+      | Ast.Symbol_binding_target target ->
+          Printf.bprintf buffer "%s  target spelling=%S span=%s\n" indent
+            target.spelling
+            (location_text sources target.location)
+      | Ast.Expression_binding_target expression ->
+          Printf.bprintf buffer "%s  target_expression\n" indent;
+          print_expression buffer sources ~indent:(indent ^ "    ") expression)
 
 let print_array_dimensions buffer sources ~indent dimensions =
   List.iteri
@@ -516,22 +520,6 @@ let register_qualifier_fields sources qualifiers =
           `List (List.map (register_qualifier_to_yojson sources) qualifiers) );
       ]
 
-let binding_to_yojson sources (binding : Ast.declaration_binding) =
-  `Assoc
-    ([
-       ("kind", `String (binding_kind_name binding.kind));
-       ("spelling", `String binding.spelling);
-       ("location", location_to_yojson sources binding.location);
-     ]
-    @
-    match binding.target with
-    | None -> []
-    | Some target -> [ ("target", identifier_to_yojson sources target) ])
-
-let binding_fields sources = function
-  | None -> []
-  | Some binding -> [ ("binding", binding_to_yojson sources binding) ]
-
 let delimiter_to_yojson sources (delimiter : Ast.declaration_delimiter) =
   `Assoc
     [
@@ -629,6 +617,25 @@ let rec expression_to_yojson sources = function
           ("right", expression_to_yojson sources binary.binary_right);
           ("location", location_to_yojson sources binary.binary_location);
         ]
+
+let binding_to_yojson sources (binding : Ast.declaration_binding) =
+  `Assoc
+    ([
+       ("kind", `String (binding_kind_name binding.kind));
+       ("spelling", `String binding.spelling);
+       ("location", location_to_yojson sources binding.location);
+     ]
+    @
+    match binding.target with
+    | Ast.No_binding_target -> []
+    | Ast.Symbol_binding_target target ->
+        [ ("target", identifier_to_yojson sources target) ]
+    | Ast.Expression_binding_target expression ->
+        [ ("target_expression", expression_to_yojson sources expression) ])
+
+let binding_fields sources = function
+  | None -> []
+  | Some binding -> [ ("binding", binding_to_yojson sources binding) ]
 
 let array_dimension_to_yojson sources (dimension : Ast.array_dimension) =
   `Assoc

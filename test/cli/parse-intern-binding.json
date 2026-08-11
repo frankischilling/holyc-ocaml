@@ -1,0 +1,700 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-intern-binding.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 53
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "modifiers": [
+          {
+            "kind": "public",
+            "spelling": "public",
+            "location": {
+              "span": {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 0,
+                  "stop": 6
+                }
+              ]
+            }
+          }
+        ],
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 14
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 8,
+                "source_id": 0,
+                "start": 7,
+                "stop": 14
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "parenthesized",
+            "opening_parenthesis": {
+              "span": {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 16,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                }
+              ]
+            },
+            "expression": {
+              "kind": "binary",
+              "left": {
+                "kind": "identifier",
+                "spelling": "IC_BSF",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 22
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-intern-binding.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 22
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "+",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 23
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-intern-binding.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 23
+                    }
+                  ]
+                }
+              },
+              "precedence": "PREC_ADD",
+              "precedence_value": 36,
+              "association": "unspecified",
+              "ic": "IC_ADD",
+              "source_line": 302,
+              "right": {
+                "kind": "integer_literal",
+                "spelling": "1",
+                "value": "0x0000000000000001",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-intern-binding.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 24
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 22
+                  },
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  }
+                ]
+              }
+            },
+            "closing_parenthesis": {
+              "span": {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 25,
+                "source_id": 0,
+                "start": 24,
+                "stop": 25
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 16,
+                "source_id": 0,
+                "start": 15,
+                "stop": 25
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 22
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 27,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 27,
+                "source_id": 0,
+                "start": 26,
+                "stop": 29
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Adjusted",
+          "location": {
+            "span": {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 38
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 31,
+                "source_id": 0,
+                "start": 30,
+                "stop": 38
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-intern-binding.hc",
+            "line": 1,
+            "column": 39,
+            "source_id": 0,
+            "start": 38,
+            "stop": 39
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 42
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 42
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "value",
+              "location": {
+                "span": {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 44,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 48
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 44,
+                    "source_id": 0,
+                    "start": 43,
+                    "stop": 48
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 48,
+                  "stop": 49
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 49,
+                    "source_id": 0,
+                    "start": 48,
+                    "stop": 49
+                  }
+                ]
+              },
+              "value": {
+                "kind": "integer_literal",
+                "spelling": "0",
+                "value": "0x0000000000000000",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 50
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-intern-binding.hc",
+                      "line": 1,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 50
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 48,
+                  "stop": 50
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 49,
+                    "source_id": 0,
+                    "start": 48,
+                    "stop": 49
+                  },
+                  {
+                    "path": "cli/parse-intern-binding.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 50
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-intern-binding.hc",
+                "line": 1,
+                "column": 40,
+                "source_id": 0,
+                "start": 39,
+                "stop": 50
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 42
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 44,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 48
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 48,
+                  "stop": 49
+                },
+                {
+                  "path": "cli/parse-intern-binding.hc",
+                  "line": 1,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 50
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-intern-binding.hc",
+            "line": 1,
+            "column": 51,
+            "source_id": 0,
+            "start": 50,
+            "stop": 51
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 51,
+              "source_id": 0,
+              "start": 50,
+              "stop": 51
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-intern-binding.hc",
+            "line": 1,
+            "column": 52,
+            "source_id": 0,
+            "start": 51,
+            "stop": 52
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 52,
+              "source_id": 0,
+              "start": 51,
+              "stop": 52
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-intern-binding.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 52
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 22
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 23,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 27,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 38
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 42
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 44,
+              "source_id": 0,
+              "start": 43,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 49,
+              "source_id": 0,
+              "start": 48,
+              "stop": 49
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 50,
+              "source_id": 0,
+              "start": 49,
+              "stop": 50
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 51,
+              "source_id": 0,
+              "start": 50,
+              "stop": 51
+            },
+            {
+              "path": "cli/parse-intern-binding.hc",
+              "line": 1,
+              "column": 52,
+              "source_id": 0,
+              "start": 51,
+              "stop": 52
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

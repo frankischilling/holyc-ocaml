@@ -20,14 +20,6 @@ type declaration_modifier = {
 }
 
 type identifier = { spelling : string; location : location }
-type declaration_binding_kind = Extern | Import
-
-type declaration_binding = {
-  kind : declaration_binding_kind;
-  spelling : string;
-  location : location;
-  target : identifier option;
-}
 
 type primitive_type = {
   primitive : Sema.Primitive_type.t;
@@ -118,6 +110,20 @@ and binary_expression = {
   binary_operator_spec : Operator.binary_operator;
   binary_right : expression;
   binary_location : location;
+}
+
+type declaration_binding_kind = Extern | Import | Intern
+
+type declaration_binding_target =
+  | No_binding_target
+  | Symbol_binding_target of identifier
+  | Expression_binding_target of expression
+
+type declaration_binding = {
+  kind : declaration_binding_kind;
+  spelling : string;
+  location : location;
+  target : declaration_binding_target;
 }
 
 type array_dimension = {
@@ -220,7 +226,7 @@ let make_declaration_modifier ~(kind : declaration_modifier_kind) ~spelling
   { kind; spelling; location }
 
 let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
-    ~location ~target : declaration_binding =
+    ~location ~(target : declaration_binding_target) : declaration_binding =
   { kind; spelling; location; target }
 
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
