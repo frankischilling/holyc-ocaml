@@ -825,9 +825,53 @@ lastclass_default_status = "planned"
 register_parameter_status = "planned"
 function_pointer_parameter_status = "planned"
 array_parameter_status = "rejected to match PrsArrayDims"
+calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
 function_body_status = "planned"
 linkage_resolution_status = "planned"
 abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-CALLING-MODIFIERS"
+description = "Bound prototypes retain ordered interrupt, haserrcode, argpop, and noargpop prefixes with source provenance."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt calling modifier cases",
+  "Compiler/PrsStmt.HC:PrsFunJoin function flag transfer",
+  "Compiler/CompilerA.HH:KW_INTERRUPT through KW_NOARGPOP",
+  "Compiler/CompilerA.HH:FSF_INTERRUPT through FSG_FUN_FLAGS2",
+  "Kernel/KernelA.HH:Ff_INTERRUPT through Ff_NOARGPOP",
+  "Kernel/KernelC.HH:17-18",
+  "Doc/HolyC.DD:function flags"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/sema/function_flag.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/test_function_flag.ml",
+  "test/cli/parse-function-modifiers.hc",
+  "test/cli/parse-function-modifiers.human",
+  "test/cli/parse-function-modifiers.json",
+  "test/cli/parse-function-modifier-error.hc",
+  "test/cli/parse-function-modifier-error.human",
+  "test/cli/parse-function-modifier-error.json"
+]
+status = "implemented"
+issue = 63
+ast_schema = "holyc-ast-v1"
+accepted_modifiers = ["interrupt", "haserrcode", "argpop", "noargpop"]
+source_order = "preserved"
+definition_provenance = "preserved"
+transition_replay = "checked with Sema.Function_flag.apply_modifier"
+interrupt_implicit_noargpop = "checked"
+static_reset = "checked"
+function_symbol_publication = "after the complete semicolon"
+stored_flag_application = "planned"
+semantic_validation = "planned"
+abi_status = "planned"
+function_body_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-ALTERNATE-BINDINGS"
