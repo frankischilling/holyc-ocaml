@@ -33,6 +33,12 @@
  (modules intermediate_code_source)
  (libraries digestif))
 
+(library
+ (name function_flag_tools)
+ (wrapped false)
+ (modules function_flag_source)
+ (libraries digestif))
+
 (executable
  (name opcode_table_gen)
  (modules opcode_table_gen)
@@ -58,6 +64,11 @@
  (modules intermediate_code_gen)
  (libraries intermediate_code_tools yojson))
 
+(executable
+ (name function_flag_gen)
+ (modules function_flag_gen)
+ (libraries function_flag_tools yojson))
+
 (rule
  (alias generated-check)
  (deps
@@ -74,6 +85,36 @@
    --output
    %{dep:../src/generated/opcode_keywords.ml}
    --check)))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/FunSeg.HC
+  ../third_party/TempleOS/Compiler/CompilerA.HH
+  ../third_party/TempleOS/Compiler/PrsStmt.HC
+  ../third_party/TempleOS/Compiler/PrsVar.HC
+  ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Compiler/OptPass3.HC
+  ../third_party/TempleOS/Compiler/OptPass6.HC
+  ../third_party/TempleOS/Compiler/OptPass789A.HC
+  ../src/generated/function_flags.ml
+  ../src/generated/function_flags.mli)
+ (action
+  (chdir
+   %{workspace_root}
+   (run
+    %{exe:function_flag_gen.exe}
+    --reference-root
+    third_party/TempleOS
+    --manifest
+    reference/manifest.json
+    --output-ml
+    src/generated/function_flags.ml
+    --output-mli
+    src/generated/function_flags.mli
+    --check))))
 
 (rule
  (alias generated-check)
