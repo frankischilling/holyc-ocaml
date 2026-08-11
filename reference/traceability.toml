@@ -155,6 +155,28 @@ tests = [
 status = "implemented"
 
 [[feature]]
+id = "HC-IR-OPCODE-SPECIFICATION"
+description = "Every pinned intermediate-code value has a distinct OCaml constructor with exact argument, result, structural, floating-pop, constant-folding, naming, and source metadata."
+sources = [
+  "Compiler/CompilerA.HH:CIntermediateStruct",
+  "Compiler/CompilerA.HH:IC_END",
+  "Compiler/CInit.HC:intermediate_code_table",
+  "Compiler/OptPass012.HC:OptPass012",
+  "Compiler/OptLib.HC:CmpF1PushPop"
+]
+implementation = [
+  "src/generated/intermediate_codes.ml",
+  "src/ir/opcode.ml",
+  "tools/intermediate_code_source.ml",
+  "tools/intermediate_code_gen.ml"
+]
+tests = [
+  "test/test_intermediate_code_source.ml",
+  "test/test_intermediate_code.ml"
+]
+status = "implemented"
+
+[[feature]]
 id = "HC-DIAGNOSTIC-LEXER"
 description = "Lexical failures carry stable codes, source spans, and rendered source context."
 sources = ["Compiler/CExcept.HC:LexExcept", "Compiler/CExcept.HC:LexPutPos"]

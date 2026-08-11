@@ -73,6 +73,32 @@ The audited core consumers establish these phase assignments:
 
 `tools/compiler_option_source.ml` validates the definitions, source comments, initial mask, public API, `_BEQU` behavior, and core references while ignoring occurrences in comments and literals. `tools/compiler_option_gen.ml` writes the pinned checksums and line references to `src/generated/compiler_options.ml`. `Sema.Compiler_option` provides immutable lookup and mask operations. It does not yet connect these values to a compiler controller or implement their downstream effects.
 
+## Intermediate-code operation table
+
+`Compiler/CompilerA.HH` defines `IC_END` at `0x00` through `IC_ATAN` at `0xB8`, followed by `IC_ICS_NUM` at `0xB9`. The numeric range is contiguous. The same file defines four argument shapes and four structural categories in `CIntermediateStruct`.
+
+`Compiler/CInit.HC:intermediate_code_table` supplies one record per code. Each record contains the argument shape, result count, structural category, `fpop`, `not_const`, three zero padding bytes, and a display name. `Compiler/OptPass012.HC` uses the argument count to rebuild expression trees, sets `CCF_NOT_CONST` from `not_const`, and pushes results according to `res_cnt`. `Compiler/OptLib.HC` uses `fpop` while arranging floating-stack behavior. Other parser, optimizer, diagnostic, and backend units also query these fields.
+
+The `IC_*` constant name and the display name are not interchangeable. Thirteen records differ:
+
+| Numeric code | Constant | Display name |
+| ---: | --- | --- |
+| `0x8F` | `IC_BR_EQU_EQU2` | `BR_2EQU_EQU` |
+| `0x90` | `IC_BR_NOT_EQU2` | `BR_2NOT_EQU` |
+| `0x91` | `IC_BR_LESS2` | `BR_2LESS` |
+| `0x92` | `IC_BR_GREATER_EQU2` | `BR_2GREATER_EQU` |
+| `0x93` | `IC_BR_GREATER2` | `BR_2GREATER` |
+| `0x94` | `IC_BR_LESS_EQU2` | `BR_2LESS_EQU` |
+| `0xA8` | `IC_SWAP_I64` | `SWAP_U64` |
+| `0xAB` | `IC_MIN_I64` | `I64_MIN` |
+| `0xAC` | `IC_MIN_U64` | `U64_MIN` |
+| `0xAD` | `IC_MAX_I64` | `I64_MAX` |
+| `0xAE` | `IC_MAX_U64` | `U64_MAX` |
+| `0xB0` | `IC_SQR_I64` | `SQRI64` |
+| `0xB1` | `IC_SQR_U64` | `SQRU64` |
+
+`tools/intermediate_code_source.ml` parses both tables without deriving one name from the other. `tools/intermediate_code_gen.ml` emits an exhaustive `Ir.Opcode.t` variant, typed metadata, safe lookups, pinned checksums, and original line numbers. The checked table is an input to future IR work; it does not yet classify complete side effects, represent operands, or make any opcode executable.
+
 ## Literals
 
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.
