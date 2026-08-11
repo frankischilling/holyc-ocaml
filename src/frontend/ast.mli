@@ -74,7 +74,19 @@ type global_declaration = private {
   location : location;
 }
 
+type register_qualifier_kind = Reg | Noreg
+type register_qualifier_position = Before_type | After_type
+
+type register_qualifier = private {
+  kind : register_qualifier_kind;
+  position : register_qualifier_position;
+  spelling : string;
+  explicit_register : identifier option;
+  location : location;
+}
+
 type function_parameter = private {
+  register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
@@ -82,7 +94,11 @@ type function_parameter = private {
   location : location;
 }
 
-type variadic_marker = private { spelling : string; location : location }
+type variadic_marker = private {
+  register_qualifiers : register_qualifier list;
+  spelling : string;
+  location : location;
+}
 
 type function_prototype = private {
   modifiers : declaration_modifier list;
@@ -172,7 +188,16 @@ val make_global_declaration :
   location:location ->
   global_declaration
 
+val make_register_qualifier :
+  kind:register_qualifier_kind ->
+  position:register_qualifier_position ->
+  spelling:string ->
+  explicit_register:identifier option ->
+  location:location ->
+  register_qualifier
+
 val make_function_parameter :
+  register_qualifiers:register_qualifier list ->
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier option ->
@@ -181,7 +206,10 @@ val make_function_parameter :
   function_parameter
 
 val make_variadic_marker :
-  spelling:string -> location:location -> variadic_marker
+  register_qualifiers:register_qualifier list ->
+  spelling:string ->
+  location:location ->
+  variadic_marker
 
 val make_function_prototype :
   modifiers:declaration_modifier list ->

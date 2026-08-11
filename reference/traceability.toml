@@ -822,7 +822,7 @@ variadic_marker_status = "implemented"
 function_symbol_publication = "after the complete semicolon"
 default_argument_status = "planned"
 lastclass_default_status = "planned"
-register_parameter_status = "planned"
+register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
 function_pointer_parameter_status = "planned"
 array_parameter_status = "rejected to match PrsArrayDims"
 calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
@@ -872,6 +872,66 @@ stored_flag_application = "planned"
 semantic_validation = "planned"
 abi_status = "planned"
 function_body_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
+description = "Bound function parameters retain source-positioned reg and noreg qualifiers, including explicit canonical U64 register requests."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst pvl_restart1 and pvl_restart3",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/CInit.HC:ST_U64_REGS",
+  "Compiler/OpCodes.DD:R64 register records",
+  "Compiler/CompilerA.HH:KW_REG, KW_NOREG, and PRS1_FUN_ARG",
+  "Kernel/KernelA.HH:REG_NONE, REG_ALLOC, and REG_UNDEF",
+  "Doc/HolyC.DD:register variables",
+  "Doc/Options.DD:OPTf_NO_REG_VAR"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-register-parameters.hc",
+  "test/cli/parse-register-parameters.human",
+  "test/cli/parse-register-parameters.json",
+  "test/cli/parse-register-parameter-error.hc",
+  "test/cli/parse-register-parameter-error.human",
+  "test/cli/parse-register-parameter-error.json"
+]
+status = "implemented"
+issue = 65
+ast_schema = "holyc-ast-v1"
+accepted_qualifiers = ["reg", "noreg"]
+accepted_positions = ["before_type", "after_type"]
+explicit_registers = [
+  "RAX",
+  "RCX",
+  "RDX",
+  "RBX",
+  "RSP",
+  "RBP",
+  "RSI",
+  "RDI",
+  "R8",
+  "R9",
+  "R10",
+  "R11",
+  "R12",
+  "R13",
+  "R14",
+  "R15"
+]
+explicit_register_source = "first checked R64 record for each register number"
+assembler_alias_consumption = "disabled"
+source_order = "preserved"
+definition_provenance = "preserved"
+qualified_variadic_status = "implemented"
+misplaced_qualifier_diagnostic = "HCPARSE0013"
+semantic_request_resolution = "planned"
+register_allocation_status = "planned"
+compiler_option_effect = "planned"
 
 [[feature]]
 id = "HC-PARSER-ALTERNATE-BINDINGS"

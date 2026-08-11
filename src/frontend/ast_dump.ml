@@ -63,6 +63,14 @@ let modifier_kind_name = function
   | Ast.Argument_pop -> "argpop"
   | Ast.No_argument_pop -> "noargpop"
 
+let register_qualifier_kind_name = function
+  | Ast.Reg -> "reg"
+  | Ast.Noreg -> "noreg"
+
+let register_qualifier_position_name = function
+  | Ast.Before_type -> "before_type"
+  | Ast.After_type -> "after_type"
+
 let binding_kind_name = function
   | Ast.Extern -> "extern"
   | Ast.Import -> "import"
@@ -75,6 +83,25 @@ let print_modifiers buffer sources ~indent modifiers =
         modifier.spelling
         (location_text sources modifier.location))
     modifiers
+
+let print_register_qualifiers buffer sources ~indent ~position qualifiers =
+  List.iter
+    (fun (qualifier : Ast.register_qualifier) ->
+      if qualifier.position = position then (
+        Printf.bprintf buffer
+          "%sregister_qualifier kind=%s position=%s spelling=%S span=%s\n"
+          indent
+          (register_qualifier_kind_name qualifier.kind)
+          (register_qualifier_position_name qualifier.position)
+          qualifier.spelling
+          (location_text sources qualifier.location);
+        Option.iter
+          (fun (register : Ast.identifier) ->
+            Printf.bprintf buffer "%s  explicit_register spelling=%S span=%s\n"
+              indent register.spelling
+              (location_text sources register.location))
+          qualifier.explicit_register))
+    qualifiers
 
 let print_binding buffer sources ~indent = function
   | None -> ()
@@ -172,8 +199,12 @@ let human sources module_ =
             (fun index (parameter : Ast.function_parameter) ->
               Printf.bprintf buffer "    parameter index=%d span=%s\n" index
                 (location_text sources parameter.location);
+              print_register_qualifiers buffer sources ~indent:"      "
+                ~position:Ast.Before_type parameter.register_qualifiers;
               print_type buffer sources ~indent:"      "
                 parameter.type_specifier;
+              print_register_qualifiers buffer sources ~indent:"      "
+                ~position:Ast.After_type parameter.register_qualifiers;
               print_pointer_layers buffer sources ~indent:"      "
                 parameter.pointer_layers;
               (match parameter.name with
@@ -183,10 +214,10 @@ let human sources module_ =
                     (location_text sources name.location)
               | None -> Buffer.add_string buffer "      name omitted\n");
               Option.iter
-                (fun delimiter ->
+                (fun (delimiter : Ast.declaration_delimiter) ->
                   Printf.bprintf buffer
                     "      delimiter kind=%s spelling=%S span=%s\n"
-                    (delimiter_kind_name delimiter.Ast.kind)
+                    (delimiter_kind_name delimiter.kind)
                     delimiter.spelling
                     (location_text sources delimiter.location))
                 parameter.delimiter)
@@ -195,7 +226,9 @@ let human sources module_ =
             (fun variadic ->
               Printf.bprintf buffer "    variadic spelling=%S span=%s\n"
                 variadic.Ast.spelling
-                (location_text sources variadic.location))
+                (location_text sources variadic.location);
+              print_register_qualifiers buffer sources ~indent:"      "
+                ~position:Ast.Before_type variadic.register_qualifiers)
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
             (location_text sources prototype.closing_parenthesis);
@@ -288,6 +321,29 @@ let modifier_fields sources modifiers =
   | modifiers ->
       [ ("modifiers", `List (List.map (modifier_to_yojson sources) modifiers)) ]
 
+let register_qualifier_to_yojson sources (qualifier : Ast.register_qualifier) =
+  `Assoc
+    ([
+       ("kind", `String (register_qualifier_kind_name qualifier.kind));
+       ( "position",
+         `String (register_qualifier_position_name qualifier.position) );
+       ("spelling", `String qualifier.spelling);
+     ]
+    @ (match qualifier.explicit_register with
+      | None -> []
+      | Some register ->
+          [ ("explicit_register", identifier_to_yojson sources register) ])
+    @ [ ("location", location_to_yojson sources qualifier.location) ])
+
+let register_qualifier_fields sources qualifiers =
+  match qualifiers with
+  | [] -> []
+  | qualifiers ->
+      [
+        ( "register_qualifiers",
+          `List (List.map (register_qualifier_to_yojson sources) qualifiers) );
+      ]
+
 let binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc
     ([
@@ -323,7 +379,8 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
 
 let parameter_to_yojson sources (parameter : Ast.function_parameter) =
   `Assoc
-    ([ ("type", primitive_to_yojson sources parameter.type_specifier) ]
+    (register_qualifier_fields sources parameter.register_qualifiers
+    @ [ ("type", primitive_to_yojson sources parameter.type_specifier) ]
     @ pointer_layer_fields sources parameter.pointer_layers
     @ (match parameter.name with
       | None -> []
@@ -336,10 +393,9 @@ let parameter_to_yojson sources (parameter : Ast.function_parameter) =
 
 let variadic_to_yojson sources (variadic : Ast.variadic_marker) =
   `Assoc
-    [
-      ("spelling", `String variadic.spelling);
-      ("location", location_to_yojson sources variadic.location);
-    ]
+    ([ ("spelling", `String variadic.spelling) ]
+    @ register_qualifier_fields sources variadic.register_qualifiers
+    @ [ ("location", location_to_yojson sources variadic.location) ])
 
 let item_to_yojson sources = function
   | Ast.Global_variable variable ->
