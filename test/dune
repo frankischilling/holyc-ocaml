@@ -8,16 +8,21 @@
   test_version
   test_opcode_table_source
   test_primitive_type_source
-  test_primitive_type)
+  test_primitive_type
+  test_operator_table_source
+  test_operator_table)
  (libraries
   alcotest
   holyc_lib
   opcode_table_tools
+  operator_table_tools
   primitive_type_tools
   qcheck-alcotest)
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
   ../third_party/TempleOS/Compiler/CInit.HC
+  ../third_party/TempleOS/Compiler/CompilerA.HH
+  ../third_party/TempleOS/Compiler/Lex.HC
   ../third_party/TempleOS/Kernel/KernelA.HH
   (glob_files golden/*)
   (glob_files negative/*)))

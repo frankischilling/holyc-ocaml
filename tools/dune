@@ -15,6 +15,12 @@
  (modules primitive_type_source)
  (libraries digestif))
 
+(library
+ (name operator_table_tools)
+ (wrapped false)
+ (modules operator_table_source)
+ (libraries digestif))
+
 (executable
  (name opcode_table_gen)
  (modules opcode_table_gen)
@@ -24,6 +30,11 @@
  (name primitive_type_gen)
  (modules primitive_type_gen)
  (libraries primitive_type_tools yojson))
+
+(executable
+ (name operator_table_gen)
+ (modules operator_table_gen)
+ (libraries operator_table_tools yojson))
 
 (rule
  (alias generated-check)
@@ -60,4 +71,30 @@
    %{dep:../reference/manifest.json}
    --output
    %{dep:../src/generated/primitive_raw_types.ml}
+   --check)))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Compiler/CompilerA.HH
+  ../third_party/TempleOS/Compiler/CInit.HC
+  ../third_party/TempleOS/Compiler/Lex.HC
+  ../src/generated/operator_tables.ml)
+ (action
+  (run
+   %{exe:operator_table_gen.exe}
+   --kernel
+   %{dep:../third_party/TempleOS/Kernel/KernelA.HH}
+   --compiler
+   %{dep:../third_party/TempleOS/Compiler/CompilerA.HH}
+   --cinit
+   %{dep:../third_party/TempleOS/Compiler/CInit.HC}
+   --lex
+   %{dep:../third_party/TempleOS/Compiler/Lex.HC}
+   --manifest
+   %{dep:../reference/manifest.json}
+   --output
+   %{dep:../src/generated/operator_tables.ml}
    --check)))
