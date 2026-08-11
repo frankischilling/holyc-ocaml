@@ -4,6 +4,7 @@ let () =
       ("source", Test_source.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
+      ("parser", Test_parser.tests);
       ("conditional expressions", Test_conditional_expression.tests);
       ("assert directives", Test_assert_directive.tests);
       ("help directives", Test_help_directive.tests);

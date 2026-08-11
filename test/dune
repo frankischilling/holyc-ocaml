@@ -5,6 +5,7 @@
   test_source
   test_lexer
   test_preprocessor
+  test_parser
   test_conditional_expression
   test_assert_directive
   test_help_directive
@@ -198,3 +199,63 @@
      lex
      --reference-root=%{env:DUNE_SOURCEROOT=}/third_party/TempleOS))
    (diff cli/corpus-lexer.human corpus-lexer.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-globals.human.actual)
+ (deps cli/parse-globals.hc cli/parse-globals.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-globals.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-globals.hc))
+   (diff cli/parse-globals.human parse-globals.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-globals.json.actual)
+ (deps cli/parse-globals.hc cli/parse-globals.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-globals.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-globals.hc))
+   (diff cli/parse-globals.json parse-globals.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-error.human.actual parse-error.human.stdout.actual)
+ (deps cli/parse-error.hc cli/parse-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-error.human.stdout.actual
+    (with-stderr-to
+     parse-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-error.hc))))
+   (diff cli/parse-error.human parse-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-error.json.actual parse-error.json.stdout.actual)
+ (deps cli/parse-error.hc cli/parse-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-error.json.stdout.actual
+    (with-stderr-to
+     parse-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-error.hc))))
+   (diff cli/parse-error.json parse-error.json.actual))))
