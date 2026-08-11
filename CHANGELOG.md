@@ -18,3 +18,4 @@
 - Added deterministic, provenance-carrying expansions for `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__`, with explicit CLI overrides and shared generated-text limits.
 - Added deterministic full-tree lexer corpus reports over the exact pinned Git blobs. All 528 `.HC`, `.HH`, and `.PRJ` files tokenize without a diagnostic or crash, with NUL terminators and trailing payload bytes reported explicitly.
 - Added the first spanned AST and parser for empty input and ordered direct primitive global variables, with integrated preprocessing, provenance-aware `HCPARSE` diagnostics, deterministic human and JSON dumps, library entry points, and `parse` and `dump-ast` commands.
+- Added explicit pointer layers for primitive global declarations, including the pinned four-star limit, definition-generated source provenance, stable depth and function-pointer diagnostics, and human and JSON CLI goldens.

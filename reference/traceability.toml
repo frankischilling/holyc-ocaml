@@ -644,6 +644,37 @@ accepted_grammar = "module := (primitive identifier ';')*"
 remaining_parser_issues = [46, 47, 48]
 
 [[feature]]
+id = "HC-PARSER-POINTER-GLOBALS"
+description = "Primitive global declarations may carry one through four pointer stars before the identifier, with each star represented as an ordered, source-linked AST layer."
+sources = [
+  "Kernel/KernelA.HH:PTR_STARS_NUM",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CExcept.HC:ICClassPut"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-pointers.hc",
+  "test/cli/parse-pointers.human",
+  "test/cli/parse-pointers.json",
+  "test/cli/parse-pointer-errors.hc",
+  "test/cli/parse-pointer-errors.human",
+  "test/cli/parse-pointer-errors.json"
+]
+status = "implemented"
+issue = 51
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-variable := primitive pointer-star{0,4} identifier ';'"
+max_pointer_depth = 4
+semantic_pointer_status = "planned"
+function_pointer_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

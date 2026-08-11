@@ -31,12 +31,25 @@ let segments_are_covered (location : Ast.location) =
 
 let location_text sources (location : Ast.location) =
   let primary = span_text sources location.Ast.span in
-  if segments_are_covered location then primary
-  else
-    Printf.sprintf "%s segments=[%s]" primary
-      (location.source_segments
-      |> List.map (span_text sources)
-      |> String.concat ",")
+  let segments =
+    if segments_are_covered location then ""
+    else
+      Printf.sprintf " segments=[%s]"
+        (location.source_segments
+        |> List.map (span_text sources)
+        |> String.concat ",")
+  in
+  let generated_from =
+    match location.generated_from with
+    | None -> ""
+    | Some span -> Printf.sprintf " generated_from=%s" (span_text sources span)
+  in
+  let defined_at =
+    match location.defined_at with
+    | None -> ""
+    | Some span -> Printf.sprintf " defined_at=%s" (span_text sources span)
+  in
+  primary ^ segments ^ generated_from ^ defined_at
 
 let human sources module_ =
   let buffer = Buffer.create 256 in
@@ -54,6 +67,13 @@ let human sources module_ =
             (Sema.Primitive_type.to_string variable.type_specifier.primitive)
             variable.type_specifier.spelling
             (location_text sources variable.type_specifier.location);
+          List.iter
+            (fun pointer ->
+              Printf.bprintf buffer
+                "    pointer_layer depth=%d spelling=%S span=%s\n"
+                pointer.Ast.depth pointer.spelling
+                (location_text sources pointer.location))
+            variable.pointer_layers;
           Printf.bprintf buffer "    name spelling=%S span=%s\n"
             variable.name.spelling
             (location_text sources variable.name.location);
@@ -85,11 +105,18 @@ let span_to_yojson sources span =
 
 let location_to_yojson sources (location : Ast.location) =
   `Assoc
-    [
-      ("span", span_to_yojson sources location.Ast.span);
-      ( "source_segments",
-        `List (List.map (span_to_yojson sources) location.source_segments) );
-    ]
+    ([
+       ("span", span_to_yojson sources location.Ast.span);
+       ( "source_segments",
+         `List (List.map (span_to_yojson sources) location.source_segments) );
+     ]
+    @ (match location.generated_from with
+      | None -> []
+      | Some span -> [ ("generated_from", span_to_yojson sources span) ])
+    @
+    match location.defined_at with
+    | None -> []
+    | Some span -> [ ("defined_at", span_to_yojson sources span) ])
 
 let primitive_to_yojson sources primitive =
   `Assoc
@@ -101,23 +128,43 @@ let primitive_to_yojson sources primitive =
       ("location", location_to_yojson sources primitive.location);
     ]
 
-let identifier_to_yojson sources identifier =
+let identifier_to_yojson sources (identifier : Ast.identifier) =
   `Assoc
     [
       ("spelling", `String identifier.Ast.spelling);
       ("location", location_to_yojson sources identifier.location);
     ]
 
+let pointer_layer_to_yojson sources (pointer : Ast.pointer_layer) =
+  `Assoc
+    [
+      ("depth", `Int pointer.Ast.depth);
+      ("spelling", `String pointer.spelling);
+      ("location", location_to_yojson sources pointer.location);
+    ]
+
 let item_to_yojson sources = function
   | Ast.Global_variable variable ->
+      let pointer_layers =
+        match variable.pointer_layers with
+        | [] -> []
+        | pointers ->
+            [
+              ( "pointer_layers",
+                `List (List.map (pointer_layer_to_yojson sources) pointers) );
+            ]
+      in
       `Assoc
-        [
-          ("kind", `String "global_variable");
-          ("type", primitive_to_yojson sources variable.type_specifier);
-          ("name", identifier_to_yojson sources variable.name);
-          ("semicolon", span_to_yojson sources variable.semicolon);
-          ("location", location_to_yojson sources variable.location);
-        ]
+        ([
+           ("kind", `String "global_variable");
+           ("type", primitive_to_yojson sources variable.type_specifier);
+         ]
+        @ pointer_layers
+        @ [
+            ("name", identifier_to_yojson sources variable.name);
+            ("semicolon", span_to_yojson sources variable.semicolon);
+            ("location", location_to_yojson sources variable.location);
+          ])
 
 let to_yojson sources module_ =
   `Assoc

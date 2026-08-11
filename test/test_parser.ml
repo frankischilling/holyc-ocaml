@@ -18,6 +18,20 @@ let write_file path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let read_file path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let pinned path =
+  [ "third_party/TempleOS"; "../third_party/TempleOS" ]
+  |> List.map (fun root -> Filename.concat root path)
+  |> List.find_opt Sys.file_exists
+  |> function
+  | Some source -> read_file source
+  | None -> Alcotest.failf "pinned source is unavailable: %s" path
+
 let config ?include_roots working_directory =
   Preprocessor.Config.create ~working_directory ?include_roots () |> function
   | Ok config -> config
@@ -45,6 +59,12 @@ let expect_one_global ast =
   | [ Ast.Global_variable variable ] -> variable
   | items ->
       Alcotest.failf "expected one global, got %d items" (List.length items)
+
+let globals ast =
+  List.map
+    (function
+      | Ast.Global_variable variable -> variable)
+    ast.Ast.items
 
 let first_diagnostic output =
   match output.Parser.diagnostics with
@@ -74,6 +94,152 @@ let supported_primitives () =
             (Primitive_type.to_string primitive)
             variable.type_specifier.spelling)
     Primitive_type.all ast.items
+
+let pointer_depth_source_limit () =
+  let kernel = pinned "Kernel/KernelA.HH" in
+  let pointer_limit =
+    kernel |> String.split_on_char '\n'
+    |> List.find (fun line ->
+        String.starts_with ~prefix:"#define PTR_STARS_NUM" line)
+    |> fun line -> Scanf.sscanf line "#define PTR_STARS_NUM %d" Fun.id
+  in
+  Alcotest.(check int) "pinned pointer-star limit" 4 pointer_limit;
+  Alcotest.(check int)
+    "parser pointer-star limit" pointer_limit Parser.max_pointer_depth;
+  let parser_source = pinned "Compiler/PrsVar.HC" in
+  Alcotest.(check bool)
+    "PrsType checks the shared limit" true
+    (parser_source |> String.split_on_char '\n'
+    |> List.exists (fun line ->
+        String.equal (String.trim line) "if (++ptr_stars_cnt>PTR_STARS_NUM)"))
+
+let pointer_layers () =
+  let source =
+    "I8 *signed_byte;\nU0 **zero_ptr;\nF64 ***float_ptr;\nBool ****boolean;"
+  in
+  let _, _, output = parse_string source in
+  let variables = expect_ast output |> globals in
+  let expected =
+    [
+      (Primitive_type.I8, "signed_byte", 1);
+      (Primitive_type.U0, "zero_ptr", 2);
+      (Primitive_type.F64, "float_ptr", 3);
+      (Primitive_type.Bool, "boolean", 4);
+    ]
+  in
+  List.iter2
+    (fun (primitive, name, depth) (variable : Ast.global_variable) ->
+      Alcotest.(check bool)
+        (name ^ " base primitive") true
+        (Primitive_type.equal primitive variable.type_specifier.primitive);
+      Alcotest.(check string) (name ^ " identifier") name variable.name.spelling;
+      Alcotest.(check (list int))
+        (name ^ " ordered depths")
+        (List.init depth (fun index -> index + 1))
+        (List.map
+           (fun (pointer : Ast.pointer_layer) -> pointer.depth)
+           variable.pointer_layers);
+      Alcotest.(check (list string))
+        (name ^ " star spellings")
+        (List.init depth (fun _ -> "*"))
+        (List.map
+           (fun (pointer : Ast.pointer_layer) -> pointer.spelling)
+           variable.pointer_layers);
+      List.iter
+        (fun (pointer : Ast.pointer_layer) ->
+          Alcotest.(check int)
+            (name ^ " star width") 1
+            (pointer.location.span.stop - pointer.location.span.start))
+        variable.pointer_layers)
+    expected variables;
+  let signed_byte = List.hd variables in
+  let first_pointer = List.hd signed_byte.pointer_layers in
+  Alcotest.(check int) "first pointer start" 3 first_pointer.location.span.start;
+  Alcotest.(check int) "first pointer stop" 4 first_pointer.location.span.stop
+
+let definition_backed_pointer_layers () =
+  let session, root, output = parse_string "#define PTR **\nU0 PTR value;" in
+  let variable = expect_ast output |> expect_one_global in
+  Alcotest.(check (list int))
+    "two generated pointer depths" [ 1; 2 ]
+    (List.map
+       (fun (pointer : Ast.pointer_layer) -> pointer.depth)
+       variable.pointer_layers);
+  List.iter
+    (fun (pointer : Ast.pointer_layer) ->
+      Alcotest.(check bool)
+        "generated frame differs from the root" false
+        (Source_id.equal pointer.location.span.source (Source_file.id root));
+      let generated_from =
+        pointer.location.generated_from
+        |> Option.value ~default:pointer.location.span
+      in
+      let defined_at =
+        pointer.location.defined_at
+        |> Option.value ~default:pointer.location.span
+      in
+      Alcotest.(check bool)
+        "invocation points into the root" true
+        (Source_id.equal generated_from.source (Source_file.id root));
+      Alcotest.(check bool)
+        "definition points into the root" true
+        (Source_id.equal defined_at.source (Source_file.id root)))
+    variable.pointer_layers;
+  Alcotest.(check int)
+    "declaration retains base, stars, name, and semicolon segments" 5
+    (List.length variable.location.source_segments);
+  let json = Ast_dump.to_yojson (Session.sources session) (expect_ast output) in
+  let open Yojson.Safe.Util in
+  let first_pointer =
+    json |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "pointer_layers" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON retains the invocation" true
+    (first_pointer |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON retains the definition" true
+    (first_pointer |> member "location" |> member "defined_at" <> `Null)
+
+let pointer_failures () =
+  let cases =
+    [
+      ("excessive depth", "I64 *****value;", "HCPARSE0004");
+      ("function pointer", "I64 (*function)();", "HCPARSE0005");
+      ("missing name", "I64 *;", "HCPARSE0002");
+      ("missing semicolon", "I64 *value", "HCPARSE0003");
+    ]
+  in
+  List.iter
+    (fun (name, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " diagnostic") code (first_diagnostic output).code)
+    cases;
+  let _, _, output = parse_string "I64 *****value;" in
+  Alcotest.(check int)
+    "the fifth star is primary" 8 (first_diagnostic output).primary.start
+
+let pointer_declarations_update_symbol_conditionals () =
+  let source =
+    "I64 *declared;\n\
+     #ifdef declared\n\
+     U8 *selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  Alcotest.(check (list string))
+    "the following conditional sees the pointer global"
+    [ "declared"; "selected" ]
+    (List.map
+       (fun (variable : Ast.global_variable) -> variable.name.spelling)
+       (globals ast))
 
 let empty_and_comment_only () =
   List.iter
@@ -222,7 +388,7 @@ let unsupported_forms () =
     [
       ("unknown type", "Widget value;", "HCPARSE0001");
       ("missing name", "I64 ;", "HCPARSE0002");
-      ("pointer", "I64 *value;", "HCPARSE0002");
+      ("array", "I64 value[3];", "HCPARSE0003");
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
       ("function", "I64 Function();", "HCPARSE0003");
@@ -272,6 +438,13 @@ let tests =
   [
     Alcotest.test_case "all public primitive spellings" `Quick
       supported_primitives;
+    Alcotest.test_case "pinned pointer depth" `Quick pointer_depth_source_limit;
+    Alcotest.test_case "pointer layers" `Quick pointer_layers;
+    Alcotest.test_case "definition-backed pointer layers" `Quick
+      definition_backed_pointer_layers;
+    Alcotest.test_case "pointer failures" `Quick pointer_failures;
+    Alcotest.test_case "pointer declarations update symbol conditionals" `Quick
+      pointer_declarations_update_symbol_conditionals;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;

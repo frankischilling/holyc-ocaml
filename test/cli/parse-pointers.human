@@ -1,0 +1,14 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-pointers.hc:1:1..5:1 items=2
+  global_variable span=cli/parse-pointers.hc:3:1..3:17
+    type primitive=I8 spelling="I8" span=cli/parse-pointers.hc:3:1..3:3
+    pointer_layer depth=1 spelling="*" span=cli/parse-pointers.hc:3:4..3:5
+    name spelling="signed_byte" span=cli/parse-pointers.hc:3:5..3:16
+    semicolon span=cli/parse-pointers.hc:3:16..3:17
+  global_variable span=cli/parse-pointers.hc:4:1..4:3 segments=[cli/parse-pointers.hc:4:1..4:3,<definition:00000000:PTR>:1:1..1:2,<definition:00000000:PTR>:1:2..1:3,cli/parse-pointers.hc:4:8..4:16,cli/parse-pointers.hc:4:16..4:17]
+    type primitive=U0 spelling="U0" span=cli/parse-pointers.hc:4:1..4:3
+    pointer_layer depth=1 spelling="*" span=<definition:00000000:PTR>:1:1..1:2 generated_from=cli/parse-pointers.hc:4:4..4:7 defined_at=cli/parse-pointers.hc:2:1..3:1
+    pointer_layer depth=2 spelling="*" span=<definition:00000000:PTR>:1:2..1:3 generated_from=cli/parse-pointers.hc:4:4..4:7 defined_at=cli/parse-pointers.hc:2:1..3:1
+    name spelling="zero_ptr" span=cli/parse-pointers.hc:4:8..4:16
+    semicolon span=cli/parse-pointers.hc:4:16..4:17
