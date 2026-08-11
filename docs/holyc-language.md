@@ -76,6 +76,29 @@ The prose precedence list in `Doc/HolyC.DD` omits `%=`. The executable table inc
 
 Compound recognition is not a flat list in TempleOS. Three ordered arrays resolve shared prefixes, while `Lex` handles `<<=`, `>>=`, `..`, `...`, and `$$` separately. The current lexer consumes the generated spellings in longest-first order, but the generated audit data retains each original recognition group and source line.
 
+## Compiler options
+
+Compiler options are bit indices stored in `CCmpCtrl.opts`. `Compiler/Lex.HC:CmpCtrlNew` initially enables the two warning bits at indices 16 and 19, producing the mask `0x90000`. The source leaves bits 2 through 15 and 20 through 31 unused.
+
+| Source name | Bit | Default | Observed phase | Source note |
+| --- | ---: | --- | --- | --- |
+| `OPTf_ECHO` | 0 | Off | Lexing | — |
+| `OPTf_TRACE` | 1 | Off | Parsing and trace output | — |
+| `OPTf_WARN_UNUSED_VAR` | 16 | On | Function diagnostics | Applied to functions, not statements |
+| `OPTf_WARN_PAREN` | 17 | Off | Diagnostics | Warns about unnecessary parentheses |
+| `OPTf_WARN_DUP_TYPES` | 18 | Off | Parsing and diagnostics | Warns about duplicate local type statements |
+| `OPTf_WARN_HEADER_MISMATCH` | 19 | On | Function declarations | — |
+| `OPTf_EXTERNS_TO_IMPORTS` | 32 | Off | Parsing and linkage | — |
+| `OPTf_KEEP_PRIVATE` | 33 | Off | Symbol registration | — |
+| `OPTf_NO_REG_VAR` | 34 | Off | Optimization | Applied to functions, not statements |
+| `OPTf_GLBLS_ON_DATA_HEAP` | 35 | Off | Allocation | — |
+| `OPTf_NO_BUILTIN_CONST` | 36 | Off | Code emission | Applied to functions, not statements |
+| `OPTf_USE_IMM64` | 37 | Off | Optimization and code emission | Not completely implemented in the pinned source |
+
+HolyC's `Option(bit, state)` changes the current compile controller and returns the bit's previous state. `GetOption(bit)` reads that controller. Nested compilation copies its parent's option mask, so source can temporarily change an option around a declaration or function and then restore the previous value. The pinned kernel, startup, and demo sources use this pattern for linkage, private symbols, global allocation, warning control, and optimization boundaries.
+
+`Sema.Compiler_option` currently provides the checked registry, typed lookup, the initial mask, and a pure form of the previous-state update. It does not yet execute `Option` in HolyC input or change parser, optimizer, or backend behavior.
+
 ## Current boundary
 
-The implemented language specification currently supplies immutable primitive type facts and operator tables. It does not implement expression parsing, type declarations, promotions, conversions, pointers, aggregate layout, floating execution, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification currently supplies immutable primitive type facts, operator tables, and compiler-option facts. It does not implement expression parsing, type declarations, promotions, conversions, pointers, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.

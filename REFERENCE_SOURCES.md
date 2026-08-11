@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, and the relevant language documentation. `Compiler/AsmInit.HC:AsmHashLoad` establishes how the original compiler consumes both generated-table sources. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state and its core consumers, and the relevant language documentation. `Compiler/AsmInit.HC:AsmHashLoad` establishes how the original compiler consumes the keyword and primitive-type sources. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Generated keyword data
 
@@ -58,3 +58,15 @@ dune exec tools/operator_table_gen.exe -- --kernel third_party/TempleOS/Kernel/K
 ```
 
 This generator checks all four source files before parsing them. It preserves the three `dual_U16_tokens` arrays, comment openers, lexer-only shift and dot forms, precedence and association constants, and every `cmp.binary_ops` record. `dune build @generated-check` rejects stale operator output alongside the other generated tables.
+
+## Generated compiler option data
+
+Regenerate the compiler-option registry with:
+
+```text
+dune exec tools/compiler_option_gen.exe -- --reference-root third_party/TempleOS --manifest reference/manifest.json --output src/generated/compiler_options.ml
+```
+
+The generator checks 16 pinned sources before it writes anything. It extracts the 12 `OPTf_*` bit indices from `Kernel/KernelA.HH`, the initial mask from `Compiler/Lex.HC:CmpCtrlNew`, and the `Option`/`GetOption` contract from `Compiler/CMisc.HC` and `Kernel/KUtils.HC:_BEQU`. It also records code references in the lexer, parser, symbol table, optimizer, and backend. Comments and string literals do not count as consumers.
+
+The gaps at bits 2 through 15 and 20 through 31 are retained. `OPTf_USE_IMM64` carries the pinned source's “Not completely implemented” note instead of being presented as finished behavior. The generated registry describes source facts only; later compiler stages must still implement each option's effect.
