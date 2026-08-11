@@ -8,7 +8,7 @@ All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 ## Lexer state
 
-`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the include stack, while `LexGetChar` owns one-byte pushback and line tracking. Root depth is -1 and the first included frame has depth 0. `LexBackupLastChar` saves the caller cursor and one-character lookahead before a push; `LexGetChar` restores that state and continues without an intermediate EOF after an included buffer ends. The OCaml source model stores the full byte buffer and precomputed line starts. Each `Lexer_frame` owns one lexer cursor, its source, caller, include origin, spelling, and depth.
+`Kernel/KernelA.HH` defines `CLexFile` and `CCmpCtrl`. `Compiler/Lex.HC:LexFilePush` maintains the lexical frame stack, while `LexGetChar` owns one-byte pushback and line tracking. Root depth is -1 and the first pushed frame has depth 0. `LexBackupLastChar` saves the caller cursor and one-character lookahead before a push; `LexGetChar` restores that state and continues without an intermediate EOF after a buffer ends. The OCaml source model stores the full byte buffer and precomputed line starts. Each `Lexer_frame` owns one lexer cursor, its source, caller, kind, and relevant include or definition provenance. Hosted include and definition depth are tracked separately.
 
 `Kernel/StrA.HC` shows that the lexer is byte oriented. Identifier starts include ASCII letters, underscore, at sign, and bytes 128 through 255. Digits are accepted after the first byte. The hosted lexer preserves non-ASCII bytes rather than requiring UTF-8.
 
@@ -18,7 +18,17 @@ The `KW_INCLUDE` branch in `Compiler/Lex.HC:Lex` requires a string token, calls 
 
 `Kernel/BlkDev/DskStrA.HC:FileNameAbs` delegates to `DirNameAbs`, which starts relative paths from `Fs->cur_dir`; it does not consult the including file's directory. `DirNameAbs` handles root, `::`, home, drive, dot, and parent components. `ExtDft` adds its default only when no extension is present.
 
-`Frontend.Include_resolver` preserves that working-directory rule and adds ordered hosted include roots. `Frontend.Lexer_frame` retains the active canonical path, display spelling, source ID, cursor, include origin, caller, and source depth. `Frontend.Preprocessor` consumes only `#include` in this slice, pushes the resolved source, and resumes the caller at included EOF. It labels canonical root confinement, cycle checks, and depth and byte caps as hosted security behavior because the pinned lexer does not provide those rejections. [The preprocessor notes](preprocessor.md) record the command, diagnostics, and current directive boundary.
+`Frontend.Include_resolver` preserves that working-directory rule and adds ordered hosted include roots. `Frontend.Lexer_frame` retains the active canonical path, display spelling, source ID, cursor, include origin, caller, and source depth. `Frontend.Preprocessor` pushes the resolved source and resumes the caller at included EOF. It labels canonical root confinement, cycle checks, and depth and byte caps as hosted security behavior because the pinned lexer does not provide those rejections. [The preprocessor notes](preprocessor.md) record the command, diagnostics, and current directive boundary.
+
+## Definition capture and expansion
+
+The `KW_DEFINE` branch in `Compiler/Lex.HC:Lex` sets `CCF_NO_DEFINES` before reading the name. It then skips only space, tab, and byte `0x1f`, as established by `char_bmp_non_eol_white_space` in `Kernel/StrA.HC`. Replacement capture retains raw bytes, removes LF and CRLF continuations, recognizes `//` only outside double quotes, and leaves block comments for the replacement's later lexical pass. Empty and EOF-terminated definitions are valid.
+
+`CHashDefineStr` in `Kernel/KernelA.HH` stores the name, text, source location, and `cnt = -1`. `Compiler/CHash.HC` and `Kernel/KDefine.HC` provide the related definition APIs. `Kernel/KHashA.HC:HashAdd` inserts at the front of a bucket and `HashFind` returns the first match, which makes the newest same-name definition visible while older entries remain allocated.
+
+Identifier recognition in `Compiler/Lex.HC:Lex` checks `HTT_DEFINE_STR` before it returns a token. A match calls `LexIncludeStr` with a copy of the stored text and marks the pushed `CLexFile` with `LFSF_DEFINE`. `Compiler/CExcept.HC:ParenWarning` and `Compiler/PrsExp.HC` inspect that flag, so the OCaml frame model keeps definitions distinct from physical includes for later parser work.
+
+`Frontend.Definition` assigns source-ordered identities, retains replacement spans and byte-segment maps, and keeps both current lookup state and redefinition history. `Driver.Session` owns that environment because the native `CmpCtrlNew` points definition lookup at the task hash table. `Frontend.Preprocessor` creates a logical source for each expansion, adds invocation and declaration provenance to tokens and diagnostics, and resumes the caller at replacement EOF. Active-definition cycle checks and definition depth and byte budgets are hosted security rules; the pinned lexer has no equivalent guard.
 
 ## Tokens and operators
 
@@ -149,7 +159,7 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 
 - Files are finite OCaml byte strings. An embedded NUL is diagnosed because TempleOS uses NUL as an internal buffer terminator.
 - Lines increment on LF, matching `LexGetChar`. CR is whitespace but does not start a new line by itself.
-- A raw lexer command returns `#` as punctuation. `#include` executes only through the separate preprocessed stream, so tooling can still inspect directive tokens.
+- A raw lexer command returns `#` as punctuation. `#include` and `#define` execute only through the separate preprocessed stream, so tooling can still inspect directive and replacement tokens.
 - Extensionless hosted includes try `.HC.Z` and then the decompressed `.HC` form used by the pinned Git checkout. Transparent TempleOS `.Z` decompression remains unimplemented.
 - Allowed-root enforcement, active-path cycle diagnostics, and nesting and size limits are hosted security differences. They are not attributed to the native TempleOS lexer.
 - Dollar-delimited text is retained as comment trivia in raw-source mode. Interpreting DolDoc markup is outside this slice, while `$$` is recognized as the HolyC current-position token.

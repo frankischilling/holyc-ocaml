@@ -2,17 +2,29 @@ type t = {
   source : Common.Source_file.t;
   contents : string;
   mode : Token.mode;
+  generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
   mutable offset : int;
   mutable emitted_eof : bool;
 }
 
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
+type definition_terminator = End_of_line | End_of_file | Nul
 
-let create ?(mode = Token.Raw) source =
+type definition_replacement = {
+  replacement : string;
+  replacement_span : Common.Span.t;
+  segments : Definition.segment list;
+  terminator : definition_terminator;
+}
+
+let create ?(mode = Token.Raw) ?generated_from ?defined_at source =
   {
     source;
     contents = Common.Source_file.contents source;
     mode;
+    generated_from;
+    defined_at;
     offset = 0;
     emitted_eof = false;
   }
@@ -37,6 +49,118 @@ let raw lexer start stop = String.sub lexer.contents start (stop - start)
 
 let span lexer start stop =
   Common.Span.unsafe_make ~source:(source_id lexer) ~start ~stop
+
+let is_non_eol_whitespace = function
+  | ' ' | '\t' | '\x1f' -> true
+  | _ -> false
+
+let capture_definition_replacement lexer =
+  while Option.fold ~none:false ~some:is_non_eol_whitespace (peek lexer 0) do
+    ignore (advance lexer)
+  done;
+  let replacement_start = lexer.offset in
+  let buffer = Buffer.create 64 in
+  let segments_rev = ref [] in
+  let append_source_byte source_offset =
+    let generated_start = Buffer.length buffer in
+    Buffer.add_char buffer lexer.contents.[source_offset];
+    match !segments_rev with
+    | ({ Definition.generated_stop; source_span; _ } as previous) :: rest
+      when generated_stop = generated_start
+           && source_span.Common.Span.stop = source_offset ->
+        let source_span =
+          Common.Span.unsafe_make ~source:source_span.source
+            ~start:source_span.start ~stop:(source_offset + 1)
+        in
+        segments_rev :=
+          { previous with generated_stop = generated_start + 1; source_span }
+          :: rest
+    | _ ->
+        let source_span = span lexer source_offset (source_offset + 1) in
+        segments_rev :=
+          {
+            Definition.generated_start;
+            generated_stop = generated_start + 1;
+            source_span;
+          }
+          :: !segments_rev
+  in
+  let rec finish_comment () =
+    match peek lexer 0 with
+    | None -> End_of_file
+    | Some '\x00' ->
+        ignore (advance lexer);
+        Nul
+    | Some ('\r' | '\n') ->
+        ignore (advance lexer);
+        End_of_line
+    | Some _ ->
+        ignore (advance lexer);
+        finish_comment ()
+  in
+  let rec scan ~initial ~in_string =
+    match peek lexer 0 with
+    | None -> (End_of_file, lexer.offset)
+    | Some '\x00' ->
+        let raw_stop = lexer.offset in
+        ignore (advance lexer);
+        (Nul, raw_stop)
+    | Some ('\r' | '\n') ->
+        let raw_stop = lexer.offset in
+        ignore (advance lexer);
+        (End_of_line, raw_stop)
+    | Some '\\' -> (
+        let backslash = lexer.offset in
+        ignore (advance lexer);
+        match peek lexer 0 with
+        | None ->
+            append_source_byte backslash;
+            (End_of_file, lexer.offset)
+        | Some '\n' ->
+            ignore (advance lexer);
+            scan ~initial:false ~in_string
+        | Some '\r' -> (
+            ignore (advance lexer);
+            match peek lexer 0 with
+            | Some '\n' ->
+                ignore (advance lexer);
+                scan ~initial:false ~in_string
+            | _ -> (End_of_line, lexer.offset - 1))
+        | Some _ ->
+            append_source_byte backslash;
+            let escaped = lexer.offset in
+            append_source_byte escaped;
+            ignore (advance lexer);
+            scan ~initial:false ~in_string)
+    | Some '/' when (not initial) && not in_string -> (
+        match peek lexer 1 with
+        | Some '/' ->
+            let raw_stop = lexer.offset in
+            lexer.offset <- lexer.offset + 2;
+            (finish_comment (), raw_stop)
+        | _ ->
+            let source_offset = lexer.offset in
+            append_source_byte source_offset;
+            ignore (advance lexer);
+            scan ~initial:false ~in_string)
+    | Some '"' ->
+        let source_offset = lexer.offset in
+        append_source_byte source_offset;
+        ignore (advance lexer);
+        scan ~initial:false ~in_string:(not in_string)
+    | Some _ ->
+        let source_offset = lexer.offset in
+        append_source_byte source_offset;
+        ignore (advance lexer);
+        scan ~initial:false ~in_string
+  in
+  let terminator, replacement_stop = scan ~initial:true ~in_string:false in
+  {
+    replacement = Buffer.contents buffer;
+    replacement_span = span lexer replacement_start replacement_stop;
+    segments = List.rev !segments_rev;
+    terminator;
+  }
 
 let make_diagnostic lexer ?help ~code ~message ~start ~stop () =
   Common.Diagnostic.make ?help ~code ~severity:Common.Diagnostic.Error ~message
@@ -134,7 +258,12 @@ let make_token lexer leading_trivia ~kind ~value start =
     raw = raw lexer start stop;
     value;
     span = span lexer start stop;
-    origin = { frame = source_id lexer; generated_from = None };
+    origin =
+      {
+        frame = source_id lexer;
+        generated_from = lexer.generated_from;
+        defined_at = lexer.defined_at;
+      };
     leading_trivia;
     mode = lexer.mode;
   }

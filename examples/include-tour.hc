@@ -1,2 +1,2 @@
 #include "examples/included-value"
-I64 result = included_value;
+I64 result = INCLUDED_VALUE;

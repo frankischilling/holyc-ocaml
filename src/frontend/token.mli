@@ -10,6 +10,7 @@ type value =
 type origin = {
   frame : Common.Source_id.t;
   generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
 }
 
 type t = {

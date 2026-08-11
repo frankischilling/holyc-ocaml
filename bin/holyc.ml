@@ -104,8 +104,28 @@ let include_bytes_argument =
     & opt int (64 * 1024 * 1024)
     & info [ "include-byte-limit" ] ~docv:"BYTES" ~doc:documentation)
 
+let definition_depth_argument =
+  let documentation =
+    "Allow at most this many simultaneously active definition expansions."
+  in
+  Arg.(
+    value & opt int 64
+    & info [ "definition-depth-limit" ] ~docv:"COUNT" ~doc:documentation)
+
+let generated_definition_bytes_argument =
+  let documentation =
+    "Allow at most this many definition replacement bytes during one \
+     preprocessing run."
+  in
+  Arg.(
+    value
+    & opt int (16 * 1024 * 1024)
+    & info
+        [ "generated-definition-byte-limit" ]
+        ~docv:"BYTES" ~doc:documentation)
+
 let preprocess_file format include_roots templeos_root max_include_depth
-    max_source_bytes path =
+    max_source_bytes max_definition_depth max_generated_bytes path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
   | Error message ->
@@ -114,7 +134,8 @@ let preprocess_file format include_roots templeos_root max_include_depth
   | Ok source -> (
       match
         Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
-          ~include_roots ?templeos_root ~max_include_depth ~max_source_bytes ()
+          ~include_roots ?templeos_root ~max_include_depth ~max_source_bytes
+          ~max_definition_depth ~max_generated_bytes ()
       with
       | Error message ->
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
@@ -131,14 +152,15 @@ let preprocess_file format include_roots templeos_root max_include_depth
 
 let preprocess_command =
   let documentation =
-    "Tokenize a file while resolving bounded #include source frames. Other \
-     directives are diagnosed as unsupported."
+    "Tokenize a file while resolving bounded #include and #define source \
+     frames. Other directives are diagnosed as unsupported."
   in
   let info = Cmd.info "preprocess" ~doc:documentation in
   Cmd.v info
     Term.(
       const preprocess_file $ format_argument $ include_roots_argument
       $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
+      $ definition_depth_argument $ generated_definition_bytes_argument
       $ file_argument)
 
 let version_command =

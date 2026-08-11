@@ -3,35 +3,61 @@ module Config = struct
     resolver : Include_resolver.t;
     max_include_depth : int;
     max_source_bytes : int;
+    max_definition_depth : int;
+    max_generated_bytes : int;
   }
 
   let create ?working_directory ?include_roots ?templeos_root
-      ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024) () =
+      ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024)
+      ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024) ()
+      =
     if max_include_depth < 0 then
       Error "include depth limit must be nonnegative"
     else if max_source_bytes < 0 then
       Error "included source size limit must be nonnegative"
+    else if max_definition_depth < 0 then
+      Error "definition depth limit must be nonnegative"
+    else if max_generated_bytes < 0 then
+      Error "generated definition byte limit must be nonnegative"
     else
       match
         Include_resolver.create ?working_directory ?include_roots ?templeos_root
           ()
       with
       | Error _ as error -> error
-      | Ok resolver -> Ok { resolver; max_include_depth; max_source_bytes }
+      | Ok resolver ->
+          Ok
+            {
+              resolver;
+              max_include_depth;
+              max_source_bytes;
+              max_definition_depth;
+              max_generated_bytes;
+            }
 
   let resolver config = config.resolver
   let max_include_depth config = config.max_include_depth
   let max_source_bytes config = config.max_source_bytes
+  let max_definition_depth config = config.max_definition_depth
+  let max_generated_bytes config = config.max_generated_bytes
 end
 
 type t = {
   sources : Common.Source_manager.t;
+  definitions : Definition.Environment.t;
   config : Config.t;
   mutable current : Lexer_frame.t;
+  mutable generated_bytes : int;
 }
 
-let create ~sources ~config source =
-  { sources; config; current = Lexer_frame.root ~mode:Token.Holyc source }
+let create ~sources ~definitions ~config source =
+  {
+    sources;
+    definitions;
+    config;
+    current = Lexer_frame.root ~mode:Token.Holyc source;
+    generated_bytes = 0;
+  }
 
 let zero_span source =
   Common.Span.unsafe_make
@@ -40,13 +66,17 @@ let zero_span source =
 
 let diagnostic stream ?(secondary = []) ?(notes = []) ?help ~code ~message
     primary =
+  let secondary = secondary @ Lexer_frame.definition_trace stream.current in
   Common.Diagnostic.make ~secondary
     ~include_stack:(Lexer_frame.include_stack stream.current)
     ~notes ?help ~code ~severity:Common.Diagnostic.Error ~message ~primary ()
 
-let decorate_lexer_diagnostic stream item =
-  Common.Diagnostic.with_include_stack item
-    (Lexer_frame.include_stack stream.current)
+let decorate_lexer_diagnostic stream (item : Common.Diagnostic.t) =
+  {
+    item with
+    Common.Diagnostic.include_stack = Lexer_frame.include_stack stream.current;
+    secondary = item.secondary @ Lexer_frame.definition_trace stream.current;
+  }
 
 let token_text token =
   match token.Token.value with
@@ -196,6 +226,149 @@ let unsupported_directive stream token keyword =
          "#%s is not implemented by the preprocessed token stream yet" spelling)
     token.Token.span
 
+let definition_name token =
+  match token.Token.kind with
+  | Token_kind.Identifier | Token_kind.Keyword _ -> token_text token
+  | _ -> None
+
+let invalid_definition_name stream token =
+  diagnostic stream ~code:"HCPP0010"
+    ~message:"expected a definition name after #define" token.Token.span
+
+let rec next_unexpanded stream =
+  match Lexer.next (Lexer_frame.lexer stream.current) with
+  | Lexer.Diagnostic item ->
+      Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
+  | Lexer.Token token when token.Token.kind = Token_kind.Eof -> (
+      match Lexer_frame.caller stream.current with
+      | None -> Lexer.Token token
+      | Some caller ->
+          stream.current <- caller;
+          next_unexpanded stream)
+  | item -> item
+
+let define stream hash =
+  match next_unexpanded stream with
+  | Lexer.Diagnostic item -> Error item
+  | Lexer.Token name_token -> (
+      match definition_name name_token with
+      | None -> Error (invalid_definition_name stream name_token)
+      | Some name -> (
+          let lexer = Lexer_frame.lexer stream.current in
+          let capture = Lexer.capture_definition_replacement lexer in
+          let same_source =
+            Common.Source_id.equal hash.Token.span.source name_token.span.source
+          in
+          let definition_span =
+            Common.Span.unsafe_make ~source:name_token.Token.span.source
+              ~start:
+                (if same_source then hash.Token.span.start
+                 else name_token.Token.span.start)
+              ~stop:(Lexer.offset lexer)
+          in
+          match capture.terminator with
+          | Lexer.Nul ->
+              Error
+                (diagnostic stream ~code:"HCPP0014"
+                   ~message:"a NUL byte ended the #define replacement"
+                   capture.replacement_span)
+          | Lexer.End_of_line | Lexer.End_of_file ->
+              ignore
+                (Definition.Environment.define stream.definitions ~name
+                   ~replacement:capture.replacement ~name_span:name_token.span
+                   ~definition_span ~replacement_span:capture.replacement_span
+                   ~segments:capture.segments);
+              Ok ()))
+
+let definition_cycle stream definition invocation =
+  diagnostic stream ~code:"HCPP0011"
+    ~message:
+      (Printf.sprintf "definition %S expands recursively"
+         (Definition.name definition))
+    ~help:"Change the definition so its active expansion cannot reach itself."
+    invocation
+
+let definition_depth stream definition invocation =
+  diagnostic stream ~code:"HCPP0012"
+    ~message:
+      (Printf.sprintf
+         "expanding definition %S would exceed the definition depth limit of %d"
+         (Definition.name definition)
+         (Config.max_definition_depth stream.config))
+    ~help:"Raise the definition depth limit only for trusted source." invocation
+
+let generated_bytes stream definition invocation =
+  diagnostic stream ~code:"HCPP0013"
+    ~message:
+      (Printf.sprintf
+         "expanding definition %S would exceed the generated byte limit of %d"
+         (Definition.name definition)
+         (Config.max_generated_bytes stream.config))
+    ~notes:
+      [
+        Printf.sprintf "bytes already injected: %d" stream.generated_bytes;
+        Printf.sprintf "replacement bytes: %d"
+          (String.length (Definition.replacement definition));
+      ]
+    ~help:"Raise the generated byte limit only for trusted source." invocation
+
+let push_definition stream token definition =
+  let id = Definition.id definition in
+  match Lexer_frame.find_active_definition stream.current id with
+  | Some _ -> Error (definition_cycle stream definition token.Token.span)
+  | None ->
+      let next_depth = Lexer_frame.definition_depth stream.current + 1 in
+      if next_depth > Config.max_definition_depth stream.config then
+        Error (definition_depth stream definition token.span)
+      else
+        let replacement = Definition.replacement definition in
+        let replacement_bytes = String.length replacement in
+        let byte_limit = Config.max_generated_bytes stream.config in
+        if replacement_bytes > byte_limit - stream.generated_bytes then
+          Error (generated_bytes stream definition token.span)
+        else
+          let logical_path =
+            Printf.sprintf "<definition:%08d:%s>" id
+              (Definition.name definition)
+          in
+          let source =
+            Common.Source_manager.add_string stream.sources ~path:logical_path
+              ~contents:replacement
+          in
+          stream.generated_bytes <- stream.generated_bytes + replacement_bytes;
+          stream.current <-
+            Lexer_frame.push_definition ~caller:stream.current ~source
+              ~definition ~invocation_span:token.span;
+          Ok ()
+
+let expand stream token =
+  match definition_name token with
+  | None -> Ok false
+  | Some name -> (
+      match Definition.Environment.find stream.definitions name with
+      | None -> Ok false
+      | Some definition ->
+          Result.map (fun () -> true) (push_definition stream token definition))
+
+let rec next_expanded stream =
+  match Lexer.next (Lexer_frame.lexer stream.current) with
+  | Lexer.Diagnostic item ->
+      Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
+  | Lexer.Token token -> (
+      match token.Token.kind with
+      | Token_kind.Eof -> (
+          match Lexer_frame.caller stream.current with
+          | None -> Lexer.Token token
+          | Some caller ->
+              stream.current <- caller;
+              next_expanded stream)
+      | Token_kind.Identifier | Token_kind.Keyword _ -> (
+          match expand stream token with
+          | Ok false -> Lexer.Token token
+          | Ok true -> next_expanded stream
+          | Error item -> Lexer.Diagnostic item)
+      | _ -> Lexer.Token token)
+
 let include_path stream token =
   match token.Token.kind with
   | Token_kind.String -> (
@@ -208,15 +381,15 @@ let include_path stream token =
            ~message:"expected a quoted path after #include" token.Token.span)
 
 let directive stream hash =
-  match Lexer.next (Lexer_frame.lexer stream.current) with
-  | Lexer.Diagnostic item -> Error (decorate_lexer_diagnostic stream item)
+  match next_expanded stream with
+  | Lexer.Diagnostic item -> Error item
   | Lexer.Token token -> (
       match token.Token.kind with
       | Token_kind.Keyword Keyword.Include -> (
-          match Lexer.next (Lexer_frame.lexer stream.current) with
-          | Lexer.Diagnostic item ->
-              Error (decorate_lexer_diagnostic stream item)
+          match next_expanded stream with
+          | Lexer.Diagnostic item -> Error item
           | Lexer.Token path -> include_path stream path)
+      | Token_kind.Keyword Keyword.Define -> define stream hash
       | Token_kind.Keyword keyword ->
           Error (unsupported_directive stream token keyword)
       | Token_kind.Identifier ->
@@ -230,25 +403,20 @@ let directive stream hash =
       | _ -> Error (expected_directive stream token))
 
 let rec next stream =
-  match Lexer.next (Lexer_frame.lexer stream.current) with
-  | Lexer.Diagnostic item ->
-      Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
-  | Lexer.Token token -> (
-      match token.Token.kind with
-      | Token_kind.Eof -> (
-          match Lexer_frame.caller stream.current with
-          | None -> Lexer.Token token
-          | Some caller ->
-              stream.current <- caller;
-              next stream)
-      | Token_kind.Punctuation '#' -> (
-          match directive stream token with
-          | Ok () -> next stream
-          | Error item -> Lexer.Diagnostic item)
-      | _ -> Lexer.Token token)
+  match next_expanded stream with
+  | Lexer.Token token when token.Token.kind = Token_kind.Punctuation '#' -> (
+      match directive stream token with
+      | Ok () -> next stream
+      | Error item -> Lexer.Diagnostic item)
+  | item -> item
 
-let lex_all ~sources ~config source =
-  let stream = create ~sources ~config source in
+let definitions stream = Definition.Environment.all stream.definitions
+
+let definition_dump stream =
+  Definition.Environment.dump stream.sources stream.definitions
+
+let lex_all ~sources ~definitions ~config source =
+  let stream = create ~sources ~definitions ~config source in
   let rec collect tokens diagnostics =
     match next stream with
     | Lexer.Token token when token.Token.kind = Token_kind.Eof ->
