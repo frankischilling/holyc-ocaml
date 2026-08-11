@@ -4,7 +4,7 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
-The compiler treats input as untrusted. Relevant risks include include path traversal, recursive definition expansion, generated-text exhaustion, parser exhaustion, malformed binary lengths, relocation overflow, output path writes, and executable-memory permissions. Hosted includes are confined to canonical configured roots. Definition expansion rejects active cycles and applies separate nesting and generated-byte budgets. Host metadata uses checked sizes and conversions. HolyC arithmetic wraps only where target semantics require it.
+The compiler treats input as untrusted. Relevant risks include include path traversal, recursive definition expansion, generated-text exhaustion, parser exhaustion, malformed binary lengths, relocation overflow, output path writes, and executable-memory permissions. Hosted includes are confined to canonical configured roots. Definition expansion rejects active cycles and applies separate nesting and generated-byte budgets. Conditional nesting has its own limit; after it is exhausted, the rest of the stream remains inactive so later directives cannot mutate state during error recovery. Inactive branches are scanned without loading includes or expanding ordinary identifiers, but an embedded NUL is still rejected so hidden suffix bytes cannot change later tooling behavior. Host metadata uses checked sizes and conversions. HolyC arithmetic wraps only where target semantics require it.
 
 ## Compile-time execution
 

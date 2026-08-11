@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, JIT/AOT conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Include-frame audit
 
@@ -40,6 +40,12 @@ No source table is copied or generated for this behavior. `reference/traceabilit
 The definition implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Compiler/CHash.HC`, `Kernel/KDefine.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`. The audit also follows `CHashDefineStr`, `LFSF_DEFINE`, `CCF_NO_DEFINES`, and task hash ownership in `Kernel/KernelA.HH`; insertion and lookup in `Kernel/KHashA.HC`; source metadata in `Kernel/KHashB.HC`; and character bitmaps in `Kernel/StrA.HC`. The manifest records each of those source blobs.
 
 No replacement table is copied into the project. `Frontend.Definition` and `Frontend.Preprocessor` implement the observed raw-text capture and frame injection. Definition recursion, nesting, and generated-byte diagnostics are hosted safety additions and are identified as such in the traceability entry and preprocessor notes.
+
+## Mode-conditional audit
+
+The JIT/AOT selection uses the complete conditional dispatch, `LexGetChar`, and `LexFilePop` in `Compiler/Lex.HC`; the related lexical helpers in `Compiler/LexLib.HC`; `CmpBuf` in `Compiler/CMain.HC`; the keyword definitions in `Compiler/CompilerA.HH`; the `CCmpCtrl` flags in `Kernel/KernelA.HH`; the preprocessor documentation; and the working `#ifjit` region in `Demo/GlblVars.HC`. Every file already has a pinned checksum in the manifest.
+
+No conditional table is copied. `Frontend.Lexer` provides the raw inactive scan used by `Frontend.Preprocessor`, and the configuration carries the AOT bit's meaning as a typed mode. Stray and unterminated-boundary diagnostics are hosted additions; [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) records the difference from the pinned permissive paths.
 
 ## Generated keyword data
 
