@@ -115,22 +115,22 @@ let include_bytes_argument =
 
 let definition_depth_argument =
   let documentation =
-    "Allow at most this many simultaneously active definition expansions."
+    "Allow at most this many active definition or predefined-value expansions."
   in
   Arg.(
     value & opt int 64
     & info [ "definition-depth-limit" ] ~docv:"COUNT" ~doc:documentation)
 
-let generated_definition_bytes_argument =
+let generated_bytes_argument =
   let documentation =
-    "Allow at most this many definition replacement bytes during one \
-     preprocessing run."
+    "Allow at most this many generated replacement bytes during one \
+     preprocessing run. Definitions and predefined values share the budget."
   in
   Arg.(
     value
     & opt int (16 * 1024 * 1024)
     & info
-        [ "generated-definition-byte-limit" ]
+        [ "generated-byte-limit"; "generated-definition-byte-limit" ]
         ~docv:"BYTES" ~doc:documentation)
 
 let conditional_depth_argument =
@@ -164,6 +164,28 @@ let compilation_mode_argument =
     & opt (enum values) Holyc_lib.Preprocessor.Jit
     & info [ "mode" ] ~docv:"MODE" ~doc:documentation)
 
+let predefined_date_argument =
+  let documentation =
+    "Set the deterministic MM/DD/YY string returned by __DATE__."
+  in
+  Arg.(
+    value & opt string "01/01/70"
+    & info [ "predefined-date" ] ~docv:"MM/DD/YY" ~doc:documentation)
+
+let predefined_time_argument =
+  let documentation =
+    "Set the deterministic HH:MM:SS string returned by __TIME__."
+  in
+  Arg.(
+    value & opt string "00:00:00"
+    & info [ "predefined-time" ] ~docv:"HH:MM:SS" ~doc:documentation)
+
+let command_line_source_argument =
+  let documentation =
+    "Make __CMD_LINE__ true at TempleOS source depths below one."
+  in
+  Arg.(value & flag & info [ "command-line-source" ] ~doc:documentation)
+
 let dump_help_metadata_argument =
   let documentation =
     "Print the versioned #help_index and #help_file metadata dump instead of \
@@ -173,7 +195,8 @@ let dump_help_metadata_argument =
 
 let preprocess_file format dump_help_metadata include_roots templeos_root
     max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode path =
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
   | Error message ->
@@ -184,7 +207,8 @@ let preprocess_file format dump_help_metadata include_roots templeos_root
         Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
           ~include_roots ?templeos_root ~compilation_mode ~max_include_depth
           ~max_source_bytes ~max_definition_depth ~max_generated_bytes
-          ~max_conditional_depth ~max_expression_nodes ()
+          ~max_conditional_depth ~max_expression_nodes ~predefined_date
+          ~predefined_time ~command_line_source ()
       with
       | Error message ->
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
@@ -204,8 +228,9 @@ let preprocess_file format dump_help_metadata include_roots templeos_root
 let preprocess_command =
   let documentation =
     "Tokenize a file while resolving bounded includes, definition expansions, \
-     constant #if and #assert expressions, help metadata, and JIT/AOT \
-     conditional frames. Unsupported directives produce diagnostics."
+     deterministic predefined values, constant #if and #assert expressions, \
+     help metadata, and JIT/AOT conditional frames. Unsupported directives \
+     produce diagnostics."
   in
   let info = Cmd.info "preprocess" ~doc:documentation in
   Cmd.v info
@@ -213,8 +238,10 @@ let preprocess_command =
       const preprocess_file $ format_argument $ dump_help_metadata_argument
       $ include_roots_argument $ templeos_root_argument $ include_depth_argument
       $ include_bytes_argument $ definition_depth_argument
-      $ generated_definition_bytes_argument $ conditional_depth_argument
-      $ expression_nodes_argument $ compilation_mode_argument $ file_argument)
+      $ generated_bytes_argument $ conditional_depth_argument
+      $ expression_nodes_argument $ compilation_mode_argument
+      $ predefined_date_argument $ predefined_time_argument
+      $ command_line_source_argument $ file_argument)
 
 let version_command =
   let documentation = "Print compiler and reference revisions." in

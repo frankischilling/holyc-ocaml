@@ -20,6 +20,7 @@ module Token = Frontend.Token
 module Lexer = Frontend.Lexer
 module Include_resolver = Frontend.Include_resolver
 module Definition = Frontend.Definition
+module Predefined = Frontend.Predefined
 module Help_metadata = Frontend.Help_metadata
 module Symbol_visibility = Frontend.Symbol_visibility
 module Lexer_frame = Frontend.Lexer_frame

@@ -42,6 +42,7 @@
     {"path": "Kernel/KUtils.HC", "sha256": "0372304b077110f40b13883af21aa5365b57ddfcb8572e0f75cb40af5a65131a"},
     {"path": "Kernel/BlkDev/DskStrA.HC", "sha256": "169357c8460fb5cbd0c1dca0476cefbb7a26c7368ff2d249423c0eb0c287cdff"},
     {"path": "Kernel/StrA.HC", "sha256": "3a14834309e6a59a9345606ab64c74ba0e719e3b35b12d1f75554757e4444780"},
+    {"path": "Kernel/StrPrint.HC", "sha256": "5faa7c97acae07d38a2775e15fa73844f36480eca4c8023a9f55362d7be05daa"},
     {"path": "StartOS.HC", "sha256": "501a463128ce77b66668a9ed8adbcfdc7da71db2bbf3d857534378da71990346"},
     {"path": "Demo/GlblVars.HC", "sha256": "70d2ef4e34378455ddf42dcf62a77093e3f415f8e73623cca0b3dd68ba8f2d21"},
     {"path": "Doc/HolyC.DD", "sha256": "bacd70e46107b03949a3ded7459e1acb771ffbb1864e2b5ef9166d8a81bf10d6"},

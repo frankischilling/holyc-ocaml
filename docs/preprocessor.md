@@ -4,11 +4,11 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation
 
-`holyc preprocess` recognizes quoted includes, TempleOS text definitions, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, symbol-presence conditionals, `#help_index`, and `#help_file` inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional and help state belongs to the preprocessing stream and can span either kind of frame. Tokens and metadata keep the source ID and byte span of the frame that produced them.
+`holyc preprocess` recognizes quoted includes, TempleOS text definitions, the six standard predefined values, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, symbol-presence conditionals, `#help_index`, and `#help_file` inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition or predefined value pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional and help state belongs to the preprocessing stream and can span any of those frames. Tokens and metadata keep the source ID and byte span of the frame that produced them.
 
 This command is deliberately separate from `holyc lex`. The raw lexer still returns directive and replacement text as ordinary tooling tokens; it does not read files, expand definitions, or select conditional branches.
 
-`#exe`, predefined values, and general generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). In particular, the built-in names in `Kernel/KernelA.HH` expand to `#exe` programs in TempleOS; this implementation does not install those names until the compile-time VM can execute them.
+General `#exe` blocks and arbitrary generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). The six standard names are a narrow exception backed by their exact pinned definitions and formatting consumers. The hosted compiler expands those values without executing the surrounding `#exe` programs.
 
 ## Behavior taken from the pinned compiler
 
@@ -36,6 +36,18 @@ Definitions have no parameters, argument substitution, token pasting, or stringi
 The TempleOS compiler stores definitions in the task hash table. `holyc-ocaml` keeps them in `Session.t`: includes and later preprocessing calls made with the same session see the same source-ordered environment. Each replacement frame receives a stable source ID, a byte-segment map back to the captured replacement, the invocation span, and the original definition span. Terminal and JSON diagnostics from replacement text report both sites.
 
 The current lexer resumes a caller between tokens. TempleOS can exhaust a lexical frame while it is still scanning a token, which may join punctuation from a replacement with the caller's saved lookahead. That boundary requires an oracle-backed composite byte stream and remains tracked by [issue #24](https://github.com/frankischilling/holyc-ocaml/issues/24). No compatibility result in this slice treats that case as passing.
+
+## Predefined values
+
+`Kernel/KernelA.HH` and `Doc/Directives.DD` define `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__` as ordinary definition strings whose replacements are small `#exe` blocks. `Compiler/CMisc.HC:StreamDir` supplies the directory behavior. `Kernel/StrPrint.HC:MPrintDate` and `MPrintTime` fix the rendered forms at `MM/DD/YY` and `HH:MM:SS`.
+
+The hosted stream recognizes the exact standard bodies by comparing their raw token sequences. Insignificant whitespace may differ, but separate identifiers or operators cannot be fused by normalization. An exact standard definition remains dynamic and keeps its source declaration span. A different source definition with the same name is ordinary replacement text and takes precedence. The compiler also makes the six standard names available when a standalone source does not include `KernelA.HH`, so `#ifdef` sees them. The `defined` expression follows the pinned ordinary-expansion path: a predefined name expands to its value before lookup and therefore tests false, just like a source definition whose replacement is a literal.
+
+`__DATE__` and `__TIME__` never consult the host clock. They default to `01/01/70` and `00:00:00`. Pass `--predefined-date=MM/DD/YY` and `--predefined-time=HH:MM:SS`, or the matching library settings, to select another reproducible value. Invalid dates and times are rejected before preprocessing begins.
+
+`__LINE__` returns the one-based line containing the invocation. `__CMD_LINE__` is true only when command-line source mode is enabled and the current TempleOS source depth is below one. The root starts at depth -1, its first include has depth 0, and deeper includes are false. Use `--command-line-source` to enable that mode. `__FILE__` returns the current canonical hosted source path, and `__DIR__` returns its hosted parent directory. Those two values follow the meaning of `full_name` and `DirFile`, but their bytes are host paths rather than TempleOS drive paths.
+
+Each expansion is re-lexed from a `<predefined:NAME>` frame. String results are quoted and escaped before lexing. Tokens keep the generated frame span and the invocation span; a standard source definition also retains its declaration span. Predefined expansions share the definition-depth and generated-byte limits, so they cannot bypass the existing hosted guards.
 
 ## Help metadata
 
@@ -106,13 +118,13 @@ TempleOS itself does not diagnose include or definition cycles, set these nestin
 - Windows comparisons fold ASCII case and treat slash and backslash as the same separator;
 - the default nesting limit is 64 included files, excluding the root source;
 - each included file is limited to 64 MiB by default;
-- at most 64 definition frames may be active by default;
+- at most 64 definition or predefined-value frames may be active by default;
 - at most 64 conditional directives may be nested by default;
 - one `#if` or `#assert` expression may contain at most 512 parsed terms, groups, and operators by default;
-- one preprocessing run may inject at most 16 MiB of definition text by default;
+- one preprocessing run may inject at most 16 MiB of definition or predefined-value text by default;
 - directories and other non-regular targets are rejected.
 
-Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`, `--conditional-depth-limit`, `--conditional-expression-node-limit`, and `--generated-definition-byte-limit` to change these limits. Adding an include root grants read access within that directory, so it should be done only for source trees that the compilation is meant to inspect.
+Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`, `--conditional-depth-limit`, `--conditional-expression-node-limit`, and `--generated-byte-limit` to change these limits. The older `--generated-definition-byte-limit` spelling remains an alias. Adding an include root grants read access within that directory, so it should be done only for source trees that the compilation is meant to inspect.
 
 ## Diagnostics
 
@@ -129,8 +141,8 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0009` | A TempleOS path form has no configured hosted mapping |
 | `HCPP0010` | `#define` is missing a valid name |
 | `HCPP0011` | A definition reaches itself while it is active |
-| `HCPP0012` | The definition nesting limit would be exceeded |
-| `HCPP0013` | The generated definition byte budget would be exceeded |
+| `HCPP0012` | A definition or predefined expansion would exceed the nesting limit |
+| `HCPP0013` | A definition or predefined expansion would exceed the generated byte budget |
 | `HCPP0014` | An embedded NUL ended a replacement |
 | `HCPP0015` | `#else` has no active conditional |
 | `HCPP0016` | A conditional contains a second `#else` |
@@ -148,6 +160,7 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0028` | `#help_index` or `#help_file` is missing its string argument |
 | `HCPP0029` | A `#help_index` continuation is not followed by another string |
 | `HCPP0030` | A help-file path contains a hosted-invalid byte or cannot be resolved |
+| `HCPP0031` | A predefined expansion cannot map its invocation to a source line |
 
 A human diagnostic prints each `#include` site from the root toward the failing frame. A failure in replacement text also names the invocation and declaration sites. JSON keeps include entries in `include_stack` and definition provenance in `secondary`.
 
@@ -166,6 +179,9 @@ let config =
     ~max_conditional_depth:32
     ~max_expression_nodes:256
     ~max_generated_bytes:(4 * 1024 * 1024)
+    ~predefined_date:"08/11/26"
+    ~predefined_time:"05:42:17"
+    ~command_line_source:true
     ()
   |> Result.get_ok
 

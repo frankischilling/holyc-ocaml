@@ -1,0 +1,133 @@
+[
+  {
+    "kind": "string",
+    "raw": "\"08/11/26\"",
+    "value": "08/11/26",
+    "span": {
+      "path": "<predefined:__DATE__>",
+      "line": 1,
+      "column": 1,
+      "source_id": 1,
+      "start": 0,
+      "stop": 10
+    },
+    "origin": {
+      "frame": 1,
+      "generated_from": {
+        "path": "cli/predefined-values.hc",
+        "line": 1,
+        "column": 1,
+        "source_id": 0,
+        "start": 0,
+        "stop": 8
+      },
+      "defined_at": null
+    },
+    "leading_trivia": [],
+    "mode": "holyc",
+    "templeos_token_id": 257
+  },
+  {
+    "kind": "string",
+    "raw": "\"05:42:17\"",
+    "value": "05:42:17",
+    "span": {
+      "path": "<predefined:__TIME__>",
+      "line": 1,
+      "column": 1,
+      "source_id": 2,
+      "start": 0,
+      "stop": 10
+    },
+    "origin": {
+      "frame": 2,
+      "generated_from": {
+        "path": "cli/predefined-values.hc",
+        "line": 1,
+        "column": 10,
+        "source_id": 0,
+        "start": 9,
+        "stop": 17
+      },
+      "defined_at": null
+    },
+    "leading_trivia": [],
+    "mode": "holyc",
+    "templeos_token_id": 257
+  },
+  {
+    "kind": "integer",
+    "raw": "2",
+    "value": "0x0000000000000002",
+    "span": {
+      "path": "<predefined:__LINE__>",
+      "line": 1,
+      "column": 1,
+      "source_id": 3,
+      "start": 0,
+      "stop": 1
+    },
+    "origin": {
+      "frame": 3,
+      "generated_from": {
+        "path": "cli/predefined-values.hc",
+        "line": 2,
+        "column": 1,
+        "source_id": 0,
+        "start": 18,
+        "stop": 26
+      },
+      "defined_at": null
+    },
+    "leading_trivia": [],
+    "mode": "holyc",
+    "templeos_token_id": 258
+  },
+  {
+    "kind": "integer",
+    "raw": "1",
+    "value": "0x0000000000000001",
+    "span": {
+      "path": "<predefined:__CMD_LINE__>",
+      "line": 1,
+      "column": 1,
+      "source_id": 4,
+      "start": 0,
+      "stop": 1
+    },
+    "origin": {
+      "frame": 4,
+      "generated_from": {
+        "path": "cli/predefined-values.hc",
+        "line": 2,
+        "column": 10,
+        "source_id": 0,
+        "start": 27,
+        "stop": 39
+      },
+      "defined_at": null
+    },
+    "leading_trivia": [],
+    "mode": "holyc",
+    "templeos_token_id": 258
+  },
+  {
+    "kind": "eof",
+    "raw": "",
+    "value": null,
+    "span": {
+      "path": "cli/predefined-values.hc",
+      "line": 3,
+      "column": 1,
+      "source_id": 0,
+      "start": 40,
+      "stop": 40
+    },
+    "origin": { "frame": 0, "generated_from": null, "defined_at": null },
+    "leading_trivia": [
+      { "kind": "whitespace", "raw": "\n", "start": 39, "stop": 40 }
+    ],
+    "mode": "holyc",
+    "templeos_token_id": 0
+  }
+]
