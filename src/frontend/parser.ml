@@ -33,7 +33,10 @@ type parsed_array_dimension = {
   tokens : Token.t list;
 }
 
-type expression_context = Default_expression | Array_dimension_expression
+type expression_context =
+  | Default_expression
+  | Array_dimension_expression
+  | Intern_binding_expression
 
 type parsed_parameter_default = {
   node : Ast.parameter_default;
@@ -307,53 +310,6 @@ let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
       in
       parse_modifiers cursor ({ node; item } :: modifiers_rev)
 
-let declaration_binding_kind token =
-  match token.Token.kind with
-  | Token_kind.Keyword Keyword.Extern -> Some (Ast.Extern, false)
-  | Token_kind.Keyword Keyword.Import -> Some (Ast.Import, false)
-  | Token_kind.Keyword Keyword.Underscore_extern -> Some (Ast.Extern, true)
-  | Token_kind.Keyword Keyword.Underscore_import -> Some (Ast.Import, true)
-  | _ -> None
-
-let parse_binding cursor =
-  let item = peek cursor in
-  match declaration_binding_kind item.token with
-  | None -> No_binding
-  | Some (kind, false) ->
-      let item = take cursor in
-      let node =
-        Ast.make_declaration_binding ~kind ~spelling:item.token.raw
-          ~location:(token_location item.token)
-          ~target:None
-      in
-      Parsed_binding { node; keyword = item; tokens = [ item.token ] }
-  | Some (kind, true) ->
-      let keyword = take cursor in
-      let target_item = peek cursor in
-      if target_item.token.kind <> Token_kind.Identifier then (
-        report cursor target_item ~code:"HCPARSE0007"
-          ~message:
-            (Printf.sprintf
-               "expected a target symbol after declaration binding %S, but \
-                found %s"
-               keyword.token.raw
-               (token_description target_item.token));
-        recover_declaration cursor;
-        Bad_binding)
-      else
-        let target_item = take cursor in
-        let target =
-          Ast.make_identifier ~spelling:target_item.token.raw
-            ~location:(token_location target_item.token)
-        in
-        let node =
-          Ast.make_declaration_binding ~kind ~spelling:keyword.token.raw
-            ~location:(token_location keyword.token)
-            ~target:(Some target)
-        in
-        Parsed_binding
-          { node; keyword; tokens = [ keyword.token; target_item.token ] }
-
 let parse_declarator_prefix cursor primitive_spelling =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
@@ -524,10 +480,12 @@ let expression_failure cursor item ~code ~message =
 let expression_context_name = function
   | Default_expression -> "default expression"
   | Array_dimension_expression -> "array dimension expression"
+  | Intern_binding_expression -> "_intern target expression"
 
 let expression_operand_name = function
   | Default_expression -> "a default expression operand"
   | Array_dimension_expression -> "an array dimension expression operand"
+  | Intern_binding_expression -> "an _intern target expression operand"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
     parsed_expression option =
@@ -705,6 +663,83 @@ let is_unimplemented_expression_continuation token =
   | Token_kind.Operator
       (Operator.Arrow | Operator.Increment | Operator.Decrement) -> true
   | _ -> false
+
+let declaration_binding_kind token =
+  match token.Token.kind with
+  | Token_kind.Keyword Keyword.Extern -> Some (Ast.Extern, false)
+  | Token_kind.Keyword Keyword.Import -> Some (Ast.Import, false)
+  | Token_kind.Keyword Keyword.Underscore_extern -> Some (Ast.Extern, true)
+  | Token_kind.Keyword Keyword.Underscore_import -> Some (Ast.Import, true)
+  | _ -> None
+
+let parse_binding cursor =
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.Keyword Keyword.Underscore_intern -> (
+      let keyword = take cursor in
+      let parsed_expression =
+        parse_expression cursor ~context:Intern_binding_expression ~depth:0
+          ~minimum_binding_power:0
+      in
+      match parsed_expression with
+      | None -> Bad_binding
+      | Some expression ->
+          let following = peek cursor in
+          if is_unimplemented_expression_continuation following.token then (
+            ignore
+              (expression_failure cursor following ~code:"HCPARSE0020"
+                 ~message:
+                   (Printf.sprintf
+                      "_intern target expression continuation %s is not \
+                       implemented"
+                      (token_description following.token)));
+            Bad_binding)
+          else
+            let node =
+              Ast.make_declaration_binding ~kind:Ast.Intern
+                ~spelling:keyword.token.raw
+                ~location:(token_location keyword.token)
+                ~target:(Ast.Expression_binding_target expression.node)
+            in
+            Parsed_binding
+              { node; keyword; tokens = keyword.token :: expression.tokens })
+  | _ -> (
+      match declaration_binding_kind item.token with
+      | None -> No_binding
+      | Some (kind, false) ->
+          let item = take cursor in
+          let node =
+            Ast.make_declaration_binding ~kind ~spelling:item.token.raw
+              ~location:(token_location item.token)
+              ~target:Ast.No_binding_target
+          in
+          Parsed_binding { node; keyword = item; tokens = [ item.token ] }
+      | Some (kind, true) ->
+          let keyword = take cursor in
+          let target_item = peek cursor in
+          if target_item.token.kind <> Token_kind.Identifier then (
+            report cursor target_item ~code:"HCPARSE0007"
+              ~message:
+                (Printf.sprintf
+                   "expected a target symbol after declaration binding %S, but \
+                    found %s"
+                   keyword.token.raw
+                   (token_description target_item.token));
+            recover_declaration cursor;
+            Bad_binding)
+          else
+            let target_item = take cursor in
+            let target =
+              Ast.make_identifier ~spelling:target_item.token.raw
+                ~location:(token_location target_item.token)
+            in
+            let node =
+              Ast.make_declaration_binding ~kind ~spelling:keyword.token.raw
+                ~location:(token_location keyword.token)
+                ~target:(Ast.Symbol_binding_target target)
+            in
+            Parsed_binding
+              { node; keyword; tokens = [ keyword.token; target_item.token ] })
 
 let parse_array_dimension cursor ~index =
   let opening = take cursor in

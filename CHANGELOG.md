@@ -29,3 +29,4 @@
 - Added recursive function-pointer parameters with distinct return and declarator depths, empty, fixed, variadic, and nested signatures, exact punctuation provenance, deterministic dumps, and a checked hosted nesting limit.
 - Added source-positioned default expressions to ordinary and nested function parameters, including non-trailing defaults, every audited binary operator, HolyC's unary-minus power rule, deterministic AST dumps, and bounded malformed-input recovery.
 - Added primitive global array declarators with ordered dimensions, an explicit unsized first dimension, shared core expression syntax, bracket provenance, deterministic dumps, and source-specific diagnostics for malformed suffixes.
+- Added `_intern` bindings with source-positioned target expressions, JIT and AOT syntax coverage, pinned `KernelB.HH` prototypes, deterministic dumps, and bounded malformed-target diagnostics.

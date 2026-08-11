@@ -714,6 +714,70 @@
 
 (rule
  (alias runtest)
+ (targets parse-intern-binding.human.actual)
+ (deps cli/parse-intern-binding.hc cli/parse-intern-binding.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-binding.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-intern-binding.hc))
+   (diff cli/parse-intern-binding.human parse-intern-binding.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-intern-binding.json.actual)
+ (deps cli/parse-intern-binding.hc cli/parse-intern-binding.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-binding.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-intern-binding.hc))
+   (diff cli/parse-intern-binding.json parse-intern-binding.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-intern-error.human.actual
+  parse-intern-error.human.stdout.actual)
+ (deps cli/parse-intern-error.hc cli/parse-intern-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-error.human.stdout.actual
+    (with-stderr-to
+     parse-intern-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-intern-error.hc))))
+   (diff cli/parse-intern-error.human parse-intern-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-intern-error.json.actual
+  parse-intern-error.json.stdout.actual)
+ (deps cli/parse-intern-error.hc cli/parse-intern-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-error.json.stdout.actual
+    (with-stderr-to
+     parse-intern-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-intern-error.hc))))
+   (diff cli/parse-intern-error.json parse-intern-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets
   parse-function-prototype-error.human.actual
   parse-function-prototype-error.human.stdout.actual)
