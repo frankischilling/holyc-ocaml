@@ -7,7 +7,8 @@
   test_diagnostic
   test_version
   test_opcode_table_source
-  test_primitive_type_source)
+  test_primitive_type_source
+  test_primitive_type)
  (libraries
   alcotest
   holyc_lib

@@ -7,4 +7,5 @@ let () =
       ("version", Test_version.tests);
       ("opcode table source", Test_opcode_table_source.tests);
       ("primitive type source", Test_primitive_type_source.tests);
+      ("primitive type", Test_primitive_type.tests);
     ]

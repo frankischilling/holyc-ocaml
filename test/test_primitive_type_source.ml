@@ -138,6 +138,10 @@ let rejects_duplicate_definition () =
   let definitions = raw_definitions |> replace 1 "#define RT_I0 3" in
   expect_error ~definitions "RT_I0 appears more than once"
 
+let rejects_missing_definition () =
+  let definitions = List.filteri (fun index _ -> index <> 2) raw_definitions in
+  expect_error ~definitions "requires RT_I8 here, but found RT_U8"
+
 let rejects_reordered_definitions () =
   let definitions = swap 2 3 raw_definitions in
   expect_error ~definitions "requires RT_I8 here, but found RT_U8"
@@ -179,6 +183,10 @@ let rejects_malformed_internal_record () =
 let rejects_duplicate_internal_spelling () =
   let records = internal_records |> replace 6 ("RT_I8", 1, "I8") in
   expect_error ~records "internal type spelling \"I8\" appears more than once"
+
+let rejects_missing_internal_type () =
+  let records = List.filteri (fun index _ -> index <> 4) internal_records in
+  expect_error ~records "requires {RT_I8,1,\"I8i\"} here"
 
 let rejects_reordered_internal_types () =
   let records = swap 4 5 internal_records in
@@ -303,6 +311,8 @@ let tests =
       rejects_malformed_definition;
     Alcotest.test_case "duplicate raw definition" `Quick
       rejects_duplicate_definition;
+    Alcotest.test_case "missing raw definition" `Quick
+      rejects_missing_definition;
     Alcotest.test_case "reordered raw definitions" `Quick
       rejects_reordered_definitions;
     Alcotest.test_case "conflicting pointer alias" `Quick
@@ -317,6 +327,8 @@ let tests =
       rejects_malformed_internal_record;
     Alcotest.test_case "duplicate internal spelling" `Quick
       rejects_duplicate_internal_spelling;
+    Alcotest.test_case "missing internal type" `Quick
+      rejects_missing_internal_type;
     Alcotest.test_case "reordered internal types" `Quick
       rejects_reordered_internal_types;
     Alcotest.test_case "internal type count" `Quick rejects_wrong_internal_count;
