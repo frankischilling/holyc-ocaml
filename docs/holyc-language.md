@@ -49,20 +49,23 @@ The generator preserves these records so changes in the reference cannot pass un
 
 `RT_PTR` has raw ID 10, the same ID as signed `RT_I64`. The source comment explains that signed representation permits negative error codes. `Primitive_type.pointer_representation` records the alias for later pointer work, but `I64` values do not thereby become pointers.
 
-## Direct primitive global declarations
+## Primitive global declarations
 
-The first parser grammar is deliberately narrow:
+The current parser grammar is deliberately narrow:
 
 ```text
 module          := global-variable*
-global-variable := primitive identifier ";"
+global-variable := primitive pointer-star{0,4} identifier ";"
+pointer-star    := "*"
 primitive       := I0 | I8 | I16 | I32 | I64
                  | U0 | U8 | U16 | U32 | U64 | F64 | Bool
 ```
 
-Empty and comment-only inputs are valid modules. Direct declarations retain source order, the exact type and identifier spellings, the semicolon span, and ordered source segments. Includes and definitions run through the integrated stream before parsing. A parser diagnostic produced inside an include retains its include stack, while a diagnostic on definition-generated text records both the expansion and declaration sites.
+Empty and comment-only inputs are valid modules. Declarations retain source order, the exact type and identifier spellings, the semicolon span, and ordered source segments. Each pointer star is a separate layer numbered from one through four. A layer keeps its raw spelling, generated frame, invocation span, and definition span. The declaration location also keeps every contributing segment when a definition supplies the stars. Includes and definitions run through the integrated stream before parsing. A parser diagnostic produced inside an include retains its include stack, while a diagnostic on definition-generated text records both the expansion and declaration sites.
 
-`Compiler/PrsStmt.HC:PrsStmt` recognizes a type at top level and calls `PrsGlblVarLst`. `PrsGlblVarLst` and `Compiler/PrsVar.HC:PrsType` also support commas, initializers, pointers, arrays, functions, and other forms. Those forms are not silently stored as raw tokens here. They produce `HCPARSE0001`, `HCPARSE0002`, or `HCPARSE0003`, recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
+`Compiler/PrsStmt.HC:PrsStmt` recognizes a type at top level and calls `PrsGlblVarLst`. `Compiler/PrsVar.HC:PrsType` counts stars and rejects a depth greater than `PTR_STARS_NUM`; the pinned `Kernel/KernelA.HH` sets that value to four. `Compiler/PrsLib.HC:PrsClassNew` creates the matching depth-zero through depth-four class records. The syntax tree records the pointer layers, but semantic pointer types, layout, dereference behavior, and conversions are not implemented yet.
+
+`PrsGlblVarLst` and `PrsType` also support commas, initializers, parenthesized function pointers, array suffixes, and other declarator forms. Those forms are not silently stored as raw tokens here. General unsupported syntax uses `HCPARSE0001` through `HCPARSE0003`; a fifth star uses `HCPARSE0004`, and a parenthesized function pointer uses `HCPARSE0005`. Recovery advances to a semicolon or EOF, and the public result contains no AST after any error.
 
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
@@ -118,4 +121,4 @@ HolyC's `Option(bit, state)` changes the current compile controller and returns 
 
 ## Current boundary
 
-The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for direct primitive global variables. It does not implement extended declarators, initializers, expressions, statements, functions, classes, unions, promotions, conversions, pointers, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for primitive globals with zero through four pointer stars. It does not implement semantic pointer types, array or function declarators, initializers, expressions, statements, functions, classes, unions, promotions, conversions, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
