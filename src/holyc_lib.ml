@@ -6,6 +6,7 @@ module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
 module Version = Driver.Version
+module Asm_directive = Asm.Directive
 module Keyword = Frontend.Keyword
 module Operator = Frontend.Operator
 module Trivia = Frontend.Trivia

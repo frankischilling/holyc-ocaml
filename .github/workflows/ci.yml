@@ -43,6 +43,9 @@ jobs:
       - name: Check formatting
         run: opam exec -- dune build @fmt
 
+      - name: Check generated source
+        run: opam exec -- dune build @generated-check
+
       - name: Verify the pinned reference
         shell: pwsh
         run: ./tools/verify-reference.ps1
