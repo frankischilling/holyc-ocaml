@@ -27,6 +27,12 @@
  (modules compiler_option_source)
  (libraries digestif))
 
+(library
+ (name intermediate_code_tools)
+ (wrapped false)
+ (modules intermediate_code_source)
+ (libraries digestif))
+
 (executable
  (name opcode_table_gen)
  (modules opcode_table_gen)
@@ -46,6 +52,11 @@
  (name compiler_option_gen)
  (modules compiler_option_gen)
  (libraries compiler_option_tools yojson))
+
+(executable
+ (name intermediate_code_gen)
+ (modules intermediate_code_gen)
+ (libraries intermediate_code_tools yojson))
 
 (rule
  (alias generated-check)
@@ -143,3 +154,26 @@
     --output
     src/generated/compiler_options.ml
     --check))))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Compiler/CompilerA.HH
+  ../third_party/TempleOS/Compiler/CInit.HC
+  ../src/generated/intermediate_codes.ml
+  ../src/generated/intermediate_codes.mli)
+ (action
+  (run
+   %{exe:intermediate_code_gen.exe}
+   --compiler
+   %{dep:../third_party/TempleOS/Compiler/CompilerA.HH}
+   --cinit
+   %{dep:../third_party/TempleOS/Compiler/CInit.HC}
+   --manifest
+   %{dep:../reference/manifest.json}
+   --output-ml
+   %{dep:../src/generated/intermediate_codes.ml}
+   --output-mli
+   %{dep:../src/generated/intermediate_codes.mli}
+   --check)))
