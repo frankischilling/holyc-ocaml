@@ -1,0 +1,16 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-alternate-bindings.hc:1:1..4:1 items=2
+  global_variable span=cli/parse-alternate-bindings.hc:2:1..2:36
+    modifier kind=public spelling="public" span=cli/parse-alternate-bindings.hc:2:1..2:7
+    binding kind=extern spelling="_extern" span=cli/parse-alternate-bindings.hc:2:8..2:15
+      target spelling="C32_EAX" span=cli/parse-alternate-bindings.hc:2:16..2:23
+    type primitive=U32 spelling="U32" span=cli/parse-alternate-bindings.hc:2:24..2:27
+    name spelling="c32_eax" span=cli/parse-alternate-bindings.hc:2:28..2:35
+    semicolon span=cli/parse-alternate-bindings.hc:2:35..2:36
+  global_variable span=cli/parse-alternate-bindings.hc:3:1..3:38
+    binding kind=import spelling="_import" span=cli/parse-alternate-bindings.hc:3:1..3:8
+      target spelling="REMOTE_CLOCK" span=cli/parse-alternate-bindings.hc:3:9..3:21
+    type primitive=I64 spelling="I64" span=cli/parse-alternate-bindings.hc:3:22..3:25
+    name spelling="clock_ticks" span=cli/parse-alternate-bindings.hc:3:26..3:37
+    semicolon span=cli/parse-alternate-bindings.hc:3:37..3:38

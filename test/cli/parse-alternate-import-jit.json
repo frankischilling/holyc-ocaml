@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0006",
+    "severity": "error",
+    "message": "import declarations require AOT mode; select AOT mode before parsing this declaration",
+    "primary": {
+      "path": "cli/parse-alternate-import-jit.hc",
+      "line": 2,
+      "column": 1,
+      "source_id": 0,
+      "start": 76,
+      "stop": 83
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
