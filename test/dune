@@ -829,3 +829,89 @@
    (diff
     cli/parse-register-parameter-error.json
     parse-register-parameter-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-parameters.human.actual)
+ (deps
+  cli/parse-function-pointer-parameters.hc
+  cli/parse-function-pointer-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameters.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     cli/parse-function-pointer-parameters.hc))
+   (diff
+    cli/parse-function-pointer-parameters.human
+    parse-function-pointer-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-parameters.json.actual)
+ (deps
+  cli/parse-function-pointer-parameters.hc
+  cli/parse-function-pointer-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-pointer-parameters.hc))
+   (diff
+    cli/parse-function-pointer-parameters.json
+    parse-function-pointer-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-parameter-error.human.actual
+  parse-function-pointer-parameter-error.human.stdout.actual)
+ (deps
+  cli/parse-function-pointer-parameter-error.hc
+  cli/parse-function-pointer-parameter-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameter-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-parameter-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-pointer-parameter-error.hc))))
+   (diff
+    cli/parse-function-pointer-parameter-error.human
+    parse-function-pointer-parameter-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-parameter-error.json.actual
+  parse-function-pointer-parameter-error.json.stdout.actual)
+ (deps
+  cli/parse-function-pointer-parameter-error.hc
+  cli/parse-function-pointer-parameter-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameter-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-parameter-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-pointer-parameter-error.hc))))
+   (diff
+    cli/parse-function-pointer-parameter-error.json
+    parse-function-pointer-parameter-error.json.actual))))

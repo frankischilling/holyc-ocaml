@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0014",
+    "severity": "error",
+    "message": "expected '*' after '(' in function-pointer parameter, but found identifier \"callback\"",
+    "primary": {
+      "path": "cli/parse-function-pointer-parameter-error.hc",
+      "line": 2,
+      "column": 31,
+      "source_id": 0,
+      "start": 110,
+      "stop": 118
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

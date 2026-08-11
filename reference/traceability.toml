@@ -823,11 +823,54 @@ function_symbol_publication = "after the complete semicolon"
 default_argument_status = "planned"
 lastclass_default_status = "planned"
 register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
-function_pointer_parameter_status = "planned"
+function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 array_parameter_status = "rejected to match PrsArrayDims"
 calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
 function_body_status = "planned"
 linkage_resolution_status = "planned"
+abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
+description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
+sources = [
+  "Compiler/PrsVar.HC:PrsType function-pointer branch",
+  "Compiler/PrsVar.HC:PrsVarLst CMemberLst.fun_ptr and MLF_FUN",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsLib.HC:PrsFunNew",
+  "Kernel/KernelA.HH:PTR_STARS_NUM, CMemberLst.fun_ptr, and MLF_FUN",
+  "Kernel/KernelB.HH:49-53",
+  "Kernel/KernelC.HH:17-22, 517, and 603-605",
+  "Kernel/QSort.HC"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-pointer-parameters.hc",
+  "test/cli/parse-function-pointer-parameters.human",
+  "test/cli/parse-function-pointer-parameters.json",
+  "test/cli/parse-function-pointer-parameter-error.hc",
+  "test/cli/parse-function-pointer-parameter-error.human",
+  "test/cli/parse-function-pointer-parameter-error.json"
+]
+status = "implemented"
+issue = 67
+ast_schema = "holyc-ast-v1"
+return_pointer_depth = "zero through four"
+declarator_pointer_depth = "one through four"
+name_status = "optional"
+signature_status = ["empty", "fixed", "variadic", "nested"]
+nested_parameter_grammar = "shared with ordinary bound prototypes"
+definition_provenance = "preserved"
+hosted_nesting_limit = 32
+malformed_diagnostic = "HCPARSE0014"
+nesting_limit_diagnostic = "HCPARSE0017"
+function_type_checking = "planned"
+indirect_call_status = "planned"
 abi_status = "planned"
 
 [[feature]]

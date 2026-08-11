@@ -27,6 +27,12 @@ These notes describe the ABI facts audited so far from TempleOS commit `c26482bb
 
 The accepted name set is not the complete assembler register set. For example, `EAX` and `R8u64` do not match `ST_U64_REGS`, so `reg EAX` or `reg R8u64` leaves that identifier available as the parameter name. A terminal variadic marker may also carry a preceding request because `PrsVarLst` passes `_reg` to `PrsDotDotDot`. `OPTf_NO_REG_VAR` affects later register-variable optimization and does not disable this syntax. Semantic validation, register availability, conflicts, spill behavior, and ABI placement remain to be audited before requested registers can affect code generation.
 
+## Function-pointer parameters
+
+`Compiler/PrsVar.HC:PrsType` parses a parenthesized function-pointer declarator and calls `PrsFunJoin` with a null name for its signature metadata. One through four stars inside the declarator determine the function-pointer type, while any stars between the primitive type and the declarator belong to the callback return type. `PrsVarLst` stores the returned function metadata in `CMemberLst.fun_ptr` and sets `MLF_FUN`. The parser keeps these parts separate in a recursive AST and accepts empty, fixed, variadic, and nested callback signatures.
+
+This is syntax and metadata capture, not ABI implementation. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
+
 ## Argument cleanup
 
 `PrsFunJoin` derives `Ff_RET1` when a function has at least one fixed argument, is not variadic, and its argument byte count fits the signed 16-bit immediate used by `RET`. With eight-byte argument slots, the accepted count is 1 through 4,095.

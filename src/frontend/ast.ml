@@ -80,19 +80,31 @@ type register_qualifier = {
   location : location;
 }
 
+type variadic_marker = {
+  register_qualifiers : register_qualifier list;
+  spelling : string;
+  location : location;
+}
+
 type function_parameter = {
   register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
+  function_pointer : function_pointer_declarator option;
   delimiter : declaration_delimiter option;
   location : location;
 }
 
-type variadic_marker = {
-  register_qualifiers : register_qualifier list;
-  spelling : string;
-  location : location;
+and function_pointer_declarator = {
+  declarator_opening_parenthesis : location;
+  indirection_layers : pointer_layer list;
+  declarator_closing_parenthesis : location;
+  signature_opening_parenthesis : location;
+  signature_parameters : function_parameter list;
+  signature_variadic : variadic_marker option;
+  signature_closing_parenthesis : location;
+  function_pointer_location : location;
 }
 
 type function_prototype = {
@@ -171,14 +183,30 @@ let make_register_qualifier ~kind ~position ~spelling ~explicit_register
   { kind; position; spelling; explicit_register; location }
 
 let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
-    ~name ~delimiter ~location =
+    ~name ~function_pointer ~delimiter ~location =
   {
     register_qualifiers;
     type_specifier;
     pointer_layers;
     name;
+    function_pointer;
     delimiter;
     location;
+  }
+
+let make_function_pointer_declarator ~declarator_opening_parenthesis
+    ~indirection_layers ~declarator_closing_parenthesis
+    ~signature_opening_parenthesis ~signature_parameters ~signature_variadic
+    ~signature_closing_parenthesis ~function_pointer_location =
+  {
+    declarator_opening_parenthesis;
+    indirection_layers;
+    declarator_closing_parenthesis;
+    signature_opening_parenthesis;
+    signature_parameters;
+    signature_variadic;
+    signature_closing_parenthesis;
+    function_pointer_location;
   }
 
 let make_variadic_marker ~register_qualifiers ~spelling ~location :
