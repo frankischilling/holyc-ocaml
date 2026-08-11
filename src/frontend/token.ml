@@ -18,6 +18,7 @@ type t = {
   raw : string;
   value : value;
   span : Common.Span.t;
+  source_segments : Common.Span.t list;
   origin : origin;
   leading_trivia : Trivia.t list;
   mode : mode;
@@ -46,12 +47,12 @@ let value_text = function
   | Float64 value -> Some (Printf.sprintf "%.17g" value)
   | Bytes bytes -> Some (escaped_bytes bytes)
 
-let location sources token =
-  match Common.Source_manager.find sources token.span.source with
+let span_location sources span =
+  match Common.Source_manager.find sources span.Common.Span.source with
   | None -> ("<unknown>", 1, 1, 1, 1)
   | Some source ->
-      let start = Common.Source_file.position source token.span.start in
-      let stop = Common.Source_file.position source token.span.stop in
+      let start = Common.Source_file.position source span.start in
+      let stop = Common.Source_file.position source span.stop in
       let get result =
         Result.value result
           ~default:{ Common.Source_file.offset = 0; line = 1; column = 1 }
@@ -64,6 +65,22 @@ let location sources token =
         stop.line,
         stop.column )
 
+let location sources token = span_location sources token.span
+
+let span_text sources span =
+  let path, start_line, start_column, stop_line, stop_column =
+    span_location sources span
+  in
+  Printf.sprintf "%s:%d:%d..%d:%d" path start_line start_column stop_line
+    stop_column
+
+let segments_text sources label spans =
+  match spans with
+  | [] | [ _ ] -> ""
+  | spans ->
+      Printf.sprintf " %s=[%s]" label
+        (spans |> List.map (span_text sources) |> String.concat ",")
+
 let human sources token =
   let path, start_line, start_column, stop_line, stop_column =
     location sources token
@@ -73,10 +90,40 @@ let human sources token =
     | None -> ""
     | Some text -> Printf.sprintf " value=%S" text
   in
-  Printf.sprintf "%s:%d:%d..%d:%d %s raw=%S%s" path start_line start_column
+  let source_segments =
+    segments_text sources "source_segments" token.source_segments
+  in
+  let trivia_segments =
+    token.leading_trivia
+    |> List.filter_map (fun trivia ->
+        let differs_from_token =
+          match trivia.Trivia.source_segments with
+          | [] -> false
+          | span :: _ ->
+              not
+                (Common.Source_id.equal span.Common.Span.source
+                   token.span.source)
+        in
+        if List.length trivia.source_segments > 1 || differs_from_token then
+          Some
+            (Printf.sprintf "%s:{%s}"
+               (Trivia.kind_name trivia.kind)
+               (trivia.source_segments
+               |> List.map (span_text sources)
+               |> String.concat ","))
+        else None)
+  in
+  let trivia_segments =
+    match trivia_segments with
+    | [] -> ""
+    | segments ->
+        Printf.sprintf " leading_trivia_segments=[%s]"
+          (String.concat ";" segments)
+  in
+  Printf.sprintf "%s:%d:%d..%d:%d %s raw=%S%s%s%s" path start_line start_column
     stop_line stop_column
     (Token_kind.name token.kind)
-    token.raw value
+    token.raw value source_segments trivia_segments
 
 let span_json sources span =
   let fields =
@@ -107,32 +154,45 @@ let value_json = function
   | Bytes bytes -> `String (escaped_bytes bytes)
 
 let to_yojson sources token =
+  let source_segments =
+    match token.source_segments with
+    | [ _ ] | [] -> []
+    | spans ->
+        [ ("source_segments", `List (List.map (span_json sources) spans)) ]
+  in
   `Assoc
-    [
-      ("kind", `String (Token_kind.name token.kind));
-      ("raw", `String token.raw);
-      ("value", value_json token.value);
-      ("span", span_json sources token.span);
-      ( "origin",
-        `Assoc
-          [
-            ("frame", `Int (Common.Source_id.to_int token.origin.frame));
-            ( "generated_from",
-              match token.origin.generated_from with
-              | None -> `Null
-              | Some span -> span_json sources span );
-            ( "defined_at",
-              match token.origin.defined_at with
-              | None -> `Null
-              | Some span -> span_json sources span );
-          ] );
-      ("leading_trivia", `List (List.map Trivia.to_yojson token.leading_trivia));
-      ("mode", `String (mode_name token.mode));
-      ( "templeos_token_id",
-        match Token_kind.templeos_token_id token.kind with
-        | None -> `Null
-        | Some value -> `Int value );
-    ]
+    ([
+       ("kind", `String (Token_kind.name token.kind));
+       ("raw", `String token.raw);
+       ("value", value_json token.value);
+       ("span", span_json sources token.span);
+     ]
+    @ source_segments
+    @ [
+        ( "origin",
+          `Assoc
+            [
+              ("frame", `Int (Common.Source_id.to_int token.origin.frame));
+              ( "generated_from",
+                match token.origin.generated_from with
+                | None -> `Null
+                | Some span -> span_json sources span );
+              ( "defined_at",
+                match token.origin.defined_at with
+                | None -> `Null
+                | Some span -> span_json sources span );
+            ] );
+        ( "leading_trivia",
+          `List
+            (List.map
+               (Trivia.to_yojson ~containing_source:token.span.source sources)
+               token.leading_trivia) );
+        ("mode", `String (mode_name token.mode));
+        ( "templeos_token_id",
+          match Token_kind.templeos_token_id token.kind with
+          | None -> `Null
+          | Some value -> `Int value );
+      ])
 
 let json sources tokens =
   `List (List.map (to_yojson sources) tokens) |> Yojson.Safe.pretty_to_string

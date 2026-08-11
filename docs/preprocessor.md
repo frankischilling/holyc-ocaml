@@ -4,7 +4,7 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation
 
-`holyc preprocess` recognizes quoted includes, TempleOS text definitions, the six standard predefined values, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, symbol-presence conditionals, `#help_index`, and `#help_file` inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition or predefined value pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional and help state belongs to the preprocessing stream and can span any of those frames. Tokens and metadata keep the source ID and byte span of the frame that produced them.
+`holyc preprocess` recognizes quoted includes, TempleOS text definitions, the six standard predefined values, deterministic `#if` and `#assert` expressions, JIT/AOT mode conditionals, symbol-presence conditionals, `#help_index`, and `#help_file` inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition or predefined value pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional and help state belongs to the preprocessing stream and can span any of those frames. A token or trivia item that crosses a frame return keeps its first span plus an ordered `source_segments` list covering every contributing source.
 
 This command is deliberately separate from `holyc lex`. The raw lexer still returns directive and replacement text as ordinary tooling tokens; it does not read files, expand definitions, or select conditional branches.
 
@@ -12,7 +12,7 @@ General `#exe` blocks and arbitrary generated source still report `HCPP0008` whe
 
 ## Behavior taken from the pinned compiler
 
-`Compiler/Lex.HC:LexFilePush` starts the root source at depth -1, so its first included file has depth 0. `LexGetChar` removes an exhausted included frame and continues from the saved caller position without exposing an intermediate EOF. `LexBackupLastChar` preserves the caller's byte cursor and one-character lookahead before a push. The OCaml implementation uses one lexer per frame, which retains the same resumption boundary without copying TempleOS pointer state.
+`Compiler/Lex.HC:LexFilePush` starts the root source at depth -1, so its first included file has depth 0. `LexGetChar` removes an exhausted included frame and continues from the saved caller position without exposing an intermediate EOF. `LexBackupLastChar` preserves the caller's byte cursor and one-character lookahead before a push. The OCaml implementation links each lexer to its caller. `peek` and `advance` walk only as far into that chain as the active scanner requests, so a long caller is not copied for each expansion.
 
 The `KW_INCLUDE` branch in `Compiler/Lex.HC:Lex` accepts one string token. `Doc/PreProcessor.DD` confirms that HolyC has no angle-bracket include form. `ExtDft` supplies the logical `HC.Z` extension only when the spelling has no extension.
 
@@ -35,7 +35,7 @@ Definitions have no parameters, argument substitution, token pasting, or stringi
 
 The TempleOS compiler stores definitions in the task hash table. `holyc-ocaml` keeps them in `Session.t`: includes and later preprocessing calls made with the same session see the same source-ordered environment. Each replacement frame receives a stable source ID, a byte-segment map back to the captured replacement, the invocation span, and the original definition span. Terminal and JSON diagnostics from replacement text report both sites.
 
-The current lexer resumes a caller between tokens. TempleOS can exhaust a lexical frame while it is still scanning a token, which may join punctuation from a replacement with the caller's saved lookahead. That boundary requires an oracle-backed composite byte stream and remains tracked by [issue #24](https://github.com/frankischilling/holyc-ocaml/issues/24). No compatibility result in this slice treats that case as passing.
+Frame returns can occur while the lexer is scanning an identifier, number, quoted literal, operator, comment, whitespace, or line continuation. The scanner keeps a cursor for every active frame and builds raw text only from the bytes it consumes. A multi-source diagnostic uses the first segment as its primary span and reports each continuation as related context. [The frame-boundary oracle](oracle-fixtures.md#lexical-frame-boundaries) confirms operator fusion, caller resumption, numbers, strings, characters, comments, nested definitions, an included identifier, and a line continuation against the pinned compiler.
 
 ## Predefined values
 

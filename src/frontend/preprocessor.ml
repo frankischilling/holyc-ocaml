@@ -125,6 +125,38 @@ let create ~sources ~definitions ~symbols ~config source =
     help_metadata = Help_metadata.empty;
   }
 
+let rec discard_exhausted_frames stream =
+  if Lexer.local_at_end (Lexer_frame.lexer stream.current) then
+    match Lexer_frame.caller stream.current with
+    | None -> ()
+    | Some caller ->
+        stream.current <- caller;
+        discard_exhausted_frames stream
+
+let rec align_current_to_source stream source =
+  if Common.Source_id.equal (Lexer_frame.source_id stream.current) source then
+    ()
+  else
+    match Lexer_frame.caller stream.current with
+    | None ->
+        invalid_arg
+          "preprocessor lexer item does not belong to the active source frame \
+           chain"
+    | Some caller ->
+        stream.current <- caller;
+        align_current_to_source stream source
+
+let next_lexer_item stream =
+  discard_exhausted_frames stream;
+  let item = Lexer.next (Lexer_frame.lexer stream.current) in
+  let source =
+    match item with
+    | Lexer.Token token -> token.Token.span.source
+    | Lexer.Diagnostic diagnostic -> diagnostic.Common.Diagnostic.primary.source
+  in
+  align_current_to_source stream source;
+  item
+
 let zero_span source =
   Common.Span.unsafe_make
     ~source:(Common.Source_file.id source)
@@ -504,16 +536,13 @@ let invalid_symbol_condition_name stream token keyword =
          (Keyword.spelling keyword))
     token.Token.span
 
-let rec next_unexpanded stream =
-  match Lexer.next (Lexer_frame.lexer stream.current) with
+let next_unexpanded stream =
+  match next_lexer_item stream with
   | Lexer.Diagnostic item ->
-      Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
-  | Lexer.Token token when token.Token.kind = Token_kind.Eof -> (
-      match Lexer_frame.caller stream.current with
-      | None -> Lexer.Token token
-      | Some caller ->
-          stream.current <- caller;
-          next_unexpanded stream)
+      let item = decorate_lexer_diagnostic stream item in
+      Lexer.Diagnostic item
+  | Lexer.Token token when token.Token.kind = Token_kind.Eof ->
+      Lexer.Token token
   | item -> item
 
 let define stream hash =
@@ -680,17 +709,13 @@ let expand stream token =
           Result.map (fun () -> true) (push_definition stream token definition))
 
 let rec next_expanded_source stream =
-  match Lexer.next (Lexer_frame.lexer stream.current) with
+  match next_lexer_item stream with
   | Lexer.Diagnostic item ->
-      Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
+      let item = decorate_lexer_diagnostic stream item in
+      Lexer.Diagnostic item
   | Lexer.Token token -> (
       match token.Token.kind with
-      | Token_kind.Eof -> (
-          match Lexer_frame.caller stream.current with
-          | None -> Lexer.Token token
-          | Some caller ->
-              stream.current <- caller;
-              next_expanded_source stream)
+      | Token_kind.Eof -> Lexer.Token token
       | Token_kind.Identifier | Token_kind.Keyword _ -> (
           match expand stream token with
           | Ok false -> Lexer.Token token
@@ -1044,25 +1069,31 @@ and next_inactive stream =
           | Error item -> Lexer.Diagnostic item
       else next_inactive stream
   | None -> (
+      discard_exhausted_frames stream;
       match
         Lexer.scan_to_directive_marker (Lexer_frame.lexer stream.current)
       with
-      | Error item -> Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
-      | Ok (Some _) when stream.conditional_poisoned -> next stream
+      | Error item ->
+          align_current_to_source stream item.Common.Diagnostic.primary.source;
+          let item = decorate_lexer_diagnostic stream item in
+          discard_exhausted_frames stream;
+          Lexer.Diagnostic item
+      | Ok (Some hash) when stream.conditional_poisoned ->
+          align_current_to_source stream hash.Token.span.source;
+          discard_exhausted_frames stream;
+          next stream
       | Ok (Some hash) -> (
+          align_current_to_source stream hash.Token.span.source;
+          discard_exhausted_frames stream;
           match directive stream ~inactive:true hash with
           | Ok () -> next stream
           | Error item -> Lexer.Diagnostic item)
       | Ok None -> (
-          match Lexer_frame.caller stream.current with
-          | Some caller ->
-              stream.current <- caller;
-              next stream
-          | None -> (
-              match Lexer.next (Lexer_frame.lexer stream.current) with
-              | Lexer.Token token -> finish_eof stream token
-              | Lexer.Diagnostic item ->
-                  Lexer.Diagnostic (decorate_lexer_diagnostic stream item))))
+          discard_exhausted_frames stream;
+          match next_lexer_item stream with
+          | Lexer.Token token -> finish_eof stream token
+          | Lexer.Diagnostic item ->
+              Lexer.Diagnostic (decorate_lexer_diagnostic stream item)))
 
 let definitions stream = Definition.Environment.all stream.definitions
 

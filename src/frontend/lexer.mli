@@ -20,12 +20,14 @@ val create :
   ?mode:Token.mode ->
   ?generated_from:Common.Span.t ->
   ?defined_at:Common.Span.t ->
+  ?caller:t ->
   ?nul_terminates:bool ->
   Common.Source_file.t ->
   t
 
 val offset : t -> int
 val termination : t -> termination option
+val local_at_end : t -> bool
 
 val consume_continuation_marker : t -> Common.Span.t option
 (** Consume an immediate backslash used by source constructs that explicitly

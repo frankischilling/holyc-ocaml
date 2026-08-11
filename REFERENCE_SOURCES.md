@@ -42,9 +42,9 @@ The command verifies the checkout before and after scanning, enumerates only com
 
 ## Include-frame audit
 
-The current include implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`, plus the `CLexFile` and `CCmpCtrl` definitions in `Kernel/KernelA.HH` and `DirNameAbs`, `FileNameAbs`, and `ExtDft` in `Kernel/BlkDev/DskStrA.HC`. Their Git blob checksums are in the manifest.
+The current include implementation uses complete reads of `Compiler/Lex.HC`, `Compiler/LexLib.HC`, `Doc/PreProcessor.DD`, `Doc/Lex.DD`, and `Doc/Directives.DD`, plus the `CLexFile` and `CCmpCtrl` definitions in `Kernel/KernelA.HH` and `DirNameAbs`, `FileNameAbs`, and `ExtDft` in `Kernel/BlkDev/DskStrA.HC`. Their Git blob checksums are in the manifest. The `LexBackupLastChar`, `LexIncludeStr`, `LexGetChar`, and `LexFilePop` control flow establishes that an active scanner may exhaust a frame and continue with the caller's saved lookahead before returning a token.
 
-No source table is copied or generated for this behavior. `reference/traceability.toml` links the original functions to `include_resolver.ml`, `lexer_frame.ml`, `preprocessor.ml`, and the focused tests. The hosted filesystem restrictions are documented as project security policy rather than TempleOS behavior.
+No source table is copied or generated for this behavior. `reference/traceability.toml` links the original functions to `lexer.ml`, `include_resolver.ml`, `lexer_frame.ml`, `preprocessor.ml`, the focused tests, and the native fixture. The hosted filesystem restrictions are documented as project security policy rather than TempleOS behavior.
 
 ## Definition-string audit
 
