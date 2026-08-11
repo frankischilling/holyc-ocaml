@@ -27,7 +27,7 @@ let create ~id ~path ~display_path ~contents =
 
 let default_max_bytes = 64 * 1024 * 1024
 
-let load ?(max_bytes = default_max_bytes) ~id ~path () =
+let load ?(max_bytes = default_max_bytes) ?display_path ~id ~path () =
   if max_bytes < 0 then Error "source size limit must be nonnegative"
   else
     try
@@ -43,7 +43,8 @@ let load ?(max_bytes = default_max_bytes) ~id ~path () =
                  size max_bytes)
           else
             let contents = really_input_string channel size in
-            Ok (create ~id ~path:canonical ~display_path:path ~contents))
+            let display_path = Option.value display_path ~default:path in
+            Ok (create ~id ~path:canonical ~display_path ~contents))
     with
     | Sys_error message -> Error message
     | Unix.Unix_error (error, operation, argument) ->

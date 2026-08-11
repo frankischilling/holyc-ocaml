@@ -18,6 +18,7 @@ let create ?(mode = Token.Raw) source =
   }
 
 let source_id lexer = Common.Source_file.id lexer.source
+let offset lexer = lexer.offset
 let source_length lexer = String.length lexer.contents
 let at_end lexer = lexer.offset >= source_length lexer
 

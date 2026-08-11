@@ -7,13 +7,17 @@ type t = {
   message : string;
   primary : Span.t;
   secondary : related list;
+  include_stack : related list;
   notes : string list;
   help : string option;
 }
 
-let make ?(secondary = []) ?(notes = []) ?help ~code ~severity ~message ~primary
-    () =
-  { code; severity; message; primary; secondary; notes; help }
+let make ?(secondary = []) ?(include_stack = []) ?(notes = []) ?help ~code
+    ~severity ~message ~primary () =
+  { code; severity; message; primary; secondary; include_stack; notes; help }
+
+let with_include_stack diagnostic include_stack =
+  { diagnostic with include_stack }
 
 let severity_name = function
   | Error -> "error"
@@ -57,6 +61,8 @@ let to_yojson sources diagnostic =
       ("primary", span_to_yojson sources diagnostic.primary);
       ( "secondary",
         `List (List.map (related_to_yojson sources) diagnostic.secondary) );
+      ( "include_stack",
+        `List (List.map (related_to_yojson sources) diagnostic.include_stack) );
       ("notes", `List (List.map (fun note -> `String note) diagnostic.notes));
       ( "help",
         match diagnostic.help with

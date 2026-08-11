@@ -5,7 +5,12 @@ val create :
   id:Source_id.t -> path:string -> display_path:string -> contents:string -> t
 
 val load :
-  ?max_bytes:int -> id:Source_id.t -> path:string -> unit -> (t, string) result
+  ?max_bytes:int ->
+  ?display_path:string ->
+  id:Source_id.t ->
+  path:string ->
+  unit ->
+  (t, string) result
 
 val id : t -> Source_id.t
 val path : t -> string
