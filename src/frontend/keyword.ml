@@ -106,7 +106,7 @@ let all =
     <> List.length Generated.Opcode_keywords.language
   then invalid_arg "generated language keyword table has an unexpected length";
   List.map2
-    (fun entry keyword ->
+    (fun (entry : Generated.Opcode_keywords.entry) keyword ->
       (entry.Generated.Opcode_keywords.spelling, keyword, entry.templeos_id))
     Generated.Opcode_keywords.language constructors_by_id
 
@@ -129,6 +129,9 @@ let templeos_id keyword =
 
 let source_line keyword =
   let id = templeos_id keyword in
-  (List.nth Generated.Opcode_keywords.language id).source_line
+  let entry : Generated.Opcode_keywords.entry =
+    List.nth Generated.Opcode_keywords.language id
+  in
+  entry.source_line
 
 let compare left right = Int.compare (templeos_id left) (templeos_id right)
