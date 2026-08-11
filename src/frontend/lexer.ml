@@ -9,10 +9,21 @@ type t = {
   generated_from : Common.Span.t option;
   defined_at : Common.Span.t option;
   nul_terminates : bool;
+  caller : t option;
   mutable offset : int;
   mutable emitted_eof : bool;
   mutable termination : termination option;
 }
+
+type cursor = { positions : (t * int) list }
+
+type consumed_range = {
+  owner : t;
+  start : int;
+  stop : int;
+}
+
+type located_byte = { owner : t; offset : int; byte : char }
 
 type item = Token of Token.t | Diagnostic of Common.Diagnostic.t
 type definition_terminator = End_of_line | End_of_file | Nul
@@ -24,7 +35,7 @@ type definition_replacement = {
   terminator : definition_terminator;
 }
 
-let create ?(mode = Token.Raw) ?generated_from ?defined_at
+let create ?(mode = Token.Raw) ?generated_from ?defined_at ?caller
     ?(nul_terminates = false) source =
   {
     source;
@@ -33,39 +44,133 @@ let create ?(mode = Token.Raw) ?generated_from ?defined_at
     generated_from;
     defined_at;
     nul_terminates;
+    caller;
     offset = 0;
     emitted_eof = false;
     termination = None;
   }
 
-let source_id lexer = Common.Source_file.id lexer.source
-let offset lexer = lexer.offset
-let termination lexer = lexer.termination
-let source_length lexer = String.length lexer.contents
-let at_end lexer = lexer.offset >= source_length lexer
+let source_id (lexer : t) = Common.Source_file.id lexer.source
+let offset (lexer : t) = lexer.offset
+let termination (lexer : t) = lexer.termination
+let source_length (lexer : t) = String.length lexer.contents
+let local_at_end (lexer : t) = lexer.offset >= source_length lexer
 
-let peek lexer distance =
-  let index = lexer.offset + distance in
-  if index < source_length lexer then Some lexer.contents.[index] else None
+let rec at_end (lexer : t) =
+  if not (local_at_end lexer) then false
+  else Option.fold ~none:true ~some:at_end lexer.caller
 
-let advance lexer =
-  match peek lexer 0 with
+let rec terminal_lexer (lexer : t) =
+  match lexer.caller with
+  | None -> lexer
+  | Some caller -> terminal_lexer caller
+
+let rec owner_at_distance (lexer : t) distance =
+  let remaining = source_length lexer - lexer.offset in
+  if distance < remaining then Some (lexer, lexer.offset + distance)
+  else
+    match lexer.caller with
+    | None -> None
+    | Some caller -> owner_at_distance caller (distance - remaining)
+
+let peek (lexer : t) distance =
+  Option.map
+    (fun (owner, index) -> owner.contents.[index])
+    (owner_at_distance lexer distance)
+
+let advance_located (lexer : t) =
+  match owner_at_distance lexer 0 with
   | None -> None
-  | Some byte ->
-      lexer.offset <- lexer.offset + 1;
-      Some byte
+  | Some (owner, offset) ->
+      let byte = owner.contents.[offset] in
+      owner.offset <- owner.offset + 1;
+      Some { owner; offset; byte }
 
-let raw lexer start stop = String.sub lexer.contents start (stop - start)
+let advance (lexer : t) =
+  Option.map (fun located -> located.byte) (advance_located lexer)
 
-let span lexer start stop =
-  Common.Span.unsafe_make ~source:(source_id lexer) ~start ~stop
+let rec advance_count (lexer : t) count =
+  if count <= 0 then ()
+  else
+    match advance lexer with
+    | None -> ()
+    | Some _ -> advance_count lexer (count - 1)
+
+let cursor (lexer : t) =
+  let rec collect (current : t) =
+    (current, current.offset)
+    :: Option.fold ~none:[] ~some:collect current.caller
+  in
+  { positions = collect lexer }
+
+let ranges_between start_cursor stop_cursor =
+  let rec collect starts stops ranges =
+    match (starts, stops) with
+    | [], [] -> List.rev ranges
+    | (owner, start) :: start_rest, (stop_owner, stop) :: stop_rest ->
+        if owner != stop_owner then
+          invalid_arg "lexer cursors belong to different frame chains";
+        let ranges =
+          if stop > start then { owner; start; stop } :: ranges else ranges
+        in
+        collect start_rest stop_rest ranges
+    | _ -> invalid_arg "lexer cursors have different frame depths"
+  in
+  collect start_cursor.positions stop_cursor.positions []
+
+let spans_of_ranges ranges =
+  List.map
+    (fun (range : consumed_range) ->
+      Common.Span.unsafe_make ~source:(source_id range.owner)
+        ~start:range.start ~stop:range.stop)
+    ranges
+
+let point_owner cursor =
+  let rec find = function
+    | [] -> invalid_arg "empty lexer cursor"
+    | [ (owner, offset) ] -> (owner, offset)
+    | (owner, offset) :: rest ->
+        if offset < source_length owner then (owner, offset) else find rest
+  in
+  find cursor.positions
+
+let span_between start_cursor stop_cursor =
+  match ranges_between start_cursor stop_cursor |> spans_of_ranges with
+  | span :: _ -> span
+  | [] ->
+      let owner, offset = point_owner start_cursor in
+      Common.Span.unsafe_make ~source:(source_id owner) ~start:offset ~stop:offset
+
+let source_segments_between start_cursor stop_cursor =
+  match ranges_between start_cursor stop_cursor |> spans_of_ranges with
+  | [] -> [ span_between start_cursor stop_cursor ]
+  | spans -> spans
+
+let raw_between start_cursor stop_cursor =
+  let ranges = ranges_between start_cursor stop_cursor in
+  let size =
+    List.fold_left
+      (fun total (range : consumed_range) ->
+        total + range.stop - range.start)
+      0 ranges
+  in
+  let buffer = Buffer.create size in
+  List.iter
+    (fun (range : consumed_range) ->
+      Buffer.add_substring buffer range.owner.contents range.start
+        (range.stop - range.start))
+    ranges;
+  Buffer.contents buffer
+
+let local_span owner start stop =
+  Common.Span.unsafe_make ~source:(source_id owner) ~start ~stop
 
 let consume_continuation_marker lexer =
   match peek lexer 0 with
   | Some '\\' ->
-      let start = lexer.offset in
+      let start = cursor lexer in
       ignore (advance lexer);
-      Some (span lexer start lexer.offset)
+      Some (span_between start (cursor lexer))
   | _ -> None
 
 let is_non_eol_whitespace = function
@@ -76,25 +181,29 @@ let capture_definition_replacement lexer =
   while Option.fold ~none:false ~some:is_non_eol_whitespace (peek lexer 0) do
     ignore (advance lexer)
   done;
-  let replacement_start = lexer.offset in
+  let replacement_start = cursor lexer in
   let buffer = Buffer.create 64 in
   let segments_rev = ref [] in
-  let append_source_byte source_offset =
+  let append_source_byte located =
     let generated_start = Buffer.length buffer in
-    Buffer.add_char buffer lexer.contents.[source_offset];
+    Buffer.add_char buffer located.byte;
     match !segments_rev with
     | ({ Definition.generated_stop; source_span; _ } as previous) :: rest
       when generated_stop = generated_start
-           && source_span.Common.Span.stop = source_offset ->
+           && Common.Source_id.equal source_span.Common.Span.source
+                (source_id located.owner)
+           && source_span.Common.Span.stop = located.offset ->
         let source_span =
           Common.Span.unsafe_make ~source:source_span.source
-            ~start:source_span.start ~stop:(source_offset + 1)
+            ~start:source_span.start ~stop:(located.offset + 1)
         in
         segments_rev :=
           { previous with generated_stop = generated_start + 1; source_span }
           :: rest
     | _ ->
-        let source_span = span lexer source_offset (source_offset + 1) in
+        let source_span =
+          local_span located.owner located.offset (located.offset + 1)
+        in
         segments_rev :=
           {
             Definition.generated_start;
@@ -118,71 +227,74 @@ let capture_definition_replacement lexer =
   in
   let rec scan ~initial ~in_string =
     match peek lexer 0 with
-    | None -> (End_of_file, lexer.offset)
+    | None -> (End_of_file, cursor lexer)
     | Some '\x00' ->
-        let raw_stop = lexer.offset in
+        let raw_stop = cursor lexer in
         ignore (advance lexer);
         (Nul, raw_stop)
     | Some ('\r' | '\n') ->
-        let raw_stop = lexer.offset in
+        let raw_stop = cursor lexer in
         ignore (advance lexer);
         (End_of_line, raw_stop)
     | Some '\\' -> (
-        let backslash = lexer.offset in
-        ignore (advance lexer);
+        let backslash = Option.get (advance_located lexer) in
         match peek lexer 0 with
         | None ->
             append_source_byte backslash;
-            (End_of_file, lexer.offset)
+            (End_of_file, cursor lexer)
         | Some '\n' ->
             ignore (advance lexer);
             scan ~initial:false ~in_string
         | Some '\r' -> (
+            let raw_stop = cursor lexer in
             ignore (advance lexer);
             match peek lexer 0 with
             | Some '\n' ->
                 ignore (advance lexer);
                 scan ~initial:false ~in_string
-            | _ -> (End_of_line, lexer.offset - 1))
+            | _ -> (End_of_line, raw_stop))
         | Some _ ->
             append_source_byte backslash;
-            let escaped = lexer.offset in
-            append_source_byte escaped;
-            ignore (advance lexer);
+            append_source_byte (Option.get (advance_located lexer));
             scan ~initial:false ~in_string)
     | Some '/' when (not initial) && not in_string -> (
         match peek lexer 1 with
         | Some '/' ->
-            let raw_stop = lexer.offset in
-            lexer.offset <- lexer.offset + 2;
+            let raw_stop = cursor lexer in
+            advance_count lexer 2;
             (finish_comment (), raw_stop)
         | _ ->
-            let source_offset = lexer.offset in
-            append_source_byte source_offset;
-            ignore (advance lexer);
+            append_source_byte (Option.get (advance_located lexer));
             scan ~initial:false ~in_string)
     | Some '"' ->
-        let source_offset = lexer.offset in
-        append_source_byte source_offset;
-        ignore (advance lexer);
+        append_source_byte (Option.get (advance_located lexer));
         scan ~initial:false ~in_string:(not in_string)
     | Some _ ->
-        let source_offset = lexer.offset in
-        append_source_byte source_offset;
-        ignore (advance lexer);
+        append_source_byte (Option.get (advance_located lexer));
         scan ~initial:false ~in_string
   in
   let terminator, replacement_stop = scan ~initial:true ~in_string:false in
   {
     replacement = Buffer.contents buffer;
-    replacement_span = span lexer replacement_start replacement_stop;
+    replacement_span = span_between replacement_start replacement_stop;
     segments = List.rev !segments_rev;
     terminator;
   }
 
-let make_diagnostic lexer ?help ~code ~message ~start ~stop () =
-  Common.Diagnostic.make ?help ~code ~severity:Common.Diagnostic.Error ~message
-    ~primary:(span lexer start stop) ()
+let make_diagnostic lexer ?help ~code ~message ~start () =
+  let stop = cursor lexer in
+  let source_segments = source_segments_between start stop in
+  let primary = List.hd source_segments in
+  let secondary =
+    List.tl source_segments
+    |> List.map (fun span ->
+           {
+             Common.Diagnostic.span;
+             message = "the same lexical item continues here";
+           })
+  in
+  Common.Diagnostic.make ?help ~secondary ~code
+    ~severity:Common.Diagnostic.Error ~message ~primary ()
 
 let is_whitespace = function
   | ' ' | '\t' | '\n' | '\r' | '\x1f' -> true
@@ -204,28 +316,34 @@ let is_identifier_continue byte =
   | _ -> false
 
 let trivia lexer kind start =
-  let stop = lexer.offset in
-  { Trivia.kind; raw = raw lexer start stop; span = span lexer start stop }
+  let stop = cursor lexer in
+  let source_segments = source_segments_between start stop in
+  {
+    Trivia.kind;
+    raw = raw_between start stop;
+    span = List.hd source_segments;
+    source_segments;
+  }
 
 let rec skip_trivia lexer accumulated =
   match (peek lexer 0, peek lexer 1) with
-  | Some '\\', Some ('\n' | '\r') ->
-      let start = lexer.offset in
-      lexer.offset <- lexer.offset + 2;
+  | Some '\\', Some (('\n' | '\r') as newline) ->
+      let start = cursor lexer in
+      advance_count lexer 2;
       if
-        Char.equal lexer.contents.[lexer.offset - 1] '\r'
+        Char.equal newline '\r'
         && Option.fold ~none:false ~some:(Char.equal '\n') (peek lexer 0)
       then ignore (advance lexer);
       skip_trivia lexer (trivia lexer Line_continuation start :: accumulated)
   | Some byte, _ when is_whitespace byte ->
-      let start = lexer.offset in
+      let start = cursor lexer in
       while Option.fold ~none:false ~some:is_whitespace (peek lexer 0) do
         ignore (advance lexer)
       done;
       skip_trivia lexer (trivia lexer Whitespace start :: accumulated)
   | Some '/', Some '/' ->
-      let start = lexer.offset in
-      lexer.offset <- lexer.offset + 2;
+      let start = cursor lexer in
+      advance_count lexer 2;
       while
         Option.fold ~none:false
           ~some:(fun byte -> not (Char.equal byte '\n'))
@@ -235,16 +353,16 @@ let rec skip_trivia lexer accumulated =
       done;
       skip_trivia lexer (trivia lexer Line_comment start :: accumulated)
   | Some '/', Some '*' ->
-      let start = lexer.offset in
-      lexer.offset <- lexer.offset + 2;
+      let start = cursor lexer in
+      advance_count lexer 2;
       let depth = ref 1 in
       while !depth > 0 && not (at_end lexer) do
         match (peek lexer 0, peek lexer 1) with
         | Some '/', Some '*' ->
-            lexer.offset <- lexer.offset + 2;
+            advance_count lexer 2;
             incr depth
         | Some '*', Some '/' ->
-            lexer.offset <- lexer.offset + 2;
+            advance_count lexer 2;
             decr depth
         | _ -> ignore (advance lexer)
       done;
@@ -253,11 +371,11 @@ let rec skip_trivia lexer accumulated =
       else
         let diagnostic =
           make_diagnostic lexer ~code:"HCLEX0002"
-            ~message:"unterminated block comment" ~start ~stop:lexer.offset ()
+            ~message:"unterminated block comment" ~start ()
         in
         (List.rev accumulated, Some diagnostic)
   | Some '$', Some next when not (Char.equal next '$') ->
-      let start = lexer.offset in
+      let start = cursor lexer in
       ignore (advance lexer);
       while
         Option.fold ~none:false
@@ -269,7 +387,7 @@ let rec skip_trivia lexer accumulated =
       if at_end lexer then
         let diagnostic =
           make_diagnostic lexer ~code:"HCLEX0007"
-            ~message:"unterminated dollar comment" ~start ~stop:lexer.offset ()
+            ~message:"unterminated dollar comment" ~start ()
         in
         (List.rev accumulated, Some diagnostic)
       else (
@@ -278,20 +396,23 @@ let rec skip_trivia lexer accumulated =
   | _ -> (List.rev accumulated, None)
 
 let make_token lexer leading_trivia ~kind ~value start =
-  let stop = lexer.offset in
+  let stop = cursor lexer in
+  let source_segments = source_segments_between start stop in
+  let owner, _ = point_owner start in
   {
     Token.kind;
-    raw = raw lexer start stop;
+    raw = raw_between start stop;
     value;
-    span = span lexer start stop;
+    span = List.hd source_segments;
+    source_segments;
     origin =
       {
-        frame = source_id lexer;
-        generated_from = lexer.generated_from;
-        defined_at = lexer.defined_at;
+        frame = source_id owner;
+        generated_from = owner.generated_from;
+        defined_at = owner.defined_at;
       };
     leading_trivia;
-    mode = lexer.mode;
+    mode = owner.mode;
   }
 
 let scan_to_directive_marker lexer =
@@ -299,13 +420,13 @@ let scan_to_directive_marker lexer =
     match peek lexer 0 with
     | None -> Ok None
     | Some '\x00' ->
-        let start = lexer.offset in
+        let start = cursor lexer in
         ignore (advance lexer);
         Error
           (make_diagnostic lexer ~code:"HCLEX0006"
-             ~message:"embedded NUL byte in source" ~start ~stop:lexer.offset ())
+             ~message:"embedded NUL byte in source" ~start ())
     | Some '#' ->
-        let start = lexer.offset in
+        let start = cursor lexer in
         ignore (advance lexer);
         Ok
           (Some
@@ -348,7 +469,7 @@ let consume_digits lexer ~digit ~base initial =
   (!value, !count)
 
 let scan_number lexer leading_trivia =
-  let start = lexer.offset in
+  let start = cursor lexer in
   match peek lexer 0 with
   | Some '.' ->
       ignore (advance lexer);
@@ -497,7 +618,7 @@ let decoded_byte lexer =
       Some (Char.code byte)
 
 let scan_string lexer leading_trivia =
-  let start = lexer.offset in
+  let start = cursor lexer in
   ignore (advance lexer);
   let decoded = Buffer.create 32 in
   let rec loop () =
@@ -505,13 +626,13 @@ let scan_string lexer leading_trivia =
     | None ->
         Diagnostic
           (make_diagnostic lexer ~code:"HCLEX0003"
-             ~message:"unterminated string literal" ~start ~stop:lexer.offset ())
+             ~message:"unterminated string literal" ~start ())
     | Some '\x00' ->
+        let nul = cursor lexer in
         ignore (advance lexer);
         Diagnostic
           (make_diagnostic lexer ~code:"HCLEX0006"
-             ~message:"embedded NUL byte in source" ~start:(lexer.offset - 1)
-             ~stop:lexer.offset ())
+             ~message:"embedded NUL byte in source" ~start:nul ())
     | Some '"' ->
         ignore (advance lexer);
         Token
@@ -538,7 +659,7 @@ let recover_character_literal lexer =
   | _ -> ()
 
 let scan_character lexer leading_trivia =
-  let start = lexer.offset in
+  let start = cursor lexer in
   ignore (advance lexer);
   let value = ref 0L in
   let count = ref 0 in
@@ -547,14 +668,13 @@ let scan_character lexer leading_trivia =
     | None ->
         Diagnostic
           (make_diagnostic lexer ~code:"HCLEX0004"
-             ~message:"unterminated character literal" ~start ~stop:lexer.offset
-             ())
+             ~message:"unterminated character literal" ~start ())
     | Some '\x00' ->
+        let nul = cursor lexer in
         ignore (advance lexer);
         Diagnostic
           (make_diagnostic lexer ~code:"HCLEX0006"
-             ~message:"embedded NUL byte in source" ~start:(lexer.offset - 1)
-             ~stop:lexer.offset ())
+             ~message:"embedded NUL byte in source" ~start:nul ())
     | Some '\'' ->
         ignore (advance lexer);
         Token
@@ -564,8 +684,7 @@ let scan_character lexer leading_trivia =
         recover_character_literal lexer;
         Diagnostic
           (make_diagnostic lexer ~code:"HCLEX0005"
-             ~message:"character literal exceeds eight bytes" ~start
-             ~stop:lexer.offset ())
+             ~message:"character literal exceeds eight bytes" ~start ())
     | Some _ ->
         let byte = Option.get (decoded_byte lexer) in
         value :=
@@ -576,12 +695,12 @@ let scan_character lexer leading_trivia =
   loop ()
 
 let scan_identifier lexer leading_trivia =
-  let start = lexer.offset in
+  let start = cursor lexer in
   ignore (advance lexer);
   while Option.fold ~none:false ~some:is_identifier_continue (peek lexer 0) do
     ignore (advance lexer)
   done;
-  let text = raw lexer start lexer.offset in
+  let text = raw_between start (cursor lexer) in
   match Keyword.find text with
   | Some keyword ->
       make_token lexer leading_trivia ~kind:(Token_kind.Keyword keyword)
@@ -620,10 +739,26 @@ let punctuation = function
   | _ -> false
 
 let scan_operator_or_punctuation lexer leading_trivia =
-  let start = lexer.offset in
-  match Operator.find_prefix lexer.contents ~offset:lexer.offset with
+  let start = cursor lexer in
+  let has_prefix spelling =
+    let rec matches index =
+      if index = String.length spelling then true
+      else
+        match peek lexer index with
+        | Some byte when Char.equal byte spelling.[index] -> matches (index + 1)
+        | _ -> false
+    in
+    matches 0
+  in
+  match
+    List.find_map
+      (fun (spelling, operator) ->
+        if has_prefix spelling then Some (operator, String.length spelling)
+        else None)
+      Operator.all
+  with
   | Some (operator, width) ->
-      lexer.offset <- lexer.offset + width;
+      advance_count lexer width;
       Token
         (make_token lexer leading_trivia ~kind:(Token_kind.Operator operator)
            ~value:Token.No_value start)
@@ -634,15 +769,16 @@ let scan_operator_or_punctuation lexer leading_trivia =
            ~value:Token.No_value start)
 
 let eof_token lexer leading_trivia =
-  let start = lexer.offset in
-  if Option.is_none lexer.termination then
-    lexer.termination <- Some Physical_eof;
-  lexer.emitted_eof <- true;
+  let start = cursor lexer in
+  let terminal = terminal_lexer lexer in
+  if Option.is_none terminal.termination then
+    terminal.termination <- Some Physical_eof;
+  terminal.emitted_eof <- true;
   make_token lexer leading_trivia ~kind:Token_kind.Eof ~value:Token.No_value
     start
 
 let next lexer =
-  if lexer.emitted_eof then Token (eof_token lexer [])
+  if (terminal_lexer lexer).emitted_eof then Token (eof_token lexer [])
   else
     let leading_trivia, trivia_error = skip_trivia lexer [] in
     match trivia_error with
@@ -651,21 +787,20 @@ let next lexer =
         match peek lexer 0 with
         | None -> Token (eof_token lexer leading_trivia)
         | Some '\x00' when lexer.nul_terminates ->
-            let terminator_offset = lexer.offset in
+            let owner, terminator_offset = Option.get (owner_at_distance lexer 0) in
             let trailing_bytes =
-              String.length lexer.contents - terminator_offset - 1
+              String.length owner.contents - terminator_offset - 1
             in
             ignore (advance lexer);
-            lexer.termination <-
+            owner.termination <-
               Some (Nul_terminated { terminator_offset; trailing_bytes });
             Token (eof_token lexer leading_trivia)
         | Some '\x00' ->
-            let start = lexer.offset in
+            let start = cursor lexer in
             ignore (advance lexer);
             Diagnostic
               (make_diagnostic lexer ~code:"HCLEX0006"
-                 ~message:"embedded NUL byte in source" ~start
-                 ~stop:lexer.offset ())
+                 ~message:"embedded NUL byte in source" ~start ())
         | Some byte when is_identifier_start byte ->
             Token (scan_identifier lexer leading_trivia)
         | Some '0' .. '9' -> Token (scan_number lexer leading_trivia)
@@ -678,16 +813,16 @@ let next lexer =
         | Some byte when punctuation byte || Char.equal byte '$' ->
             scan_operator_or_punctuation lexer leading_trivia
         | Some byte ->
-            let start = lexer.offset in
+            let start = cursor lexer in
             ignore (advance lexer);
             Diagnostic
               (make_diagnostic lexer ~code:"HCLEX0001"
                  ~message:
                    (Printf.sprintf "invalid source byte 0x%02x" (Char.code byte))
-                 ~help:
-                   "Remove the byte or place it inside a string or character \
-                    literal."
-                 ~start ~stop:lexer.offset ()))
+                  ~help:
+                    "Remove the byte or place it inside a string or character \
+                     literal."
+                  ~start ()))
 
 let lex_all ?mode ?nul_terminates source =
   let lexer = create ?mode ?nul_terminates source in

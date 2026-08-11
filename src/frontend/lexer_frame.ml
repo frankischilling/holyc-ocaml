@@ -33,7 +33,7 @@ let push_include ~caller ~source ~include_origin ~include_spelling =
   {
     kind = Included;
     source;
-    lexer = Lexer.create ~mode:Token.Holyc source;
+    lexer = Lexer.create ~mode:Token.Holyc ~caller:caller.lexer source;
     caller = Some caller;
     include_origin = Some include_origin;
     include_spelling = Some include_spelling;
@@ -51,6 +51,7 @@ let push_definition ~caller ~source ~definition ~invocation_span =
     lexer =
       Lexer.create ~mode:Token.Holyc ~generated_from:invocation_span
         ~defined_at:(Definition.definition_span definition)
+        ~caller:caller.lexer
         source;
     caller = Some caller;
     include_origin = None;
@@ -67,7 +68,8 @@ let push_predefined ~caller ~source ~predefined ~invocation_span =
     kind = Predefined;
     source;
     lexer =
-      Lexer.create ~mode:Token.Holyc ~generated_from:invocation_span source;
+      Lexer.create ~mode:Token.Holyc ~generated_from:invocation_span
+        ~caller:caller.lexer source;
     caller = Some caller;
     include_origin = None;
     include_spelling = None;

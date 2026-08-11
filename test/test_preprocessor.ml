@@ -64,6 +64,15 @@ let token_words tokens =
 let token_raw tokens =
   without_eof tokens |> List.map (fun token -> token.Token.raw)
 
+let source_segment_text session span =
+  let source =
+    Source_manager.find (Session.sources session) span.Span.source |> Option.get
+  in
+  String.sub (Source_file.contents source) span.start (span.stop - span.start)
+
+let token_segment_texts session token =
+  List.map (source_segment_text session) token.Token.source_segments
+
 let contains_text text needle =
   let text_length = String.length text in
   let needle_length = String.length needle in
@@ -562,7 +571,7 @@ let definition_capture_edges () =
          #define AT_EOF 7";
       let session, _, result = preprocess root root_file in
       Alcotest.(check (list string))
-        "comment-only replacement is empty when lexed" [ "1" ]
+        "line-comment replacement consumes the caller line" []
         (Result.get_ok result |> token_raw);
       let replacements =
         Definition.Environment.all (Session.definitions session)
@@ -577,6 +586,241 @@ let definition_capture_edges () =
           ("AT_EOF", "7");
         ]
         replacements)
+
+let include_tokens_span_nested_frames () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#include \"outer\"Tail";
+      write_file (Filename.concat root "outer.HC")
+        "#include \"inner\"Middle";
+      write_file (Filename.concat root "inner.HC") "Head";
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "one identifier" [ "HeadMiddleTail" ] (token_raw tokens);
+      let token = List.hd tokens in
+      Alcotest.(check (list string))
+        "physical source order" [ "Head"; "Middle"; "Tail" ]
+        (token_segment_texts session token);
+      let json = Token.to_yojson (Session.sources session) token in
+      let open Yojson.Safe.Util in
+      Alcotest.(check int)
+        "JSON source segments" 3
+        (json |> member "source_segments" |> to_list |> List.length);
+      let human = Token.human (Session.sources session) token in
+      Alcotest.(check bool)
+        "human source segments" true
+        (human |> String.split_on_char ' '
+        |> List.exists (String.starts_with ~prefix:"source_segments=[")))
+
+let definition_tokens_span_frames () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#define PLUS +\n\
+         #define WHOLE 1\n\
+         #define OPEN \"left\n\
+         #define OPEN_CHAR 'a\n\
+         PLUS+value WHOLE.5 OPEN\" OPEN_CHAR'";
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "merged tokens"
+        [ "++"; "value"; "1.5"; "\"left\""; "'a'" ]
+        (token_raw tokens);
+      let increment = List.nth tokens 0 in
+      Alcotest.(check bool)
+        "increment operator" true
+        (increment.kind = Token_kind.Operator Operator.Increment);
+      Alcotest.(check (list string))
+        "operator segments" [ "+"; "+" ]
+        (token_segment_texts session increment);
+      let number = List.nth tokens 2 in
+      Alcotest.(check (list string))
+        "number segments" [ "1"; ".5" ]
+        (token_segment_texts session number);
+      Alcotest.(check (float 0.0))
+        "number value" 1.5
+        (match number.value with Token.Float64 value -> value | _ -> nan);
+      let string = List.nth tokens 3 in
+      Alcotest.(check (list string))
+        "string segments" [ "\"left"; "\"" ]
+        (token_segment_texts session string);
+      Alcotest.(check string)
+        "string value" "left"
+        (match string.value with Token.Bytes value -> value | _ -> "");
+      let character = List.nth tokens 4 in
+      Alcotest.(check (list string))
+        "character segments" [ "'a"; "'" ]
+        (token_segment_texts session character);
+      Alcotest.(check int64)
+        "character value" 97L
+        (match character.value with Token.Int64 value -> value | _ -> 0L))
+
+let compound_operators_span_definition_frames () =
+  Operator.all
+  |> List.filter (fun (spelling, _) -> String.length spelling > 1)
+  |> List.iter (fun (spelling, operator) ->
+         for split = 1 to String.length spelling - 1 do
+           let prefix = String.sub spelling 0 split in
+           let suffix =
+             String.sub spelling split (String.length spelling - split)
+           in
+           let session = Session.create () in
+           let source =
+             Session.add_source session ~path:"operator-frame.HC"
+               ~contents:
+                 (Printf.sprintf "#define JOIN %s\nJOIN%s tail" prefix suffix)
+           in
+           let result =
+             Holyc_lib.preprocess session ~config:(create_config ".") ~source
+             |> Result.get_ok |> without_eof
+           in
+           Alcotest.(check (list string))
+             (Printf.sprintf "%s split at %d" spelling split)
+             [ spelling; "tail" ] (token_raw result);
+           let token = List.hd result in
+           Alcotest.(check bool)
+             (Printf.sprintf "%s token kind" spelling)
+             true
+             (token.kind = Token_kind.Operator operator);
+           Alcotest.(check (list string))
+             (Printf.sprintf "%s source segments" spelling)
+             [ prefix; suffix ]
+             (token_segment_texts session token)
+         done)
+
+let nested_definition_frames_join_token () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"nested-operator-frame.HC"
+      ~contents:
+        "#define INNER +\n#define OUTER INNER\nOUTER+ tail"
+  in
+  let tokens =
+    Holyc_lib.preprocess session ~config:(create_config ".") ~source
+    |> Result.get_ok |> without_eof
+  in
+  Alcotest.(check (list string))
+    "nested replacement resumes once" [ "++"; "tail" ] (token_raw tokens);
+  let increment = List.hd tokens in
+  Alcotest.(check bool)
+    "nested increment" true
+    (increment.kind = Token_kind.Operator Operator.Increment);
+  Alcotest.(check (list string))
+    "empty intermediate frame contributes no segment" [ "+"; "+" ]
+    (token_segment_texts session increment)
+
+let comments_span_definition_frames () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#define BLOCK /\n\
+         #define LINE /\n\
+         BLOCK* hidden */after_block\n\
+         LINE/ hidden\n\
+         after_line";
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "commented text is trivia" [ "after_block"; "after_line" ]
+        (token_raw tokens);
+      let block =
+        List.hd tokens |> fun token ->
+        List.find
+          (fun trivia -> trivia.Trivia.kind = Trivia.Block_comment)
+          token.leading_trivia
+      in
+      Alcotest.(check string)
+        "block comment bytes" "/* hidden */" block.raw;
+      Alcotest.(check (list string))
+        "block comment segments" [ "/"; "* hidden */" ]
+        (List.map (source_segment_text session) block.source_segments);
+      let line =
+        List.nth tokens 1 |> fun token ->
+        List.find
+          (fun trivia -> trivia.Trivia.kind = Trivia.Line_comment)
+          token.leading_trivia
+      in
+      Alcotest.(check string) "line comment bytes" "// hidden" line.raw;
+      Alcotest.(check (list string))
+        "line comment segments" [ "/"; "/ hidden" ]
+        (List.map (source_segment_text session) line.source_segments))
+
+let line_continuation_spans_include_frame () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#include \"continuation\"\nafter";
+      write_file (Filename.concat root "continuation.HC") "\\";
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "continued token" [ "after" ] (token_raw tokens);
+      let continuation =
+        List.hd tokens |> fun token ->
+        List.find
+          (fun trivia -> trivia.Trivia.kind = Trivia.Line_continuation)
+          token.leading_trivia
+      in
+      Alcotest.(check string)
+        "continuation bytes" "\\\n" continuation.raw;
+      Alcotest.(check (list string))
+        "continuation segments" [ "\\"; "\n" ]
+        (List.map (source_segment_text session) continuation.source_segments);
+      let json = Token.to_yojson (Session.sources session) (List.hd tokens) in
+      let open Yojson.Safe.Util in
+      let trivia_json = json |> member "leading_trivia" |> to_list |> List.hd in
+      Alcotest.(check int)
+        "JSON trivia segments" 2
+        (trivia_json |> member "source_segments" |> to_list |> List.length);
+      let human = Token.human (Session.sources session) (List.hd tokens) in
+      Alcotest.(check bool)
+        "human trivia segments" true
+        (human |> String.split_on_char ' '
+        |> List.exists
+             (String.starts_with ~prefix:"leading_trivia_segments=[")))
+
+let included_trivia_precedes_caller_token () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#include \"spaces\"after";
+      write_file (Filename.concat root "spaces.HC") "  ";
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "caller token" [ "after" ] (token_raw tokens);
+      let token = List.hd tokens in
+      let whitespace = List.hd token.leading_trivia in
+      Alcotest.(check string) "included whitespace" "  " whitespace.raw;
+      Alcotest.(check (list string))
+        "one included trivia segment" [ "  " ]
+        (List.map (source_segment_text session) whitespace.source_segments);
+      let json = Token.to_yojson (Session.sources session) token in
+      let open Yojson.Safe.Util in
+      let trivia_json = json |> member "leading_trivia" |> to_list |> List.hd in
+      Alcotest.(check int)
+        "JSON identifies the different trivia source" 1
+        (trivia_json |> member "source_segments" |> to_list |> List.length))
+
+let cross_frame_diagnostic_segments () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#include \"bad\"tail";
+      write_file (Filename.concat root "bad.HC") "\"head";
+      let session, _, result = preprocess root root_file in
+      let item = error_with_code "HCLEX0003" result in
+      Alcotest.(check string)
+        "primary source" "bad"
+        (Source_manager.find (Session.sources session) item.Diagnostic.primary.source
+        |> Option.get |> Source_file.display_path);
+      Alcotest.(check (list string))
+        "continuation segment"
+        [ "the same lexical item continues here" ]
+        (List.map
+           (fun (related : Diagnostic.related) -> related.message)
+           item.secondary);
+      Alcotest.(check int)
+        "include context" 1 (List.length item.include_stack))
 
 let definitions_are_not_c_macros () =
   with_temp_directory (fun root ->
@@ -1330,6 +1574,22 @@ let tests =
       replacement_lexical_content;
     Alcotest.test_case "definition capture edges" `Quick
       definition_capture_edges;
+    Alcotest.test_case "nested frame token" `Quick
+      include_tokens_span_nested_frames;
+    Alcotest.test_case "definition frame tokens" `Quick
+      definition_tokens_span_frames;
+    Alcotest.test_case "definition frame compound operators" `Quick
+      compound_operators_span_definition_frames;
+    Alcotest.test_case "nested definition frame token" `Quick
+      nested_definition_frames_join_token;
+    Alcotest.test_case "definition frame comments" `Quick
+      comments_span_definition_frames;
+    Alcotest.test_case "include frame continuation" `Quick
+      line_continuation_spans_include_frame;
+    Alcotest.test_case "included trivia before caller token" `Quick
+      included_trivia_precedes_caller_token;
+    Alcotest.test_case "cross-frame diagnostic" `Quick
+      cross_frame_diagnostic_segments;
     Alcotest.test_case "definitions are not C macros" `Quick
       definitions_are_not_c_macros;
     Alcotest.test_case "continued definition" `Quick continued_definition;

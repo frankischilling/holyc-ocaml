@@ -18,6 +18,7 @@ type t = {
   raw : string;
   value : value;
   span : Common.Span.t;
+  source_segments : Common.Span.t list;
   origin : origin;
   leading_trivia : Trivia.t list;
   mode : mode;
