@@ -243,6 +243,60 @@ let preprocess_command =
       $ predefined_date_argument $ predefined_time_argument
       $ command_line_source_argument $ file_argument)
 
+let corpus_root_argument =
+  let documentation =
+    "Verify the TempleOS checkout at this root and read its exact committed \
+     source objects."
+  in
+  Arg.(
+    required
+    & opt (some dir) None
+    & info [ "reference-root" ] ~docv:"DIR" ~doc:documentation)
+
+let corpus_file_bytes_argument =
+  let documentation =
+    "Reject one corpus source when it exceeds this many bytes."
+  in
+  Arg.(
+    value
+    & opt int (64 * 1024 * 1024)
+    & info [ "file-byte-limit" ] ~docv:"BYTES" ~doc:documentation)
+
+let corpus_lex format max_file_bytes root =
+  match
+    Holyc_lib.Corpus.lex_reference ~max_file_bytes
+      ~expected_commit:Holyc_lib.Version.reference_commit ~root ()
+  with
+  | Error message ->
+      (match format with
+      | Human -> Printf.eprintf "holyc: corpus lex: %s\n" message
+      | Json ->
+          Holyc_lib.Corpus.error_json message |> output_string stderr;
+          output_char stderr '\n');
+      1
+  | Ok report ->
+      (match format with
+      | Human -> Holyc_lib.Corpus.human report |> output_string stdout
+      | Json -> Holyc_lib.Corpus.json report |> print_endline);
+      if Holyc_lib.Corpus.has_failures report then 1 else 0
+
+let corpus_lex_command =
+  let documentation =
+    "Lex every .HC, .HH, and .PRJ object in the pinned reference tree. The \
+     deterministic report records NUL terminators and trailing payload bytes."
+  in
+  let info = Cmd.info "lex" ~doc:documentation in
+  Cmd.v info
+    Term.(
+      const corpus_lex $ format_argument $ corpus_file_bytes_argument
+      $ corpus_root_argument)
+
+let corpus_command =
+  let documentation =
+    "Measure compatibility stages against a verified TempleOS source tree."
+  in
+  Cmd.group (Cmd.info "corpus" ~doc:documentation) [ corpus_lex_command ]
+
 let version_command =
   let documentation = "Print compiler and reference revisions." in
   let run () =
@@ -260,6 +314,7 @@ let root_command =
       ~version:(Holyc_lib.Version.package_version ())
       ~doc:documentation
   in
-  Cmd.group info [ lex_command; preprocess_command; version_command ]
+  Cmd.group info
+    [ lex_command; preprocess_command; corpus_command; version_command ]
 
 let () = exit (Cmd.eval' root_command)
