@@ -1211,6 +1211,50 @@ varargs_validation_status = "planned"
 lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-BRACKET-INDEX-EXPRESSIONS"
+description = "Bracket indexes retain their base, delimiters, and subscript expression without rewriting the syntax as pointer arithmetic."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 modifier cycle",
+  "Compiler/PrsExp.HC:PrsUnaryModifier bracket branch",
+  "Compiler/CompilerA.HH:PREC_TERM",
+  "Doc/HolyC.DD:argv index example",
+  "Compiler/AsmLib.HC:17 and 121",
+  "Compiler/UAsm.HC:10 and 18",
+  "Kernel/Compress.HC:18 through 260",
+  "Kernel/Display.HC:54 through 90"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-index-expression.hc",
+  "test/cli/parse-index-expression.human",
+  "test/cli/parse-index-expression.json",
+  "test/cli/parse-index-error.hc",
+  "test/cli/parse-index-error.human",
+  "test/cli/parse-index-error.json"
+]
+status = "implemented"
+issue = 77
+ast_schema = "holyc-ast-v1"
+accepted_form = "bracket index suffix"
+index_precedence = "postfix index binds before every audited binary operator"
+repeated_indexes = "implemented"
+mixed_call_and_index_chains = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "_intern targets"]
+definition_and_include_provenance = "preserved"
+empty_index_diagnostic = "HCPARSE0018"
+missing_bracket_diagnostic = "HCPARSE0026"
+base_type_validation = "planned"
+dimension_and_stride_resolution = "planned"
+element_scaling_and_address_formation = "planned"
+implicit_dereference_and_lvalue_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
