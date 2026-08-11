@@ -91,12 +91,78 @@ type variadic_marker = private {
   location : location;
 }
 
+type literal_value =
+  | Integer_value of int64
+  | Float_value of float
+  | Bytes_value of string
+
+type unary_operator_kind =
+  | Unary_plus
+  | Unary_minus
+  | Logical_not
+  | Bitwise_not
+  | Dereference
+  | Address_of
+  | Pre_increment
+  | Pre_decrement
+
+type expression =
+  | Integer_literal of expression_literal
+  | Float_literal of expression_literal
+  | Character_literal of expression_literal
+  | String_literal of expression_literal
+  | Identifier_expression of identifier
+  | Current_position_expression of expression_operator
+  | Parenthesized_expression of parenthesized_expression
+  | Prefix_expression of prefix_expression
+  | Binary_expression of binary_expression
+
+and expression_literal = private {
+  literal_spelling : string;
+  literal_value : literal_value;
+  literal_location : location;
+}
+
+and expression_operator = private {
+  operator_spelling : string;
+  operator_location : location;
+}
+
+and parenthesized_expression = private {
+  opening_parenthesis : location;
+  grouped_expression : expression;
+  closing_parenthesis : location;
+  parenthesized_location : location;
+}
+
+and prefix_expression = private {
+  prefix_operator_kind : unary_operator_kind;
+  prefix_operator : expression_operator;
+  prefix_operand : expression;
+  prefix_location : location;
+}
+
+and binary_expression = private {
+  binary_left : expression;
+  binary_operator : expression_operator;
+  binary_operator_spec : Operator.binary_operator;
+  binary_right : expression;
+  binary_location : location;
+}
+
+type parameter_default = private {
+  equals : location;
+  value : expression;
+  location : location;
+}
+
 type function_parameter = private {
   register_qualifiers : register_qualifier list;
   type_specifier : primitive_type;
   pointer_layers : pointer_layer list;
   name : identifier option;
   function_pointer : function_pointer_declarator option;
+  default : parameter_default option;
   delimiter : declaration_delimiter option;
   location : location;
 }
@@ -208,12 +274,49 @@ val make_register_qualifier :
   location:location ->
   register_qualifier
 
+val make_expression_literal :
+  spelling:string ->
+  value:literal_value ->
+  location:location ->
+  expression_literal
+
+val make_expression_operator :
+  spelling:string -> location:location -> expression_operator
+
+val make_parenthesized_expression :
+  opening_parenthesis:location ->
+  expression:expression ->
+  closing_parenthesis:location ->
+  location:location ->
+  parenthesized_expression
+
+val make_prefix_expression :
+  operator_kind:unary_operator_kind ->
+  operator:expression_operator ->
+  operand:expression ->
+  location:location ->
+  prefix_expression
+
+val make_binary_expression :
+  left:expression ->
+  operator:expression_operator ->
+  operator_spec:Operator.binary_operator ->
+  right:expression ->
+  location:location ->
+  binary_expression
+
+val expression_location : expression -> location
+
+val make_parameter_default :
+  equals:location -> value:expression -> location:location -> parameter_default
+
 val make_function_parameter :
   register_qualifiers:register_qualifier list ->
   type_specifier:primitive_type ->
   pointer_layers:pointer_layer list ->
   name:identifier option ->
   function_pointer:function_pointer_declarator option ->
+  default:parameter_default option ->
   delimiter:declaration_delimiter option ->
   location:location ->
   function_parameter

@@ -26,6 +26,12 @@ type parsed_declarator_prefix = {
 }
 
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
+type parsed_expression = { node : Ast.expression; tokens : Token.t list }
+
+type parsed_parameter_default = {
+  node : Ast.parameter_default;
+  tokens : Token.t list;
+}
 
 type parsed_function_pointer = {
   node : Ast.function_pointer_declarator;
@@ -60,6 +66,7 @@ type binding_parse =
 
 let max_pointer_depth = 4
 let max_function_pointer_depth = 32
+let max_expression_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -141,6 +148,40 @@ let location_from_tokens = function
         else first_token.span
       in
       Ast.make_location ~span ~source_segments:segments ()
+
+let location_from_expression_tokens = function
+  | [] -> invalid_arg "an expression location needs at least one token"
+  | first_token :: _ as tokens ->
+      let base = location_from_tokens tokens in
+      Ast.make_location ?generated_from:first_token.Token.origin.generated_from
+        ?defined_at:first_token.origin.defined_at ~span:base.span
+        ~source_segments:base.source_segments ()
+
+let location_from_locations (locations : Ast.location list) =
+  match locations with
+  | [] -> invalid_arg "a syntax location needs at least one child location"
+  | (first : Ast.location) :: _ ->
+      let last : Ast.location = List.hd (List.rev locations) in
+      let all_in_primary_source =
+        List.for_all
+          (fun (location : Ast.location) ->
+            Common.Source_id.equal location.Ast.span.source
+              first.Ast.span.source)
+          locations
+      in
+      let span =
+        if all_in_primary_source then
+          Common.Span.unsafe_make ~source:first.span.source
+            ~start:first.span.start ~stop:last.span.stop
+        else first.span
+      in
+      let source_segments =
+        List.concat_map
+          (fun (location : Ast.location) -> location.Ast.source_segments)
+          locations
+      in
+      Ast.make_location ?generated_from:first.generated_from
+        ?defined_at:first.defined_at ~span ~source_segments ()
 
 let token_text token =
   match token.Token.value with
@@ -437,55 +478,323 @@ let rec parse_register_qualifiers cursor ~position nodes_rev tokens_rev =
       in
       parse_register_qualifiers cursor ~position (node :: nodes_rev) tokens_rev
 
+let unary_operator_kind token =
+  match token.Token.kind with
+  | Token_kind.Punctuation '+' -> Some Ast.Unary_plus
+  | Token_kind.Punctuation '-' -> Some Ast.Unary_minus
+  | Token_kind.Punctuation '!' -> Some Ast.Logical_not
+  | Token_kind.Punctuation '~' -> Some Ast.Bitwise_not
+  | Token_kind.Punctuation '*' -> Some Ast.Dereference
+  | Token_kind.Punctuation '&' -> Some Ast.Address_of
+  | Token_kind.Operator Operator.Increment -> Some Ast.Pre_increment
+  | Token_kind.Operator Operator.Decrement -> Some Ast.Pre_decrement
+  | _ -> None
+
+let binary_operator token =
+  match token.Token.kind with
+  | Token_kind.Punctuation _ | Token_kind.Operator _ ->
+      Operator.find_binary token.raw
+  | _ -> None
+
+let binary_binding_power (operator : Operator.binary_operator) =
+  0x100 - operator.precedence_value
+
+let make_expression_operator token =
+  Ast.make_expression_operator ~spelling:token.Token.raw
+    ~location:(token_location token)
+
+let make_literal token value constructor =
+  constructor
+    (Ast.make_expression_literal ~spelling:token.Token.raw ~value
+       ~location:(token_location token))
+
+let rebuild_prefix prefix operand =
+  let location =
+    location_from_locations
+      [
+        prefix.Ast.prefix_operator.operator_location;
+        Ast.expression_location operand;
+      ]
+  in
+  Ast.Prefix_expression
+    (Ast.make_prefix_expression ~operator_kind:prefix.prefix_operator_kind
+       ~operator:prefix.prefix_operator ~operand ~location)
+
+let rec split_power_sensitive_minus expression =
+  match expression with
+  | Ast.Prefix_expression prefix
+    when prefix.prefix_operator_kind = Ast.Unary_minus ->
+      Some (prefix.prefix_operand, fun operand -> rebuild_prefix prefix operand)
+  | Ast.Prefix_expression prefix -> (
+      match split_power_sensitive_minus prefix.prefix_operand with
+      | None -> None
+      | Some (base, wrap) ->
+          Some (base, fun operand -> rebuild_prefix prefix (wrap operand)))
+  | _ -> None
+
+let make_binary_expression left operator_item operator_spec right =
+  let operator = make_expression_operator operator_item.token in
+  let location =
+    location_from_locations
+      [
+        Ast.expression_location left;
+        operator.operator_location;
+        Ast.expression_location right;
+      ]
+  in
+  Ast.Binary_expression
+    (Ast.make_binary_expression ~left ~operator ~operator_spec ~right ~location)
+
+let combine_binary_expression left operator_item operator_spec right =
+  if String.equal operator_spec.Operator.ic_name "IC_POWER" then
+    match split_power_sensitive_minus left with
+    | None -> make_binary_expression left operator_item operator_spec right
+    | Some (base, wrap) ->
+        wrap (make_binary_expression base operator_item operator_spec right)
+  else make_binary_expression left operator_item operator_spec right
+
+let expression_failure cursor item ~code ~message =
+  parameter_failure cursor item ~code ~message
+
+let rec parse_expression cursor ~depth ~minimum_binding_power :
+    parsed_expression option =
+  let item = peek cursor in
+  if depth >= max_expression_depth then
+    expression_failure cursor item ~code:"HCPARSE0021"
+      ~message:
+        (Printf.sprintf
+           "default expression nesting exceeds the hosted limit of %d"
+           max_expression_depth)
+  else
+    match parse_expression_prefix cursor ~depth with
+    | None -> None
+    | Some left ->
+        parse_expression_tail cursor ~depth ~minimum_binding_power left
+
+and parse_expression_prefix cursor ~depth : parsed_expression option =
+  let item = peek cursor in
+  match unary_operator_kind item.token with
+  | Some operator_kind -> (
+      let operator_item = take cursor in
+      let operator = make_expression_operator operator_item.token in
+      match
+        parse_expression cursor ~depth:(depth + 1)
+          ~minimum_binding_power:max_int
+      with
+      | None -> None
+      | Some (operand : parsed_expression) ->
+          let tokens = operator_item.token :: operand.tokens in
+          let location = location_from_expression_tokens tokens in
+          let node =
+            Ast.Prefix_expression
+              (Ast.make_prefix_expression ~operator_kind ~operator
+                 ~operand:operand.node ~location)
+          in
+          Some { node; tokens })
+  | None -> parse_expression_atom cursor ~depth
+
+and parse_expression_atom cursor ~depth : parsed_expression option =
+  let item = peek cursor in
+  let take_literal value
+      (constructor : Ast.expression_literal -> Ast.expression) :
+      parsed_expression option =
+    let item = take cursor in
+    Some
+      ({
+         node = make_literal item.token value constructor;
+         tokens = [ item.token ];
+       }
+        : parsed_expression)
+  in
+  match (item.token.Token.kind, item.token.value) with
+  | Token_kind.Integer, Token.Int64 value ->
+      take_literal (Ast.Integer_value value) (fun literal ->
+          Ast.Integer_literal literal)
+  | Token_kind.Float, Token.Float64 value ->
+      take_literal (Ast.Float_value value) (fun literal ->
+          Ast.Float_literal literal)
+  | Token_kind.Character, Token.Int64 value ->
+      take_literal (Ast.Integer_value value) (fun literal ->
+          Ast.Character_literal literal)
+  | Token_kind.String, Token.Bytes value ->
+      take_literal (Ast.Bytes_value value) (fun literal ->
+          Ast.String_literal literal)
+  | Token_kind.Identifier, _ ->
+      let item = take cursor in
+      let node =
+        Ast.Identifier_expression
+          (Ast.make_identifier ~spelling:item.token.raw
+             ~location:(token_location item.token))
+      in
+      Some { node; tokens = [ item.token ] }
+  | Token_kind.Operator Operator.Current_position, _ ->
+      let item = take cursor in
+      let node =
+        Ast.Current_position_expression (make_expression_operator item.token)
+      in
+      Some { node; tokens = [ item.token ] }
+  | Token_kind.Punctuation '(', _ -> (
+      let opening = take cursor in
+      match
+        parse_expression cursor ~depth:(depth + 1) ~minimum_binding_power:0
+      with
+      | None -> None
+      | Some expression ->
+          let closing = peek cursor in
+          if closing.token.kind <> Token_kind.Punctuation ')' then
+            expression_failure cursor closing ~code:"HCPARSE0019"
+              ~message:
+                (Printf.sprintf
+                   "expected ')' to close default expression, but found %s"
+                   (token_description closing.token))
+          else
+            let closing = take cursor in
+            let tokens =
+              (opening.token :: expression.tokens) @ [ closing.token ]
+            in
+            let location = location_from_expression_tokens tokens in
+            let node =
+              Ast.Parenthesized_expression
+                (Ast.make_parenthesized_expression
+                   ~opening_parenthesis:(token_location opening.token)
+                   ~expression:expression.node
+                   ~closing_parenthesis:(token_location closing.token)
+                   ~location)
+            in
+            Some { node; tokens })
+  | (Token_kind.Punctuation (',' | ')' | ';') | Token_kind.Eof), _ ->
+      expression_failure cursor item ~code:"HCPARSE0018"
+        ~message:
+          (Printf.sprintf "expected a default expression operand, but found %s"
+             (token_description item.token))
+  | _ ->
+      expression_failure cursor item ~code:"HCPARSE0020"
+        ~message:
+          (Printf.sprintf
+             "default expression form starting with %s is not implemented"
+             (token_description item.token))
+
+and parse_expression_tail cursor ~depth ~minimum_binding_power
+    (left : parsed_expression) : parsed_expression option =
+  let item = peek cursor in
+  match binary_operator item.token with
+  | Some operator_spec
+    when binary_binding_power operator_spec >= minimum_binding_power -> (
+      let operator_item = take cursor in
+      let binding_power = binary_binding_power operator_spec in
+      let right_minimum =
+        match operator_spec.association with
+        | Operator.Right -> binding_power
+        | Operator.Left | Operator.Unspecified -> binding_power + 1
+      in
+      match
+        parse_expression cursor ~depth:(depth + 1)
+          ~minimum_binding_power:right_minimum
+      with
+      | None -> None
+      | Some (right : parsed_expression) ->
+          let node =
+            combine_binary_expression left.node operator_item operator_spec
+              right.node
+          in
+          let left : parsed_expression =
+            {
+              node;
+              tokens = left.tokens @ (operator_item.token :: right.tokens);
+            }
+          in
+          parse_expression_tail cursor ~depth ~minimum_binding_power left)
+  | _ -> Some left
+
+let parse_parameter_default cursor =
+  let equals = take cursor in
+  match parse_expression cursor ~depth:0 ~minimum_binding_power:0 with
+  | None -> None
+  | Some (expression : parsed_expression) ->
+      let tokens = equals.token :: expression.tokens in
+      let node =
+        Ast.make_parameter_default
+          ~equals:(token_location equals.token)
+          ~value:expression.node
+          ~location:(location_from_expression_tokens tokens)
+      in
+      Some ({ node; tokens } : parsed_parameter_default)
+
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
-  let following_item = peek cursor in
-  let fail_special_form () =
-    match following_item.token.kind with
-    | Token_kind.Punctuation '[' ->
-        unsupported_parameter_form cursor following_item ~code:"HCPARSE0011"
-          "array parameters"
-    | Token_kind.Punctuation '=' ->
-        unsupported_parameter_form cursor following_item ~code:"HCPARSE0012"
-          "default parameter expressions"
-    | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg ->
-        parameter_failure cursor following_item ~code:"HCPARSE0013"
-          ~message:
-            "register qualifier must appear before function parameter pointer \
-             stars or its name"
-    | _ ->
-        parameter_failure cursor following_item ~code:"HCPARSE0010"
-          ~message:
-            (Printf.sprintf
-               "expected ',' or ')' after function parameter, but found %s"
-               (token_description following_item.token))
+  let parsed_default =
+    let item = peek cursor in
+    if item.token.kind = Token_kind.Punctuation '=' then
+      Option.map (fun parsed -> Some parsed) (parse_parameter_default cursor)
+    else Some None
   in
-  match following_item.token.kind with
-  | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
-      let delimiter_item =
+  match parsed_default with
+  | None -> None
+  | Some parsed_default -> (
+      let following_item = peek cursor in
+      let fail_special_form () =
         match following_item.token.kind with
-        | Token_kind.Punctuation ',' -> Some (take cursor)
-        | _ -> None
+        | Token_kind.Punctuation '[' when Option.is_none parsed_default ->
+            unsupported_parameter_form cursor following_item ~code:"HCPARSE0011"
+              "array parameters"
+        | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg ->
+            parameter_failure cursor following_item ~code:"HCPARSE0013"
+              ~message:
+                "register qualifier must appear before function parameter \
+                 pointer stars or its name"
+        | Token_kind.Punctuation ('(' | '[' | '.')
+        | Token_kind.Operator
+            (Operator.Arrow | Operator.Increment | Operator.Decrement)
+          when Option.is_some parsed_default ->
+            parameter_failure cursor following_item ~code:"HCPARSE0020"
+              ~message:
+                (Printf.sprintf
+                   "default expression continuation %s is not implemented"
+                   (token_description following_item.token))
+        | _ ->
+            parameter_failure cursor following_item ~code:"HCPARSE0010"
+              ~message:
+                (Printf.sprintf
+                   "expected ',' or ')' after function parameter, but found %s"
+                   (token_description following_item.token))
       in
-      let delimiter =
-        Option.map
-          (fun item ->
-            Ast.make_declaration_delimiter ~kind:Ast.Comma
-              ~spelling:item.token.raw
-              ~location:(token_location item.token))
-          delimiter_item
-      in
-      let tokens =
-        tokens
-        @ Option.to_list (Option.map (fun item -> item.token) delimiter_item)
-      in
-      let node =
-        Ast.make_function_parameter ~register_qualifiers ~type_specifier
-          ~pointer_layers ~name ~function_pointer ~delimiter
-          ~location:(location_from_tokens tokens)
-      in
-      Some { node; tokens }
-  | _ -> fail_special_form ()
+      match following_item.token.kind with
+      | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
+          let delimiter_item =
+            match following_item.token.kind with
+            | Token_kind.Punctuation ',' -> Some (take cursor)
+            | _ -> None
+          in
+          let delimiter =
+            Option.map
+              (fun item ->
+                Ast.make_declaration_delimiter ~kind:Ast.Comma
+                  ~spelling:item.token.raw
+                  ~location:(token_location item.token))
+              delimiter_item
+          in
+          let default_tokens =
+            match parsed_default with
+            | None -> []
+            | Some (parsed : parsed_parameter_default) -> parsed.tokens
+          in
+          let tokens =
+            tokens @ default_tokens
+            @ Option.to_list
+                (Option.map (fun item -> item.token) delimiter_item)
+          in
+          let node =
+            Ast.make_function_parameter ~register_qualifiers ~type_specifier
+              ~pointer_layers ~name ~function_pointer
+              ~default:
+                (Option.map
+                   (fun (parsed : parsed_parameter_default) -> parsed.node)
+                   parsed_default)
+              ~delimiter
+              ~location:(location_from_tokens tokens)
+          in
+          Some ({ node; tokens } : parsed_parameter)
+      | _ -> fail_special_form ())
 
 let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
     ~function_pointer_depth =

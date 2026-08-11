@@ -59,3 +59,4 @@ val source_line : t -> int
 val provenance : t -> provenance
 val precedences : precedence list
 val binary_operators : binary_operator list
+val find_binary : string -> binary_operator option

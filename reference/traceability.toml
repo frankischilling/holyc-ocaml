@@ -820,7 +820,7 @@ parameter_type_status = "primitive types with zero through four pointer layers"
 parameter_name_status = "optional"
 variadic_marker_status = "implemented"
 function_symbol_publication = "after the complete semicolon"
-default_argument_status = "planned"
+default_argument_status = "core syntax implemented in HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
 lastclass_default_status = "planned"
 register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
 function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
@@ -829,6 +829,64 @@ calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
 function_body_status = "planned"
 linkage_resolution_status = "planned"
 abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+description = "Ordinary and nested function parameters retain source-positioned core default expressions without requiring defaults to trail."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst PRS1B_FUN_ARG default branch",
+  "Compiler/PrsExp.HC:PrsExpression2",
+  "Compiler/PrsExp.HC:PrsUnaryTerm",
+  "Compiler/CInit.HC:CmpFillTables binary operator records",
+  "Compiler/CompilerA.HH:PREC_* and ASSOCF_RIGHT",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/operator.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-default-parameters.hc",
+  "test/cli/parse-default-parameters.human",
+  "test/cli/parse-default-parameters.json",
+  "test/cli/parse-function-prototype-error.hc",
+  "test/cli/parse-function-prototype-error.human",
+  "test/cli/parse-function-prototype-error.json"
+]
+status = "implemented"
+issue = 69
+ast_schema = "holyc-ast-v1"
+contexts = ["ordinary parameters", "nested function-pointer parameters"]
+primary_terms = [
+  "integer",
+  "floating",
+  "character",
+  "multi-character",
+  "string",
+  "identifier",
+  "$$",
+  "grouping"
+]
+prefix_operators = ["+", "-", "!", "~", "*", "&", "++", "--"]
+binary_operator_source = "all 31 checked entries in Operator.binary_operators"
+association_rule = "ASSOCF_RIGHT groups right; all other source entries group left"
+unary_minus_power_rule = "implemented"
+non_trailing_defaults = "implemented"
+absent_vs_explicit_value = "distinct AST representation"
+definition_provenance = "preserved"
+hosted_expression_depth_limit = 256
+missing_operand_diagnostic = "HCPARSE0018"
+missing_parenthesis_diagnostic = "HCPARSE0019"
+unsupported_form_diagnostic = "HCPARSE0020"
+nesting_limit_diagnostic = "HCPARSE0021"
+evaluation_status = "planned"
+conversion_status = "planned"
+string_storage_status = "planned"
+lastclass_default_status = "planned"
+call_site_default_filling = "planned"
 
 [[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"

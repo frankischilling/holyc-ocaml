@@ -27,3 +27,4 @@
 - Added ordered `interrupt`, `haserrcode`, `argpop`, and `noargpop` syntax on bound prototypes, with source provenance and tests against the checked TempleOS staging transitions.
 - Added `reg` and `noreg` qualifiers on fixed and variadic function parameters, including explicit U64 register names, source-positioned AST nodes, generated-source provenance, and stable diagnostics for misplaced qualifiers.
 - Added recursive function-pointer parameters with distinct return and declarator depths, empty, fixed, variadic, and nested signatures, exact punctuation provenance, deterministic dumps, and a checked hosted nesting limit.
+- Added source-positioned default expressions to ordinary and nested function parameters, including non-trailing defaults, every audited binary operator, HolyC's unary-minus power rule, deterministic AST dumps, and bounded malformed-input recovery.
