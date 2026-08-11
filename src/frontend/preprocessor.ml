@@ -73,6 +73,7 @@ type conditional = {
 type t = {
   sources : Common.Source_manager.t;
   definitions : Definition.Environment.t;
+  symbols : Symbol_visibility.Environment.t;
   config : Config.t;
   mutable current : Lexer_frame.t;
   mutable generated_bytes : int;
@@ -81,10 +82,11 @@ type t = {
   mutable pending_diagnostics : Common.Diagnostic.t list;
 }
 
-let create ~sources ~definitions ~config source =
+let create ~sources ~definitions ~symbols ~config source =
   {
     sources;
     definitions;
+    symbols;
     config;
     current = Lexer_frame.root ~mode:Token.Holyc source;
     generated_bytes = 0;
@@ -379,6 +381,13 @@ let invalid_definition_name stream token =
   diagnostic stream ~code:"HCPP0010"
     ~message:"expected a definition name after #define" token.Token.span
 
+let invalid_symbol_condition_name stream token keyword =
+  diagnostic stream ~code:"HCPP0020"
+    ~message:
+      (Printf.sprintf "expected a symbol name after #%s"
+         (Keyword.spelling keyword))
+    token.Token.span
+
 let rec next_unexpanded stream =
   match Lexer.next (Lexer_frame.lexer stream.current) with
   | Lexer.Diagnostic item ->
@@ -534,11 +543,44 @@ let mode_condition stream = function
   | Keyword.Ifjit -> Config.compilation_mode stream.config = Jit
   | _ -> false
 
-let enter_conditional stream hash token keyword =
+let symbol_present stream name =
+  match Symbol_visibility.Environment.find_preprocessor stream.symbols name with
+  | Symbol_visibility.Shadowed_by_local -> false
+  | Symbol_visibility.Present _ -> true
+  | Symbol_visibility.Absent ->
+      Definition.Environment.find stream.definitions name |> Option.is_some
+
+let enter_symbol_conditional stream hash token keyword =
+  match next_unexpanded stream with
+  | Lexer.Diagnostic item ->
+      Result.bind
+        (push_conditional ~parent_active:false ~valid:false stream hash token
+           keyword false) (fun () -> Error item)
+  | Lexer.Token name_token -> (
+      match definition_name name_token with
+      | Some name ->
+          let present = symbol_present stream name in
+          let condition =
+            match keyword with
+            | Keyword.Ifdef -> present
+            | Keyword.Ifndef -> not present
+            | _ -> invalid_arg "expected a symbol conditional"
+          in
+          push_conditional stream hash token keyword condition
+      | None ->
+          Result.bind
+            (push_conditional ~parent_active:false ~valid:false stream hash
+               token keyword false) (fun () ->
+              Error (invalid_symbol_condition_name stream name_token keyword)))
+
+let enter_conditional stream ~inactive hash token keyword =
   match keyword with
   | Keyword.Ifaot | Keyword.Ifjit ->
       push_conditional stream hash token keyword (mode_condition stream keyword)
-  | Keyword.If | Keyword.Ifdef | Keyword.Ifndef ->
+  | Keyword.Ifdef | Keyword.Ifndef ->
+      if inactive then push_conditional stream hash token keyword false
+      else enter_symbol_conditional stream hash token keyword
+  | Keyword.If ->
       if current_active stream then
         Result.bind
           (push_conditional ~parent_active:false ~valid:false stream hash token
@@ -553,7 +595,7 @@ let directive stream ~inactive hash =
   | Lexer.Token token -> (
       match token.Token.kind with
       | Token_kind.Keyword keyword when is_conditional_opener keyword ->
-          enter_conditional stream hash token keyword
+          enter_conditional stream ~inactive hash token keyword
       | Token_kind.Keyword Keyword.Else -> conditional_else stream token
       | Token_kind.Keyword Keyword.Endif -> conditional_endif stream token
       | _ when inactive -> Ok ()
@@ -621,8 +663,8 @@ let definitions stream = Definition.Environment.all stream.definitions
 let definition_dump stream =
   Definition.Environment.dump stream.sources stream.definitions
 
-let lex_all ~sources ~definitions ~config source =
-  let stream = create ~sources ~definitions ~config source in
+let lex_all ~sources ~definitions ~symbols ~config source =
+  let stream = create ~sources ~definitions ~symbols ~config source in
   let rec collect tokens diagnostics =
     match next stream with
     | Lexer.Token token when token.Token.kind = Token_kind.Eof ->

@@ -914,24 +914,18 @@ let inactive_unsupported_conditionals_are_counted () =
 let active_unsupported_conditionals_are_inert () =
   with_temp_directory (fun root ->
       let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#if condition #define HIDDEN value #else #define OTHER value #endif";
+      let session, _, result = preprocess root root_file in
+      ignore (error_with_code "HCPP0008" result);
       List.iter
-        (fun opener ->
-          write_file root_file
-            (Printf.sprintf
-               "#%s condition #define HIDDEN value #else #define OTHER value \
-                #endif"
-               opener);
-          let session, _, result = preprocess root root_file in
-          ignore (error_with_code "HCPP0008" result);
-          List.iter
-            (fun name ->
-              Alcotest.(check bool)
-                (opener ^ " leaves " ^ name ^ " undefined")
-                true
-                (Definition.Environment.find (Session.definitions session) name
-                |> Option.is_none))
-            [ "HIDDEN"; "OTHER" ])
-        [ "if"; "ifdef"; "ifndef" ])
+        (fun name ->
+          Alcotest.(check bool)
+            ("#if leaves " ^ name ^ " undefined")
+            true
+            (Definition.Environment.find (Session.definitions session) name
+            |> Option.is_none))
+        [ "HIDDEN"; "OTHER" ])
 
 let definition_supplies_mode_directive () =
   with_temp_directory (fun root ->
@@ -1055,6 +1049,172 @@ let inactive_nul_is_rejected () =
       let _, _, result = preprocess root root_file in
       ignore (error_with_code "HCLEX0006" result))
 
+let symbol_conditional_definitions () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#define PRESENT discarded\n\
+         #ifdef PRESENT defined #else wrong #endif\n\
+         #ifndef MISSING missing #else wrong_two #endif";
+      let _, _, result = preprocess root root_file in
+      Alcotest.(check (list string))
+        "definition presence" [ "defined"; "missing" ]
+        (Result.get_ok result |> token_words))
+
+let symbol_conditional_builtins () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#ifdef ifjit language_keyword #endif\n\
+         #ifdef ALIGN assembly_keyword #endif\n\
+         #ifdef I64i internal_type #endif";
+      let _, _, result = preprocess root root_file in
+      Alcotest.(check (list string))
+        "checked compiler hash entries"
+        [ "language_keyword"; "assembly_keyword"; "internal_type" ]
+        (Result.get_ok result |> token_words))
+
+let symbol_conditional_registered_kinds () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#ifdef Fun has_fun #endif\n\
+         #ifdef Type has_type #endif\n\
+         #ifdef Global has_global #endif\n\
+         #ifdef Export has_export #endif\n\
+         #ifdef Import wrong #else import_absent #endif";
+      let session = Session.create () in
+      let symbols = Session.symbols session in
+      List.iter
+        (fun (name, kind) ->
+          ignore (Symbol_visibility.Environment.add symbols ~name ~kind ()))
+        [
+          ("Fun", Symbol_visibility.Function);
+          ("Type", Symbol_visibility.Class);
+          ("Global", Symbol_visibility.Global_variable);
+          ("Export", Symbol_visibility.Export_system_symbol);
+          ("Import", Symbol_visibility.Import_system_symbol);
+        ];
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let config = create_config root in
+      let result = Holyc_lib.preprocess session ~config ~source in
+      Alcotest.(check (list string))
+        "registered hash kinds"
+        [ "has_fun"; "has_type"; "has_global"; "has_export"; "import_absent" ]
+        (Result.get_ok result |> token_words))
+
+let symbol_conditional_local_shadow () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#define Shared replacement\n\
+         #ifdef Shared wrong #else local_shadow #endif";
+      let session = Session.create () in
+      let symbols = Session.symbols session in
+      ignore
+        (Symbol_visibility.Environment.add symbols ~name:"Shared"
+           ~kind:Symbol_visibility.Function ());
+      let context = Symbol_visibility.Environment.begin_local_context symbols in
+      Symbol_visibility.Environment.add_local symbols context ~name:"Shared"
+      |> Result.get_ok;
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let config = create_config root in
+      let result = Holyc_lib.preprocess session ~config ~source in
+      Alcotest.(check (list string))
+        "local variable suppresses the hash chain" [ "local_shadow" ]
+        (Result.get_ok result |> token_words);
+      Symbol_visibility.Environment.end_local_context symbols context
+      |> Result.get_ok)
+
+let symbol_environment_updates_during_stream () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"stream.HC"
+      ~contents:"before #ifdef Later present #else absent #endif"
+  in
+  let config = create_config "." in
+  let stream =
+    Preprocessor.create ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  let first =
+    match Preprocessor.next stream with
+    | Lexer.Token token -> token
+    | Lexer.Diagnostic item ->
+        Alcotest.failf "unexpected diagnostic %s" item.Diagnostic.code
+  in
+  Alcotest.(check string) "first token" "before" first.Token.raw;
+  ignore
+    (Symbol_visibility.Environment.add (Session.symbols session) ~name:"Later"
+       ~kind:Symbol_visibility.Function ());
+  let tokens, diagnostics = drain stream in
+  Alcotest.(check int) "stream diagnostics" 0 (List.length diagnostics);
+  Alcotest.(check (list string))
+    "later registration is visible" [ "present" ] (token_words tokens)
+
+let symbol_conditionals_share_frames () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#define CHECK ifdef I64i from_definition #else wrong #endif\n\
+         #CHECK #include \"child\"";
+      write_file
+        (Filename.concat root "child.HC")
+        "#ifndef Missing from_include #endif";
+      let _, _, result = preprocess root root_file in
+      Alcotest.(check (list string))
+        "definition and include frames"
+        [ "from_definition"; "from_include" ]
+        (Result.get_ok result |> token_words))
+
+let inactive_symbol_conditionals_are_raw () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        "#ifaot #ifdef 42 hidden #endif #else selected #endif";
+      let _, _, result = preprocess root root_file in
+      Alcotest.(check (list string))
+        "invalid inactive operand is not parsed" [ "selected" ]
+        (Result.get_ok result |> token_words))
+
+let symbol_conditional_diagnostics () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#ifndef 42 hidden #endif";
+      let session, _, result = preprocess root root_file in
+      let item = error_with_code "HCPP0020" result in
+      Alcotest.(check string)
+        "message" "expected a symbol name after #ifndef" item.Diagnostic.message;
+      let human = Diagnostic_render.human (Session.sources session) item in
+      Alcotest.(check bool)
+        "human diagnostic" true
+        (contains_text human "expected a symbol name after #ifndef");
+      let first = Diagnostic_render.json (Session.sources session) [ item ] in
+      let second = Diagnostic_render.json (Session.sources session) [ item ] in
+      Alcotest.(check string) "deterministic JSON" first second;
+      let json = Yojson.Safe.from_string first in
+      let open Yojson.Safe.Util in
+      Alcotest.(check string)
+        "JSON code" "HCPP0020"
+        (json |> index 0 |> member "code" |> to_string);
+      write_file root_file "#ifdef";
+      let _, _, missing = preprocess root root_file in
+      ignore (error_with_code "HCPP0020" missing);
+      write_file root_file "#ifdef \x00 #define HIDDEN value #endif visible";
+      let malformed_session, _, malformed = preprocess root root_file in
+      ignore (error_with_code "HCLEX0006" malformed);
+      Alcotest.(check bool)
+        "malformed operand leaves its branch inert" true
+        (Definition.Environment.find
+           (Session.definitions malformed_session)
+           "HIDDEN"
+        |> Option.is_none))
+
 let deterministic_definition_dump () =
   let session = Session.create () in
   let source =
@@ -1065,7 +1225,7 @@ let deterministic_definition_dump () =
   let stream =
     Preprocessor.create ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
-      ~config source
+      ~symbols:(Session.symbols session) ~config source
   in
   let _, diagnostics = drain stream in
   Alcotest.(check int) "dump diagnostics" 0 (List.length diagnostics);
@@ -1169,6 +1329,22 @@ let tests =
     Alcotest.test_case "conditional diagnostic provenance" `Quick
       conditional_diagnostic_provenance;
     Alcotest.test_case "inactive NUL" `Quick inactive_nul_is_rejected;
+    Alcotest.test_case "symbol conditional definitions" `Quick
+      symbol_conditional_definitions;
+    Alcotest.test_case "symbol conditional built-ins" `Quick
+      symbol_conditional_builtins;
+    Alcotest.test_case "symbol conditional registered kinds" `Quick
+      symbol_conditional_registered_kinds;
+    Alcotest.test_case "symbol conditional local shadow" `Quick
+      symbol_conditional_local_shadow;
+    Alcotest.test_case "symbol environment streaming update" `Quick
+      symbol_environment_updates_during_stream;
+    Alcotest.test_case "symbol conditional frames" `Quick
+      symbol_conditionals_share_frames;
+    Alcotest.test_case "inactive symbol conditional" `Quick
+      inactive_symbol_conditionals_are_raw;
+    Alcotest.test_case "symbol conditional diagnostics" `Quick
+      symbol_conditional_diagnostics;
     Alcotest.test_case "deterministic definition dump" `Quick
       deterministic_definition_dump;
   ]

@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, JIT/AOT conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Include-frame audit
 
@@ -46,6 +46,12 @@ No replacement table is copied into the project. `Frontend.Definition` and `Fron
 The JIT/AOT selection uses the complete conditional dispatch, `LexGetChar`, and `LexFilePop` in `Compiler/Lex.HC`; the related lexical helpers in `Compiler/LexLib.HC`; `CmpBuf` in `Compiler/CMain.HC`; the keyword definitions in `Compiler/CompilerA.HH`; the `CCmpCtrl` flags in `Kernel/KernelA.HH`; the preprocessor documentation; and the working `#ifjit` region in `Demo/GlblVars.HC`. Every file already has a pinned checksum in the manifest.
 
 No conditional table is copied. `Frontend.Lexer` provides the raw inactive scan used by `Frontend.Preprocessor`, and the configuration carries the AOT bit's meaning as a typed mode. Stray and unterminated-boundary diagnostics are hosted additions; [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) records the difference from the pinned permissive paths.
+
+## Symbol-conditional audit
+
+The `#ifdef` and `#ifndef` implementation follows identifier lookup and both directive cases in `Compiler/Lex.HC`; controller hash-chain setup in `Compiler/CMain.HC`; compiler-hash initialization in `Compiler/AsmInit.HC`; the 17 internal type records in `Compiler/CInit.HC`; the `HTT_*` values and masks in `Kernel/KernelA.HH`; hash insertion and lookup in `Kernel/KHashA.HC`; and the wording in `Doc/PreProcessor.DD`. These files already have pinned checksums in the manifest.
+
+`Frontend.Symbol_visibility` retains the 17 source hash kinds, stable entry identities, the default import exclusion, and the separate local-variable shadow result. `Driver.Session` seeds the generated language keywords, assembly keywords, and internal type spellings. Full opcode and register seeding depends on the complete `OpCodes.DD` model and remains tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The live `.HC`, `.HH`, and `.PRJ` corpus has no active use of either directive, so compatibility evidence comes from the pinned implementation and focused fixtures rather than a corpus percentage.
 
 ## Generated keyword data
 
