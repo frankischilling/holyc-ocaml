@@ -113,6 +113,18 @@ The `IC_*` constant name and the display name are not interchangeable. Thirteen 
 
 `tools/intermediate_code_source.ml` parses both tables without deriving one name from the other. `tools/intermediate_code_gen.ml` emits an exhaustive `Ir.Opcode.t` variant, typed metadata, safe lookups, pinned checksums, and original line numbers. The checked table is an input to future IR work; it does not yet classify complete side effects, represent operands, or make any opcode executable.
 
+## TempleOS BIN header and patch records
+
+`Kernel/KernelA.HH` defines the `'TOSB'` signature, the seven-field `CBinFile` header, 21 named `IET_*` values, five reserved numeric slots, and eight `AAT_*` adjustment operations. The header occupies 32 bytes. `Compiler/CMain.HC:Cmp` writes the code and initialized-data body immediately after that header, places the patch table after the body, terminates it with `IET_END`, and rounds the complete file size to 16 bytes.
+
+`Kernel/KLoad.HC:Load` treats the byte after the header as `module_base`. `LoadPass1` registers exports, resolves or defers imports, applies absolute-address patches, and creates heap allocations. `LoadPass2` walks the same variable-length records and calls `IET_MAIN` entries. Relative import fields receive `target - field_address - field_width`; immediate fields receive the target itself. The source retains fictitious zero-width import values, marks 64-bit exports as not implemented, and marks three heap forms as not really used. The OCaml model preserves those comments instead of treating every loader switch case as a compatibility claim.
+
+`Kernel/KStart16.HC` locates the boot patch table, and `Kernel/KStart32.HC:CPatchTableAbsAddr` performs the boot absolute-address pass. Compiler producers and consumers in `AsmResolve.HC`, `Asm.HC`, `PrsVar.HC`, `BackFA.HC`, `BackLib.HC`, `BackC.HC`, `OptPass3.HC`, and `OptPass789A.HC` establish which record and adjustment kinds reach assembler, parser, optimizer, and backend paths.
+
+`tools/bin_record_source.ml` requires that exact 13-file source set. It validates checksums, table order, numeric gaps, status comments, header fields, writer behavior, loader formulas, both passes, boot handling, and source consumers while ignoring comments and literals. `tools/bin_record_gen.ml` emits typed entries, adjustments, record shapes, relocation metadata, loader actions, checksums, and line references to `src/generated/bin_records.ml`. `Backend.Bin_spec` exposes that data through `Holyc_lib.Templeos_bin_spec`.
+
+This slice is an executable format specification, not format compatibility. It has no serializer, parser, loader model, generated module, or actual TempleOS loader result. [The BIN format notes](templeos-bin-format.md) describe the byte grammar and the validation still required for M8.
+
 ## Literals
 
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.

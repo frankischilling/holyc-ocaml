@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, and the complete intermediate-code definition and metadata tables. Parser, optimizer, kernel, and backend reads establish how the original compiler consumes the option, function-flag, and IC fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Generated keyword data
 
@@ -94,3 +94,15 @@ dune exec tools/function_flag_gen.exe -- --reference-root third_party/TempleOS -
 The generator checks nine pinned files before parsing them. It keeps the inherited `CHashClass.flags` bits, function-only `Ff_*` bits, temporary `FSF_*` parser masks, and `FSG_FUN_FLAGS*` groups separate. It also verifies the declaration-modifier assignments and the source conditions governing `RET1`, varargs, caller cleanup, interrupt returns, and internal functions.
 
 The generated helpers describe those source rules without implementing function parsing or machine-code emission. `dune build @generated-check` rejects stale implementation or interface output.
+
+## Generated BIN record data
+
+Regenerate the TempleOS module header and patch-record specification with:
+
+```text
+dune exec tools/bin_record_gen.exe -- --reference-root third_party/TempleOS --manifest reference/manifest.json --output-ml src/generated/bin_records.ml --output-mli src/generated/bin_records.mli
+```
+
+The generator checks 13 pinned sources before parsing them. It validates the `CBinFile` layout, `'TOSB'` signature, all `IET_*` and `AAT_*` values, reserved numeric gaps, source status comments, import displacement formulas, writer layout, two loader passes, boot absolute patches, and core consumers. Unknown symbols, missing or duplicate records, changed formulas, and stale output fail the generated-file check.
+
+The output supplies typed metadata through `Holyc_lib.Templeos_bin_spec`; it is not a module reader or writer. [docs/templeos-bin-format.md](docs/templeos-bin-format.md) records the audited binary grammar and the work still required before loader compatibility can be claimed.
