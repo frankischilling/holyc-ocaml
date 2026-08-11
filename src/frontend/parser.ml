@@ -750,6 +750,33 @@ and parse_index_suffix cursor ~context ~depth (base : parsed_expression) :
         in
         Some { node; tokens }
 
+and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
+    parsed_expression option =
+  let operator_item = take cursor in
+  let member_item = peek cursor in
+  if member_item.token.kind <> Token_kind.Identifier then
+    expression_failure cursor member_item ~code:"HCPARSE0027"
+      ~message:
+        (Printf.sprintf "expected a member name after %S in %s, but found %s"
+           operator_item.token.raw
+           (expression_context_name context)
+           (token_description member_item.token))
+  else
+    let member_item = take cursor in
+    let operator = make_expression_operator operator_item.token in
+    let member =
+      Ast.make_identifier ~spelling:member_item.token.raw
+        ~location:(token_location member_item.token)
+    in
+    let tokens = base.tokens @ [ operator_item.token; member_item.token ] in
+    let node =
+      Ast.Member_expression
+        (Ast.make_member_expression ~base:base.node ~access_kind ~operator
+           ~member
+           ~location:(location_from_expression_tokens tokens))
+    in
+    Some { node; tokens }
+
 and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
@@ -766,6 +793,18 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
       | Some index ->
           parse_expression_tail cursor ~context ~depth ~minimum_binding_power
             index)
+  | Token_kind.Punctuation '.' -> (
+      match parse_member_suffix cursor ~context left Ast.Direct_member with
+      | None -> None
+      | Some member ->
+          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+            member)
+  | Token_kind.Operator Operator.Arrow -> (
+      match parse_member_suffix cursor ~context left Ast.Pointer_member with
+      | None -> None
+      | Some member ->
+          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+            member)
   | _ -> (
       match binary_operator item.token with
       | Some operator_spec
@@ -816,9 +855,7 @@ let parse_parameter_default cursor =
 
 let is_unimplemented_expression_continuation token =
   match token.Token.kind with
-  | Token_kind.Punctuation '.'
-  | Token_kind.Operator
-      (Operator.Arrow | Operator.Increment | Operator.Decrement) -> true
+  | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> true
   | _ -> false
 
 let declaration_binding_kind token =
@@ -1033,9 +1070,8 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
               ~message:
                 "register qualifier must appear before function parameter \
                  pointer stars or its name"
-        | Token_kind.Punctuation ('[' | '.')
-        | Token_kind.Operator
-            (Operator.Arrow | Operator.Increment | Operator.Decrement)
+        | Token_kind.Punctuation '['
+        | Token_kind.Operator (Operator.Increment | Operator.Decrement)
           when Option.is_some parsed_default ->
             declaration_failure cursor following_item ~code:"HCPARSE0020"
               ~message:

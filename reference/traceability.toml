@@ -1255,6 +1255,48 @@ implicit_dereference_and_lvalue_status = "planned"
 lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-MEMBER-EXPRESSIONS"
+description = "Direct and pointer member expressions retain their access kind, operator, member name, and complete postfix base."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 modifier cycle",
+  "Compiler/PrsExp.HC:PrsUnaryModifier dot and TK_DEREFERENCE branches",
+  "Compiler/CInit.HC:CmpFillTables TK_DEREFERENCE construction",
+  "Kernel/KernelA.HH:TK_DEREFERENCE",
+  "Doc/HolyC.DD:offset and pointer-member examples",
+  "Compiler/PrsExp.HC:mixed direct and pointer member chain"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-member-expression.hc",
+  "test/cli/parse-member-expression.human",
+  "test/cli/parse-member-expression.json",
+  "test/cli/parse-member-error.hc",
+  "test/cli/parse-member-error.human",
+  "test/cli/parse-member-error.json"
+]
+status = "implemented"
+issue = 79
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["direct member suffix", "pointer member suffix"]
+access_kinds = ["direct", "pointer"]
+member_precedence = "postfix member access binds before every audited binary operator"
+repeated_members = "implemented"
+mixed_call_index_and_member_chains = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+definition_and_include_provenance = "preserved"
+missing_member_diagnostic = "HCPARSE0027"
+base_type_validation = "planned"
+member_lookup_and_inheritance = "planned"
+layout_and_offset_resolution = "planned"
+address_value_dereference_and_lvalue_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

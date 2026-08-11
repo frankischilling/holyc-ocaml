@@ -149,6 +149,14 @@ let expect_index_expression = function
   | Ast.Index_expression index -> index
   | _ -> Alcotest.fail "expected an index expression"
 
+let expect_member_expression = function
+  | Ast.Member_expression member -> member
+  | _ -> Alcotest.fail "expected a member expression"
+
+let member_access_kind_name = function
+  | Ast.Direct_member -> "direct"
+  | Ast.Pointer_member -> "pointer"
+
 let expect_provided_call_argument (argument : Ast.call_argument) =
   match argument.call_argument_value with
   | Ast.Provided_call_argument expression -> expression
@@ -1789,13 +1797,13 @@ let intern_binding_failures () =
         None,
         "HCPARSE0001",
         "after declaration binding \"_intern\"" );
-      ( "unsupported member after a call target",
-        "_intern Resolve().value I64 Called();",
+      ( "unsupported increment after a call target",
+        "_intern Resolve()++ I64 Called();",
         Some "Called",
         "HCPARSE0020",
         "target expression continuation" );
-      ( "unsupported member target",
-        "_intern Table.value I64 Indexed();",
+      ( "unsupported increment target",
+        "_intern Table++ I64 Indexed();",
         Some "Indexed",
         "HCPARSE0020",
         "target expression continuation" );
@@ -2134,8 +2142,8 @@ let call_expression_failures () =
         Some "MissingOperand",
         "HCPARSE0018",
         "call argument expression operand" );
-      ( "unsupported member continuation after a call",
-        "_intern F().value I64 Indexed();",
+      ( "unsupported increment continuation after a call",
+        "_intern F()++ I64 Indexed();",
         Some "Indexed",
         "HCPARSE0020",
         "target expression continuation" );
@@ -2442,8 +2450,8 @@ let index_expression_failures () =
         Some "MissingOperand",
         "HCPARSE0018",
         "index expression operand" );
-      ( "unsupported member after an index",
-        "_intern Table[0].value I64 Member();",
+      ( "unsupported increment after an index",
+        "_intern Table[0]++ I64 Member();",
         Some "Member",
         "HCPARSE0020",
         "target expression continuation" );
@@ -2497,6 +2505,332 @@ let deterministic_index_dumps () =
   Alcotest.(check string)
     "JSON call inside index kind" "call"
     (index_json |> member "base" |> member "index" |> member "kind" |> to_string)
+
+let member_expression_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("direct member branch", "case '.':");
+      ("pointer member branch", "case TK_DEREFERENCE:");
+      ("member name requirement", "if (Lex(cc)!=TK_IDENT ||");
+      ("member lookup", "!(tmpm=MemberFind(cc->cur_str,tmpc)))");
+      ("repeated member dispatch", "return PE_UNARY_MODIFIERS;");
+      ("mixed member chain", "tmpi=cc->coc.coc_head.last;");
+      ("direct member use", "cmp.internal_types[RT_I64]");
+    ];
+  Alcotest.(check bool)
+    "arrow token mapping" true
+    (contains (pinned "Compiler/CInit.HC") "d['-']=TK_DEREFERENCE<<16+'>';");
+  Alcotest.(check bool)
+    "arrow token identity" true
+    (contains (pinned "Kernel/KernelA.HH") "#define TK_DEREFERENCE\t0x107");
+  let language = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language guide pointer member" true
+    (contains language "Fs->except_ch");
+  Alcotest.(check bool)
+    "language guide direct member" true
+    (contains language "offset(classname.membername)")
+
+let member_expression_shapes_and_precedence () =
+  let member_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_member_expression
+  in
+  let direct = member_from "_intern object.value I64 Direct();" in
+  Alcotest.(check string)
+    "direct access kind" "direct"
+    (member_access_kind_name direct.member_access_kind);
+  Alcotest.(check string)
+    "direct operator spelling" "." direct.member_operator.operator_spelling;
+  Alcotest.(check string)
+    "direct member name" "value" direct.member_name.spelling;
+  (match direct.member_base with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "direct base" "object" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier direct-member base");
+  let pointer = member_from "_intern object->value I64 Pointer();" in
+  Alcotest.(check string)
+    "pointer access kind" "pointer"
+    (member_access_kind_name pointer.member_access_kind);
+  Alcotest.(check string)
+    "pointer operator spelling" "->" pointer.member_operator.operator_spelling;
+  let repeated =
+    member_from "_intern root->child.value->leaf I64 Repeated();"
+  in
+  Alcotest.(check string)
+    "outer repeated kind" "pointer"
+    (member_access_kind_name repeated.member_access_kind);
+  Alcotest.(check string)
+    "outer repeated member" "leaf" repeated.member_name.spelling;
+  let middle = expect_member_expression repeated.member_base in
+  Alcotest.(check string)
+    "middle repeated kind" "direct"
+    (member_access_kind_name middle.member_access_kind);
+  Alcotest.(check string)
+    "middle repeated member" "value" middle.member_name.spelling;
+  let inner = expect_member_expression middle.member_base in
+  Alcotest.(check string)
+    "inner repeated kind" "pointer"
+    (member_access_kind_name inner.member_access_kind);
+  Alcotest.(check string)
+    "inner repeated member" "child" inner.member_name.spelling;
+  let mixed =
+    member_from "_intern Factory().nodes[0]->callback(1).result I64 Mixed();"
+  in
+  Alcotest.(check string)
+    "mixed outer member" "result" mixed.member_name.spelling;
+  let callback_call = expect_call_expression mixed.member_base in
+  let callback = expect_member_expression callback_call.call_callee in
+  Alcotest.(check string)
+    "mixed pointer kind" "pointer"
+    (member_access_kind_name callback.member_access_kind);
+  Alcotest.(check string)
+    "mixed callback member" "callback" callback.member_name.spelling;
+  let indexed = expect_index_expression callback.member_base in
+  let nodes = expect_member_expression indexed.index_base in
+  Alcotest.(check string)
+    "mixed direct kind" "direct"
+    (member_access_kind_name nodes.member_access_kind);
+  ignore (expect_call_expression nodes.member_base);
+  let parenthesized = member_from "_intern (object).value I64 Grouped();" in
+  (match parenthesized.member_base with
+  | Ast.Parenthesized_expression _ -> ()
+  | _ -> Alcotest.fail "expected a parenthesized member base");
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let source =
+        Printf.sprintf "_intern object.value %s 2 I64 Member%d();"
+          operator.spelling index
+      in
+      let _, _, output = parse_string source in
+      let root =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_member_expression root.binary_left))
+    Operator.binary_operators
+
+let member_expression_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=context.member);"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_member_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[context->count];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_member_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(context.member) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_member_expression );
+  let _, _, index_output =
+    parse_string "_intern table[context->slot] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_member_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "_intern context->member I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_member_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let member_expression_provenance () =
+  let session, root, output =
+    parse_string
+      "#define MEMBER object->child.value\n_intern MEMBER I64 Generated();"
+  in
+  let outer =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_member_expression
+  in
+  let inner = expect_member_expression outer.member_base in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("base", Ast.expression_location inner.member_base);
+      ("pointer operator", inner.member_operator.operator_location);
+      ("inner member", inner.member_name.location);
+      ("inner expression", inner.member_location);
+      ("direct operator", outer.member_operator.operator_location);
+      ("outer member", outer.member_name.location);
+      ("outer expression", outer.member_location);
+    ];
+  let open Yojson.Safe.Util in
+  let target_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated member operator provenance" true
+    (target_json |> member "operator" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "member.HC" in
+      write_file root_file "#include \"member\"";
+      write_file declaration_file "_intern object.member I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_member =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_member_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_member.member_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included member keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let member_expression_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected member declaration %s became visible"
+                name)
+        rejected_name)
+    [
+      ( "missing direct member",
+        "_intern object.;",
+        None,
+        "HCPARSE0027",
+        "expected a member name after \".\"" );
+      ( "missing pointer member",
+        "_intern object->;",
+        None,
+        "HCPARSE0027",
+        "expected a member name after \"->\"" );
+      ( "numeric member",
+        "_intern object. 1 I64 Numeric();",
+        Some "Numeric",
+        "HCPARSE0027",
+        "\"1\"" );
+      ( "repeated operator without a name",
+        "_intern object.->member I64 RepeatedOperator();",
+        Some "RepeatedOperator",
+        "HCPARSE0027",
+        "\"->\"" );
+      ( "missing member inside an index",
+        "_intern table[object.] I64 Nested();",
+        Some "Nested",
+        "HCPARSE0027",
+        "in index expression" );
+      ( "unsupported increment after a member",
+        "_intern object.value++ I64 Incremented();",
+        Some "Incremented",
+        "HCPARSE0020",
+        "target expression continuation" );
+    ]
+
+let deterministic_member_dumps () =
+  let session, _, output =
+    parse_string "_intern Factory().nodes[0]->callback(1).result I64 Mixed();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human member dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON member dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let member_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check string)
+    "JSON outer member kind" "member"
+    (member_json |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON outer member access" "direct"
+    (member_json |> member "access_kind" |> to_string);
+  let callback_json = member_json |> member "base" |> member "callee" in
+  Alcotest.(check string)
+    "JSON callback member access" "pointer"
+    (callback_json |> member "access_kind" |> to_string);
+  Alcotest.(check string)
+    "JSON callback operator spelling" "->"
+    (callback_json |> member "operator" |> member "spelling" |> to_string);
+  Alcotest.(check string)
+    "JSON direct member before index" "direct"
+    (callback_json |> member "base" |> member "base" |> member "access_kind"
+   |> to_string)
 
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -3674,13 +4008,13 @@ let array_dimension_failures () =
         "MissingBracket",
         "HCPARSE0023",
         "expected ']'" );
-      ( "unsupported member access",
-        "I64 Indexed[count.value];",
+      ( "unsupported increment",
+        "I64 Indexed[count++];",
         "Indexed",
         "HCPARSE0020",
         "continuation" );
-      ( "unsupported member access after a call",
-        "I64 Called[Count().value];",
+      ( "unsupported increment after a call",
+        "I64 Called[Count()++];",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -3778,8 +4112,8 @@ let default_expression_failures () =
         "Unmatched",
         "HCPARSE0019",
         "close default expression" );
-      ( "unsupported member access after a call",
-        "extern U0 Called(I64 value=Factory().value);",
+      ( "unsupported increment after a call",
+        "extern U0 Called(I64 value=Factory()++);",
         "Called",
         "HCPARSE0020",
         "continuation" );
@@ -4214,6 +4548,18 @@ let tests =
       index_expression_failures;
     Alcotest.test_case "deterministic index dumps" `Quick
       deterministic_index_dumps;
+    Alcotest.test_case "pinned member expression behavior" `Quick
+      member_expression_source_behavior;
+    Alcotest.test_case "member shapes and precedence" `Quick
+      member_expression_shapes_and_precedence;
+    Alcotest.test_case "member expression contexts and modes" `Quick
+      member_expression_contexts_and_modes;
+    Alcotest.test_case "member expression provenance" `Quick
+      member_expression_provenance;
+    Alcotest.test_case "member expression failures" `Quick
+      member_expression_failures;
+    Alcotest.test_case "deterministic member dumps" `Quick
+      deterministic_member_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

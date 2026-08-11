@@ -73,6 +73,8 @@ type unary_operator_kind =
   | Pre_increment
   | Pre_decrement
 
+type member_access_kind = Direct_member | Pointer_member
+
 type expression =
   | Integer_literal of expression_literal
   | Float_literal of expression_literal
@@ -85,6 +87,7 @@ type expression =
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
+  | Member_expression of member_expression
 
 and expression_literal = private {
   literal_spelling : string;
@@ -143,6 +146,14 @@ and index_expression = private {
   index_value : expression;
   index_closing_bracket : location;
   index_location : location;
+}
+
+and member_expression = private {
+  member_base : expression;
+  member_access_kind : member_access_kind;
+  member_operator : expression_operator;
+  member_name : identifier;
+  member_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -378,6 +389,14 @@ val make_index_expression :
   closing_bracket:location ->
   location:location ->
   index_expression
+
+val make_member_expression :
+  base:expression ->
+  access_kind:member_access_kind ->
+  operator:expression_operator ->
+  member:identifier ->
+  location:location ->
+  member_expression
 
 val expression_location : expression -> location
 

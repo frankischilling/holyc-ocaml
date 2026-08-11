@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0027",
+    "severity": "error",
+    "message": "expected a member name after \".\" in _intern target expression, but found \"1\"",
+    "primary": {
+      "path": "cli/parse-member-error.hc",
+      "line": 1,
+      "column": 17,
+      "source_id": 0,
+      "start": 16,
+      "stop": 17
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
