@@ -50,6 +50,18 @@ The `KW_IFDEF` and `KW_IFNDEF` branches in `Compiler/Lex.HC:Lex` set `CCF_NO_DEF
 
 The current generated opcode table does not yet publish opcode or register records, which is tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The standalone preprocessor also cannot discover unparsed HolyC declarations. The source corpus has no active `#ifdef` or `#ifndef` occurrence, so focused fixtures establish this slice's behavior.
 
+## Conditional expressions
+
+The `KW_IF` branch in `Compiler/Lex.HC:Lex` sets `CCF_IN_IF`, reads one token, and calls `LexExpression`. It treats the returned 64 bits as the branch predicate and leaves the token following the expression in the ordinary lexer lookahead. `KW_ASSERT` uses the same evaluator but reports a warning when the result is false.
+
+`Compiler/PrsExp.HC:LexExpression2Bin` calls the normal expression parser, appends return operations, compiles the resulting intermediate code, and returns executable memory. `LexExpression` calls that code without forcing the result to I64 or F64. Native conditions can therefore use any expression term available to the current compiler controller, including calls, globals, memory, and compiler state. The hosted constant evaluator implements only the terms that do not need semantic state or execution. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) records the remaining VM path.
+
+`PrsExpression2` obtains binary identity, precedence, and association from `cmp.binary_ops`. `Compiler/CInit.HC:CmpFillTables` puts power and shifts in `PREC_EXP`, marks power right associated, and leaves shifts left associated. The parser moves unary minus below power unless parentheses force the negative value to become the base. Consecutive comparison operations use `IC_PUSH_CMP` and combine adjacent comparisons. `Compiler/OptPass012.HC` establishes the constant integer, floating, comparison, and logical behavior used by the hosted evaluator. Its result-class assignments make complement and integer shifts I64. Its immediate folding converts U64-class bits to F64 through the signed I64 field, compares F64 equality by raw bits, and retains an F64 result for unary `!`. Logical operations consume both operands rather than introducing a C-preprocessor short-circuit rule.
+
+`PrsUnaryTerm` handles `defined` without setting `CCF_NO_DEFINES`, so ordinary definition expansion may replace its operand first. This is intentionally different from the `KW_IFDEF` and `KW_IFNDEF` paths. A local variable makes `defined` true, while it suppresses hash lookup and makes `#ifdef` false. The default hash mask still excludes imports.
+
+`Frontend.Conditional_expression` parses with the checked operator records, stores explicit I64, U64, and F64 values, and returns its first unconsumed token. `Frontend.Preprocessor` owns the one-token lookahead so selected body text and adjacent conditional boundaries survive expression parsing. The hosted node limit, stable arithmetic diagnostics, and inert recovery after an invalid condition are project safety rules rather than native TempleOS behavior.
+
 ## Tokens and operators
 
 `Kernel/KernelA.HH` assigns numeric values to compound tokens. `Compiler/CInit.HC:CmpFillTables` defines two-character tokens, three-character shifts, and expression precedence. `Compiler/OpCodes.DD` supplies the keyword spellings consumed by `Compiler/AsmInit.HC`.

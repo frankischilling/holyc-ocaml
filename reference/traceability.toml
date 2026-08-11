@@ -375,6 +375,36 @@ issue = 29
 known_difference_issues = [24, 27, 30]
 
 [[feature]]
+id = "HC-PREPROCESSOR-CONSTANT-IF"
+description = "The integrated stream evaluates literal and definition-expanded #if expressions with checked HolyC precedence, explicit 64-bit target values, defined lookup, retained lookahead, and bounded deterministic recovery."
+sources = [
+  "Compiler/Lex.HC:Lex KW_IF",
+  "Compiler/Lex.HC:Lex KW_ASSERT",
+  "Compiler/PrsExp.HC:PrsExpression2",
+  "Compiler/PrsExp.HC:PrsUnaryTerm",
+  "Compiler/PrsExp.HC:LexExpression2Bin",
+  "Compiler/PrsExp.HC:LexExpression",
+  "Compiler/CompilerA.HH:PREC_*",
+  "Compiler/CInit.HC:CmpFillTables binary operators",
+  "Compiler/CInit.HC:internal_types_table",
+  "Compiler/OptPass012.HC:constant expression folding",
+  "Doc/PreProcessor.DD"
+]
+implementation = [
+  "src/frontend/conditional_expression.ml",
+  "src/frontend/preprocessor.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_conditional_expression.ml",
+  "test/test_preprocessor.ml",
+  "examples/constant-if.hc"
+]
+status = "implemented"
+issue = 32
+known_difference_issues = [24, 27, 33]
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

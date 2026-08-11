@@ -5,7 +5,7 @@ The compiler is split into explicit stages. Each stage consumes immutable inputs
 The current slice has six layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
-- `Frontend` owns token definitions, the audited keyword table, streaming lexical state, canonical include resolution, nested file and definition frames, `#include`, `#define`, mode and symbol conditionals, and stable token, definition, and symbol-visibility dumps. Each preprocessing stream owns its mutable cursors, conditional stack, selected compilation mode, and generated-byte budget. The session owns source IDs, the source-ordered definition environment, and a typed view of compiler hash entries. Parser and semantic work can publish declarations to that view between calls to the token stream. It is not the final semantic symbol table.
+- `Frontend` owns token definitions, the audited keyword table, streaming lexical state, canonical include resolution, nested file and definition frames, `#include`, `#define`, constant `#if` evaluation, mode and symbol conditionals, and stable token, definition, and symbol-visibility dumps. The conditional evaluator uses explicit 64-bit target values and the generated HolyC precedence table. Each preprocessing stream owns its mutable cursors, one-token expression lookahead, conditional stack, selected compilation mode, generated-byte budget, and conditional-expression node budget. The session owns source IDs, the source-ordered definition environment, and a typed view of compiler hash entries. Parser and semantic work can publish declarations to that view between calls to the token stream. It is not the final semantic symbol table.
 - `Generated` contains deterministic source facts produced only after pinned checksum and table-shape validation.
 - `Sema` currently exposes primitive type identity, compiler-option metadata, and the audited function-flag model. Declaration resolution, conversions, call checking, and aggregate layout have not entered this layer yet.
 - `Ir` currently exposes the exhaustive intermediate-code identity and source metadata table. Instructions, control flow, verification, lowering, and execution have not entered this layer yet.
@@ -13,7 +13,7 @@ The current slice has six layers:
 
 `holyc_lib` exposes the supported high-level entry points. The command-line program calls the same library functions used by tests.
 
-Later frontend work will add expression conditionals, compile-time execution, predefined values, and general generated source to the existing frame stream. Parsing, semantic analysis, IR instructions and verification, interpretation, optimization, assembly, hosted code generation, and TempleOS module emission follow after that. A stage enters the supported list only after its verifier boundary and focused tests exist.
+Later frontend work will route nonconstant conditional expressions through semantic analysis, verified IR, and the compile-time VM. It will also add predefined values, `#assert`, `#exe`, and general generated source to the existing frame stream. Parsing, semantic analysis, IR instructions and verification, interpretation, optimization, assembly, hosted code generation, and TempleOS module emission follow after that. A stage enters the supported list only after its verifier boundary and focused tests exist.
 
 ## Source authority
 
