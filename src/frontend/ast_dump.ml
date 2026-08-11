@@ -81,6 +81,10 @@ let unary_operator_kind_name = function
   | Ast.Pre_increment -> "pre_increment"
   | Ast.Pre_decrement -> "pre_decrement"
 
+let member_access_kind_name = function
+  | Ast.Direct_member -> "direct"
+  | Ast.Pointer_member -> "pointer"
+
 let association_name = function
   | Operator.Unspecified -> "unspecified"
   | Operator.Left -> "left"
@@ -238,6 +242,19 @@ let rec print_expression buffer sources ~indent expression =
         index.index_value;
       Printf.bprintf buffer "%sclosing_bracket span=%s\n" child_indent
         (location_text sources index.index_closing_bracket)
+  | Ast.Member_expression member ->
+      Printf.bprintf buffer "%sexpression kind=member access_kind=%s span=%s\n"
+        indent
+        (member_access_kind_name member.member_access_kind)
+        (location_text sources member.member_location);
+      Printf.bprintf buffer "%sbase\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        member.member_base;
+      print_expression_operator buffer sources ~indent:child_indent
+        member.member_operator;
+      Printf.bprintf buffer "%smember spelling=%S span=%s\n" child_indent
+        member.member_name.spelling
+        (location_text sources member.member_name.location)
 
 and print_call_argument buffer sources ~indent index
     (argument : Ast.call_argument) =
@@ -691,6 +708,18 @@ let rec expression_to_yojson sources = function
           ( "closing_bracket",
             location_to_yojson sources index.index_closing_bracket );
           ("location", location_to_yojson sources index.index_location);
+        ]
+  | Ast.Member_expression member ->
+      `Assoc
+        [
+          ("kind", `String "member");
+          ( "access_kind",
+            `String (member_access_kind_name member.member_access_kind) );
+          ("base", expression_to_yojson sources member.member_base);
+          ( "operator",
+            expression_operator_to_yojson sources member.member_operator );
+          ("member", identifier_to_yojson sources member.member_name);
+          ("location", location_to_yojson sources member.member_location);
         ]
 
 and call_argument_to_yojson sources (argument : Ast.call_argument) =

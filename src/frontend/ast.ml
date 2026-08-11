@@ -68,6 +68,8 @@ type unary_operator_kind =
   | Pre_increment
   | Pre_decrement
 
+type member_access_kind = Direct_member | Pointer_member
+
 type expression =
   | Integer_literal of expression_literal
   | Float_literal of expression_literal
@@ -80,6 +82,7 @@ type expression =
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
+  | Member_expression of member_expression
 
 and expression_literal = {
   literal_spelling : string;
@@ -138,6 +141,14 @@ and index_expression = {
   index_value : expression;
   index_closing_bracket : location;
   index_location : location;
+}
+
+and member_expression = {
+  member_base : expression;
+  member_access_kind : member_access_kind;
+  member_operator : expression_operator;
+  member_name : identifier;
+  member_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -360,6 +371,15 @@ let make_index_expression ~base ~opening_bracket ~index ~closing_bracket
     index_location = location;
   }
 
+let make_member_expression ~base ~access_kind ~operator ~member ~location =
+  {
+    member_base = base;
+    member_access_kind = access_kind;
+    member_operator = operator;
+    member_name = member;
+    member_location = location;
+  }
+
 let expression_location = function
   | Integer_literal literal
   | Float_literal literal
@@ -372,6 +392,7 @@ let expression_location = function
   | Binary_expression expression -> expression.binary_location
   | Call_expression expression -> expression.call_location
   | Index_expression expression -> expression.index_location
+  | Member_expression expression -> expression.member_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }

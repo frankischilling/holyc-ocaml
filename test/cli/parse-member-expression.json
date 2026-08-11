@@ -1,0 +1,1217 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-member-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 60
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-member-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "member",
+            "access_kind": "direct",
+            "base": {
+              "kind": "call",
+              "callee": {
+                "kind": "member",
+                "access_kind": "pointer",
+                "base": {
+                  "kind": "index",
+                  "base": {
+                    "kind": "member",
+                    "access_kind": "direct",
+                    "base": {
+                      "kind": "call",
+                      "callee": {
+                        "kind": "identifier",
+                        "spelling": "Factory",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 9,
+                            "source_id": 0,
+                            "start": 8,
+                            "stop": 15
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-member-expression.hc",
+                              "line": 1,
+                              "column": 9,
+                              "source_id": 0,
+                              "start": 8,
+                              "stop": 15
+                            }
+                          ]
+                        }
+                      },
+                      "opening_parenthesis": {
+                        "span": {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 15,
+                          "stop": 16
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 15,
+                            "stop": 16
+                          }
+                        ]
+                      },
+                      "arguments": [],
+                      "closing_parenthesis": {
+                        "span": {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 16,
+                          "stop": 17
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 16,
+                            "stop": 17
+                          }
+                        ]
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 8,
+                          "stop": 17
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 9,
+                            "source_id": 0,
+                            "start": 8,
+                            "stop": 15
+                          },
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 15,
+                            "stop": 16
+                          },
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 16,
+                            "stop": 17
+                          }
+                        ]
+                      }
+                    },
+                    "operator": {
+                      "spelling": ".",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 17,
+                          "stop": 18
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 18,
+                            "source_id": 0,
+                            "start": 17,
+                            "stop": 18
+                          }
+                        ]
+                      }
+                    },
+                    "member": {
+                      "spelling": "nodes",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 18,
+                          "stop": 23
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-member-expression.hc",
+                            "line": 1,
+                            "column": 19,
+                            "source_id": 0,
+                            "start": 18,
+                            "stop": 23
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 8,
+                        "stop": 23
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 8,
+                          "stop": 15
+                        },
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 15,
+                          "stop": 16
+                        },
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 16,
+                          "stop": 17
+                        },
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 17,
+                          "stop": 18
+                        },
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 18,
+                          "stop": 23
+                        }
+                      ]
+                    }
+                  },
+                  "opening_bracket": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      }
+                    ]
+                  },
+                  "index": {
+                    "kind": "integer_literal",
+                    "spelling": "0",
+                    "value": "0x0000000000000000",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 25
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 25
+                        }
+                      ]
+                    }
+                  },
+                  "closing_bracket": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 26
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 26
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 26
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 8,
+                        "stop": 15
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 15,
+                        "stop": 16
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 16,
+                        "stop": 17
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 17,
+                        "stop": 18
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 18,
+                        "stop": 23
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 25
+                      },
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 26
+                      }
+                    ]
+                  }
+                },
+                "operator": {
+                  "spelling": "->",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 28
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 28
+                      }
+                    ]
+                  }
+                },
+                "member": {
+                  "spelling": "callback",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 29,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 36
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 29,
+                        "source_id": 0,
+                        "start": 28,
+                        "stop": 36
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 36
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 15
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 18
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 23
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 25
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 26
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 28
+                    },
+                    {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 29,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 36
+                    }
+                  ]
+                }
+              },
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 37,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 37
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  }
+                ]
+              },
+              "arguments": [
+                {
+                  "kind": "provided",
+                  "expression": {
+                    "kind": "integer_literal",
+                    "spelling": "1",
+                    "value": "0x0000000000000001",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 38,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-member-expression.hc",
+                          "line": 1,
+                          "column": 38,
+                          "source_id": 0,
+                          "start": 37,
+                          "stop": 38
+                        }
+                      ]
+                    }
+                  },
+                  "comma": null,
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-member-expression.hc",
+                      "line": 1,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 37,
+                      "stop": 38
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-member-expression.hc",
+                        "line": 1,
+                        "column": 38,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      }
+                    ]
+                  }
+                }
+              ],
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 38,
+                  "stop": 39
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 39
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 15
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 18
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 18,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 26
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 27,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 36
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 38,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": ".",
+              "location": {
+                "span": {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 40
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 40
+                  }
+                ]
+              }
+            },
+            "member": {
+              "spelling": "result",
+              "location": {
+                "span": {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 46
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-member-expression.hc",
+                    "line": 1,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 46
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-member-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 46
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 15
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 18
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 26
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 28
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 36
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 37,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 37
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 37,
+                  "stop": 38
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 38,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 40
+                },
+                {
+                  "path": "cli/parse-member-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 46
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 48,
+              "source_id": 0,
+              "start": 47,
+              "stop": 50
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-member-expression.hc",
+                "line": 1,
+                "column": 48,
+                "source_id": 0,
+                "start": 47,
+                "stop": 50
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Mixed",
+          "location": {
+            "span": {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 52,
+              "source_id": 0,
+              "start": 51,
+              "stop": 56
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-member-expression.hc",
+                "line": 1,
+                "column": 52,
+                "source_id": 0,
+                "start": 51,
+                "stop": 56
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-member-expression.hc",
+            "line": 1,
+            "column": 57,
+            "source_id": 0,
+            "start": 56,
+            "stop": 57
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-member-expression.hc",
+            "line": 1,
+            "column": 58,
+            "source_id": 0,
+            "start": 57,
+            "stop": 58
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 58,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-member-expression.hc",
+            "line": 1,
+            "column": 59,
+            "source_id": 0,
+            "start": 58,
+            "stop": 59
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 59,
+              "source_id": 0,
+              "start": 58,
+              "stop": 59
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-member-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 59
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 19,
+              "source_id": 0,
+              "start": 18,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 27,
+              "source_id": 0,
+              "start": 26,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 29,
+              "source_id": 0,
+              "start": 28,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 37,
+              "source_id": 0,
+              "start": 36,
+              "stop": 37
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 38,
+              "source_id": 0,
+              "start": 37,
+              "stop": 38
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 48,
+              "source_id": 0,
+              "start": 47,
+              "stop": 50
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 52,
+              "source_id": 0,
+              "start": 51,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 58,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            },
+            {
+              "path": "cli/parse-member-expression.hc",
+              "line": 1,
+              "column": 59,
+              "source_id": 0,
+              "start": 58,
+              "stop": 59
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
