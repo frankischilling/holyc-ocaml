@@ -1,5 +1,6 @@
 type integer = { bits : int64; unsigned : bool }
 type value = Integer of integer | Floating of float
+type directive = If | Assert
 
 type problem = {
   code : string;
@@ -24,9 +25,14 @@ type expression =
       expression * (Operator.binary_operator * Common.Span.t * expression) list
   | Grouped of expression
 
-type parsed = { expression : expression; lookahead : Token.t }
+type parsed = {
+  directive : directive;
+  expression : expression;
+  lookahead : Token.t;
+}
 
 type parser = {
+  directive : directive;
   opener : Common.Span.t;
   max_nodes : int;
   next : unit -> Lexer.item;
@@ -36,6 +42,10 @@ type parser = {
 }
 
 exception Abort of failure
+
+let directive_name = function
+  | If -> "#if"
+  | Assert -> "#assert"
 
 let problem ?(secondary = []) ?(notes = []) ?help ~code ~message primary =
   { code; message; primary; secondary; notes; help }
@@ -58,7 +68,8 @@ let count_node parser token =
     abort
       (problem ~code:"HCPP0026"
          ~message:
-           (Printf.sprintf "#if expression exceeds the node limit of %d"
+           (Printf.sprintf "%s expression exceeds the node limit of %d"
+              (directive_name parser.directive)
               parser.max_nodes)
          ~help:"Raise the expression node limit only for trusted source."
          token.Token.span)
@@ -101,22 +112,30 @@ let expected_expression parser token =
   abort
     ?lookahead:(if boundary then Some token else None)
     (problem ~secondary ~code:"HCPP0021"
-       ~message:"expected a constant expression after #if" primary)
+       ~message:
+         (Printf.sprintf "expected a constant expression after %s"
+            (directive_name parser.directive))
+       primary)
 
-let unsupported_term token =
+let unsupported_term parser token =
   let spelling = token_spelling token in
+  let directive = directive_name parser.directive in
   let message =
     match token.Token.kind with
     | Token_kind.Identifier ->
-        Printf.sprintf "identifier %S requires compile-time execution in #if"
-          spelling
+        Printf.sprintf "identifier %S requires compile-time execution in %s"
+          spelling directive
     | Token_kind.Keyword keyword ->
-        Printf.sprintf "%s requires semantic or runtime state in #if"
-          (Keyword.spelling keyword)
-    | Token_kind.String -> "a string value requires runtime storage in #if"
+        Printf.sprintf "%s requires semantic or runtime state in %s"
+          (Keyword.spelling keyword) directive
+    | Token_kind.String ->
+        Printf.sprintf "a string value requires runtime storage in %s" directive
     | Token_kind.Operator Operator.Current_position ->
-        "$$ requires the compiler output position in #if"
-    | _ -> Printf.sprintf "%S is not a constant #if expression term" spelling
+        Printf.sprintf "$$ requires the compiler output position in %s"
+          directive
+    | _ ->
+        Printf.sprintf "%S is not a constant %s expression term" spelling
+          directive
   in
   abort
     (problem ~code:"HCPP0022" ~message
@@ -202,7 +221,9 @@ and parse_prefix parser =
                  };
                ]
              ~code:"HCPP0023"
-             ~message:"expected ')' to close the #if expression"
+             ~message:
+               (Printf.sprintf "expected ')' to close the %s expression"
+                  (directive_name parser.directive))
              closing.Token.span);
       advance parser;
       Grouped expression
@@ -222,8 +243,9 @@ and parse_prefix parser =
   | (Token_kind.Eof | Token_kind.Punctuation '#'), _ ->
       expected_expression parser token
   | (Token_kind.Identifier | Token_kind.Keyword _ | Token_kind.String), _ ->
-      unsupported_term token
-  | Token_kind.Operator Operator.Current_position, _ -> unsupported_term token
+      unsupported_term parser token
+  | Token_kind.Operator Operator.Current_position, _ ->
+      unsupported_term parser token
   | _ -> expected_expression parser token
 
 and parse_defined parser _keyword =
@@ -275,9 +297,10 @@ and parse_binary parser minimum_power equal_requires_right left =
         (problem ~code:"HCPP0022"
            ~message:
              (Printf.sprintf
-                "assignment operator %S is not available in constant #if \
+                "assignment operator %S is not available in constant %s \
                  expressions"
-                operator.spelling)
+                operator.spelling
+                (directive_name parser.directive))
            ~help:
              "Use a value expression here; assignments require compile-time \
               execution."
@@ -311,16 +334,25 @@ and parse_binary parser minimum_power equal_requires_right left =
         in
         parse_binary parser minimum_power equal_requires_right combined)
   | None ->
-      if unsupported_continuation token then unsupported_term token else left
+      if unsupported_continuation token then unsupported_term parser token
+      else left
 
-let parse ~opener ~max_nodes ~next ~symbol_defined () =
+let parse ~directive ~opener ~max_nodes ~next ~symbol_defined () =
   let parser =
-    { opener; max_nodes; next; symbol_defined; nodes = 0; current = None }
+    {
+      directive;
+      opener;
+      max_nodes;
+      next;
+      symbol_defined;
+      nodes = 0;
+      current = None;
+    }
   in
   try
     advance parser;
     let expression = parse_expression parser 0 false in
-    Ok { expression; lookahead = current parser }
+    Ok { directive; expression; lookahead = current parser }
   with Abort failure -> Error failure
 
 let lookahead parsed = parsed.lookahead
@@ -395,20 +427,27 @@ let compare_values operator left right =
   | Common_float (left, right) ->
       compare_float operator.Operator.ic_name left right
 
-let division_problem span =
-  problem ~code:"HCPP0025" ~message:"integer division by zero in #if" span
-
-let division_overflow span =
-  problem ~code:"HCPP0027" ~message:"signed integer division overflows in #if"
+let division_problem directive span =
+  problem ~code:"HCPP0025"
+    ~message:
+      (Printf.sprintf "integer division by zero in %s"
+         (directive_name directive))
     span
 
-let evaluate_integer_division ~remainder span left right =
-  if Int64.equal right.bits 0L then Error (division_problem span)
+let division_overflow directive span =
+  problem ~code:"HCPP0027"
+    ~message:
+      (Printf.sprintf "signed integer division overflows in %s"
+         (directive_name directive))
+    span
+
+let evaluate_integer_division directive ~remainder span left right =
+  if Int64.equal right.bits 0L then Error (division_problem directive span)
   else if
     (not left.unsigned)
     && Int64.equal left.bits Int64.min_int
     && Int64.equal right.bits (-1L)
-  then Error (division_overflow span)
+  then Error (division_overflow directive span)
   else
     let bits =
       if left.unsigned then
@@ -421,7 +460,7 @@ let evaluate_integer_division ~remainder span left right =
 
 let shift_count bits = Int64.logand bits 63L |> Int64.to_int
 
-let evaluate_binary operator span left right =
+let evaluate_binary directive operator span left right =
   match operator.Operator.ic_name with
   | "IC_POWER" -> Ok (Floating (as_float left ** as_float right))
   | "IC_SHL" ->
@@ -449,12 +488,12 @@ let evaluate_binary operator span left right =
   | "IC_DIV" -> (
       match common left right with
       | Common_integer (left, right) ->
-          evaluate_integer_division ~remainder:false span left right
+          evaluate_integer_division directive ~remainder:false span left right
       | Common_float (left, right) -> Ok (Floating (left /. right)))
   | "IC_MOD" -> (
       match common left right with
       | Common_integer (left, right) ->
-          evaluate_integer_division ~remainder:true span left right
+          evaluate_integer_division directive ~remainder:true span left right
       | Common_float (left, right) -> Ok (Floating (mod_float left right)))
   | "IC_AND" | "IC_OR" | "IC_XOR" ->
       let kind, left, right = raw_common left right in
@@ -493,7 +532,8 @@ let evaluate_binary operator span left right =
         (problem ~code:"HCPP0022"
            ~message:
              (Printf.sprintf
-                "operator %s is not available in constant #if expressions" name)
+                "operator %s is not available in constant %s expressions" name
+                (directive_name directive))
            span)
 
 let evaluate_unary operator value =
@@ -512,25 +552,28 @@ let evaluate_unary operator value =
   | Negate, Floating value -> Floating (-.value)
   | Identity, value -> value
 
-let rec evaluate_expression = function
+let rec evaluate_expression directive = function
   | Literal value -> Ok value
-  | Grouped expression -> evaluate_expression expression
+  | Grouped expression -> evaluate_expression directive expression
   | Unary (operator, _, expression) ->
-      Result.map (evaluate_unary operator) (evaluate_expression expression)
+      Result.map (evaluate_unary operator)
+        (evaluate_expression directive expression)
   | Binary (operator, span, left, right) ->
-      Result.bind (evaluate_expression left) (fun left ->
-          Result.bind (evaluate_expression right) (fun right ->
-              evaluate_binary operator span left right))
+      Result.bind (evaluate_expression directive left) (fun left ->
+          Result.bind (evaluate_expression directive right) (fun right ->
+              evaluate_binary directive operator span left right))
   | Comparison_chain (first, links) ->
-      Result.bind (evaluate_expression first) (fun first ->
+      Result.bind (evaluate_expression directive first) (fun first ->
           let rec loop previous result = function
             | [] -> Ok (boolean result)
             | (operator, _, expression) :: rest ->
-                Result.bind (evaluate_expression expression) (fun current ->
+                Result.bind (evaluate_expression directive expression)
+                  (fun current ->
                     loop current
                       (result && compare_values operator previous current)
                       rest)
           in
           loop first true (List.rev links))
 
-let evaluate parsed = evaluate_expression parsed.expression
+let evaluate (parsed : parsed) =
+  evaluate_expression parsed.directive parsed.expression

@@ -1,0 +1,2 @@
+cli/assert-warning.hc:4:1..4:9 identifier raw="selected" value="selected"
+cli/assert-warning.hc:5:1..5:1 eof raw=""

@@ -1,0 +1,40 @@
+[
+  {
+    "kind": "identifier",
+    "raw": "selected",
+    "value": "selected",
+    "span": {
+      "path": "cli/assert-warning.hc",
+      "line": 4,
+      "column": 1,
+      "source_id": 0,
+      "start": 113,
+      "stop": 121
+    },
+    "origin": { "frame": 0, "generated_from": null, "defined_at": null },
+    "leading_trivia": [
+      { "kind": "whitespace", "raw": "\n", "start": 112, "stop": 113 }
+    ],
+    "mode": "holyc",
+    "templeos_token_id": 256
+  },
+  {
+    "kind": "eof",
+    "raw": "",
+    "value": null,
+    "span": {
+      "path": "cli/assert-warning.hc",
+      "line": 5,
+      "column": 1,
+      "source_id": 0,
+      "start": 122,
+      "stop": 122
+    },
+    "origin": { "frame": 0, "generated_from": null, "defined_at": null },
+    "leading_trivia": [
+      { "kind": "whitespace", "raw": "\n", "start": 121, "stop": 122 }
+    ],
+    "mode": "holyc",
+    "templeos_token_id": 0
+  }
+]

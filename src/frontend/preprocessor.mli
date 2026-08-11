@@ -31,6 +31,10 @@ end
 
 type t
 
+type output = { tokens : Token.t list; diagnostics : Common.Diagnostic.t list }
+(** Tokens and diagnostics collected from one complete stream. The token list
+    includes EOF, and diagnostics retain their source order. *)
+
 val create :
   sources:Common.Source_manager.t ->
   definitions:Definition.Environment.t ->
@@ -42,6 +46,18 @@ val create :
 val next : t -> Lexer.item
 val definitions : t -> Definition.t list
 val definition_dump : t -> string
+
+val collect_all :
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Config.t ->
+  Common.Source_file.t ->
+  output
+
+val has_errors : output -> bool
+(** [has_errors output] is true when at least one diagnostic has error severity.
+    Warnings and notes do not make the output fatal. *)
 
 val lex_all :
   sources:Common.Source_manager.t ->

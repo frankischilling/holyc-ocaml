@@ -88,6 +88,13 @@ type t = {
   mutable pending_diagnostics : Common.Diagnostic.t list;
 }
 
+type diagnostic_context = {
+  include_stack : Common.Diagnostic.related list;
+  definition_trace : Common.Diagnostic.related list;
+}
+
+type output = { tokens : Token.t list; diagnostics : Common.Diagnostic.t list }
+
 let create ~sources ~definitions ~symbols ~config source =
   {
     sources;
@@ -107,12 +114,39 @@ let zero_span source =
     ~source:(Common.Source_file.id source)
     ~start:0 ~stop:0
 
-let diagnostic stream ?(secondary = []) ?(notes = []) ?help ~code ~message
-    primary =
-  let secondary = secondary @ Lexer_frame.definition_trace stream.current in
-  Common.Diagnostic.make ~secondary
-    ~include_stack:(Lexer_frame.include_stack stream.current)
-    ~notes ?help ~code ~severity:Common.Diagnostic.Error ~message ~primary ()
+let current_diagnostic_context stream =
+  {
+    include_stack = Lexer_frame.include_stack stream.current;
+    definition_trace = Lexer_frame.definition_trace stream.current;
+  }
+
+let same_related (left : Common.Diagnostic.related)
+    (right : Common.Diagnostic.related) =
+  Common.Span.compare left.span right.span = 0
+  && String.equal left.message right.message
+
+let append_distinct_related existing additions =
+  List.fold_left
+    (fun items item ->
+      if List.exists (same_related item) items then items else items @ [ item ])
+    existing additions
+
+let merge_diagnostic_context left right =
+  {
+    include_stack =
+      append_distinct_related left.include_stack right.include_stack;
+    definition_trace =
+      append_distinct_related left.definition_trace right.definition_trace;
+  }
+
+let diagnostic stream ?context ?(secondary = []) ?(notes = []) ?help ~code
+    ?(severity = Common.Diagnostic.Error) ~message primary =
+  let context =
+    Option.value context ~default:(current_diagnostic_context stream)
+  in
+  let secondary = secondary @ context.definition_trace in
+  Common.Diagnostic.make ~secondary ~include_stack:context.include_stack ~notes
+    ?help ~code ~severity ~message ~primary ()
 
 let decorate_lexer_diagnostic stream (item : Common.Diagnostic.t) =
   {
@@ -212,7 +246,7 @@ let conditional_endif stream token =
       stream.conditionals <- rest;
       Ok ()
 
-let unterminated_conditional conditional =
+let unterminated_conditional (conditional : conditional) =
   Common.Diagnostic.make ~secondary:conditional.definition_trace
     ~include_stack:conditional.include_stack ~code:"HCPP0018"
     ~severity:Common.Diagnostic.Error
@@ -580,10 +614,17 @@ let expression_symbol_defined stream token =
           true
       | Symbol_visibility.Absent -> false)
 
-let expression_problem stream (problem : Conditional_expression.problem) =
-  diagnostic stream ~secondary:problem.secondary ~notes:problem.notes
+let expression_problem stream ?context
+    (problem : Conditional_expression.problem) =
+  diagnostic stream ?context ~secondary:problem.secondary ~notes:problem.notes
     ?help:problem.help ~code:problem.code ~message:problem.message
     problem.primary
+
+let next_expression_item stream context =
+  let item = next_expanded stream in
+  context :=
+    merge_diagnostic_context !context (current_diagnostic_context stream);
+  item
 
 let reject_conditional stream hash token keyword item =
   Result.bind
@@ -609,11 +650,12 @@ let enter_symbol_conditional stream hash token keyword =
             (invalid_symbol_condition_name stream name_token keyword))
 
 let enter_expression_conditional stream hash token keyword =
+  let context = ref (current_diagnostic_context stream) in
   match
-    Conditional_expression.parse
+    Conditional_expression.parse ~directive:Conditional_expression.If
       ~opener:(directive_span hash token)
       ~max_nodes:(Config.max_expression_nodes stream.config)
-      ~next:(fun () -> next_expanded stream)
+      ~next:(fun () -> next_expression_item stream context)
       ~symbol_defined:(expression_symbol_defined stream)
       ()
   with
@@ -622,7 +664,7 @@ let enter_expression_conditional stream hash token keyword =
   | Error (Conditional_expression.Problem { problem; lookahead }) ->
       Option.iter (retain_lookahead stream) lookahead;
       reject_conditional stream hash token keyword
-        (expression_problem stream problem)
+        (expression_problem stream ~context:!context problem)
   | Ok parsed -> (
       retain_lookahead stream (Conditional_expression.lookahead parsed);
       match Conditional_expression.evaluate parsed with
@@ -631,7 +673,48 @@ let enter_expression_conditional stream hash token keyword =
             (Conditional_expression.truthy value)
       | Error problem ->
           reject_conditional stream hash token keyword
-            (expression_problem stream problem))
+            (expression_problem stream ~context:!context problem))
+
+let assertion_warning stream ~context ~opener ~lookahead =
+  let resume : Common.Diagnostic.related =
+    {
+      span = lookahead.Token.span;
+      message = "preprocessing resumes with this token";
+    }
+  in
+  diagnostic stream ~context ~secondary:[ resume ] ~code:"HCPP0024"
+    ~severity:Common.Diagnostic.Warning
+    ~message:"#assert expression evaluated to false" opener
+
+let queue_diagnostic stream item =
+  stream.pending_diagnostics <- stream.pending_diagnostics @ [ item ]
+
+let evaluate_assertion stream hash token =
+  let opener = directive_span hash token in
+  let context = ref (current_diagnostic_context stream) in
+  match
+    Conditional_expression.parse ~directive:Conditional_expression.Assert
+      ~opener
+      ~max_nodes:(Config.max_expression_nodes stream.config)
+      ~next:(fun () -> next_expression_item stream context)
+      ~symbol_defined:(expression_symbol_defined stream)
+      ()
+  with
+  | Error (Conditional_expression.Lexer_diagnostic item) -> Error item
+  | Error (Conditional_expression.Problem { problem; lookahead }) ->
+      Option.iter (retain_lookahead stream) lookahead;
+      Error (expression_problem stream ~context:!context problem)
+  | Ok parsed -> (
+      let lookahead = Conditional_expression.lookahead parsed in
+      retain_lookahead stream lookahead;
+      match Conditional_expression.evaluate parsed with
+      | Error problem ->
+          Error (expression_problem stream ~context:!context problem)
+      | Ok value ->
+          if not (Conditional_expression.truthy value) then
+            queue_diagnostic stream
+              (assertion_warning stream ~context:!context ~opener ~lookahead);
+          Ok ())
 
 let enter_conditional stream ~inactive hash token keyword =
   match keyword with
@@ -655,6 +738,8 @@ let directive stream ~inactive hash =
       | Token_kind.Keyword Keyword.Else -> conditional_else stream token
       | Token_kind.Keyword Keyword.Endif -> conditional_endif stream token
       | _ when inactive -> Ok ()
+      | Token_kind.Keyword Keyword.Assert ->
+          evaluate_assertion stream hash token
       | Token_kind.Keyword Keyword.Include -> (
           match next_expanded stream with
           | Lexer.Diagnostic item -> Error item
@@ -732,14 +817,25 @@ let definitions stream = Definition.Environment.all stream.definitions
 let definition_dump stream =
   Definition.Environment.dump stream.sources stream.definitions
 
-let lex_all ~sources ~definitions ~symbols ~config source =
+let collect_all ~sources ~definitions ~symbols ~config source =
   let stream = create ~sources ~definitions ~symbols ~config source in
   let rec collect tokens diagnostics =
     match next stream with
     | Lexer.Token token when token.Token.kind = Token_kind.Eof ->
-        let tokens = List.rev (token :: tokens) in
-        if diagnostics = [] then Ok tokens else Error (List.rev diagnostics)
+        {
+          tokens = List.rev (token :: tokens);
+          diagnostics = List.rev diagnostics;
+        }
     | Lexer.Token token -> collect (token :: tokens) diagnostics
     | Lexer.Diagnostic item -> collect tokens (item :: diagnostics)
   in
   collect [] []
+
+let has_errors output =
+  List.exists
+    (fun item -> item.Common.Diagnostic.severity = Common.Diagnostic.Error)
+    output.diagnostics
+
+let lex_all ~sources ~definitions ~symbols ~config source =
+  let output = collect_all ~sources ~definitions ~symbols ~config source in
+  if has_errors output then Error output.diagnostics else Ok output.tokens

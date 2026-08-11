@@ -379,7 +379,6 @@ id = "HC-PREPROCESSOR-CONSTANT-IF"
 description = "The integrated stream evaluates literal and definition-expanded #if expressions with checked HolyC precedence, explicit 64-bit target values, defined lookup, retained lookahead, and bounded deterministic recovery."
 sources = [
   "Compiler/Lex.HC:Lex KW_IF",
-  "Compiler/Lex.HC:Lex KW_ASSERT",
   "Compiler/PrsExp.HC:PrsExpression2",
   "Compiler/PrsExp.HC:PrsUnaryTerm",
   "Compiler/PrsExp.HC:LexExpression2Bin",
@@ -403,6 +402,35 @@ tests = [
 status = "implemented"
 issue = 32
 known_difference_issues = [24, 27, 33]
+
+[[feature]]
+id = "HC-PREPROCESSOR-ASSERT"
+description = "The integrated stream evaluates constant #assert expressions, reports false results as nonfatal warnings, and returns the retained lookahead token."
+sources = [
+  "Compiler/Lex.HC:Lex KW_ASSERT",
+  "Compiler/PrsExp.HC:LexExpression2Bin",
+  "Compiler/PrsExp.HC:LexExpression",
+  "Compiler/CExcept.HC:LexWarn",
+  "Doc/PreProcessor.DD"
+]
+implementation = [
+  "src/frontend/conditional_expression.ml",
+  "src/frontend/preprocessor.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_assert_directive.ml",
+  "test/cli/assert-warning.hc",
+  "test/cli/assert-warning.human.diagnostics",
+  "test/cli/assert-warning.json.diagnostics",
+  "examples/assertions.hc"
+]
+status = "implemented"
+issue = 35
+known_difference_issues = [24, 33]
+source_diagnostic_location = "retained lookahead token"
+hosted_diagnostic_location = "assert directive with a retained-lookahead note"
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"

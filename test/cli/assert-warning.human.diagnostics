@@ -1,0 +1,4 @@
+cli/assert-warning.hc:3:1: warning[HCPP0024]: #assert expression evaluated to false
+    3 | #assert 0
+      | ^^^^^^^
+cli/assert-warning.hc:4:1: note: preprocessing resumes with this token
