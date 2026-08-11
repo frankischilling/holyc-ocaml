@@ -16,9 +16,12 @@
   test_intermediate_code_source
   test_intermediate_code
   test_function_flag_source
-  test_function_flag)
+  test_function_flag
+  test_bin_record_source
+  test_bin_record)
  (libraries
   alcotest
+  bin_record_tools
   compiler_option_tools
   function_flag_tools
   holyc_lib
@@ -36,6 +39,9 @@
   ../third_party/TempleOS/Compiler/CompilerA.HH
   ../third_party/TempleOS/Compiler/BackFA.HC
   ../third_party/TempleOS/Compiler/BackLib.HC
+  ../third_party/TempleOS/Compiler/BackC.HC
+  ../third_party/TempleOS/Compiler/Asm.HC
+  ../third_party/TempleOS/Compiler/AsmResolve.HC
   ../third_party/TempleOS/Compiler/Lex.HC
   ../third_party/TempleOS/Compiler/LexLib.HC
   ../third_party/TempleOS/Compiler/OptPass3.HC
@@ -48,6 +54,9 @@
   ../third_party/TempleOS/Compiler/PrsExp.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
+  ../third_party/TempleOS/Kernel/KLoad.HC
+  ../third_party/TempleOS/Kernel/KStart16.HC
+  ../third_party/TempleOS/Kernel/KStart32.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
   (glob_files golden/*)
   (glob_files negative/*)))
