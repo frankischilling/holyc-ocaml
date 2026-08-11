@@ -84,6 +84,7 @@ type expression =
   | Prefix_expression of prefix_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
+  | Index_expression of index_expression
 
 and expression_literal = private {
   literal_spelling : string;
@@ -134,6 +135,14 @@ and call_expression = private {
   call_arguments : call_argument list;
   call_closing_parenthesis : location;
   call_location : location;
+}
+
+and index_expression = private {
+  index_base : expression;
+  index_opening_bracket : location;
+  index_value : expression;
+  index_closing_bracket : location;
+  index_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -361,6 +370,14 @@ val make_call_expression :
   closing_parenthesis:location ->
   location:location ->
   call_expression
+
+val make_index_expression :
+  base:expression ->
+  opening_bracket:location ->
+  index:expression ->
+  closing_bracket:location ->
+  location:location ->
+  index_expression
 
 val expression_location : expression -> location
 

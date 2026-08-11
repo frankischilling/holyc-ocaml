@@ -1128,3 +1128,67 @@
        --format=json
        cli/parse-call-error.hc))))
    (diff cli/parse-call-error.json parse-call-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-expression.human.actual)
+ (deps cli/parse-index-expression.hc cli/parse-index-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-index-expression.hc))
+   (diff
+    cli/parse-index-expression.human
+    parse-index-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-expression.json.actual)
+ (deps cli/parse-index-expression.hc cli/parse-index-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-index-expression.hc))
+   (diff cli/parse-index-expression.json parse-index-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-index-error.human.actual
+  parse-index-error.human.stdout.actual)
+ (deps cli/parse-index-error.hc cli/parse-index-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-error.human.stdout.actual
+    (with-stderr-to
+     parse-index-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-index-error.hc))))
+   (diff cli/parse-index-error.human parse-index-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-error.json.actual parse-index-error.json.stdout.actual)
+ (deps cli/parse-index-error.hc cli/parse-index-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-error.json.stdout.actual
+    (with-stderr-to
+     parse-index-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-index-error.hc))))
+   (diff cli/parse-index-error.json parse-index-error.json.actual))))

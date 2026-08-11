@@ -79,6 +79,7 @@ type expression =
   | Prefix_expression of prefix_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
+  | Index_expression of index_expression
 
 and expression_literal = {
   literal_spelling : string;
@@ -129,6 +130,14 @@ and call_expression = {
   call_arguments : call_argument list;
   call_closing_parenthesis : location;
   call_location : location;
+}
+
+and index_expression = {
+  index_base : expression;
+  index_opening_bracket : location;
+  index_value : expression;
+  index_closing_bracket : location;
+  index_location : location;
 }
 
 type declaration_binding_kind = Extern | Import | Intern
@@ -341,6 +350,16 @@ let make_call_expression ~callee ~opening_parenthesis ~arguments
     call_location = location;
   }
 
+let make_index_expression ~base ~opening_bracket ~index ~closing_bracket
+    ~location =
+  {
+    index_base = base;
+    index_opening_bracket = opening_bracket;
+    index_value = index;
+    index_closing_bracket = closing_bracket;
+    index_location = location;
+  }
+
 let expression_location = function
   | Integer_literal literal
   | Float_literal literal
@@ -352,6 +371,7 @@ let expression_location = function
   | Prefix_expression expression -> expression.prefix_location
   | Binary_expression expression -> expression.binary_location
   | Call_expression expression -> expression.call_location
+  | Index_expression expression -> expression.index_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }

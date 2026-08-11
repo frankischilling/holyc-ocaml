@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0026",
+    "severity": "error",
+    "message": "expected ']' to close an index expression in _intern target expression, but found identifier \"I64\"",
+    "primary": {
+      "path": "cli/parse-index-error.hc",
+      "line": 1,
+      "column": 17,
+      "source_id": 0,
+      "start": 16,
+      "stop": 19
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

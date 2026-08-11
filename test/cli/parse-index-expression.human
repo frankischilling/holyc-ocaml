@@ -1,0 +1,32 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-index-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-index-expression.hc:1:1..1:43 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-index-expression.hc:1:1..1:8
+      target_expression
+        expression kind=index span=cli/parse-index-expression.hc:1:9..1:28
+          base
+            expression kind=index span=cli/parse-index-expression.hc:1:9..1:25
+              base
+                expression kind=identifier spelling="Table" span=cli/parse-index-expression.hc:1:9..1:14
+              opening_bracket span=cli/parse-index-expression.hc:1:14..1:15
+              index
+                expression kind=call arguments=2 span=cli/parse-index-expression.hc:1:15..1:24
+                  callee
+                    expression kind=identifier spelling="Outer" span=cli/parse-index-expression.hc:1:15..1:20
+                  opening_parenthesis span=cli/parse-index-expression.hc:1:20..1:21
+                  argument index=0 kind=omitted span=cli/parse-index-expression.hc:1:21..1:21
+                    comma span=cli/parse-index-expression.hc:1:21..1:22
+                  argument index=1 kind=provided span=cli/parse-index-expression.hc:1:22..1:23
+                    expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-index-expression.hc:1:22..1:23
+                  closing_parenthesis span=cli/parse-index-expression.hc:1:23..1:24
+              closing_bracket span=cli/parse-index-expression.hc:1:24..1:25
+          opening_bracket span=cli/parse-index-expression.hc:1:25..1:26
+          index
+            expression kind=identifier spelling="j" span=cli/parse-index-expression.hc:1:26..1:27
+          closing_bracket span=cli/parse-index-expression.hc:1:27..1:28
+    return_type primitive=I64 spelling="I64" span=cli/parse-index-expression.hc:1:29..1:32
+    name spelling="Indexed" span=cli/parse-index-expression.hc:1:33..1:40
+    opening_parenthesis span=cli/parse-index-expression.hc:1:40..1:41
+    closing_parenthesis span=cli/parse-index-expression.hc:1:41..1:42
+    semicolon span=cli/parse-index-expression.hc:1:42..1:43

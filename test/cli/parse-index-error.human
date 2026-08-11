@@ -1,0 +1,3 @@
+cli/parse-index-error.hc:1:17: error[HCPARSE0026]: expected ']' to close an index expression in _intern target expression, but found identifier "I64"
+    1 | _intern Table[1 I64 Broken();
+      |                 ^^^
