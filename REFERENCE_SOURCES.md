@@ -27,4 +27,14 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The foundation audit covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword records, and the relevant language documentation. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, diagnostics, character bitmaps, keyword and assembler directive records, and the relevant language documentation. The keyword table generator also reads `Compiler/AsmInit.HC` to match the original statement grammar. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+
+## Generated keyword data
+
+Regenerate the audited language and assembler directive records with:
+
+```text
+dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml
+```
+
+`dune build @generated-check` compares the checked-in file with a fresh deterministic rendering. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.

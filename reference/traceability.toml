@@ -29,8 +29,29 @@ status = "implemented"
 id = "HC-LEX-KEYWORDS"
 description = "The language keyword spelling and numeric IDs match the pinned opcode database."
 sources = ["Compiler/CompilerA.HH:KW_INCLUDE", "Compiler/OpCodes.DD:KEYWORD"]
-implementation = ["src/frontend/keyword.ml"]
-tests = ["test/test_lexer.ml"]
+implementation = [
+  "src/generated/opcode_keywords.ml",
+  "src/frontend/keyword.ml",
+  "tools/opcode_table_source.ml",
+  "tools/opcode_table_gen.ml"
+]
+tests = ["test/test_lexer.ml", "test/test_opcode_table_source.ml"]
+status = "implemented"
+
+[[feature]]
+id = "HC-ASM-DIRECTIVE-KEYWORDS"
+description = "Assembler directive spellings and IDs match the pinned opcode database."
+sources = [
+  "Compiler/AsmInit.HC:AsmHashLoad",
+  "Compiler/OpCodes.DD:ASM_KEYWORD"
+]
+implementation = [
+  "src/generated/opcode_keywords.ml",
+  "src/asm/directive.ml",
+  "tools/opcode_table_source.ml",
+  "tools/opcode_table_gen.ml"
+]
+tests = ["test/test_lexer.ml", "test/test_opcode_table_source.ml"]
 status = "implemented"
 
 [[feature]]

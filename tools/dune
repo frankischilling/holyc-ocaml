@@ -2,3 +2,31 @@
  (name version_gen)
  (modules version_gen)
  (libraries unix))
+
+(library
+ (name opcode_table_tools)
+ (wrapped false)
+ (modules opcode_table_source)
+ (libraries digestif))
+
+(executable
+ (name opcode_table_gen)
+ (modules opcode_table_gen)
+ (libraries opcode_table_tools yojson))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Compiler/OpCodes.DD
+  ../src/generated/opcode_keywords.ml)
+ (action
+  (run
+   %{exe:opcode_table_gen.exe}
+   --source
+   %{dep:../third_party/TempleOS/Compiler/OpCodes.DD}
+   --manifest
+   %{dep:../reference/manifest.json}
+   --output
+   %{dep:../src/generated/opcode_keywords.ml}
+   --check)))

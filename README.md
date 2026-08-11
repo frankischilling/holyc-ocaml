@@ -2,7 +2,7 @@
 
 `holyc-ocaml` is the project for an OCaml implementation of the HolyC compiler. Its compiler command is `holyc`, and its OCaml library module is `holyc_lib`. Compatibility work is based on the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-The current build contains the source manager, byte spans, structured diagnostics, and a handwritten streaming lexer. The lexer handles identifiers, the complete language keyword list, integer and floating literals, strings, character constants up to eight bytes, nested comments, and the operators defined by the pinned compiler tables. Human and JSON token dumps are available.
+The current build contains the source manager, byte spans, structured diagnostics, and a handwritten streaming lexer. The lexer handles identifiers, the complete language keyword list, integer and floating literals, strings, character constants up to eight bytes, nested comments, and the operators defined by the pinned compiler tables. Keyword spellings and numeric IDs now come from checked data generated from `Compiler/OpCodes.DD`. The same data exposes the audited assembler directive records for later assembler work. Assembly parsing remains unavailable. Human and JSON token dumps are available.
 
 The integrated preprocessor, parser, semantic checker, IR, interpreter, assembler, native backends, JIT, and TempleOS `.BIN` writer are not implemented yet. There is no command that pretends to emit a module while those stages are unavailable. Progress and source evidence live in [the compatibility notes](docs/compatibility.md) and [the traceability registry](reference/traceability.toml).
 

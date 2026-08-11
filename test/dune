@@ -1,7 +1,14 @@
 (test
  (name test_main)
- (modules test_main test_source test_lexer test_diagnostic test_version)
- (libraries alcotest holyc_lib qcheck-alcotest)
+ (modules
+  test_main
+  test_source
+  test_lexer
+  test_diagnostic
+  test_version
+  test_opcode_table_source)
+ (libraries alcotest holyc_lib opcode_table_tools qcheck-alcotest)
  (deps
+  ../third_party/TempleOS/Compiler/OpCodes.DD
   (glob_files golden/*)
   (glob_files negative/*)))
