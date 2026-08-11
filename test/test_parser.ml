@@ -145,6 +145,10 @@ let expect_postfix_expression = function
   | Ast.Postfix_expression postfix -> postfix
   | _ -> Alcotest.fail "expected a postfix expression"
 
+let expect_postfix_cast_expression = function
+  | Ast.Postfix_cast_expression cast -> cast
+  | _ -> Alcotest.fail "expected a postfix cast expression"
+
 let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
@@ -3120,6 +3124,392 @@ let deterministic_postfix_update_dumps () =
     "JSON right postfix kind" "post_decrement"
     (binary_json |> member "right" |> member "operator_kind" |> to_string)
 
+let postfix_cast_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("postfix cast or function pointer dispatch", "//Typecast or fun_ptr");
+      ( "prefix cast compatibility diagnostic",
+        "Use TempleOS postfix typecasting at " );
+      ("postfix cast parser mode", "mode=PRS0_TYPECAST|PRS1_NULL;");
+      ( "postfix cast type parser",
+        "tmpc=PrsType(cc,&tmpc,&mode,NULL,NULL,&fun_ptr,NULL,&tmpad2,0);" );
+      ("postfix cast IC emission", "ICAdd(cc,IC_HOLYC_TYPECAST,was_paren,tmpc);");
+      ("postfix cast returns to modifier parsing", "return PE_UNARY_MODIFIERS;");
+    ];
+  let type_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains type_parser fragment))
+    [
+      ("type parser rejects a non-type", "Invalid class at ");
+      ("type parser counts pointer stars", "if (++ptr_stars_cnt>PTR_STARS_NUM)");
+      ("type parser rejects excessive stars", "Too many *'s at ");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "postfix cast IC identity" true
+    (contains compiler_header "#define IC_HOLYC_TYPECAST");
+  Alcotest.(check bool)
+    "postfix cast parser-mode identity" true
+    (contains compiler_header "#define PRS0_TYPECAST");
+  let initialization = pinned "Compiler/CInit.HC" in
+  Alcotest.(check bool)
+    "postfix cast IC metadata" true
+    (contains initialization "\"HOLYC_TYPECAST\"");
+  Alcotest.(check bool)
+    "language guide requires postfix casts" true
+    (contains (pinned "Doc/HolyC.DD") "Type casting is postfix.");
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Compiler/UAsm.HC", "disp=*rip(U8 *)++;");
+      ("Adam/ADbg.HC", "doc_e->data=ptr(I8 *)++;");
+      ("Kernel/BlkDev/DskCDDVD.HC", "buf[0](U32)=iso->id[0](U32);");
+      ( "Demo/Graphics/Balloon.HC",
+        "*(text.vga_alias(I64)+0x1000+(i+k)*640/8+j)(U8 *)=a[i*3+j];" );
+    ]
+
+let postfix_cast_types_and_shapes () =
+  let cast_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_postfix_cast_expression
+  in
+  List.iteri
+    (fun index primitive ->
+      let spelling = Primitive_type.to_string primitive in
+      let cast =
+        cast_from
+          (Printf.sprintf "_intern value(%s) I64 Cast%d();" spelling index)
+      in
+      Alcotest.(check bool)
+        (spelling ^ " cast primitive")
+        true
+        (Primitive_type.equal primitive cast.cast_type.primitive);
+      Alcotest.(check string)
+        (spelling ^ " cast spelling")
+        spelling cast.cast_type.spelling;
+      Alcotest.(check int)
+        (spelling ^ " has no pointer stars")
+        0
+        (List.length cast.cast_pointer_layers))
+    Primitive_type.all;
+  List.iter
+    (fun depth ->
+      let stars = String.make depth '*' in
+      let cast =
+        cast_from
+          (Printf.sprintf "_intern value(U8%s) I64 Pointer%d();" stars depth)
+      in
+      Alcotest.(check (list int))
+        (Printf.sprintf "pointer depth %d" depth)
+        (List.init depth (fun index -> index + 1))
+        (List.map
+           (fun (layer : Ast.pointer_layer) -> layer.depth)
+           cast.cast_pointer_layers))
+    [ 0; 1; 2; 3; 4 ];
+  let simple = cast_from "_intern value(I64) I64 Casted();" in
+  (match simple.cast_operand with
+  | Ast.Identifier_expression identifier ->
+      Alcotest.(check string) "cast operand" "value" identifier.spelling
+  | _ -> Alcotest.fail "expected an identifier cast operand");
+  Alcotest.(check int)
+    "opening parenthesis follows the operand" 13
+    simple.cast_opening_parenthesis.span.start;
+  Alcotest.(check int)
+    "closing parenthesis is retained" 17
+    simple.cast_closing_parenthesis.span.start;
+  let _, _, call_output = parse_string "_intern Convert(value) I64 Called();" in
+  ignore
+    ( expect_ast call_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression )
+
+let postfix_cast_chains_and_precedence () =
+  let expression_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+  in
+  let cast_after_call =
+    expression_from "_intern Factory()(U8 *) I64 FromCall();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_call_expression cast_after_call.cast_operand);
+  let cast_after_index =
+    expression_from "_intern values[0](I64) I64 FromIndex();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_index_expression cast_after_index.cast_operand);
+  let cast_after_member =
+    expression_from "_intern object->field(U32) I64 FromMember();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_member_expression cast_after_member.cast_operand);
+  let _, _, dereference_output =
+    parse_string "_intern *ptr(U8 *) I64 Dereferenced();"
+  in
+  let dereference =
+    expect_ast dereference_output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_prefix_expression
+  in
+  Alcotest.(check bool)
+    "dereference remains outside its cast operand" true
+    (dereference.prefix_operator_kind = Ast.Dereference);
+  ignore (expect_postfix_cast_expression dereference.prefix_operand);
+  let repeated =
+    expression_from "_intern value(U8 *)(I64 *) I64 Recast();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_postfix_cast_expression repeated.cast_operand);
+  let index_after_cast =
+    expression_from "_intern value(U8 *)[0] I64 Indexed();"
+    |> expect_index_expression
+  in
+  ignore (expect_postfix_cast_expression index_after_cast.index_base);
+  let member_after_cast =
+    expression_from "_intern value(U8 *).field I64 Member();"
+    |> expect_member_expression
+  in
+  ignore (expect_postfix_cast_expression member_after_cast.member_base);
+  let call_after_cast =
+    expression_from "_intern callback(U0 *)() I64 Invoked();"
+    |> expect_call_expression
+  in
+  ignore (expect_postfix_cast_expression call_after_cast.call_callee);
+  let update_after_cast =
+    expression_from "_intern ptr(U8 *)++ I64 Advanced();"
+    |> expect_postfix_expression
+  in
+  ignore (expect_postfix_cast_expression update_after_cast.postfix_operand);
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let root =
+        expression_from
+          (Printf.sprintf "_intern value(I64) %s 2 I64 Cast%d();"
+             operator.spelling index)
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_postfix_cast_expression root.binary_left))
+    Operator.binary_operators
+
+let postfix_cast_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=raw(I64));"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_postfix_cast_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[count(I64)];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_postfix_cast_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(raw(I64)) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_postfix_cast_expression );
+  let _, _, index_output =
+    parse_string "_intern table[raw(I64)] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_postfix_cast_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode "_intern value(F64) I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_postfix_cast_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let postfix_cast_provenance () =
+  let session, root, output =
+    parse_string "#define CAST (U8 *)\n_intern ptr CAST I64 Generated();"
+  in
+  let cast =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_postfix_cast_expression
+  in
+  let pointer = List.hd cast.cast_pointer_layers in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("opening parenthesis", cast.cast_opening_parenthesis);
+      ("target type", cast.cast_type.location);
+      ("pointer star", pointer.location);
+      ("closing parenthesis", cast.cast_closing_parenthesis);
+    ];
+  Alcotest.(check bool)
+    "combined cast location retains generated source segments" true
+    (List.length cast.cast_location.source_segments > 1);
+  let open Yojson.Safe.Util in
+  let cast_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated cast-type provenance" true
+    (cast_json |> member "target_type" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "cast.HC" in
+      write_file root_file "#include \"cast\"";
+      write_file declaration_file "_intern value(I64) I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_cast =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_postfix_cast_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_cast.cast_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included cast keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let postfix_cast_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) rejected_name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected postfix-cast declaration %s became visible"
+            rejected_name)
+    [
+      ( "C-style prefix cast",
+        "_intern (I64)value I64 Prefix();",
+        "Prefix",
+        "HCPARSE0029",
+        "write the cast after its operand" );
+      ( "unclosed postfix cast",
+        "_intern value(I64 I64 Unclosed();",
+        "Unclosed",
+        "HCPARSE0030",
+        "expected ')' to close postfix cast" );
+      ( "token after primitive target",
+        "_intern value(I64 extra) I64 Malformed();",
+        "Malformed",
+        "HCPARSE0030",
+        "identifier \"extra\"" );
+      ( "fifth pointer star",
+        "_intern value(U8 *****) I64 TooDeep();",
+        "TooDeep",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+      ( "cast after terminal update",
+        "_intern value++(I64) I64 TooLate();",
+        "TooLate",
+        "HCPARSE0028",
+        "must end the postfix chain" );
+    ]
+
+let deterministic_postfix_cast_dumps () =
+  let session, _, output =
+    parse_string
+      "_intern Factory().items[0](U8 *)(I64 *)++ + cursor(F64) I64 Casted();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human postfix-cast dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON postfix-cast dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names the cast target" true
+    (contains human "expression kind=postfix_cast");
+  let open Yojson.Safe.Util in
+  let binary_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  let outer_left_cast = binary_json |> member "left" |> member "operand" in
+  Alcotest.(check string)
+    "JSON left update wraps a cast" "postfix_cast"
+    (outer_left_cast |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON outer cast target" "I64"
+    (outer_left_cast |> member "target_type" |> member "primitive" |> to_string);
+  let inner_cast = outer_left_cast |> member "operand" in
+  Alcotest.(check string)
+    "JSON repeated cast target" "U8"
+    (inner_cast |> member "target_type" |> member "primitive" |> to_string);
+  Alcotest.(check int)
+    "JSON repeated cast keeps one pointer layer" 1
+    (inner_cast |> member "pointer_layers" |> to_list |> List.length);
+  Alcotest.(check string)
+    "JSON right cast target" "F64"
+    (binary_json |> member "right" |> member "target_type" |> member "primitive"
+   |> to_string)
+
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -4859,6 +5249,18 @@ let tests =
     Alcotest.test_case "postfix update failures" `Quick postfix_update_failures;
     Alcotest.test_case "deterministic postfix update dumps" `Quick
       deterministic_postfix_update_dumps;
+    Alcotest.test_case "pinned postfix cast behavior" `Quick
+      postfix_cast_source_behavior;
+    Alcotest.test_case "postfix cast types and shapes" `Quick
+      postfix_cast_types_and_shapes;
+    Alcotest.test_case "postfix cast chains and precedence" `Quick
+      postfix_cast_chains_and_precedence;
+    Alcotest.test_case "postfix cast contexts and modes" `Quick
+      postfix_cast_contexts_and_modes;
+    Alcotest.test_case "postfix cast provenance" `Quick postfix_cast_provenance;
+    Alcotest.test_case "postfix cast failures" `Quick postfix_cast_failures;
+    Alcotest.test_case "deterministic postfix cast dumps" `Quick
+      deterministic_postfix_cast_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

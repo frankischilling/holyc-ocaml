@@ -209,6 +209,20 @@ let rec print_expression buffer sources ~indent expression =
         postfix.postfix_operand;
       print_expression_operator buffer sources ~indent:child_indent
         postfix.postfix_operator
+  | Ast.Postfix_cast_expression cast ->
+      Printf.bprintf buffer "%sexpression kind=postfix_cast span=%s\n" indent
+        (location_text sources cast.cast_location);
+      Printf.bprintf buffer "%soperand\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        cast.cast_operand;
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources cast.cast_opening_parenthesis);
+      Printf.bprintf buffer "%starget\n" child_indent;
+      print_type buffer sources ~indent:(child_indent ^ "  ") cast.cast_type;
+      print_pointer_layers buffer sources ~indent:(child_indent ^ "  ")
+        cast.cast_pointer_layers;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources cast.cast_closing_parenthesis)
   | Ast.Binary_expression binary ->
       Printf.bprintf buffer
         "%sexpression kind=binary precedence=%s precedence_value=0x%02x \
@@ -690,6 +704,21 @@ let rec expression_to_yojson sources = function
             expression_operator_to_yojson sources postfix.postfix_operator );
           ("location", location_to_yojson sources postfix.postfix_location);
         ]
+  | Ast.Postfix_cast_expression cast ->
+      `Assoc
+        ([
+           ("kind", `String "postfix_cast");
+           ("operand", expression_to_yojson sources cast.cast_operand);
+           ( "opening_parenthesis",
+             location_to_yojson sources cast.cast_opening_parenthesis );
+           ("target_type", primitive_to_yojson sources cast.cast_type);
+         ]
+        @ pointer_layer_fields sources cast.cast_pointer_layers
+        @ [
+            ( "closing_parenthesis",
+              location_to_yojson sources cast.cast_closing_parenthesis );
+            ("location", location_to_yojson sources cast.cast_location);
+          ])
   | Ast.Binary_expression binary ->
       `Assoc
         [

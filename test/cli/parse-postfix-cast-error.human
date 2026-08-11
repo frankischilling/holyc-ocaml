@@ -1,0 +1,3 @@
+cli/parse-postfix-cast-error.hc:1:10: error[HCPARSE0029]: C-style cast syntax is not valid HolyC in _intern target expression; write the cast after its operand, for example value(I64)
+    1 | _intern (I64)value I64 Prefix();
+      |          ^^^

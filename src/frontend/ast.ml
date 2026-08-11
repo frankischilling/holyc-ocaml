@@ -81,6 +81,7 @@ type expression =
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
+  | Postfix_cast_expression of postfix_cast_expression
   | Binary_expression of binary_expression
   | Call_expression of call_expression
   | Index_expression of index_expression
@@ -116,6 +117,15 @@ and postfix_expression = {
   postfix_operator_kind : postfix_operator_kind;
   postfix_operator : expression_operator;
   postfix_location : location;
+}
+
+and postfix_cast_expression = {
+  cast_operand : expression;
+  cast_opening_parenthesis : location;
+  cast_type : primitive_type;
+  cast_pointer_layers : pointer_layer list;
+  cast_closing_parenthesis : location;
+  cast_location : location;
 }
 
 and binary_expression = {
@@ -352,6 +362,17 @@ let make_postfix_expression ~operand ~operator_kind ~operator ~location =
     postfix_location = location;
   }
 
+let make_postfix_cast_expression ~operand ~opening_parenthesis ~type_specifier
+    ~pointer_layers ~closing_parenthesis ~location =
+  {
+    cast_operand = operand;
+    cast_opening_parenthesis = opening_parenthesis;
+    cast_type = type_specifier;
+    cast_pointer_layers = pointer_layers;
+    cast_closing_parenthesis = closing_parenthesis;
+    cast_location = location;
+  }
+
 let make_binary_expression ~left ~operator ~operator_spec ~right ~location =
   {
     binary_left = left;
@@ -407,6 +428,7 @@ let expression_location = function
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
   | Postfix_expression expression -> expression.postfix_location
+  | Postfix_cast_expression expression -> expression.cast_location
   | Binary_expression expression -> expression.binary_location
   | Call_expression expression -> expression.call_location
   | Index_expression expression -> expression.index_location
