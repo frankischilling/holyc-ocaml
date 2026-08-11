@@ -15,6 +15,7 @@ module Config : sig
     ?max_source_bytes:int ->
     ?max_definition_depth:int ->
     ?max_generated_bytes:int ->
+    ?max_expression_nodes:int ->
     unit ->
     (t, string) result
 
@@ -25,6 +26,7 @@ module Config : sig
   val max_source_bytes : t -> int
   val max_definition_depth : t -> int
   val max_generated_bytes : t -> int
+  val max_expression_nodes : t -> int
 end
 
 type t

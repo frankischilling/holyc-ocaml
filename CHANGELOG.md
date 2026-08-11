@@ -10,3 +10,4 @@
 - Added TempleOS `#define` text capture and expansion with session-scoped lookup, redefinition history, replacement source maps, invocation and declaration provenance, deterministic dumps, and explicit recursion, nesting, and generated-byte limits.
 - Added nested `#ifjit` and `#ifaot` branch selection with explicit compilation modes, raw inactive-branch scanning, cross-frame conditional state, and stable mismatch diagnostics.
 - Added `#ifdef` and `#ifndef` with a session-owned model of TempleOS hash kinds, checked keyword and internal-type seeds, import filtering, local-variable shadowing, deterministic visibility dumps, and streaming symbol updates.
+- Added deterministic `#if` evaluation for integer, character, and floating literals, definition-expanded constants, `defined`, HolyC precedence and comparison chains, 64-bit target arithmetic, retained branch lookahead, provenance-aware diagnostics, and a configurable expression-size limit.

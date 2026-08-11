@@ -4,11 +4,11 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation
 
-`holyc preprocess` recognizes quoted includes, TempleOS text definitions, JIT/AOT mode conditionals, and symbol-presence conditionals inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional state belongs to the preprocessing stream and can span either kind of frame. Tokens keep the source ID and byte span of the frame that produced them.
+`holyc preprocess` recognizes quoted includes, TempleOS text definitions, deterministic `#if` expressions, JIT/AOT mode conditionals, and symbol-presence conditionals inside the token stream. An include pushes a file-backed frame and resumes its caller at EOF. Expanding a definition pushes a separate string-backed frame and then resumes immediately after the identifier that invoked it. Conditional state belongs to the preprocessing stream and can span either kind of frame. Tokens keep the source ID and byte span of the frame that produced them.
 
 This command is deliberately separate from `holyc lex`. The raw lexer still returns directive and replacement text as ordinary tooling tokens; it does not read files, expand definitions, or select conditional branches.
 
-`#if` expressions, `defined(...)`, `#assert`, `#exe`, predefined values, and general generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). In particular, the built-in names in `Kernel/KernelA.HH` expand to `#exe` programs in TempleOS; this implementation does not install those names until the compile-time VM can execute them.
+`#assert`, `#exe`, predefined values, and general generated source still report `HCPP0008` when reached in active input. They remain tracked by [issue #3](https://github.com/frankischilling/holyc-ocaml/issues/3). In particular, the built-in names in `Kernel/KernelA.HH` expand to `#exe` programs in TempleOS; this implementation does not install those names until the compile-time VM can execute them.
 
 ## Behavior taken from the pinned compiler
 
@@ -49,13 +49,29 @@ The standalone `holyc preprocess` command does not parse declarations. It theref
 
 Inactive symbol conditionals use the same raw scan as inactive mode conditionals. Their operand is not tokenized or looked up, so malformed discarded text has no symbol-state side effect. An active directive without an identifier reports `HCPP0020`; its matching branches remain inert during recovery.
 
+## Constant expression conditionals
+
+The `KW_IF` case in `Compiler/Lex.HC:Lex` sets `CCF_IN_IF`, reads the first term, and calls `LexExpression`. `Compiler/PrsExp.HC:LexExpression2Bin` normally sends that expression through the ordinary HolyC compiler and executes it. The expression is not C preprocessor arithmetic.
+
+The current hosted slice evaluates a deterministic subset before the full parser and compile-time VM exist. It accepts integer, character, multi-character, and floating literals; parentheses; unary `~`, `!`, `-`, and `+`; power; shifts; multiplication, division, modulo, addition, and subtraction; bitwise AND, XOR, and OR; comparisons and equality; and logical AND, XOR, and OR. It gets precedence, association, and IC identity from the checked `Operator.binary_operators` table. Power is right associated. Power and shifts share the source precedence band, so the association of the next operator determines how a mixed expression groups. Comparison chains compare each adjacent pair instead of feeding a Boolean result into the next comparison.
+
+Integer operations use explicit 64-bit values. Arithmetic wraps at the target width, shifts mask the count to six bits, unsigned division and comparison use unsigned `Int64` operations, and signed division rejects the minimum-value divided by negative one case. Integer-to-F64 promotion follows the pinned constant folder's signed I64 conversion even when the integer class is U64. Power returns `F64`. The pinned constant folder compares F64 equality by raw bits but uses floating comparisons for ordering. When the common-type rules promote a shift or bitwise operation to `F64`, the operation also applies to the raw floating bits. Unary `!` retains an F64 result for an F64 operand, so its true value has raw bits equal to one rather than the encoding of `1.0`. Final branch truth uses the returned 64 bits, which means positive floating zero is false and negative floating zero is true at this boundary.
+
+Logical operands are both evaluated. This matches the ordinary expression and optimizer path in the pinned source rather than adding C-style preprocessor short circuiting. For example, `#if 0&&1/0` reports division by zero.
+
+Definitions expand through their ordinary lexical frames before evaluation. `defined` accepts the source form with or without nested parentheses and queries the session symbol environment only when its operand remains an identifier token. A keyword or literal operand is false. Because the pinned `defined` path does not set `CCF_NO_DEFINES`, a text definition may replace its operand before lookup. This differs from `#ifdef`, which suppresses operand expansion. A visible local counts as defined, while an import excluded by the default hash mask does not.
+
+The evaluator retains the first token that does not belong to the expression. A selected branch therefore receives its first body token, and an adjacent `#else` or `#endif` remains visible to the conditional stack. Errors inside includes keep the include chain. Errors in definition-expanded terms name both the expansion and declaration sites. An invalid condition leaves both branches inert during recovery.
+
+Function calls, mutable globals, memory access, casts, `sizeof`, `offset`, `lastclass`, assignments, `$$`, and other runtime terms report `HCPP0022`. TempleOS can execute those forms because it compiles the ordinary expression. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) tracks the verified IR and compile-time VM path; until then, this project does not guess their values or claim full `LexExpression` compatibility.
+
 ## JIT and AOT conditionals
 
 `Kernel/KernelA.HH` assigns `CCF_AOT_COMPILE`, and `Compiler/CMain.HC:CmpBuf` sets it for AOT compilation. A controller without that flag follows the JIT path. `Preprocessor.Config.create` therefore defaults to `Jit` without consulting the host platform. Pass `~compilation_mode:Aot` through the library or `--mode=aot` to `holyc preprocess` to select the other branch.
 
 The `KW_IFAOT` and `KW_IFJIT` cases in `Compiler/Lex.HC:Lex` include the matching branch and scan past the other one. `#else` switches the selected side, and `#endif` closes the innermost conditional. While a branch is inactive, the pinned compiler reads raw bytes until `#` and lexes only the following directive name. The OCaml lexer exposes the same bounded raw scan. It does not expand ordinary discarded identifiers, load an inactive include, install an inactive definition, or report malformed quoted text that lies wholly inside the discarded branch.
 
-The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` with the two mode openers. This prevents a nested conditional inside discarded input from closing its parent early. Active `#ifdef` and `#ifndef` evaluate through the session visibility environment. Active expression `#if` remains unsupported; `HCPP0008` keeps both of its branches inert so later directives do not run after the error.
+The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` with the two mode openers. This prevents a nested conditional inside discarded input from closing its parent early. Active `#ifdef` and `#ifndef` evaluate through the session visibility environment, while active `#if` uses the constant evaluator described above. Inactive `#if` text is not evaluated.
 
 Conditional boundaries can cross an included file or a definition-backed frame because the state belongs to the stream rather than an individual lexer. A definition may also provide the spelling after `#`; definition recursion and generated-byte guards still apply when that happens.
 
@@ -73,10 +89,11 @@ TempleOS itself does not diagnose include or definition cycles, set these nestin
 - each included file is limited to 64 MiB by default;
 - at most 64 definition frames may be active by default;
 - at most 64 conditional directives may be nested by default;
+- one `#if` expression may contain at most 512 parsed terms, groups, and operators by default;
 - one preprocessing run may inject at most 16 MiB of definition text by default;
 - directories and other non-regular targets are rejected.
 
-Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`, `--conditional-depth-limit`, and `--generated-definition-byte-limit` to change these limits. Adding an include root grants read access within that directory, so it should be done only for source trees that the compilation is meant to inspect.
+Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`, `--conditional-depth-limit`, `--conditional-expression-node-limit`, and `--generated-definition-byte-limit` to change these limits. Adding an include root grants read access within that directory, so it should be done only for source trees that the compilation is meant to inspect.
 
 ## Diagnostics
 
@@ -102,6 +119,12 @@ Use `--include-depth-limit`, `--include-byte-limit`, `--definition-depth-limit`,
 | `HCPP0018` | A conditional reaches the end of the stream without `#endif` |
 | `HCPP0019` | The conditional nesting limit would be exceeded |
 | `HCPP0020` | `#ifdef` or `#ifndef` is missing a symbol name |
+| `HCPP0021` | `#if` has no constant expression term |
+| `HCPP0022` | A term or operator requires the later semantic or compile-time execution path |
+| `HCPP0023` | A parenthesized conditional term has no closing `)` |
+| `HCPP0025` | Integer division or modulo uses a zero divisor |
+| `HCPP0026` | The conditional expression node limit would be exceeded |
+| `HCPP0027` | Signed division would overflow the 64-bit result |
 
 A human diagnostic prints each `#include` site from the root toward the failing frame. A failure in replacement text also names the invocation and declaration sites. JSON keeps include entries in `include_stack` and definition provenance in `secondary`.
 
@@ -118,6 +141,7 @@ let config =
     ~max_include_depth:32
     ~max_definition_depth:32
     ~max_conditional_depth:32
+    ~max_expression_nodes:256
     ~max_generated_bytes:(4 * 1024 * 1024)
     ()
   |> Result.get_ok

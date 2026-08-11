@@ -13,13 +13,14 @@ module Config = struct
     max_source_bytes : int;
     max_definition_depth : int;
     max_generated_bytes : int;
+    max_expression_nodes : int;
   }
 
   let create ?working_directory ?include_roots ?templeos_root
       ?(compilation_mode = Jit) ?(max_conditional_depth = 64)
       ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024)
-      ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024) ()
-      =
+      ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024)
+      ?(max_expression_nodes = 512) () =
     if max_conditional_depth < 0 then
       Error "conditional depth limit must be nonnegative"
     else if max_include_depth < 0 then
@@ -30,6 +31,8 @@ module Config = struct
       Error "definition depth limit must be nonnegative"
     else if max_generated_bytes < 0 then
       Error "generated definition byte limit must be nonnegative"
+    else if max_expression_nodes < 0 then
+      Error "conditional expression node limit must be nonnegative"
     else
       match
         Include_resolver.create ?working_directory ?include_roots ?templeos_root
@@ -46,6 +49,7 @@ module Config = struct
               max_source_bytes;
               max_definition_depth;
               max_generated_bytes;
+              max_expression_nodes;
             }
 
   let resolver config = config.resolver
@@ -55,6 +59,7 @@ module Config = struct
   let max_source_bytes config = config.max_source_bytes
   let max_definition_depth config = config.max_definition_depth
   let max_generated_bytes config = config.max_generated_bytes
+  let max_expression_nodes config = config.max_expression_nodes
 end
 
 type conditional_branch = Then_branch | Else_branch
@@ -76,6 +81,7 @@ type t = {
   symbols : Symbol_visibility.Environment.t;
   config : Config.t;
   mutable current : Lexer_frame.t;
+  mutable lookahead : Token.t option;
   mutable generated_bytes : int;
   mutable conditionals : conditional list;
   mutable conditional_poisoned : bool;
@@ -89,6 +95,7 @@ let create ~sources ~definitions ~symbols ~config source =
     symbols;
     config;
     current = Lexer_frame.root ~mode:Token.Holyc source;
+    lookahead = None;
     generated_bytes = 0;
     conditionals = [];
     conditional_poisoned = false;
@@ -503,7 +510,7 @@ let expand stream token =
       | Some definition ->
           Result.map (fun () -> true) (push_definition stream token definition))
 
-let rec next_expanded stream =
+let rec next_expanded_source stream =
   match Lexer.next (Lexer_frame.lexer stream.current) with
   | Lexer.Diagnostic item ->
       Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
@@ -514,13 +521,25 @@ let rec next_expanded stream =
           | None -> Lexer.Token token
           | Some caller ->
               stream.current <- caller;
-              next_expanded stream)
+              next_expanded_source stream)
       | Token_kind.Identifier | Token_kind.Keyword _ -> (
           match expand stream token with
           | Ok false -> Lexer.Token token
-          | Ok true -> next_expanded stream
+          | Ok true -> next_expanded_source stream
           | Error item -> Lexer.Diagnostic item)
       | _ -> Lexer.Token token)
+
+let next_expanded stream =
+  match stream.lookahead with
+  | Some token ->
+      stream.lookahead <- None;
+      Lexer.Token token
+  | None -> next_expanded_source stream
+
+let retain_lookahead stream token =
+  match stream.lookahead with
+  | None -> stream.lookahead <- Some token
+  | Some _ -> invalid_arg "preprocessor already has a retained token"
 
 let include_path stream token =
   match token.Token.kind with
@@ -550,12 +569,30 @@ let symbol_present stream name =
   | Symbol_visibility.Absent ->
       Definition.Environment.find stream.definitions name |> Option.is_some
 
+let expression_symbol_defined stream token =
+  match definition_name token with
+  | None -> false
+  | Some name -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor stream.symbols name
+      with
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          true
+      | Symbol_visibility.Absent -> false)
+
+let expression_problem stream (problem : Conditional_expression.problem) =
+  diagnostic stream ~secondary:problem.secondary ~notes:problem.notes
+    ?help:problem.help ~code:problem.code ~message:problem.message
+    problem.primary
+
+let reject_conditional stream hash token keyword item =
+  Result.bind
+    (push_conditional ~parent_active:false ~valid:false stream hash token
+       keyword false) (fun () -> Error item)
+
 let enter_symbol_conditional stream hash token keyword =
   match next_unexpanded stream with
-  | Lexer.Diagnostic item ->
-      Result.bind
-        (push_conditional ~parent_active:false ~valid:false stream hash token
-           keyword false) (fun () -> Error item)
+  | Lexer.Diagnostic item -> reject_conditional stream hash token keyword item
   | Lexer.Token name_token -> (
       match definition_name name_token with
       | Some name ->
@@ -568,10 +605,33 @@ let enter_symbol_conditional stream hash token keyword =
           in
           push_conditional stream hash token keyword condition
       | None ->
-          Result.bind
-            (push_conditional ~parent_active:false ~valid:false stream hash
-               token keyword false) (fun () ->
-              Error (invalid_symbol_condition_name stream name_token keyword)))
+          reject_conditional stream hash token keyword
+            (invalid_symbol_condition_name stream name_token keyword))
+
+let enter_expression_conditional stream hash token keyword =
+  match
+    Conditional_expression.parse
+      ~opener:(directive_span hash token)
+      ~max_nodes:(Config.max_expression_nodes stream.config)
+      ~next:(fun () -> next_expanded stream)
+      ~symbol_defined:(expression_symbol_defined stream)
+      ()
+  with
+  | Error (Conditional_expression.Lexer_diagnostic item) ->
+      reject_conditional stream hash token keyword item
+  | Error (Conditional_expression.Problem { problem; lookahead }) ->
+      Option.iter (retain_lookahead stream) lookahead;
+      reject_conditional stream hash token keyword
+        (expression_problem stream problem)
+  | Ok parsed -> (
+      retain_lookahead stream (Conditional_expression.lookahead parsed);
+      match Conditional_expression.evaluate parsed with
+      | Ok value ->
+          push_conditional stream hash token keyword
+            (Conditional_expression.truthy value)
+      | Error problem ->
+          reject_conditional stream hash token keyword
+            (expression_problem stream problem))
 
 let enter_conditional stream ~inactive hash token keyword =
   match keyword with
@@ -581,12 +641,8 @@ let enter_conditional stream ~inactive hash token keyword =
       if inactive then push_conditional stream hash token keyword false
       else enter_symbol_conditional stream hash token keyword
   | Keyword.If ->
-      if current_active stream then
-        Result.bind
-          (push_conditional ~parent_active:false ~valid:false stream hash token
-             keyword false) (fun () ->
-            Error (unsupported_directive stream token keyword))
-      else push_conditional stream hash token keyword false
+      if inactive then push_conditional stream hash token keyword false
+      else enter_expression_conditional stream hash token keyword
   | _ -> invalid_arg "expected a conditional opener"
 
 let directive stream ~inactive hash =
@@ -640,23 +696,36 @@ and next_active stream =
   | item -> item
 
 and next_inactive stream =
-  match Lexer.scan_to_directive_marker (Lexer_frame.lexer stream.current) with
-  | Error item -> Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
-  | Ok (Some _) when stream.conditional_poisoned -> next stream
-  | Ok (Some hash) -> (
-      match directive stream ~inactive:true hash with
-      | Ok () -> next stream
-      | Error item -> Lexer.Diagnostic item)
-  | Ok None -> (
-      match Lexer_frame.caller stream.current with
-      | Some caller ->
-          stream.current <- caller;
-          next stream
-      | None -> (
-          match Lexer.next (Lexer_frame.lexer stream.current) with
-          | Lexer.Token token -> finish_eof stream token
-          | Lexer.Diagnostic item ->
-              Lexer.Diagnostic (decorate_lexer_diagnostic stream item)))
+  match stream.lookahead with
+  | Some token ->
+      stream.lookahead <- None;
+      if token.Token.kind = Token_kind.Punctuation '#' then
+        if stream.conditional_poisoned then next stream
+        else
+          match directive stream ~inactive:true token with
+          | Ok () -> next stream
+          | Error item -> Lexer.Diagnostic item
+      else next_inactive stream
+  | None -> (
+      match
+        Lexer.scan_to_directive_marker (Lexer_frame.lexer stream.current)
+      with
+      | Error item -> Lexer.Diagnostic (decorate_lexer_diagnostic stream item)
+      | Ok (Some _) when stream.conditional_poisoned -> next stream
+      | Ok (Some hash) -> (
+          match directive stream ~inactive:true hash with
+          | Ok () -> next stream
+          | Error item -> Lexer.Diagnostic item)
+      | Ok None -> (
+          match Lexer_frame.caller stream.current with
+          | Some caller ->
+              stream.current <- caller;
+              next stream
+          | None -> (
+              match Lexer.next (Lexer_frame.lexer stream.current) with
+              | Lexer.Token token -> finish_eof stream token
+              | Lexer.Diagnostic item ->
+                  Lexer.Diagnostic (decorate_lexer_diagnostic stream item))))
 
 let definitions stream = Definition.Environment.all stream.definitions
 

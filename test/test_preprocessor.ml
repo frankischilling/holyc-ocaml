@@ -23,17 +23,20 @@ let write_file path contents =
 
 let create_config ?include_roots ?templeos_root ?max_include_depth
     ?compilation_mode ?max_conditional_depth ?max_source_bytes
-    ?max_definition_depth ?max_generated_bytes working_directory =
+    ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
+    working_directory =
   Preprocessor.Config.create ~working_directory ?include_roots ?templeos_root
     ?compilation_mode ?max_conditional_depth ?max_include_depth
-    ?max_source_bytes ?max_definition_depth ?max_generated_bytes ()
+    ?max_source_bytes ?max_definition_depth ?max_generated_bytes
+    ?max_expression_nodes ()
   |> function
   | Ok config -> config
   | Error message -> Alcotest.fail message
 
 let preprocess ?include_roots ?templeos_root ?max_include_depth
     ?compilation_mode ?max_conditional_depth ?max_source_bytes
-    ?max_definition_depth ?max_generated_bytes working_directory root =
+    ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
+    working_directory root =
   let session = Session.create () in
   let source =
     Session.load_source session ~path:root |> function
@@ -43,7 +46,8 @@ let preprocess ?include_roots ?templeos_root ?max_include_depth
   let config =
     create_config ?include_roots ?templeos_root ?max_include_depth
       ?compilation_mode ?max_conditional_depth ?max_source_bytes
-      ?max_definition_depth ?max_generated_bytes working_directory
+      ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
+      working_directory
   in
   (session, source, Holyc_lib.preprocess session ~config ~source)
 
@@ -911,13 +915,13 @@ let inactive_unsupported_conditionals_are_counted () =
         "unsupported nested opener" [ "selected" ]
         (token_words (Result.get_ok result)))
 
-let active_unsupported_conditionals_are_inert () =
+let active_runtime_conditionals_are_inert () =
   with_temp_directory (fun root ->
       let root_file = Filename.concat root "root.HC" in
       write_file root_file
         "#if condition #define HIDDEN value #else #define OTHER value #endif";
       let session, _, result = preprocess root root_file in
-      ignore (error_with_code "HCPP0008" result);
+      ignore (error_with_code "HCPP0022" result);
       List.iter
         (fun name ->
           Alcotest.(check bool)
@@ -1040,7 +1044,38 @@ let conditional_diagnostic_provenance () =
       let included_item = error_with_code "HCPP0018" included in
       Alcotest.(check int)
         "include trace" 1
-        (List.length included_item.Diagnostic.include_stack))
+        (List.length included_item.Diagnostic.include_stack);
+      write_file root_file
+        "#define CONDITION RuntimeValue\n#if CONDITION value #endif";
+      let session, _, expanded = preprocess root root_file in
+      let expanded_item = error_with_code "HCPP0022" expanded in
+      Alcotest.(check (list string))
+        "expression definition trace"
+        [
+          "definition \"CONDITION\" was expanded here";
+          "definition \"CONDITION\" was declared here";
+        ]
+        (List.map
+           (fun (related : Diagnostic.related) -> related.message)
+           expanded_item.Diagnostic.secondary);
+      let rendered =
+        Diagnostic_render.human (Session.sources session) expanded_item
+      in
+      Alcotest.(check bool)
+        "expression definition origin" true
+        (contains_text rendered "definition \"CONDITION\" was declared here");
+      write_file
+        (Filename.concat root "condition.HC")
+        "#if RuntimeValue value #endif";
+      write_file root_file "#include \"condition\"";
+      let _, _, included_expression = preprocess root root_file in
+      let expression_item = error_with_code "HCPP0022" included_expression in
+      Alcotest.(check (list string))
+        "expression include trace"
+        [ "#include \"condition\"" ]
+        (List.map
+           (fun (related : Diagnostic.related) -> related.message)
+           expression_item.Diagnostic.include_stack))
 
 let inactive_nul_is_rejected () =
   with_temp_directory (fun root ->
@@ -1314,8 +1349,8 @@ let tests =
       inactive_branch_uses_raw_scanning;
     Alcotest.test_case "inactive unsupported nesting" `Quick
       inactive_unsupported_conditionals_are_counted;
-    Alcotest.test_case "active unsupported conditionals" `Quick
-      active_unsupported_conditionals_are_inert;
+    Alcotest.test_case "active runtime conditionals" `Quick
+      active_runtime_conditionals_are_inert;
     Alcotest.test_case "definition supplies mode directive" `Quick
       definition_supplies_mode_directive;
     Alcotest.test_case "conditional crosses include frame" `Quick

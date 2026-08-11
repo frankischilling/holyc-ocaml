@@ -27,7 +27,7 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
-The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
+The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, constant `#if` evaluation, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, keyword and assembler directive records, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links.
 
 ## Include-frame audit
 
@@ -52,6 +52,12 @@ No conditional table is copied. `Frontend.Lexer` provides the raw inactive scan 
 The `#ifdef` and `#ifndef` implementation follows identifier lookup and both directive cases in `Compiler/Lex.HC`; controller hash-chain setup in `Compiler/CMain.HC`; compiler-hash initialization in `Compiler/AsmInit.HC`; the 17 internal type records in `Compiler/CInit.HC`; the `HTT_*` values and masks in `Kernel/KernelA.HH`; hash insertion and lookup in `Kernel/KHashA.HC`; and the wording in `Doc/PreProcessor.DD`. These files already have pinned checksums in the manifest.
 
 `Frontend.Symbol_visibility` retains the 17 source hash kinds, stable entry identities, the default import exclusion, and the separate local-variable shadow result. `Driver.Session` seeds the generated language keywords, assembly keywords, and internal type spellings. Full opcode and register seeding depends on the complete `OpCodes.DD` model and remains tracked by [issue #30](https://github.com/frankischilling/holyc-ocaml/issues/30). The live `.HC`, `.HH`, and `.PRJ` corpus has no active use of either directive, so compatibility evidence comes from the pinned implementation and focused fixtures rather than a corpus percentage.
+
+## Conditional-expression audit
+
+The constant `#if` implementation follows `KW_IF` and `KW_ASSERT` in `Compiler/Lex.HC`; `PrsExpression2`, `PrsUnaryTerm`, `LexExpression2Bin`, and `LexExpression` in `Compiler/PrsExp.HC`; the precedence constants in `Compiler/CompilerA.HH`; the binary operator and internal type tables in `Compiler/CInit.HC`; the constant-folding cases in `Compiler/OptPass012.HC`; and the wording in `Doc/PreProcessor.DD`. Every source file has a pinned checksum in the manifest.
+
+No expression table is copied for this feature. `Frontend.Conditional_expression` consumes the already checked operator records generated for issue #11. It implements deterministic literal and definition-expanded terms while `Frontend.Preprocessor` retains the expression lookahead and diagnostic provenance. TempleOS can compile and execute nonconstant terms in the same position. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) tracks that difference and prevents this slice from being described as full `LexExpression` compatibility.
 
 ## Generated keyword data
 
