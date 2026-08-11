@@ -5,6 +5,7 @@
   test_source
   test_lexer
   test_preprocessor
+  test_conditional_expression
   test_symbol_visibility
   test_diagnostic
   test_version
