@@ -218,7 +218,8 @@ let location_after_location (location : Ast.location) =
     | [] -> [ empty_at_stop location.span ]
   in
   Ast.make_location ?generated_from:location.generated_from
-    ?defined_at:location.defined_at ~span:(empty_at_stop location.span)
+    ?defined_at:location.defined_at
+    ~span:(empty_at_stop location.span)
     ~source_segments ()
 
 let location_from_tokens = function
@@ -506,8 +507,7 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
   in
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
-       ~kind:Symbol_visibility.Function
-       ~function_call_shape
+       ~kind:Symbol_visibility.Function ~function_call_shape
        ~origin:(Symbol_visibility.Source_span name.location.span) ())
 
 let publish_local cursor (name : Ast.identifier) =
@@ -802,8 +802,7 @@ let expression_operand_name = function
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
-    ~depth ~minimum_binding_power :
-    parsed_expression option =
+    ~depth ~minimum_binding_power : parsed_expression option =
   let item = peek cursor in
   if depth >= max_expression_depth then
     expression_failure cursor item ~code:"HCPARSE0021"
@@ -821,8 +820,8 @@ let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
         parse_expression_tail cursor ~context ~depth ~minimum_binding_power
           ~allow_parenthesis_free_call left
 
-and parse_expression_prefix cursor ~context ~depth
-    ~allow_parenthesis_free_call : parsed_expression option =
+and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
+    : parsed_expression option =
   let item = peek cursor in
   match unary_operator_kind item.token with
   | Some operator_kind -> (
@@ -833,8 +832,7 @@ and parse_expression_prefix cursor ~context ~depth
       in
       match
         parse_expression ~allow_parenthesis_free_call cursor ~context
-          ~depth:(depth + 1)
-          ~minimum_binding_power:max_int
+          ~depth:(depth + 1) ~minimum_binding_power:max_int
       with
       | None -> None
       | Some (operand : parsed_expression) ->
@@ -1320,7 +1318,8 @@ and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
     in
     Printf.sprintf
       "parenthesis-free call to %S requires argument %d%s, but found %s"
-      callee_name index name (token_description item.token)
+      callee_name index name
+      (token_description item.token)
   in
   let rec collect index arguments_rev tokens_rev insertion_location = function
     | [] ->
@@ -1333,15 +1332,16 @@ and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
                ~location:(location_from_expression_tokens tokens))
         in
         Some ({ node; tokens } : parsed_expression)
-    | parameter :: parameters ->
+    | parameter :: parameters -> (
         if parameter.Symbol_visibility.has_default then
           let argument =
             Ast.make_call_argument ~value:Ast.Omitted_call_argument
               ~following_comma:None
               ~location:(location_after_location insertion_location)
           in
-          collect (index + 1) (argument :: arguments_rev) tokens_rev
-            insertion_location parameters
+          collect (index + 1)
+            (argument :: arguments_rev)
+            tokens_rev insertion_location parameters
         else
           let item = peek cursor in
           if token_cannot_start_argument item.token then
@@ -1360,12 +1360,14 @@ and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
                     ~following_comma:None
                     ~location:(Ast.expression_location expression.node)
                 in
-                collect (index + 1) (argument :: arguments_rev)
+                collect (index + 1)
+                  (argument :: arguments_rev)
                   (List.rev_append expression.tokens tokens_rev)
                   (Ast.expression_location expression.node)
-                  parameters
+                  parameters)
   in
-  collect 1 [] (List.rev callee.tokens) (Ast.expression_location callee.node)
+  collect 1 [] (List.rev callee.tokens)
+    (Ast.expression_location callee.node)
     shape.parameters
 
 and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
@@ -1602,8 +1604,8 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
             identifier.spelling
         with
         | Symbol_visibility.Present entry
-          when Symbol_visibility.kind entry = Symbol_visibility.Function ->
-            (match Symbol_visibility.function_call_shape entry with
+          when Symbol_visibility.kind entry = Symbol_visibility.Function -> (
+            match Symbol_visibility.function_call_shape entry with
             | Some shape -> Direct_function_with_shape shape
             | None -> Direct_function_without_shape entry)
         | Symbol_visibility.Absent
@@ -1631,8 +1633,8 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     | Not_a_direct_function
     | Direct_function_without_shape _
     | Direct_function_with_shape _ ->
-        parse_expression_modifiers cursor ~context ~depth
-          ~minimum_binding_power ~allow_parenthesis_free_call left
+        parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
+          ~allow_parenthesis_free_call left
   else
     parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
       ~allow_parenthesis_free_call left
@@ -1682,7 +1684,9 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
         let opening = take cursor in
         let first = peek cursor in
         let suffix =
-          match (direct_function_shape, primitive_type_of_token first.token) with
+          match
+            (direct_function_shape, primitive_type_of_token first.token)
+          with
           | Some _, _ -> parse_call_suffix cursor ~context ~depth left opening
           | None, Some primitive ->
               parse_postfix_cast_suffix cursor ~context left opening primitive

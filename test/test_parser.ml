@@ -199,8 +199,7 @@ let expect_call_expression = function
 let expect_parenthesis_free_call (call : Ast.call_expression) =
   match call.call_syntax with
   | Ast.Parenthesis_free_call -> ()
-  | Ast.Parenthesized_call _ ->
-      Alcotest.fail "expected a parenthesis-free call"
+  | Ast.Parenthesized_call _ -> Alcotest.fail "expected a parenthesis-free call"
 
 let expect_parenthesized_call (call : Ast.call_expression) =
   match call.call_syntax with
@@ -2089,7 +2088,8 @@ let parenthesis_free_call_source_behavior () =
     ];
   Alcotest.(check bool)
     "throw has two defaulted fixed parameters" true
-    (contains (pinned "Kernel/KExcept.HC")
+    (contains
+       (pinned "Kernel/KExcept.HC")
        "U0 throw(I64 ch=0,Bool no_log=FALSE)");
   List.iter
     (fun (path, fragment) ->
@@ -2130,16 +2130,17 @@ let parenthesis_free_call_oracle_fixture () =
     (fixture |> member "input_delivery" |> member "preflight_output"
    |> to_string);
   let checks = fixture |> member "checks" |> to_list in
-  Alcotest.(check int) "seven native checks are recorded" 7
-    (List.length checks);
+  Alcotest.(check int) "seven native checks are recorded" 7 (List.length checks);
   List.iter
     (fun check ->
       let id = check |> member "id" |> to_string in
       Alcotest.(check string)
-        (id ^ " matched") "matched" (check |> member "result" |> to_string))
+        (id ^ " matched") "matched"
+        (check |> member "result" |> to_string))
     checks;
   Alcotest.(check (list int))
-    "native values remain exact" [ 10; 46; 173; 23; 0; 12; 1 ]
+    "native values remain exact"
+    [ 10; 46; 173; 23; 0; 12; 1 ]
     (fixture |> member "observed_values" |> to_list |> List.map to_int)
 
 let call_argument_slots () =
@@ -2217,12 +2218,12 @@ let parenthesis_free_call_shapes () =
   let statements =
     (expect_ast output).Ast.items
     |> List.filter_map (function
-         | Ast.Top_level_statement statement -> Some statement
-         | Ast.Function_prototype _ -> None
-         | Ast.Global_variable _
-         | Ast.Global_declaration _
-         | Ast.Function_definition _ ->
-             Alcotest.fail "the call fixture contains an unexpected item")
+      | Ast.Top_level_statement statement -> Some statement
+      | Ast.Function_prototype _ -> None
+      | Ast.Global_variable _
+      | Ast.Global_declaration _
+      | Ast.Function_definition _ ->
+          Alcotest.fail "the call fixture contains an unexpected item")
   in
   let expressions =
     List.map
@@ -2230,12 +2231,12 @@ let parenthesis_free_call_shapes () =
         (expect_expression_statement statement).expression_statement_expression)
       statements
   in
-  Alcotest.(check int)
-    "eight call expressions" 8 (List.length expressions);
+  Alcotest.(check int) "eight call expressions" 8 (List.length expressions);
   let zero = List.nth expressions 0 |> expect_call_expression in
   expect_parenthesis_free_call zero;
   Alcotest.(check int)
-    "zero-parameter call has no slots" 0 (List.length zero.call_arguments);
+    "zero-parameter call has no slots" 0
+    (List.length zero.call_arguments);
   let defaults = List.nth expressions 1 |> expect_call_expression in
   expect_parenthesis_free_call defaults;
   Alcotest.(check int)
@@ -2261,14 +2262,17 @@ let parenthesis_free_call_shapes () =
        required.call_arguments);
   let variadic = List.nth expressions 4 |> expect_call_expression in
   Alcotest.(check int)
-    "variadic extras stay absent" 0 (List.length variadic.call_arguments);
+    "variadic extras stay absent" 0
+    (List.length variadic.call_arguments);
   let binary = List.nth expressions 5 |> expect_binary_expression in
   expect_parenthesis_free_call (expect_call_expression binary.binary_left);
   Alcotest.(check int64)
-    "binary right operand" 2L (expect_integer_expression binary.binary_right);
+    "binary right operand" 2L
+    (expect_integer_expression binary.binary_right);
   let address = List.nth expressions 6 |> expect_prefix_expression in
   Alcotest.(check bool)
-    "address-of operator" true (address.prefix_operator_kind = Ast.Address_of);
+    "address-of operator" true
+    (address.prefix_operator_kind = Ast.Address_of);
   Alcotest.(check string)
     "address-of keeps the function identifier" "Zero"
     (expect_identifier_expression address.prefix_operand).spelling;
@@ -2277,8 +2281,8 @@ let parenthesis_free_call_shapes () =
   expect_parenthesized_call explicit_call;
   let shape =
     match
-      Symbol_visibility.Environment.find_preprocessor
-        (Session.symbols session) "Mixed"
+      Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+        "Mixed"
     with
     | Symbol_visibility.Present entry ->
         Symbol_visibility.function_call_shape entry |> Option.get
@@ -2299,10 +2303,11 @@ let parenthesis_free_recursive_calls_and_shadowing () =
           "I64 Recursive(I64 value=1){return Recursive;}"
       in
       let return_statement =
-        expect_ast recursive_output |> expect_one_definition
-        |> expect_function_body |> expect_block_statement
-        |> fun block -> List.hd block.block_statements
-        |> expect_return_statement
+        expect_ast recursive_output
+        |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_return_statement
       in
       let recursive_call =
         return_statement.return_value |> Option.get |> expect_call_expression
@@ -2326,8 +2331,9 @@ let parenthesis_free_recursive_calls_and_shadowing () =
   ] ->
       let local_identifier =
         expect_function_body definition |> expect_block_statement
-        |> fun block -> List.hd block.block_statements
-        |> expect_return_statement |> fun statement ->
+        |> fun block ->
+        List.hd block.block_statements |> expect_return_statement
+        |> fun statement ->
         statement.return_value |> Option.get |> expect_identifier_expression
       in
       Alcotest.(check string)
@@ -2362,10 +2368,12 @@ let parenthesis_free_call_provenance () =
   List.iter
     (fun ((description, location) : string * Ast.location) ->
       Alcotest.(check bool)
-        (description ^ " keeps invocation provenance") true
+        (description ^ " keeps invocation provenance")
+        true
         (Option.is_some location.generated_from);
       Alcotest.(check bool)
-        (description ^ " keeps definition provenance") true
+        (description ^ " keeps definition provenance")
+        true
         (Option.is_some location.defined_at))
     [
       ("generated callee", Ast.expression_location generated_call.call_callee);
@@ -2389,8 +2397,7 @@ let parenthesis_free_call_provenance () =
         match (expect_ast include_output).Ast.items with
         | [ Ast.Function_prototype _; Ast.Top_level_statement statement ] ->
             (expect_expression_statement statement)
-              .expression_statement_expression
-            |> expect_call_expression
+              .expression_statement_expression |> expect_call_expression
         | items ->
             Alcotest.failf "expected an included prototype and call, got %d"
               (List.length items)
@@ -2419,8 +2426,8 @@ let parenthesis_free_call_provenance () =
     (contains human "syntax=parenthesis-free");
   let open Yojson.Safe.Util in
   let call_json =
-    Yojson.Safe.from_string json |> member "module" |> member "items"
-    |> to_list |> fun items ->
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items ->
     List.nth items 1 |> member "statement" |> member "expression"
   in
   Alcotest.(check bool)
@@ -2433,22 +2440,23 @@ let parenthesis_free_call_provenance () =
 let parenthesis_free_call_failures () =
   let _, _, missing = parse_string "I64 Need(I64 value); Need;" in
   Alcotest.(check bool)
-    "missing required input has no AST" true (Option.is_none missing.ast);
+    "missing required input has no AST" true
+    (Option.is_none missing.ast);
   Alcotest.(check string)
-    "missing required input code" "HCPARSE0105"
-    (first_diagnostic missing).code;
+    "missing required input code" "HCPARSE0105" (first_diagnostic missing).code;
   Alcotest.(check bool)
     "missing required input names the slot" true
     (contains (first_diagnostic missing).message "argument 1 (value)");
   let session = Session.create () in
   ignore
-    (Symbol_visibility.Environment.add (Session.symbols session)
-       ~name:"Legacy" ~kind:Symbol_visibility.Function ());
+    (Symbol_visibility.Environment.add (Session.symbols session) ~name:"Legacy"
+       ~kind:Symbol_visibility.Function ());
   let explicit_source =
     Session.add_source session ~path:"legacy-explicit.HC" ~contents:"Legacy();"
   in
   let explicit_output =
-    Holyc_lib.parse_detailed session ~config:(config (Sys.getcwd ()))
+    Holyc_lib.parse_detailed session
+      ~config:(config (Sys.getcwd ()))
       ~source:explicit_source
   in
   let explicit_call =
@@ -2462,12 +2470,15 @@ let parenthesis_free_call_failures () =
           (List.length items)
   in
   ignore (expect_parenthesized_call explicit_call);
-  let source = Session.add_source session ~path:"legacy.HC" ~contents:"Legacy;" in
+  let source =
+    Session.add_source session ~path:"legacy.HC" ~contents:"Legacy;"
+  in
   let output =
     Holyc_lib.parse_detailed session ~config:(config (Sys.getcwd ())) ~source
   in
   Alcotest.(check bool)
-    "missing call shape has no AST" true (Option.is_none output.ast);
+    "missing call shape has no AST" true
+    (Option.is_none output.ast);
   Alcotest.(check string)
     "missing call shape code" "HCPARSE0106" (first_diagnostic output).code;
   Alcotest.(check bool)
@@ -2568,8 +2579,7 @@ let call_expression_provenance () =
   let provided = List.nth call.call_arguments 1 in
   let opening_parenthesis, closing_parenthesis =
     match call.call_syntax with
-    | Ast.Parenthesized_call
-        { opening_parenthesis; closing_parenthesis } ->
+    | Ast.Parenthesized_call { opening_parenthesis; closing_parenthesis } ->
         (opening_parenthesis, closing_parenthesis)
     | Ast.Parenthesis_free_call ->
         Alcotest.fail "expected a parenthesized generated call"

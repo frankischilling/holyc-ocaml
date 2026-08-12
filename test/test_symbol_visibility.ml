@@ -168,22 +168,21 @@ let function_call_shapes () =
   (match Symbol_visibility.function_call_shape entry with
   | Some retained ->
       Alcotest.(check int)
-        "fixed parameter count" 2 (List.length retained.parameters);
+        "fixed parameter count" 2
+        (List.length retained.parameters);
       Alcotest.(check bool) "variadic marker" true retained.variadic;
       Alcotest.(check (option string))
         "parameter name" (Some "first")
         (List.hd retained.parameters).parameter_name;
       Alcotest.(check bool)
-        "default availability" true
-        (List.hd retained.parameters).has_default
+        "default availability" true (List.hd retained.parameters).has_default
   | None -> Alcotest.fail "the function call shape was not retained");
   Alcotest.check_raises "nonfunction call shape is rejected"
     (Invalid_argument "only function symbols may carry a function call shape")
     (fun () ->
       ignore
         (Symbol_visibility.Environment.add symbols ~name:"NotCallable"
-           ~kind:Symbol_visibility.Global_variable ~function_call_shape:shape
-           ()))
+           ~kind:Symbol_visibility.Global_variable ~function_call_shape:shape ()))
 
 let deterministic_dump () =
   let session = Session.create () in

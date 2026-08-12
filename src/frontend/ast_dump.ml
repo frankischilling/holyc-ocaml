@@ -360,17 +360,16 @@ let rec print_expression buffer sources ~indent expression =
       Printf.bprintf buffer "%sright\n" child_indent;
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         binary.binary_right
-  | Ast.Call_expression call ->
+  | Ast.Call_expression call -> (
       (match call.call_syntax with
       | Ast.Parenthesized_call _ ->
-          Printf.bprintf buffer
-            "%sexpression kind=call arguments=%d span=%s\n" indent
+          Printf.bprintf buffer "%sexpression kind=call arguments=%d span=%s\n"
+            indent
             (List.length call.call_arguments)
             (location_text sources call.call_location)
       | Ast.Parenthesis_free_call ->
           Printf.bprintf buffer
-            "%sexpression kind=call syntax=parenthesis-free arguments=%d \
-             span=%s\n"
+            "%sexpression kind=call syntax=parenthesis-free arguments=%d span=%s\n"
             indent
             (List.length call.call_arguments)
             (location_text sources call.call_location));
@@ -385,7 +384,7 @@ let rec print_expression buffer sources ~indent expression =
       List.iteri
         (print_call_argument buffer sources ~indent:child_indent)
         call.call_arguments;
-      (match call.call_syntax with
+      match call.call_syntax with
       | Ast.Parenthesized_call { closing_parenthesis; _ } ->
           Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
             (location_text sources closing_parenthesis)
@@ -1473,8 +1472,7 @@ let rec expression_to_yojson sources = function
   | Ast.Call_expression call ->
       let opening_parenthesis, closing_parenthesis =
         match call.call_syntax with
-        | Ast.Parenthesized_call
-            { opening_parenthesis; closing_parenthesis } ->
+        | Ast.Parenthesized_call { opening_parenthesis; closing_parenthesis } ->
             ( location_to_yojson sources opening_parenthesis,
               location_to_yojson sources closing_parenthesis )
         | Ast.Parenthesis_free_call -> (`Null, `Null)
