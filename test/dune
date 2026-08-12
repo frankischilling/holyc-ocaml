@@ -1893,3 +1893,59 @@
    (diff
     cli/parse-compound-block-error.json
     parse-compound-block-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-statements.human.actual)
+ (deps cli/parse-if-statements.hc cli/parse-if-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-if-statements.hc))
+   (diff cli/parse-if-statements.human parse-if-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-statements.json.actual)
+ (deps cli/parse-if-statements.hc cli/parse-if-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-if-statements.hc))
+   (diff cli/parse-if-statements.json parse-if-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-error.human.actual parse-if-error.human.stdout.actual)
+ (deps cli/parse-if-error.hc cli/parse-if-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-error.human.stdout.actual
+    (with-stderr-to
+     parse-if-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-if-error.hc))))
+   (diff cli/parse-if-error.human parse-if-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-error.json.actual parse-if-error.json.stdout.actual)
+ (deps cli/parse-if-error.hc cli/parse-if-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-error.json.stdout.actual
+    (with-stderr-to
+     parse-if-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-if-error.hc))))
+   (diff cli/parse-if-error.json parse-if-error.json.actual))))

@@ -40,3 +40,4 @@
 - Added source-shaped top-level string and character statements with explicit `Print` and `PutChars` targets, variable-value empty markers, retained `Print` arguments, deterministic dumps, and bounded malformed-input diagnostics.
 - Added top-level expression and empty statements plus source-shaped comma-linked statement groups, preserving every separator, `PutChars` comma boundaries, source order, and generated-source provenance.
 - Added recursive compound statement blocks at top level and inside blocks, with explicit brace provenance, comma-linked block boundaries, deterministic dumps, and recovery at the matching close.
+- Added source-shaped `if` and `else` statements with required parenthesized conditions, nearest-`if` association, recursive statement branches, deterministic dumps, provenance tracking, and bounded malformed-input recovery.

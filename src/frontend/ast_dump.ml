@@ -463,6 +463,33 @@ let rec print_statement buffer sources ~indent = function
           Printf.bprintf buffer "%s  semicolon span=%s\n" indent
             (location_text sources semicolon))
         statement.expression_statement_semicolon
+  | Ast.If_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sif_statement span=%s else=%b\n" indent
+        (location_text sources statement.if_location)
+        (Option.is_some statement.if_else_clause);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.if_keyword);
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources statement.if_opening_parenthesis);
+      Printf.bprintf buffer "%scondition\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        statement.if_condition;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources statement.if_closing_parenthesis);
+      Printf.bprintf buffer "%sthen_branch\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.if_then_branch;
+      Option.iter
+        (fun (else_clause : Ast.else_clause) ->
+          Printf.bprintf buffer "%selse_clause span=%s\n" child_indent
+            (location_text sources else_clause.else_location);
+          Printf.bprintf buffer "%s  keyword span=%s\n" child_indent
+            (location_text sources else_clause.else_keyword);
+          Printf.bprintf buffer "%s  branch\n" child_indent;
+          print_statement buffer sources ~indent:(child_indent ^ "    ")
+            else_clause.else_branch)
+        statement.if_else_clause
   | Ast.Implicit_output_statement statement ->
       print_implicit_output_statement buffer sources ~indent statement
   | Ast.Sequence_statement sequence ->
@@ -1240,6 +1267,32 @@ let rec statement_to_yojson sources = function
           ( "location",
             location_to_yojson sources statement.expression_statement_location
           );
+        ]
+  | Ast.If_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "if_statement");
+          ("keyword", location_to_yojson sources statement.if_keyword);
+          ( "opening_parenthesis",
+            location_to_yojson sources statement.if_opening_parenthesis );
+          ("condition", expression_to_yojson sources statement.if_condition);
+          ( "closing_parenthesis",
+            location_to_yojson sources statement.if_closing_parenthesis );
+          ("then_branch", statement_to_yojson sources statement.if_then_branch);
+          ( "else_clause",
+            match statement.if_else_clause with
+            | None -> `Null
+            | Some else_clause ->
+                `Assoc
+                  [
+                    ( "keyword",
+                      location_to_yojson sources else_clause.else_keyword );
+                    ( "branch",
+                      statement_to_yojson sources else_clause.else_branch );
+                    ( "location",
+                      location_to_yojson sources else_clause.else_location );
+                  ] );
+          ("location", location_to_yojson sources statement.if_location);
         ]
   | Ast.Implicit_output_statement statement ->
       implicit_output_statement_to_yojson sources statement

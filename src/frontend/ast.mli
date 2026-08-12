@@ -362,6 +362,7 @@ type statement =
   | Block_statement of block_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
+  | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
 
@@ -370,6 +371,22 @@ and block_statement = private {
   block_statements : statement list;
   block_closing_brace : location;
   block_location : location;
+}
+
+and else_clause = private {
+  else_keyword : location;
+  else_branch : statement;
+  else_location : location;
+}
+
+and if_statement = private {
+  if_keyword : location;
+  if_opening_parenthesis : location;
+  if_condition : expression;
+  if_closing_parenthesis : location;
+  if_then_branch : statement;
+  if_else_clause : else_clause option;
+  if_location : location;
 }
 
 and statement_sequence_element = private {
@@ -678,6 +695,19 @@ val make_block_statement :
   closing_brace:location ->
   location:location ->
   block_statement
+
+val make_else_clause :
+  keyword:location -> branch:statement -> location:location -> else_clause
+
+val make_if_statement :
+  keyword:location ->
+  opening_parenthesis:location ->
+  condition:expression ->
+  closing_parenthesis:location ->
+  then_branch:statement ->
+  else_clause:else_clause option ->
+  location:location ->
+  if_statement
 
 val make_statement_sequence_element :
   statement:statement ->

@@ -1108,6 +1108,50 @@ lowering_status = "planned"
 execution_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-IF-STATEMENTS"
+description = "If statements retain their parenthesized condition, recursively parsed branches, and nearest-if else association."
+sources = [
+  "Compiler/PrsStmt.HC:PrsIf",
+  "Compiler/PrsStmt.HC:PrsStmt KW_IF dispatch and statement-comma continuation",
+  "Compiler/CompilerA.HH:KW_IF and KW_ELSE",
+  "Doc/HolyC.DD:chained comparison condition example"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-if-statements.hc",
+  "test/cli/parse-if-statements.human",
+  "test/cli/parse-if-statements.json",
+  "test/cli/parse-if-error.hc",
+  "test/cli/parse-if-error.human",
+  "test/cli/parse-if-error.json"
+]
+status = "implemented"
+issue = 99
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+condition_parentheses = "required and preserved independently"
+condition_expression_grammar = "shared audited core expression parser"
+then_branch = "required and parsed through the common statement path"
+else_branch = "optional and parsed through the common statement path"
+dangling_else = "owned by the nearest unmatched if"
+branch_statement_kinds = ["block", "conditional", "expression", "empty", "Print", "PutChars", "statement sequence"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0052", "HCPARSE0053", "HCPARSE0054", "HCPARSE0055", "HCPARSE0056"]
+hosted_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0057"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
 sources = [
