@@ -59,6 +59,37 @@ let unsupported_spellings () =
         (Option.is_none (Primitive.of_spelling spelling)))
     unsupported
 
+let storage_spellings () =
+  let expected =
+    [
+      ("I0i", I0);
+      ("I8i", I8);
+      ("I16i", I16);
+      ("I32i", I32);
+      ("I64i", I64);
+      ("U0i", U0);
+      ("U8i", U8);
+      ("U16i", U16);
+      ("U32i", U32);
+      ("U64i", U64);
+      ("F64i", F64);
+    ]
+  in
+  List.iter
+    (fun (spelling, primitive) ->
+      Alcotest.(check bool)
+        (spelling ^ " storage lookup") true
+        (match Primitive.of_storage_spelling spelling with
+        | Some found -> Primitive.equal found primitive
+        | None -> false))
+    expected;
+  List.iter
+    (fun spelling ->
+      Alcotest.(check bool)
+        (spelling ^ " is not an intrinsic storage spelling") true
+        (Option.is_none (Primitive.of_storage_spelling spelling)))
+    expected_spellings
+
 let raw_ids_and_sizes () =
   let expected =
     [
@@ -218,6 +249,7 @@ let tests =
   [
     Alcotest.test_case "supported spellings" `Quick supported_spellings;
     Alcotest.test_case "unsupported spellings" `Quick unsupported_spellings;
+    Alcotest.test_case "intrinsic storage spellings" `Quick storage_spellings;
     Alcotest.test_case "raw IDs and sizes" `Quick raw_ids_and_sizes;
     Alcotest.test_case "signedness and categories" `Quick
       signedness_and_categories;

@@ -27,8 +27,15 @@ type primitive_type = private {
   location : location;
 }
 
+type internal_type = private {
+  primitive : Sema.Primitive_type.t;
+  spelling : string;
+  location : location;
+}
+
 type type_specifier =
   | Primitive_type_specifier of primitive_type
+  | Internal_type_specifier of internal_type
   | Named_type_specifier of identifier
 
 type pointer_layer = private {
@@ -300,8 +307,15 @@ and anonymous_union_member = private {
   anonymous_union_location : location;
 }
 
+type aggregate_backing = private {
+  backing_type_specifier : type_specifier;
+  backing_pointer_layers : pointer_layer list;
+  backing_location : location;
+}
+
 type aggregate_definition = private {
   modifiers : declaration_modifier list;
+  backing : aggregate_backing option;
   aggregate_kind : aggregate_kind;
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
@@ -695,6 +709,12 @@ val make_primitive_type :
   location:location ->
   primitive_type
 
+val make_internal_type :
+  primitive:Sema.Primitive_type.t ->
+  spelling:string ->
+  location:location ->
+  internal_type
+
 val type_specifier_spelling : type_specifier -> string
 val type_specifier_location : type_specifier -> location
 val make_identifier : spelling:string -> location:location -> identifier
@@ -739,8 +759,15 @@ val make_anonymous_union_member :
   location:location ->
   anonymous_union_member
 
+val make_aggregate_backing :
+  type_specifier:type_specifier ->
+  pointer_layers:pointer_layer list ->
+  location:location ->
+  aggregate_backing
+
 val make_aggregate_definition :
   modifiers:declaration_modifier list ->
+  backing:aggregate_backing option ->
   aggregate_kind:aggregate_kind ->
   aggregate_keyword_spelling:string ->
   aggregate_keyword_location:location ->

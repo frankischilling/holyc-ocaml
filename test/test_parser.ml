@@ -42,6 +42,11 @@ let pinned path =
   | Some source -> read_file source
   | None -> Alcotest.failf "pinned source is unavailable: %s" path
 
+let pinned_lines path ~first ~last =
+  pinned path |> String.split_on_char '\n'
+  |> List.filteri (fun index _ -> index + 1 >= first && index + 1 <= last)
+  |> String.concat "\n"
+
 let config ?include_roots ?compilation_mode working_directory =
   Preprocessor.Config.create ~working_directory ?include_roots ?compilation_mode
     ()
@@ -102,6 +107,9 @@ let expect_anonymous_union_member = function
 
 let expect_primitive_specifier = function
   | Ast.Primitive_type_specifier primitive -> primitive
+  | Ast.Internal_type_specifier internal ->
+      Alcotest.failf "expected a primitive type, got internal type %S"
+        internal.spelling
   | Ast.Named_type_specifier name ->
       Alcotest.failf "expected a primitive type, got named type %S"
         name.spelling
@@ -113,6 +121,20 @@ let expect_named_specifier expected = function
   | Ast.Primitive_type_specifier primitive ->
       Alcotest.failf "expected named type %S, got primitive type %S" expected
         primitive.spelling
+  | Ast.Internal_type_specifier internal ->
+      Alcotest.failf "expected named type %S, got internal type %S" expected
+        internal.spelling
+
+let expect_internal_specifier expected = function
+  | Ast.Internal_type_specifier internal ->
+      Alcotest.(check string) "internal type spelling" expected internal.spelling;
+      internal
+  | Ast.Primitive_type_specifier primitive ->
+      Alcotest.failf "expected internal type %S, got primitive type %S" expected
+        primitive.spelling
+  | Ast.Named_type_specifier name ->
+      Alcotest.failf "expected internal type %S, got named type %S" expected
+        name.spelling
 
 let expect_one_declaration ast =
   match ast.Ast.items with
@@ -2257,10 +2279,6 @@ let aggregate_definition_failures () =
         "class Object { I64 value; } object;",
         "HCPARSE0119",
         "object declarators" );
-      ( "backing type is excluded",
-        "I64 class Backed { I64 value; };",
-        "HCPARSE0120",
-        "backing types" );
       ( "inheritance is excluded",
         "class Derived:Base { I64 value; };",
         "HCPARSE0121",
@@ -2330,6 +2348,301 @@ let deterministic_aggregate_definition_dumps () =
     "JSON aggregate member kinds"
     [ "member_declaration"; "anonymous_union"; "empty_member" ]
     (List.map (fun item -> item |> member "kind" |> to_string) members)
+
+let aggregate_backing_source_behavior () =
+  let variables = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variables fragment))
+    [
+      ("backing parser enters aggregate syntax", "if (k==KW_UNION || k==KW_CLASS)");
+      ("backing type is retained", "tmpc2->fwd_class=tmpc1;");
+      ("member types accept internal symbols", "HTT_CLASS|HTT_INTERNAL_TYPE");
+    ];
+  let initialization = pinned "Compiler/CInit.HC" in
+  Alcotest.(check bool)
+    "internal type table has the pinned count" true
+    (contains initialization "#define INTERNAL_TYPES_NUM\t17");
+  let language = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language guide defines whole-value access" true
+    (contains language "if you put a type in front of the");
+  Alcotest.(check bool)
+    "language guide explains backed unions" true
+    (contains language "that is the type when used by itself")
+
+let internal_type_specifiers () =
+  let expected =
+    [
+      ("I0i", Primitive_type.I0);
+      ("U0i", Primitive_type.U0);
+      ("I8i", Primitive_type.I8);
+      ("U8i", Primitive_type.U8);
+      ("I16i", Primitive_type.I16);
+      ("U16i", Primitive_type.U16);
+      ("I32i", Primitive_type.I32);
+      ("U32i", Primitive_type.U32);
+      ("I64i", Primitive_type.I64);
+      ("U64i", Primitive_type.U64);
+      ("F64i", Primitive_type.F64);
+    ]
+  in
+  let source =
+    expected
+    |> List.mapi (fun index (spelling, _) ->
+           Printf.sprintf "%s intrinsic_%d;" spelling index)
+    |> String.concat "\n"
+  in
+  let _, _, output = parse_string source in
+  let items = (expect_ast output).items in
+  Alcotest.(check int)
+    "one global per intrinsic spelling" (List.length expected)
+    (List.length items);
+  List.iter2
+    (fun (spelling, primitive) item ->
+      match item with
+      | Ast.Global_variable variable ->
+          let internal =
+            expect_internal_specifier spelling variable.type_specifier
+          in
+          Alcotest.(check bool)
+            (spelling ^ " raw primitive") true
+            (Primitive_type.equal primitive internal.primitive)
+      | _ -> Alcotest.failf "%s did not parse as a global" spelling)
+    expected items
+
+let pinned_integer_union_backings () =
+  let source = pinned_lines "Kernel/KernelA.HH" ~first:60 ~last:113 in
+  let _, _, output =
+    parse_string ~path:"Kernel/KernelA.integer-unions.HH" source
+  in
+  let expected =
+    [
+      ("U16", "U16i");
+      ("I16", "I16i");
+      ("U32", "U32i");
+      ("I32", "I32i");
+      ("U64", "U64i");
+      ("I64", "I64i");
+    ]
+  in
+  let definitions =
+    (expect_ast output).items
+    |> List.map (function
+         | Ast.Aggregate_definition definition -> definition
+         | _ -> Alcotest.fail "integer union slice produced a non-aggregate item")
+  in
+  Alcotest.(check int)
+    "six integer unions" (List.length expected) (List.length definitions);
+  List.iter2
+    (fun (name, backing_spelling) (definition : Ast.aggregate_definition) ->
+      Alcotest.(check string) "integer union name" name definition.name.spelling;
+      Alcotest.(check bool)
+        "integer definition is a union" true
+        (definition.aggregate_kind = Ast.Union_aggregate);
+      match definition.backing with
+      | None -> Alcotest.failf "%s lost its backing type" name
+      | Some backing ->
+          ignore
+            (expect_internal_specifier backing_spelling
+               backing.backing_type_specifier);
+          Alcotest.(check int)
+            "integer union backing has no pointers" 0
+            (List.length backing.backing_pointer_layers))
+    expected definitions;
+  let first_member =
+    List.hd definitions |> fun definition -> List.hd definition.members
+    |> expect_aggregate_member_declaration
+  in
+  ignore (expect_internal_specifier "I8i" first_member.member_type_specifier)
+
+let pinned_backed_class_headers () =
+  let kernel =
+    [
+      pinned_lines "Kernel/KernelA.HH" ~first:182 ~last:190;
+      pinned_lines "Kernel/KernelA.HH" ~first:1638 ~last:1641;
+      pinned_lines "Kernel/KernelA.HH" ~first:1816 ~last:1821;
+      pinned_lines "Kernel/KernelA.HH" ~first:2935 ~last:2953;
+    ]
+    |> String.concat "\n"
+  in
+  let expected =
+    [
+      ("CDate", "I64");
+      ("CICType", "U16");
+      ("CAbsCntsI64", "I64");
+      ("CColorROPU16", "U16");
+      ("CColorROPU32", "U32");
+      ("CBGR24", "U32");
+      ("CBGR48", "I64");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~path:"Kernel/KernelA.backed-classes.HH"
+          ~compilation_mode:mode kernel
+      in
+      let definitions =
+        (expect_ast output).items
+        |> List.map (function
+             | Ast.Aggregate_definition definition -> definition
+             | _ -> Alcotest.fail "backed class slice produced another item kind")
+      in
+      List.iter2
+        (fun (name, backing_spelling)
+             (definition : Ast.aggregate_definition) ->
+          Alcotest.(check string) "backed class name" name
+            definition.name.spelling;
+          match definition.backing with
+          | None -> Alcotest.failf "%s lost its backing type" name
+          | Some backing ->
+              let primitive =
+                expect_primitive_specifier backing.backing_type_specifier
+              in
+              Alcotest.(check string)
+                "public backing spelling" backing_spelling primitive.spelling)
+        expected definitions;
+      let cic_type = List.nth definitions 1 in
+      Alcotest.(check int)
+        "unmodified backed class has no modifiers" 0
+        (List.length cic_type.modifiers))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_backing_pointer_layers () =
+  let source =
+    List.init Parser.max_pointer_depth (fun index ->
+        let depth = index + 1 in
+        Printf.sprintf "I64 %s class Backed%d { I64 value; };"
+          (String.make depth '*') depth)
+    |> String.concat "\n"
+  in
+  let _, _, output = parse_string source in
+  let definitions =
+    (expect_ast output).items
+    |> List.map (function
+         | Ast.Aggregate_definition definition -> definition
+         | _ -> Alcotest.fail "backing pointer source produced another item kind")
+  in
+  List.iteri
+    (fun index (definition : Ast.aggregate_definition) ->
+      match definition.backing with
+      | None -> Alcotest.failf "Backed%d lost its backing" (index + 1)
+      | Some backing ->
+          Alcotest.(check int)
+            "backing pointer depth" (index + 1)
+            (List.length backing.backing_pointer_layers))
+    definitions
+
+let aggregate_backing_failures_recover () =
+  List.iter
+    (fun (description, source, expected_code) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no public AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check (list string))
+        (description ^ " diagnostic") [ expected_code ]
+        (List.map (fun diagnostic -> diagnostic.Diagnostic.code) output.diagnostics);
+      match
+        Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+          "after"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check string)
+            (description ^ " resumes after the aggregate") "global-variable"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not reach the following declaration" description)
+    [
+      ( "unknown backing",
+        "Missing class Unknown { I64 value; }; I64 after;",
+        "HCPARSE0124" );
+      ( "unknown backing before five pointers",
+        "Missing ***** class UnknownDeep { I64 value; }; I64 after;",
+        "HCPARSE0124" );
+      ( "fifth backing pointer",
+        "I64 ***** class Deep { I64 value; }; I64 after;",
+        "HCPARSE0004" );
+      ( "binding before a backing",
+        "extern I64 class Bound { I64 value; }; I64 after;",
+        "HCPARSE0125" );
+    ]
+
+let aggregate_backing_provenance_and_dumps () =
+  let source =
+    "#define BACK I64\n#define RAW I64i\nBACK class Generated { RAW value; };"
+  in
+  let session, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_aggregate_definition in
+  let backing = Option.get definition.backing in
+  let backing_type =
+    expect_primitive_specifier backing.backing_type_specifier
+  in
+  Alcotest.(check bool)
+    "definition-backed aggregate type keeps its definition" true
+    (Option.is_some backing_type.location.defined_at);
+  let member =
+    List.hd definition.members |> expect_aggregate_member_declaration
+  in
+  let member_type =
+    expect_internal_specifier "I64i" member.member_type_specifier
+  in
+  Alcotest.(check bool)
+    "definition-backed intrinsic type keeps its definition" true
+    (Option.is_some member_type.location.defined_at);
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources (expect_ast output) in
+  let json = Ast_dump.json sources (expect_ast output) in
+  Alcotest.(check string)
+    "human backing dump is deterministic" human
+    (Ast_dump.human sources (expect_ast output));
+  Alcotest.(check string)
+    "JSON backing dump is deterministic" json
+    (Ast_dump.json sources (expect_ast output));
+  Alcotest.(check bool)
+    "human dump distinguishes the backing" true
+    (contains human "backing span=" && contains human "type primitive=I64");
+  let open Yojson.Safe.Util in
+  let json_backing =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> List.hd |> member "backing"
+  in
+  Alcotest.(check string)
+    "JSON backing kind" "primitive"
+    (json_backing |> member "type" |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON member intrinsic kind" "internal"
+    (Yojson.Safe.from_string json |> member "module" |> member "items"
+    |> to_list |> List.hd |> member "members" |> to_list |> List.hd
+    |> member "type" |> member "kind" |> to_string);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "backed.HC" in
+      write_file root_file "#include \"backed\"";
+      write_file definition_file "I64i union Included { I8i value; };";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_definition
+      in
+      let included_backing = Option.get included.backing in
+      let backing_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_backing.backing_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included backing keeps its canonical path"
+        (Unix.realpath definition_file)
+        (Source_file.path backing_source))
 
 let named_type_source_behavior () =
   let statements = pinned "Compiler/PrsStmt.HC" in
@@ -13281,6 +13594,20 @@ let tests =
       aggregate_definition_failures;
     Alcotest.test_case "deterministic aggregate definition dumps" `Quick
       deterministic_aggregate_definition_dumps;
+    Alcotest.test_case "pinned aggregate backing behavior" `Quick
+      aggregate_backing_source_behavior;
+    Alcotest.test_case "internal type specifiers" `Quick
+      internal_type_specifiers;
+    Alcotest.test_case "pinned integer union backings" `Quick
+      pinned_integer_union_backings;
+    Alcotest.test_case "pinned backed class headers" `Quick
+      pinned_backed_class_headers;
+    Alcotest.test_case "aggregate backing pointer layers" `Quick
+      aggregate_backing_pointer_layers;
+    Alcotest.test_case "aggregate backing failures recover" `Quick
+      aggregate_backing_failures_recover;
+    Alcotest.test_case "aggregate backing provenance and dumps" `Quick
+      aggregate_backing_provenance_and_dumps;
     Alcotest.test_case "pinned named type behavior" `Quick
       named_type_source_behavior;
     Alcotest.test_case "direct named type declarations" `Quick

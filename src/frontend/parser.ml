@@ -78,6 +78,11 @@ type parsed_aggregate_members = {
   closing_brace : Ast.location;
 }
 
+type parsed_aggregate_backing = {
+  node : Ast.aggregate_backing;
+  tokens : Token.t list;
+}
+
 type aggregate_parse_failure = { recovery_depth : int }
 
 type expression_context =
@@ -139,6 +144,7 @@ type binding_parse =
   | Bad_binding
 
 let max_pointer_depth = 4
+let max_parser_lookahead = max_pointer_depth + 3
 let max_function_pointer_depth = 32
 let max_expression_depth = 256
 let max_block_depth = 256
@@ -195,7 +201,10 @@ let rec ensure_lookahead cursor count =
 
 let peek_n cursor offset =
   if offset < 0 then invalid_arg "parser lookahead offset cannot be negative";
-  if offset > 1 then invalid_arg "parser lookahead is limited to two tokens";
+  if offset >= max_parser_lookahead then
+    invalid_arg
+      (Printf.sprintf "parser lookahead is limited to %d tokens"
+         max_parser_lookahead);
   ensure_lookahead cursor (offset + 1);
   List.nth cursor.lookahead offset
 
@@ -484,7 +493,8 @@ let recover_compound_statement cursor =
   in
   skip 0
 
-let rec parse_pointer_layers cursor depth layers_rev items_rev =
+let rec parse_pointer_layers_with_recovery cursor ~recover depth layers_rev
+    items_rev =
   let item = peek cursor in
   match item.token.Token.kind with
   | Token_kind.Punctuation '*' ->
@@ -495,7 +505,7 @@ let rec parse_pointer_layers cursor depth layers_rev items_rev =
                "HolyC types may have at most %d pointer stars; this star \
                 exceeds that limit"
                max_pointer_depth);
-        recover_declaration cursor;
+        recover cursor;
         None)
       else
         let item = take cursor in
@@ -504,9 +514,19 @@ let rec parse_pointer_layers cursor depth layers_rev items_rev =
           Ast.make_pointer_layer ~depth ~spelling:item.token.raw
             ~location:(token_location item.token)
         in
-        parse_pointer_layers cursor depth (layer :: layers_rev)
+        parse_pointer_layers_with_recovery cursor ~recover depth
+          (layer :: layers_rev)
           (item :: items_rev)
   | _ -> Some (List.rev layers_rev, List.rev items_rev)
+
+let parse_pointer_layers cursor depth layers_rev items_rev =
+  parse_pointer_layers_with_recovery cursor ~recover:recover_declaration depth
+    layers_rev items_rev
+
+let parse_aggregate_backing_pointer_layers cursor =
+  parse_pointer_layers_with_recovery cursor
+    ~recover:(fun cursor -> recover_aggregate_declaration cursor ~depth:0)
+    0 [] []
 
 let pointer_definition_trace pointer_items =
   List.fold_left
@@ -520,6 +540,21 @@ let type_spelling base_spelling pointer_layers =
 let primitive_type_of_token token =
   match token.Token.kind with
   | Token_kind.Identifier -> Sema.Primitive_type.of_spelling (token_text token)
+  | _ -> None
+
+let internal_type_of_token cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols
+          (token_text token)
+      with
+      | Symbol_visibility.Present entry
+        when Symbol_visibility.kind entry = Symbol_visibility.Internal_type ->
+          Sema.Primitive_type.of_storage_spelling (token_text token)
+      | Symbol_visibility.Present _
+      | Symbol_visibility.Absent
+      | Symbol_visibility.Shadowed_by_local -> None)
   | _ -> None
 
 let token_is_named_type cursor token =
@@ -541,12 +576,19 @@ let type_specifier_of_item cursor item =
         (Ast.Primitive_type_specifier
            (Ast.make_primitive_type ~primitive ~spelling:item.token.raw
               ~location:(token_location item.token)))
-  | None when token_is_named_type cursor item.token ->
-      Some
-        (Ast.Named_type_specifier
-           (Ast.make_identifier ~spelling:item.token.raw
-              ~location:(token_location item.token)))
-  | None -> None
+  | None -> (
+      match internal_type_of_token cursor item.token with
+      | Some primitive ->
+          Some
+            (Ast.Internal_type_specifier
+               (Ast.make_internal_type ~primitive ~spelling:item.token.raw
+                  ~location:(token_location item.token)))
+      | None when token_is_named_type cursor item.token ->
+          Some
+            (Ast.Named_type_specifier
+               (Ast.make_identifier ~spelling:item.token.raw
+                  ~location:(token_location item.token)))
+      | None -> None)
 
 let publish_global cursor (name : Ast.identifier) =
   ignore
@@ -1904,6 +1946,31 @@ let aggregate_kind_of_token token =
   | Token_kind.Keyword Keyword.Union -> Some Ast.Union_aggregate
   | _ -> None
 
+let aggregate_kind_after_backing cursor ~offset =
+  let rec inspect offset pointer_count =
+    let token = (peek_n cursor offset).token in
+    match token.kind with
+    | Token_kind.Punctuation '*'
+      when pointer_count <= max_pointer_depth ->
+        inspect (offset + 1) (pointer_count + 1)
+    | _ -> aggregate_kind_of_token token
+  in
+  inspect offset 0
+
+let parse_aggregate_backing cursor type_item type_specifier =
+  match parse_aggregate_backing_pointer_layers cursor with
+  | None -> None
+  | Some (pointer_layers, pointer_items) ->
+      let tokens =
+        type_item.token
+        :: List.map (fun (item : located_token) -> item.token) pointer_items
+      in
+      let node =
+        Ast.make_aggregate_backing ~type_specifier ~pointer_layers
+          ~location:(location_from_expression_tokens tokens)
+      in
+      Some ({ node; tokens } : parsed_aggregate_backing)
+
 let parse_binding cursor =
   let item = peek cursor in
   match item.token.kind with
@@ -2292,7 +2359,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth :
                     in
                     Ok { node; tokens })))
 
-let parse_aggregate_definition cursor ~modifier_tokens ~modifiers
+let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
     ~aggregate_kind =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
@@ -2356,11 +2423,19 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers
             let semicolon_item = take cursor in
             let tokens =
               modifier_tokens
+              @ (match backing with
+                | None -> []
+                | Some (backing : parsed_aggregate_backing) -> backing.tokens)
               @ [ aggregate_item.token; name_item.token; opening_item.token ]
               @ parsed_members.tokens @ [ semicolon_item.token ]
             in
             let definition =
-              Ast.make_aggregate_definition ~modifiers ~aggregate_kind
+              Ast.make_aggregate_definition ~modifiers
+                ~backing:
+                  (Option.map
+                     (fun (backing : parsed_aggregate_backing) -> backing.node)
+                     backing)
+                ~aggregate_kind
                 ~aggregate_keyword_spelling:aggregate_item.token.raw
                 ~aggregate_keyword_location:
                   (token_location aggregate_item.token)
@@ -2800,7 +2875,7 @@ let parse_global cursor ~parse_function_definition =
       match aggregate_kind_of_token (peek cursor).token with
       | Some aggregate_kind ->
           parse_aggregate_definition cursor ~modifier_tokens ~modifiers
-            ~aggregate_kind
+            ~backing:None ~aggregate_kind
       | None -> (
           match parse_binding cursor with
           | Bad_binding -> None
@@ -2824,16 +2899,29 @@ let parse_global cursor ~parse_function_definition =
               match type_specifier_of_item cursor type_item with
               | Some type_specifier -> (
                   let type_item = take cursor in
-                  if
-                    Option.is_some (aggregate_kind_of_token (peek cursor).token)
-                  then (
-                    report cursor (peek cursor) ~code:"HCPARSE0120"
-                      ~message:
-                        "aggregate backing types before 'class' or 'union' are \
-                         not implemented in this parser slice";
-                    recover_aggregate_declaration cursor ~depth:0;
-                    None)
-                  else
+                  match aggregate_kind_after_backing cursor ~offset:0 with
+                  | Some aggregate_kind -> (
+                      match binding with
+                      | Some binding ->
+                          report cursor type_item ~code:"HCPARSE0125"
+                            ~message:
+                              (Printf.sprintf
+                                 "declaration binding %S cannot introduce a \
+                                  type-backed aggregate definition"
+                                 binding.Ast.spelling);
+                          recover_aggregate_declaration cursor ~depth:0;
+                          None
+                      | None -> (
+                          match
+                            parse_aggregate_backing cursor type_item
+                              type_specifier
+                          with
+                          | None -> None
+                          | Some backing ->
+                              parse_aggregate_definition cursor
+                                ~modifier_tokens ~modifiers
+                                ~backing:(Some backing) ~aggregate_kind))
+                  | None ->
                     let spelling = Ast.type_specifier_spelling type_specifier in
                     match parse_declarator_prefix cursor spelling with
                     | None -> None
@@ -2909,6 +2997,17 @@ let parse_global cursor ~parse_function_definition =
                                         Some
                                           (Ast.Global_declaration declaration)))
                             )))
+              | _
+                when Option.is_some
+                       (aggregate_kind_after_backing cursor ~offset:1) ->
+                  report cursor type_item ~code:"HCPARSE0124"
+                    ~message:
+                      (Printf.sprintf
+                         "%S is not a visible HolyC type and cannot back this \
+                          aggregate definition"
+                         type_item.token.raw);
+                  recover_aggregate_declaration cursor ~depth:0;
+                  None
               | _ ->
                   let prefix =
                     match binding with
@@ -3129,6 +3228,7 @@ let token_starts_statement_expression cursor token =
 
 let token_starts_global_declaration cursor token =
   Option.is_some (primitive_type_of_token token)
+  || Option.is_some (internal_type_of_token cursor token)
   || token_is_named_type cursor token
   || Option.is_some (aggregate_kind_of_token token)
   || Option.is_some (declaration_modifier_kind token)
@@ -3623,6 +3723,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Identifier
     when Option.is_some cursor.local_context
          && (Option.is_some (primitive_type_of_token item.token)
+            || Option.is_some (internal_type_of_token cursor item.token)
             || token_is_named_type cursor item.token) ->
       parse_local_declaration cursor ~boundary
   | _ when token_starts_statement_expression cursor item.token ->

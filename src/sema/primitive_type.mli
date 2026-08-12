@@ -36,6 +36,7 @@ val compare : t -> t -> int
 val equal : t -> t -> bool
 val to_string : t -> string
 val of_spelling : string -> t option
+val of_storage_spelling : string -> t option
 val info : t -> info
 val is_zero_sized : t -> bool
 val pointer_representation : pointer_representation

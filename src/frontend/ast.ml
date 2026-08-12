@@ -27,8 +27,15 @@ type primitive_type = {
   location : location;
 }
 
+type internal_type = {
+  primitive : Sema.Primitive_type.t;
+  spelling : string;
+  location : location;
+}
+
 type type_specifier =
   | Primitive_type_specifier of primitive_type
+  | Internal_type_specifier of internal_type
   | Named_type_specifier of identifier
 
 type pointer_layer = { depth : int; spelling : string; location : location }
@@ -295,8 +302,15 @@ and anonymous_union_member = {
   anonymous_union_location : location;
 }
 
+type aggregate_backing = {
+  backing_type_specifier : type_specifier;
+  backing_pointer_layers : pointer_layer list;
+  backing_location : location;
+}
+
 type aggregate_definition = {
   modifiers : declaration_modifier list;
+  backing : aggregate_backing option;
   aggregate_kind : aggregate_kind;
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
@@ -685,12 +699,17 @@ let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }
 
+let make_internal_type ~primitive ~spelling ~location : internal_type =
+  { primitive; spelling; location }
+
 let type_specifier_spelling = function
   | Primitive_type_specifier primitive -> primitive.spelling
+  | Internal_type_specifier internal -> internal.spelling
   | Named_type_specifier name -> name.spelling
 
 let type_specifier_location = function
   | Primitive_type_specifier primitive -> primitive.location
+  | Internal_type_specifier internal -> internal.location
   | Named_type_specifier name -> name.location
 
 let make_identifier ~spelling ~location : identifier = { spelling; location }
@@ -734,11 +753,19 @@ let make_anonymous_union_member ~keyword_spelling ~keyword_location
     anonymous_union_location = location;
   }
 
-let make_aggregate_definition ~modifiers ~aggregate_kind
+let make_aggregate_backing ~type_specifier ~pointer_layers ~location =
+  {
+    backing_type_specifier = type_specifier;
+    backing_pointer_layers = pointer_layers;
+    backing_location = location;
+  }
+
+let make_aggregate_definition ~modifiers ~backing ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~opening_brace
     ~members ~closing_brace ~semicolon ~location =
   {
     modifiers;
+    backing;
     aggregate_kind;
     aggregate_keyword_spelling;
     aggregate_keyword_location;
