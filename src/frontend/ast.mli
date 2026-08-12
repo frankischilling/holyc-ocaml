@@ -313,6 +313,13 @@ type aggregate_backing = private {
   backing_location : location;
 }
 
+type aggregate_base = private {
+  base_colon_spelling : string;
+  base_colon_location : location;
+  base_name : identifier;
+  base_location : location;
+}
+
 type aggregate_definition = private {
   modifiers : declaration_modifier list;
   backing : aggregate_backing option;
@@ -320,6 +327,7 @@ type aggregate_definition = private {
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
   name : identifier;
+  base : aggregate_base option;
   opening_brace : location;
   members : aggregate_member list;
   closing_brace : location;
@@ -765,6 +773,13 @@ val make_aggregate_backing :
   location:location ->
   aggregate_backing
 
+val make_aggregate_base :
+  colon_spelling:string ->
+  colon_location:location ->
+  name:identifier ->
+  location:location ->
+  aggregate_base
+
 val make_aggregate_definition :
   modifiers:declaration_modifier list ->
   backing:aggregate_backing option ->
@@ -772,6 +787,7 @@ val make_aggregate_definition :
   aggregate_keyword_spelling:string ->
   aggregate_keyword_location:location ->
   name:identifier ->
+  base:aggregate_base option ->
   opening_brace:location ->
   members:aggregate_member list ->
   closing_brace:location ->

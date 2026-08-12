@@ -1,0 +1,58 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-inheritance.hc:1:1..17:1 items=4
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-inheritance.hc:1:1..4:3 members=1
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-inheritance.hc:1:1..1:6
+    name spelling="Root" span=cli/parse-aggregate-inheritance.hc:1:7..1:11
+    opening_brace span=cli/parse-aggregate-inheritance.hc:2:1..2:2
+    member_declaration index=0 span=cli/parse-aggregate-inheritance.hc:3:3..3:12 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-inheritance.hc:3:3..3:6
+      declarator index=0 span=cli/parse-aggregate-inheritance.hc:3:7..3:12
+        name spelling="root" span=cli/parse-aggregate-inheritance.hc:3:7..3:11
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-inheritance.hc:3:11..3:12
+    closing_brace span=cli/parse-aggregate-inheritance.hc:4:1..4:2
+    semicolon span=cli/parse-aggregate-inheritance.hc:4:2..4:3
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-inheritance.hc:5:1..8:3 members=1
+    modifier kind=public spelling="public" span=cli/parse-aggregate-inheritance.hc:5:1..5:7
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-inheritance.hc:5:8..5:13
+    name spelling="Derived" span=cli/parse-aggregate-inheritance.hc:5:14..5:21
+    base span=cli/parse-aggregate-inheritance.hc:5:22..5:28
+      colon spelling=":" span=cli/parse-aggregate-inheritance.hc:5:22..5:23
+      name spelling="Root" span=cli/parse-aggregate-inheritance.hc:5:24..5:28
+    opening_brace span=cli/parse-aggregate-inheritance.hc:6:1..6:2
+    member_declaration index=0 span=cli/parse-aggregate-inheritance.hc:7:3..7:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-inheritance.hc:7:3..7:6
+      declarator index=0 span=cli/parse-aggregate-inheritance.hc:7:7..7:13
+        name spelling="child" span=cli/parse-aggregate-inheritance.hc:7:7..7:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-inheritance.hc:7:12..7:13
+    closing_brace span=cli/parse-aggregate-inheritance.hc:8:1..8:2
+    semicolon span=cli/parse-aggregate-inheritance.hc:8:2..8:3
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-inheritance.hc:9:1..12:3 members=1
+    backing span=cli/parse-aggregate-inheritance.hc:9:1..9:5
+      type internal=I64 spelling="I64i" span=cli/parse-aggregate-inheritance.hc:9:1..9:5
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-inheritance.hc:9:6..9:11
+    name spelling="Raw" span=cli/parse-aggregate-inheritance.hc:9:12..9:15
+    opening_brace span=cli/parse-aggregate-inheritance.hc:10:1..10:2
+    member_declaration index=0 span=cli/parse-aggregate-inheritance.hc:11:3..11:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-inheritance.hc:11:3..11:6
+      declarator index=0 span=cli/parse-aggregate-inheritance.hc:11:7..11:13
+        name spelling="value" span=cli/parse-aggregate-inheritance.hc:11:7..11:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-inheritance.hc:11:12..11:13
+    closing_brace span=cli/parse-aggregate-inheritance.hc:12:1..12:2
+    semicolon span=cli/parse-aggregate-inheritance.hc:12:2..12:3
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-inheritance.hc:13:1..16:3 members=1
+    backing span=cli/parse-aggregate-inheritance.hc:13:1..13:5
+      type internal=I64 spelling="I64i" span=cli/parse-aggregate-inheritance.hc:13:1..13:5
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-inheritance.hc:13:6..13:11
+    name spelling="Overlay" span=cli/parse-aggregate-inheritance.hc:13:12..13:19
+    base span=cli/parse-aggregate-inheritance.hc:13:20..13:25
+      colon spelling=":" span=cli/parse-aggregate-inheritance.hc:13:20..13:21
+      name spelling="Raw" span=cli/parse-aggregate-inheritance.hc:13:22..13:25
+    opening_brace span=cli/parse-aggregate-inheritance.hc:14:1..14:2
+    member_declaration index=0 span=cli/parse-aggregate-inheritance.hc:15:3..15:11 declarators=1
+      type primitive=I8 spelling="I8" span=cli/parse-aggregate-inheritance.hc:15:3..15:5
+      declarator index=0 span=cli/parse-aggregate-inheritance.hc:15:6..15:11
+        name spelling="byte" span=cli/parse-aggregate-inheritance.hc:15:6..15:10
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-inheritance.hc:15:10..15:11
+    closing_brace span=cli/parse-aggregate-inheritance.hc:16:1..16:2
+    semicolon span=cli/parse-aggregate-inheritance.hc:16:2..16:3

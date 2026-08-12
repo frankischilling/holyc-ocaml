@@ -210,6 +210,16 @@ let print_aggregate_backing buffer sources ~indent
   print_pointer_layers buffer sources ~indent:(indent ^ "  ")
     backing.backing_pointer_layers
 
+let print_aggregate_base buffer sources ~indent (base : Ast.aggregate_base) =
+  Printf.bprintf buffer "%sbase span=%s\n" indent
+    (location_text sources base.base_location);
+  Printf.bprintf buffer "%s  colon spelling=%S span=%s\n" indent
+    base.base_colon_spelling
+    (location_text sources base.base_colon_location);
+  Printf.bprintf buffer "%s  name spelling=%S span=%s\n" indent
+    base.base_name.spelling
+    (location_text sources base.base_name.location)
+
 let print_parameter_name buffer sources ~indent = function
   | Some (name : Ast.identifier) ->
       Printf.bprintf buffer "%sname spelling=%S span=%s\n" indent name.spelling
@@ -1129,6 +1139,9 @@ let human sources module_ =
           Printf.bprintf buffer "    name spelling=%S span=%s\n"
             definition.name.spelling
             (location_text sources definition.name.location);
+          Option.iter
+            (print_aggregate_base buffer sources ~indent:"    ")
+            definition.base;
           Printf.bprintf buffer "    opening_brace span=%s\n"
             (location_text sources definition.opening_brace);
           List.iteri
@@ -2228,6 +2241,19 @@ let aggregate_backing_to_yojson sources (backing : Ast.aggregate_backing) =
     @ pointer_layer_fields sources backing.backing_pointer_layers
     @ [ ("location", location_to_yojson sources backing.backing_location) ])
 
+let aggregate_base_to_yojson sources (base : Ast.aggregate_base) =
+  `Assoc
+    [
+      ( "colon",
+        `Assoc
+          [
+            ("spelling", `String base.base_colon_spelling);
+            ("location", location_to_yojson sources base.base_colon_location);
+          ] );
+      ("name", identifier_to_yojson sources base.base_name);
+      ("location", location_to_yojson sources base.base_location);
+    ]
+
 let parameter_default_to_yojson sources (default : Ast.parameter_default) =
   let value =
     match default.value with
@@ -2357,6 +2383,11 @@ let item_to_yojson sources = function
                       definition.aggregate_keyword_location );
                 ] );
             ("name", identifier_to_yojson sources definition.name);
+          ]
+        @ (match definition.base with
+          | None -> []
+          | Some base -> [ ("base", aggregate_base_to_yojson sources base) ])
+        @ [
             ( "opening_brace",
               location_to_yojson sources definition.opening_brace );
             ( "members",

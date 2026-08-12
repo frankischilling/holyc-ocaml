@@ -95,6 +95,14 @@ let expect_one_aggregate_definition ast =
       Alcotest.failf "expected one aggregate definition, got %d items"
         (List.length items)
 
+let expect_aggregate_base expected (definition : Ast.aggregate_definition) =
+  match definition.base with
+  | Some base ->
+      Alcotest.(check string)
+        "aggregate base name" expected base.base_name.spelling;
+      base
+  | None -> Alcotest.failf "%s has no aggregate base" definition.name.spelling
+
 let expect_aggregate_member_declaration = function
   | Ast.Aggregate_member_declaration declaration -> declaration
   | Ast.Anonymous_union_member _ | Ast.Empty_aggregate_member _ ->
@@ -2280,10 +2288,6 @@ let aggregate_definition_failures () =
         "class Object { I64 value; } object;",
         "HCPARSE0119",
         "object declarators" );
-      ( "inheritance is excluded",
-        "class Derived:Base { I64 value; };",
-        "HCPARSE0121",
-        "inheritance" );
       ( "function pointer member is excluded",
         "class Callbacks { I64 (*callback)(I64 value); };",
         "HCPARSE0123",
@@ -2653,6 +2657,300 @@ let aggregate_backing_provenance_and_dumps () =
         "included backing keeps its canonical path"
         (Unix.realpath definition_file)
         (Source_file.path backing_source))
+
+let aggregate_inheritance_source_behavior () =
+  let statements = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains statements fragment))
+    [
+      ("inheritance follows a colon", "if (Lex(cc)==':')");
+      ("the base must be a class symbol", "!(base_class->type&HTT_CLASS)");
+      ("a comma rejects a second base", "if (Lex(cc)==',')");
+      ( "the source reports its one-base rule",
+        "Only one base class allowed at this time at " );
+      ("the base class is retained", "tmpc->base_class=base_class;");
+      ("the base size precedes member layout", "tmpc->size+=base_class->size;");
+    ];
+  Alcotest.(check bool)
+    "the language guide states the one-base rule" true
+    (contains (pinned "Doc/HolyC.DD") "Only one base class is allowed.")
+
+let direct_aggregate_inheritance () =
+  let source =
+    "class Root { I64 root; };\n\
+     public class Derived : Root { I64 child; };\n\
+     class Compact:Root {};\n\
+     I64i union Raw { I64 value; };\n\
+     I64i union Overlay : Raw { I8i byte; };"
+  in
+  let _, _, output = parse_string source in
+  let definitions =
+    (expect_ast output).items
+    |> List.map (function
+      | Ast.Aggregate_definition definition -> definition
+      | _ -> Alcotest.fail "inheritance fixture produced another item kind")
+  in
+  let root = List.nth definitions 0 in
+  Alcotest.(check bool) "root has no base" true (Option.is_none root.base);
+  let derived_base = expect_aggregate_base "Root" (List.nth definitions 1) in
+  Alcotest.(check string) "colon spelling" ":" derived_base.base_colon_spelling;
+  let compact_base = expect_aggregate_base "Root" (List.nth definitions 2) in
+  Alcotest.(check int)
+    "compact base spans the colon and name" 2
+    (List.length compact_base.base_location.source_segments);
+  let overlay = List.nth definitions 4 in
+  Alcotest.(check bool)
+    "source-permitted union base stays a union" true
+    (overlay.aggregate_kind = Ast.Union_aggregate);
+  ignore (expect_aggregate_base "Raw" overlay);
+  match overlay.backing with
+  | Some backing ->
+      ignore (expect_internal_specifier "I64i" backing.backing_type_specifier)
+  | None -> Alcotest.fail "backed union inheritance lost its backing"
+
+let aggregate_inheritance_modes_and_visibility () =
+  let source =
+    "class Root {};\n\
+     class Self:Self {};\n\
+     class Derived:Root {};\n\
+     #ifdef Derived\n\
+     I64 visible;\n\
+     #endif"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_definition root;
+       Ast.Aggregate_definition self;
+       Ast.Aggregate_definition derived;
+       Ast.Global_variable visible;
+      ] ->
+          Alcotest.(check bool)
+            "root remains unbased" true (Option.is_none root.base);
+          ignore (expect_aggregate_base "Self" self);
+          ignore (expect_aggregate_base "Root" derived);
+          Alcotest.(check string)
+            "derived name is visible to following preprocessing" "visible"
+            visible.name.spelling
+      | items ->
+          Alcotest.failf "inheritance mode fixture produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let pinned_adam_sprite_inheritance () =
+  let source = pinned_lines "Adam/Gr/Gr.HH" ~first:18 ~last:115 in
+  let expected_names =
+    [
+      "CSpriteBase";
+      "CSpriteColor";
+      "CSpriteDitherColor";
+      "CSpriteT";
+      "CSpritePt";
+      "CSpritePtRad";
+      "CSpritePtPt";
+      "CSpritePtPtAng";
+      "CSpritePtWH";
+      "CSpritePtWHU8s";
+      "CSpritePtWHAng";
+      "CSpritePtWHAngSides";
+      "CSpriteNumU8s";
+      "CSpriteNumPtU8s";
+      "CSpritePtStr";
+      "CSpriteMeshU8s";
+      "CSpritePtMeshU8s";
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~path:"Adam/Gr/Gr.sprite-hierarchy.HH"
+          ~compilation_mode:mode source
+      in
+      let definitions =
+        (expect_ast output).items
+        |> List.map (function
+          | Ast.Aggregate_definition definition -> definition
+          | _ -> Alcotest.fail "sprite slice produced another item kind")
+      in
+      Alcotest.(check (list string))
+        "unfiltered sprite definition order" expected_names
+        (List.map
+           (fun (definition : Ast.aggregate_definition) ->
+             definition.name.spelling)
+           definitions);
+      Alcotest.(check int)
+        "sixteen sprite classes have bases" 16
+        (List.fold_left
+           (fun count (definition : Ast.aggregate_definition) ->
+             if Option.is_some definition.base then count + 1 else count)
+           0 definitions);
+      ignore (expect_aggregate_base "CSpriteBase" (List.nth definitions 1));
+      ignore (expect_aggregate_base "CSpritePt" (List.nth definitions 5));
+      ignore (expect_aggregate_base "CSpritePtWHAng" (List.nth definitions 11)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let pinned_kernel_inheritance_chains () =
+  let source =
+    [
+      "extern class CHash; extern class CAOTImportExport;";
+      pinned_lines "Kernel/KernelA.HH" ~first:722 ~last:740;
+      pinned_lines "Kernel/KernelA.HH" ~first:763 ~last:772;
+      "extern class CMemberLst;";
+      pinned_lines "Kernel/KernelA.HH" ~first:837 ~last:848;
+      "extern class CExternUsage;";
+      pinned_lines "Kernel/KernelA.HH" ~first:860 ~last:867;
+    ]
+    |> String.concat "\n"
+  in
+  let _, _, output =
+    parse_string ~path:"Kernel/KernelA.hash-inheritance.HH" source
+  in
+  let definitions =
+    (expect_ast output).items
+    |> List.filter_map (function
+      | Ast.Aggregate_definition definition -> Some definition
+      | Ast.Aggregate_forward_declaration _ -> None
+      | _ -> Alcotest.fail "kernel hierarchy produced another item kind")
+  in
+  let find name =
+    List.find
+      (fun (definition : Ast.aggregate_definition) ->
+        String.equal definition.name.spelling name)
+      definitions
+  in
+  List.iter
+    (fun (name, base) -> ignore (expect_aggregate_base base (find name)))
+    [
+      ("CHashSrcSym", "CHash");
+      ("CHashGeneric", "CHash");
+      ("CHashExport", "CHashSrcSym");
+      ("CHashImport", "CHashSrcSym");
+      ("CHashClass", "CHashSrcSym");
+      ("CHashFun", "CHashClass");
+    ]
+
+let aggregate_inheritance_failures_recover () =
+  List.iter
+    (fun (description, source, expected_code) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no public AST")
+        true
+        (Option.is_none output.ast);
+      Alcotest.(check (list string))
+        (description ^ " diagnostic")
+        [ expected_code ]
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           output.diagnostics);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check string)
+            (description ^ " resumes after the aggregate")
+            "global-variable"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not reach the following declaration"
+            description)
+    [
+      ("missing base", "class Bad: { I64 value; }; I64 after;", "HCPARSE0121");
+      ( "unknown base",
+        "class Bad:Missing { I64 value; }; I64 after;",
+        "HCPARSE0121" );
+      ( "primitive base",
+        "class Bad:I64 { I64 value; }; I64 after;",
+        "HCPARSE0121" );
+      ( "internal base",
+        "class Bad:I64i { I64 value; }; I64 after;",
+        "HCPARSE0121" );
+      ( "second base",
+        "class Root {}; class Other {}; class Bad:Root,Other { I64 value; }; \
+         I64 after;",
+        "HCPARSE0126" );
+    ]
+
+let aggregate_inheritance_provenance_and_dumps () =
+  let source =
+    "#define COLON :\n\
+     #define BASE Root\n\
+     class Root {};\n\
+     class Generated COLON BASE { I64 value; };"
+  in
+  let session, _, output = parse_string source in
+  let generated =
+    match (expect_ast output).items with
+    | [ Ast.Aggregate_definition _; Ast.Aggregate_definition generated ] ->
+        generated
+    | items ->
+        Alcotest.failf "generated inheritance produced %d items"
+          (List.length items)
+  in
+  let base = expect_aggregate_base "Root" generated in
+  Alcotest.(check bool)
+    "definition-backed colon keeps its definition" true
+    (Option.is_some base.base_colon_location.defined_at);
+  Alcotest.(check bool)
+    "definition-backed base keeps its definition" true
+    (Option.is_some base.base_name.location.defined_at);
+  let sources = Session.sources session in
+  let ast = expect_ast output in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human inheritance dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON inheritance dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump distinguishes the base" true
+    (contains human "base span=" && contains human "colon spelling=\":\"");
+  let open Yojson.Safe.Util in
+  let json_items =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+  in
+  let json_base = List.nth json_items 1 |> member "base" in
+  Alcotest.(check string)
+    "JSON base name" "Root"
+    (json_base |> member "name" |> member "spelling" |> to_string);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "derived.HC" in
+      write_file root_file "class Root {};\n#include \"derived\"";
+      write_file definition_file "class Included:Root { I64 value; };";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        match (expect_ast include_output).items with
+        | [ Ast.Aggregate_definition _; Ast.Aggregate_definition included ] ->
+            included
+        | items ->
+            Alcotest.failf "included inheritance produced %d items"
+              (List.length items)
+      in
+      let included_base = expect_aggregate_base "Root" included in
+      let base_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_base.base_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included base keeps its canonical path"
+        (Unix.realpath definition_file)
+        (Source_file.path base_source))
 
 let named_type_source_behavior () =
   let statements = pinned "Compiler/PrsStmt.HC" in
@@ -13618,6 +13916,20 @@ let tests =
       aggregate_backing_failures_recover;
     Alcotest.test_case "aggregate backing provenance and dumps" `Quick
       aggregate_backing_provenance_and_dumps;
+    Alcotest.test_case "pinned aggregate inheritance behavior" `Quick
+      aggregate_inheritance_source_behavior;
+    Alcotest.test_case "direct aggregate inheritance" `Quick
+      direct_aggregate_inheritance;
+    Alcotest.test_case "aggregate inheritance modes and visibility" `Quick
+      aggregate_inheritance_modes_and_visibility;
+    Alcotest.test_case "pinned Adam sprite inheritance" `Quick
+      pinned_adam_sprite_inheritance;
+    Alcotest.test_case "pinned kernel inheritance chains" `Quick
+      pinned_kernel_inheritance_chains;
+    Alcotest.test_case "aggregate inheritance failures recover" `Quick
+      aggregate_inheritance_failures_recover;
+    Alcotest.test_case "aggregate inheritance provenance and dumps" `Quick
+      aggregate_inheritance_provenance_and_dumps;
     Alcotest.test_case "pinned named type behavior" `Quick
       named_type_source_behavior;
     Alcotest.test_case "direct named type declarations" `Quick

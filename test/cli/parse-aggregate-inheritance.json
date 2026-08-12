@@ -1,0 +1,1669 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-aggregate-inheritance.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 148
+    },
+    "items": [
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 5
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Root",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 10
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 10
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 12
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 18
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 18
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "root",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 23
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 3,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 23
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 3,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 3,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 24
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 23
+                    },
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 3,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 15,
+                "stop": 24
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 18
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 19,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 3,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 4,
+            "column": 1,
+            "source_id": 0,
+            "start": 25,
+            "stop": 26
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 4,
+            "column": 2,
+            "source_id": 0,
+            "start": 26,
+            "stop": 27
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 4,
+              "column": 2,
+              "source_id": 0,
+              "start": 26,
+              "stop": 27
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 27
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 10
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 15,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 19,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 3,
+              "column": 11,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 4,
+              "column": 2,
+              "source_id": 0,
+              "start": 26,
+              "stop": 27
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "modifiers": [
+          {
+            "kind": "public",
+            "spelling": "public",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 28,
+                "stop": 34
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 5,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 34
+                }
+              ]
+            }
+          }
+        ],
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 8,
+              "source_id": 0,
+              "start": 35,
+              "stop": 40
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 8,
+                "source_id": 0,
+                "start": 35,
+                "stop": 40
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Derived",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 14,
+              "source_id": 0,
+              "start": 41,
+              "stop": 48
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 14,
+                "source_id": 0,
+                "start": 41,
+                "stop": 48
+              }
+            ]
+          }
+        },
+        "base": {
+          "colon": {
+            "spelling": ":",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 22,
+                "source_id": 0,
+                "start": 49,
+                "stop": 50
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 5,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 50
+                }
+              ]
+            }
+          },
+          "name": {
+            "spelling": "Root",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 24,
+                "source_id": 0,
+                "start": 51,
+                "stop": 55
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 5,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 55
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 22,
+              "source_id": 0,
+              "start": 49,
+              "stop": 55
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 22,
+                "source_id": 0,
+                "start": 49,
+                "stop": 50
+              },
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 5,
+                "column": 24,
+                "source_id": 0,
+                "start": 51,
+                "stop": 55
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 6,
+            "column": 1,
+            "source_id": 0,
+            "start": 56,
+            "stop": 57
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 63
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 7,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 63
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "child",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 7,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 64,
+                      "stop": 69
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 7,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 64,
+                        "stop": 69
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 7,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 69,
+                      "stop": 70
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 7,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 69,
+                        "stop": 70
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 7,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 64,
+                    "stop": 70
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 7,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 64,
+                      "stop": 69
+                    },
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 7,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 69,
+                      "stop": 70
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 60,
+                "stop": 70
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 63
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 7,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 64,
+                  "stop": 69
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 7,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 69,
+                  "stop": 70
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 8,
+            "column": 1,
+            "source_id": 0,
+            "start": 71,
+            "stop": 72
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 71,
+              "stop": 72
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 8,
+            "column": 2,
+            "source_id": 0,
+            "start": 72,
+            "stop": 73
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 8,
+              "column": 2,
+              "source_id": 0,
+              "start": 72,
+              "stop": 73
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 5,
+            "column": 1,
+            "source_id": 0,
+            "start": 28,
+            "stop": 73
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 28,
+              "stop": 34
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 8,
+              "source_id": 0,
+              "start": 35,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 14,
+              "source_id": 0,
+              "start": 41,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 22,
+              "source_id": 0,
+              "start": 49,
+              "stop": 50
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 5,
+              "column": 24,
+              "source_id": 0,
+              "start": 51,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 60,
+              "stop": 63
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 7,
+              "column": 7,
+              "source_id": 0,
+              "start": 64,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 7,
+              "column": 12,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 71,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 8,
+              "column": 2,
+              "source_id": 0,
+              "start": 72,
+              "stop": 73
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "union",
+        "backing": {
+          "type": {
+            "kind": "internal",
+            "primitive": "I64",
+            "spelling": "I64i",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 9,
+                "column": 1,
+                "source_id": 0,
+                "start": 74,
+                "stop": 78
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 9,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 78
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 74,
+              "stop": 78
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 9,
+                "column": 1,
+                "source_id": 0,
+                "start": 74,
+                "stop": 78
+              }
+            ]
+          }
+        },
+        "aggregate_keyword": {
+          "spelling": "union",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 6,
+              "source_id": 0,
+              "start": 79,
+              "stop": 84
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 9,
+                "column": 6,
+                "source_id": 0,
+                "start": 79,
+                "stop": 84
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Raw",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 12,
+              "source_id": 0,
+              "start": 85,
+              "stop": 88
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 9,
+                "column": 12,
+                "source_id": 0,
+                "start": 85,
+                "stop": 88
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 10,
+            "column": 1,
+            "source_id": 0,
+            "start": 89,
+            "stop": 90
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 10,
+              "column": 1,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 11,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 96
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 11,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 93,
+                    "stop": 96
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "value",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 11,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 97,
+                      "stop": 102
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 11,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 97,
+                        "stop": 102
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 11,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 102,
+                      "stop": 103
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 11,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 102,
+                        "stop": 103
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 11,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 97,
+                    "stop": 103
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 11,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 97,
+                      "stop": 102
+                    },
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 11,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 102,
+                      "stop": 103
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 11,
+                "column": 3,
+                "source_id": 0,
+                "start": 93,
+                "stop": 103
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 11,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 96
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 11,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 97,
+                  "stop": 102
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 11,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 103
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 12,
+            "column": 1,
+            "source_id": 0,
+            "start": 104,
+            "stop": 105
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 12,
+              "column": 1,
+              "source_id": 0,
+              "start": 104,
+              "stop": 105
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 12,
+            "column": 2,
+            "source_id": 0,
+            "start": 105,
+            "stop": 106
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 12,
+              "column": 2,
+              "source_id": 0,
+              "start": 105,
+              "stop": 106
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 9,
+            "column": 1,
+            "source_id": 0,
+            "start": 74,
+            "stop": 106
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 74,
+              "stop": 78
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 6,
+              "source_id": 0,
+              "start": 79,
+              "stop": 84
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 9,
+              "column": 12,
+              "source_id": 0,
+              "start": 85,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 10,
+              "column": 1,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 11,
+              "column": 3,
+              "source_id": 0,
+              "start": 93,
+              "stop": 96
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 11,
+              "column": 7,
+              "source_id": 0,
+              "start": 97,
+              "stop": 102
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 11,
+              "column": 12,
+              "source_id": 0,
+              "start": 102,
+              "stop": 103
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 12,
+              "column": 1,
+              "source_id": 0,
+              "start": 104,
+              "stop": 105
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 12,
+              "column": 2,
+              "source_id": 0,
+              "start": 105,
+              "stop": 106
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "union",
+        "backing": {
+          "type": {
+            "kind": "internal",
+            "primitive": "I64",
+            "spelling": "I64i",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 1,
+                "source_id": 0,
+                "start": 107,
+                "stop": 111
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 13,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 107,
+                  "stop": 111
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 1,
+              "source_id": 0,
+              "start": 107,
+              "stop": 111
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 1,
+                "source_id": 0,
+                "start": 107,
+                "stop": 111
+              }
+            ]
+          }
+        },
+        "aggregate_keyword": {
+          "spelling": "union",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 6,
+              "source_id": 0,
+              "start": 112,
+              "stop": 117
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 6,
+                "source_id": 0,
+                "start": 112,
+                "stop": 117
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Overlay",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 12,
+              "source_id": 0,
+              "start": 118,
+              "stop": 125
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 12,
+                "source_id": 0,
+                "start": 118,
+                "stop": 125
+              }
+            ]
+          }
+        },
+        "base": {
+          "colon": {
+            "spelling": ":",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 20,
+                "source_id": 0,
+                "start": 126,
+                "stop": 127
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 13,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 126,
+                  "stop": 127
+                }
+              ]
+            }
+          },
+          "name": {
+            "spelling": "Raw",
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 22,
+                "source_id": 0,
+                "start": 128,
+                "stop": 131
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 13,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 128,
+                  "stop": 131
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 20,
+              "source_id": 0,
+              "start": 126,
+              "stop": 131
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 20,
+                "source_id": 0,
+                "start": 126,
+                "stop": 127
+              },
+              {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 13,
+                "column": 22,
+                "source_id": 0,
+                "start": 128,
+                "stop": 131
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 14,
+            "column": 1,
+            "source_id": 0,
+            "start": 132,
+            "stop": 133
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 14,
+              "column": 1,
+              "source_id": 0,
+              "start": 132,
+              "stop": 133
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I8",
+              "spelling": "I8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 15,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 136,
+                  "stop": 138
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 15,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 136,
+                    "stop": 138
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "byte",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 15,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 139,
+                      "stop": 143
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 15,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 139,
+                        "stop": 143
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 15,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 143,
+                      "stop": 144
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-inheritance.hc",
+                        "line": 15,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 143,
+                        "stop": 144
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-inheritance.hc",
+                    "line": 15,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 144
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 15,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 139,
+                      "stop": 143
+                    },
+                    {
+                      "path": "cli/parse-aggregate-inheritance.hc",
+                      "line": 15,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 143,
+                      "stop": 144
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-inheritance.hc",
+                "line": 15,
+                "column": 3,
+                "source_id": 0,
+                "start": 136,
+                "stop": 144
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 15,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 136,
+                  "stop": 138
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 15,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 143
+                },
+                {
+                  "path": "cli/parse-aggregate-inheritance.hc",
+                  "line": 15,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 143,
+                  "stop": 144
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 16,
+            "column": 1,
+            "source_id": 0,
+            "start": 145,
+            "stop": 146
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 16,
+              "column": 1,
+              "source_id": 0,
+              "start": 145,
+              "stop": 146
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 16,
+            "column": 2,
+            "source_id": 0,
+            "start": 146,
+            "stop": 147
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 16,
+              "column": 2,
+              "source_id": 0,
+              "start": 146,
+              "stop": 147
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-inheritance.hc",
+            "line": 13,
+            "column": 1,
+            "source_id": 0,
+            "start": 107,
+            "stop": 147
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 1,
+              "source_id": 0,
+              "start": 107,
+              "stop": 111
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 6,
+              "source_id": 0,
+              "start": 112,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 12,
+              "source_id": 0,
+              "start": 118,
+              "stop": 125
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 20,
+              "source_id": 0,
+              "start": 126,
+              "stop": 127
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 13,
+              "column": 22,
+              "source_id": 0,
+              "start": 128,
+              "stop": 131
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 14,
+              "column": 1,
+              "source_id": 0,
+              "start": 132,
+              "stop": 133
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 15,
+              "column": 3,
+              "source_id": 0,
+              "start": 136,
+              "stop": 138
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 15,
+              "column": 6,
+              "source_id": 0,
+              "start": 139,
+              "stop": 143
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 15,
+              "column": 10,
+              "source_id": 0,
+              "start": 143,
+              "stop": 144
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 16,
+              "column": 1,
+              "source_id": 0,
+              "start": 145,
+              "stop": 146
+            },
+            {
+              "path": "cli/parse-aggregate-inheritance.hc",
+              "line": 16,
+              "column": 2,
+              "source_id": 0,
+              "start": 146,
+              "stop": 147
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
