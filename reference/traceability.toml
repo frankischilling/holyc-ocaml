@@ -868,7 +868,7 @@ parameter_name_status = "optional"
 variadic_marker_status = "implemented"
 function_symbol_publication = "after the complete semicolon"
 default_argument_status = "core syntax implemented in HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
-lastclass_default_status = "planned"
+lastclass_default_status = "implemented in HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
 register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
 function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 array_parameter_status = "rejected to match PrsArrayDims"
@@ -932,8 +932,46 @@ nesting_limit_diagnostic = "HCPARSE0021"
 evaluation_status = "planned"
 conversion_status = "planned"
 string_storage_status = "planned"
-lastclass_default_status = "planned"
+lastclass_default_status = "implemented in HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
 call_site_default_filling = "planned"
+
+[[feature]]
+id = "HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
+description = "A parameter default written as lastclass retains a distinct source-positioned marker in ordinary and nested function signatures."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst PRS1B_FUN_ARG lastclass branch",
+  "Compiler/PrsExp.HC:PrsFunCall last_class substitution",
+  "Compiler/CompilerA.HH:KW_LASTCLASS",
+  "Kernel/KernelA.HH:MLF_DFT_AVAILABLE and MLF_LASTCLASS",
+  "Doc/HolyC.DD:lastclass default argument note",
+  "Demo/LastClass.HC"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-lastclass-default.hc",
+  "test/cli/parse-lastclass-default.human",
+  "test/cli/parse-lastclass-default.json",
+  "test/cli/parse-lastclass-error.hc",
+  "test/cli/parse-lastclass-error.human",
+  "test/cli/parse-lastclass-error.json"
+]
+status = "implemented"
+issue = 91
+ast_schema = "holyc-ast-v1"
+accepted_contexts = ["ordinary parameters", "nested function-pointer parameters"]
+compilation_modes = ["jit", "aot"]
+ordinary_expression_distinction = "distinct parameter_default_value constructor"
+non_trailing_defaults = "implemented"
+definition_and_include_provenance = "preserved"
+expression_continuation = "rejected by the surrounding parameter grammar"
+member_flag_application = "planned"
+previous_argument_class_tracking = "planned"
+call_time_class_name_substitution = "planned"
 
 [[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"

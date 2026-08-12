@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0010",
+    "severity": "error",
+    "message": "expected ',' or ')' after function parameter, but found \"+\"",
+    "primary": {
+      "path": "cli/parse-lastclass-error.hc",
+      "line": 1,
+      "column": 52,
+      "source_id": 0,
+      "start": 51,
+      "stop": 52
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

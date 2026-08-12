@@ -270,9 +270,18 @@ type global_declaration = {
   location : location;
 }
 
+type lastclass_default = {
+  lastclass_spelling : string;
+  lastclass_location : location;
+}
+
+type parameter_default_value =
+  | Expression_default of expression
+  | Lastclass_default of lastclass_default
+
 type parameter_default = {
   equals : location;
-  value : expression;
+  value : parameter_default_value;
   location : location;
 }
 
@@ -549,6 +558,9 @@ let expression_location = function
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }
+
+let make_lastclass_default ~spelling ~location =
+  { lastclass_spelling = spelling; lastclass_location = location }
 
 let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
     ~name ~function_pointer ~default ~delimiter ~location =

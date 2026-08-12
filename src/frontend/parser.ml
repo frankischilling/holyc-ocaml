@@ -1365,20 +1365,37 @@ and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
 
 let parse_parameter_default cursor =
   let equals = take cursor in
-  match
-    parse_expression cursor ~context:Default_expression ~depth:0
-      ~minimum_binding_power:0
-  with
-  | None -> None
-  | Some (expression : parsed_expression) ->
-      let tokens = equals.token :: expression.tokens in
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.Keyword Keyword.Lastclass ->
+      let keyword = take cursor in
+      let tokens = [ equals.token; keyword.token ] in
+      let lastclass =
+        Ast.make_lastclass_default ~spelling:keyword.token.raw
+          ~location:(token_location keyword.token)
+      in
       let node =
         Ast.make_parameter_default
           ~equals:(token_location equals.token)
-          ~value:expression.node
+          ~value:(Ast.Lastclass_default lastclass)
           ~location:(location_from_expression_tokens tokens)
       in
       Some ({ node; tokens } : parsed_parameter_default)
+  | _ -> (
+      match
+        parse_expression cursor ~context:Default_expression ~depth:0
+          ~minimum_binding_power:0
+      with
+      | None -> None
+      | Some (expression : parsed_expression) ->
+          let tokens = equals.token :: expression.tokens in
+          let node =
+            Ast.make_parameter_default
+              ~equals:(token_location equals.token)
+              ~value:(Ast.Expression_default expression.node)
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Some ({ node; tokens } : parsed_parameter_default))
 
 let declaration_binding_kind token =
   match token.Token.kind with

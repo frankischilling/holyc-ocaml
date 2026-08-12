@@ -1,0 +1,1977 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-lastclass-default.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 143
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 8,
+                "source_id": 0,
+                "start": 7,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "StructName",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 11,
+              "source_id": 0,
+              "start": 10,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 11,
+                "source_id": 0,
+                "start": 10,
+                "stop": 20
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 1,
+            "column": 21,
+            "source_id": 0,
+            "start": 20,
+            "stop": 21
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "U8",
+              "spelling": "U8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 23
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 23
+                  }
+                ]
+              }
+            },
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 25
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 1,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 25
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "value",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 30
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 30
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 31
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 22,
+                "source_id": 0,
+                "start": 21,
+                "stop": 31
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                }
+              ]
+            }
+          },
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "U8",
+              "spelling": "U8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 33
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 33
+                  }
+                ]
+              }
+            },
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 35,
+                    "source_id": 0,
+                    "start": 34,
+                    "stop": 35
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 1,
+                      "column": 35,
+                      "source_id": 0,
+                      "start": 34,
+                      "stop": 35
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "class_name",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 45
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 45
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 46
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 46,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 46
+                  }
+                ]
+              },
+              "value": {
+                "kind": "lastclass_default",
+                "spelling": "lastclass",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 47,
+                    "source_id": 0,
+                    "start": 46,
+                    "stop": 55
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 1,
+                      "column": 47,
+                      "source_id": 0,
+                      "start": 46,
+                      "stop": 55
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 55
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 46,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 46
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 47,
+                    "source_id": 0,
+                    "start": 46,
+                    "stop": 55
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 56,
+                  "source_id": 0,
+                  "start": 55,
+                  "stop": 56
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 56,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 56
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 32,
+                "source_id": 0,
+                "start": 31,
+                "stop": 56
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 33
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 34,
+                  "stop": 35
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 45
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 46
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 47,
+                  "source_id": 0,
+                  "start": 46,
+                  "stop": 55
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 56,
+                  "source_id": 0,
+                  "start": 55,
+                  "stop": 56
+                }
+              ]
+            }
+          },
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 57,
+                  "source_id": 0,
+                  "start": 56,
+                  "stop": 59
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 57,
+                    "source_id": 0,
+                    "start": 56,
+                    "stop": 59
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "mode",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 61,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 64
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 61,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 64
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 65,
+                  "source_id": 0,
+                  "start": 64,
+                  "stop": 65
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 65,
+                    "source_id": 0,
+                    "start": 64,
+                    "stop": 65
+                  }
+                ]
+              },
+              "value": {
+                "kind": "integer_literal",
+                "spelling": "1",
+                "value": "0x0000000000000001",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 66,
+                    "source_id": 0,
+                    "start": 65,
+                    "stop": 66
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 1,
+                      "column": 66,
+                      "source_id": 0,
+                      "start": 65,
+                      "stop": 66
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 65,
+                  "source_id": 0,
+                  "start": 64,
+                  "stop": 66
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 65,
+                    "source_id": 0,
+                    "start": 64,
+                    "stop": 65
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 1,
+                    "column": 66,
+                    "source_id": 0,
+                    "start": 65,
+                    "stop": 66
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 1,
+                "column": 57,
+                "source_id": 0,
+                "start": 56,
+                "stop": 66
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 57,
+                  "source_id": 0,
+                  "start": 56,
+                  "stop": 59
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 61,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 64
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 65,
+                  "source_id": 0,
+                  "start": 64,
+                  "stop": 65
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 1,
+                  "column": 66,
+                  "source_id": 0,
+                  "start": 65,
+                  "stop": 66
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 1,
+            "column": 67,
+            "source_id": 0,
+            "start": 66,
+            "stop": 67
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 67,
+              "source_id": 0,
+              "start": 66,
+              "stop": 67
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 1,
+            "column": 68,
+            "source_id": 0,
+            "start": 67,
+            "stop": 68
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 68,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 68
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 11,
+              "source_id": 0,
+              "start": 10,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 22,
+              "source_id": 0,
+              "start": 21,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 32,
+              "source_id": 0,
+              "start": 31,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 35,
+              "source_id": 0,
+              "start": 34,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 36,
+              "source_id": 0,
+              "start": 35,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 47,
+              "source_id": 0,
+              "start": 46,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 56,
+              "source_id": 0,
+              "start": 55,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 59
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 61,
+              "source_id": 0,
+              "start": 60,
+              "stop": 64
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 65,
+              "source_id": 0,
+              "start": 64,
+              "stop": 65
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 66,
+              "source_id": 0,
+              "start": 65,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 67,
+              "source_id": 0,
+              "start": 66,
+              "stop": 67
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 1,
+              "column": 68,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            }
+          ]
+        }
+      },
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 75
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 69,
+                "stop": 75
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 76,
+              "stop": 78
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 76,
+                "stop": 78
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Register",
+          "location": {
+            "span": {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 79,
+              "stop": 87
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 79,
+                "stop": 87
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 2,
+            "column": 19,
+            "source_id": 0,
+            "start": 87,
+            "stop": 88
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 19,
+              "source_id": 0,
+              "start": 87,
+              "stop": 88
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 91
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 88,
+                    "stop": 91
+                  }
+                ]
+              }
+            },
+            "function_pointer": {
+              "kind": "function_pointer",
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 92,
+                  "stop": 93
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 92,
+                    "stop": 93
+                  }
+                ]
+              },
+              "pointer_layers": [
+                {
+                  "depth": 1,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 2,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 93,
+                      "stop": 94
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 93,
+                        "stop": 94
+                      }
+                    ]
+                  }
+                }
+              ],
+              "name": {
+                "spelling": "callback",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 94,
+                    "stop": 102
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 2,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 94,
+                      "stop": 102
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 34,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 103
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 34,
+                    "source_id": 0,
+                    "start": 102,
+                    "stop": 103
+                  }
+                ]
+              },
+              "signature_opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 103,
+                  "stop": 104
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 35,
+                    "source_id": 0,
+                    "start": 103,
+                    "stop": 104
+                  }
+                ]
+              },
+              "parameters": [
+                {
+                  "type": {
+                    "kind": "primitive",
+                    "primitive": "U8",
+                    "spelling": "U8",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 36,
+                        "source_id": 0,
+                        "start": 104,
+                        "stop": 106
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 36,
+                          "source_id": 0,
+                          "start": 104,
+                          "stop": 106
+                        }
+                      ]
+                    }
+                  },
+                  "pointer_layers": [
+                    {
+                      "depth": 1,
+                      "spelling": "*",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 39,
+                          "source_id": 0,
+                          "start": 107,
+                          "stop": 108
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-lastclass-default.hc",
+                            "line": 2,
+                            "column": 39,
+                            "source_id": 0,
+                            "start": 107,
+                            "stop": 108
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "name": {
+                    "spelling": "object",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 40,
+                        "source_id": 0,
+                        "start": 108,
+                        "stop": 114
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 40,
+                          "source_id": 0,
+                          "start": 108,
+                          "stop": 114
+                        }
+                      ]
+                    }
+                  },
+                  "delimiter": {
+                    "kind": "comma",
+                    "spelling": ",",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 46,
+                        "source_id": 0,
+                        "start": 114,
+                        "stop": 115
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 46,
+                          "source_id": 0,
+                          "start": 114,
+                          "stop": 115
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 2,
+                      "column": 36,
+                      "source_id": 0,
+                      "start": 104,
+                      "stop": 115
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 36,
+                        "source_id": 0,
+                        "start": 104,
+                        "stop": 106
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 39,
+                        "source_id": 0,
+                        "start": 107,
+                        "stop": 108
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 40,
+                        "source_id": 0,
+                        "start": 108,
+                        "stop": 114
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 46,
+                        "source_id": 0,
+                        "start": 114,
+                        "stop": 115
+                      }
+                    ]
+                  }
+                },
+                {
+                  "type": {
+                    "kind": "primitive",
+                    "primitive": "U8",
+                    "spelling": "U8",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 47,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 117
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 47,
+                          "source_id": 0,
+                          "start": 115,
+                          "stop": 117
+                        }
+                      ]
+                    }
+                  },
+                  "pointer_layers": [
+                    {
+                      "depth": 1,
+                      "spelling": "*",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 50,
+                          "source_id": 0,
+                          "start": 118,
+                          "stop": 119
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-lastclass-default.hc",
+                            "line": 2,
+                            "column": 50,
+                            "source_id": 0,
+                            "start": 118,
+                            "stop": 119
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "name": {
+                    "spelling": "class_name",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 51,
+                        "source_id": 0,
+                        "start": 119,
+                        "stop": 129
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 51,
+                          "source_id": 0,
+                          "start": 119,
+                          "stop": 129
+                        }
+                      ]
+                    }
+                  },
+                  "default": {
+                    "equals": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 61,
+                        "source_id": 0,
+                        "start": 129,
+                        "stop": 130
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 61,
+                          "source_id": 0,
+                          "start": 129,
+                          "stop": 130
+                        }
+                      ]
+                    },
+                    "value": {
+                      "kind": "lastclass_default",
+                      "spelling": "lastclass",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 62,
+                          "source_id": 0,
+                          "start": 130,
+                          "stop": 139
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-lastclass-default.hc",
+                            "line": 2,
+                            "column": 62,
+                            "source_id": 0,
+                            "start": 130,
+                            "stop": 139
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 61,
+                        "source_id": 0,
+                        "start": 129,
+                        "stop": 139
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 61,
+                          "source_id": 0,
+                          "start": 129,
+                          "stop": 130
+                        },
+                        {
+                          "path": "cli/parse-lastclass-default.hc",
+                          "line": 2,
+                          "column": 62,
+                          "source_id": 0,
+                          "start": 130,
+                          "stop": 139
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-lastclass-default.hc",
+                      "line": 2,
+                      "column": 47,
+                      "source_id": 0,
+                      "start": 115,
+                      "stop": 139
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 47,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 117
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 50,
+                        "source_id": 0,
+                        "start": 118,
+                        "stop": 119
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 51,
+                        "source_id": 0,
+                        "start": 119,
+                        "stop": 129
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 61,
+                        "source_id": 0,
+                        "start": 129,
+                        "stop": 130
+                      },
+                      {
+                        "path": "cli/parse-lastclass-default.hc",
+                        "line": 2,
+                        "column": 62,
+                        "source_id": 0,
+                        "start": 130,
+                        "stop": 139
+                      }
+                    ]
+                  }
+                }
+              ],
+              "signature_closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 71,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 140
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 71,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 140
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 92,
+                  "stop": 140
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 92,
+                    "stop": 93
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 93,
+                    "stop": 94
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 94,
+                    "stop": 102
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 34,
+                    "source_id": 0,
+                    "start": 102,
+                    "stop": 103
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 35,
+                    "source_id": 0,
+                    "start": 103,
+                    "stop": 104
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 104,
+                    "stop": 106
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 107,
+                    "stop": 108
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 108,
+                    "stop": 114
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 46,
+                    "source_id": 0,
+                    "start": 114,
+                    "stop": 115
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 47,
+                    "source_id": 0,
+                    "start": 115,
+                    "stop": 117
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 118,
+                    "stop": 119
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 51,
+                    "source_id": 0,
+                    "start": 119,
+                    "stop": 129
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 61,
+                    "source_id": 0,
+                    "start": 129,
+                    "stop": 130
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 130,
+                    "stop": 139
+                  },
+                  {
+                    "path": "cli/parse-lastclass-default.hc",
+                    "line": 2,
+                    "column": 71,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 140
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lastclass-default.hc",
+                "line": 2,
+                "column": 20,
+                "source_id": 0,
+                "start": 88,
+                "stop": 140
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 91
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 92,
+                  "stop": 93
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 94
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 94,
+                  "stop": 102
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 34,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 103
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 103,
+                  "stop": 104
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 104,
+                  "stop": 106
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 107,
+                  "stop": 108
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 108,
+                  "stop": 114
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 114,
+                  "stop": 115
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 47,
+                  "source_id": 0,
+                  "start": 115,
+                  "stop": 117
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 118,
+                  "stop": 119
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 51,
+                  "source_id": 0,
+                  "start": 119,
+                  "stop": 129
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 61,
+                  "source_id": 0,
+                  "start": 129,
+                  "stop": 130
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 130,
+                  "stop": 139
+                },
+                {
+                  "path": "cli/parse-lastclass-default.hc",
+                  "line": 2,
+                  "column": 71,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 140
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 2,
+            "column": 72,
+            "source_id": 0,
+            "start": 140,
+            "stop": 141
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 72,
+              "source_id": 0,
+              "start": 140,
+              "stop": 141
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 2,
+            "column": 73,
+            "source_id": 0,
+            "start": 141,
+            "stop": 142
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 73,
+              "source_id": 0,
+              "start": 141,
+              "stop": 142
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lastclass-default.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 69,
+            "stop": 142
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 75
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 76,
+              "stop": 78
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 79,
+              "stop": 87
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 19,
+              "source_id": 0,
+              "start": 87,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 20,
+              "source_id": 0,
+              "start": 88,
+              "stop": 91
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 24,
+              "source_id": 0,
+              "start": 92,
+              "stop": 93
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 25,
+              "source_id": 0,
+              "start": 93,
+              "stop": 94
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 26,
+              "source_id": 0,
+              "start": 94,
+              "stop": 102
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 34,
+              "source_id": 0,
+              "start": 102,
+              "stop": 103
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 35,
+              "source_id": 0,
+              "start": 103,
+              "stop": 104
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 36,
+              "source_id": 0,
+              "start": 104,
+              "stop": 106
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 39,
+              "source_id": 0,
+              "start": 107,
+              "stop": 108
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 40,
+              "source_id": 0,
+              "start": 108,
+              "stop": 114
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 46,
+              "source_id": 0,
+              "start": 114,
+              "stop": 115
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 47,
+              "source_id": 0,
+              "start": 115,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 50,
+              "source_id": 0,
+              "start": 118,
+              "stop": 119
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 51,
+              "source_id": 0,
+              "start": 119,
+              "stop": 129
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 61,
+              "source_id": 0,
+              "start": 129,
+              "stop": 130
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 62,
+              "source_id": 0,
+              "start": 130,
+              "stop": 139
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 71,
+              "source_id": 0,
+              "start": 139,
+              "stop": 140
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 72,
+              "source_id": 0,
+              "start": 140,
+              "stop": 141
+            },
+            {
+              "path": "cli/parse-lastclass-default.hc",
+              "line": 2,
+              "column": 73,
+              "source_id": 0,
+              "start": 141,
+              "stop": 142
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
