@@ -271,6 +271,48 @@ type array_dimension = private {
   location : location;
 }
 
+type aggregate_member =
+  | Aggregate_member_declaration of aggregate_member_declaration
+  | Anonymous_union_member of anonymous_union_member
+  | Empty_aggregate_member of location
+
+and aggregate_member_declarator = private {
+  member_pointer_layers : pointer_layer list;
+  member_name : identifier;
+  member_array_dimensions : array_dimension list;
+  member_delimiter : declaration_delimiter;
+  member_declarator_location : location;
+}
+
+and aggregate_member_declaration = private {
+  member_type_specifier : type_specifier;
+  member_declarators : aggregate_member_declarator list;
+  member_declaration_location : location;
+}
+
+and anonymous_union_member = private {
+  anonymous_union_keyword_spelling : string;
+  anonymous_union_keyword_location : location;
+  anonymous_union_opening_brace : location;
+  anonymous_union_members : aggregate_member list;
+  anonymous_union_closing_brace : location;
+  anonymous_union_semicolon : location option;
+  anonymous_union_location : location;
+}
+
+type aggregate_definition = private {
+  modifiers : declaration_modifier list;
+  aggregate_kind : aggregate_kind;
+  aggregate_keyword_spelling : string;
+  aggregate_keyword_location : location;
+  name : identifier;
+  opening_brace : location;
+  members : aggregate_member list;
+  closing_brace : location;
+  semicolon : location;
+  location : location;
+}
+
 type global_declarator = private {
   pointer_layers : pointer_layer list;
   name : identifier;
@@ -602,6 +644,7 @@ type function_definition = private {
 
 type item =
   | Aggregate_forward_declaration of aggregate_forward_declaration
+  | Aggregate_definition of aggregate_definition
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
@@ -671,6 +714,43 @@ val make_array_dimension :
   closing_bracket:location ->
   location:location ->
   array_dimension
+
+val make_aggregate_member_declarator :
+  pointer_layers:pointer_layer list ->
+  name:identifier ->
+  array_dimensions:array_dimension list ->
+  delimiter:declaration_delimiter ->
+  location:location ->
+  aggregate_member_declarator
+
+val make_aggregate_member_declaration :
+  type_specifier:type_specifier ->
+  declarators:aggregate_member_declarator list ->
+  location:location ->
+  aggregate_member_declaration
+
+val make_anonymous_union_member :
+  keyword_spelling:string ->
+  keyword_location:location ->
+  opening_brace:location ->
+  members:aggregate_member list ->
+  closing_brace:location ->
+  semicolon:location option ->
+  location:location ->
+  anonymous_union_member
+
+val make_aggregate_definition :
+  modifiers:declaration_modifier list ->
+  aggregate_kind:aggregate_kind ->
+  aggregate_keyword_spelling:string ->
+  aggregate_keyword_location:location ->
+  name:identifier ->
+  opening_brace:location ->
+  members:aggregate_member list ->
+  closing_brace:location ->
+  semicolon:location ->
+  location:location ->
+  aggregate_definition
 
 val make_global_declarator :
   pointer_layers:pointer_layer list ->

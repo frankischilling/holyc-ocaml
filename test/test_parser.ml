@@ -83,6 +83,23 @@ let expect_one_aggregate_forward ast =
       Alcotest.failf "expected one aggregate forward declaration, got %d items"
         (List.length items)
 
+let expect_one_aggregate_definition ast =
+  match ast.Ast.items with
+  | [ Ast.Aggregate_definition definition ] -> definition
+  | items ->
+      Alcotest.failf "expected one aggregate definition, got %d items"
+        (List.length items)
+
+let expect_aggregate_member_declaration = function
+  | Ast.Aggregate_member_declaration declaration -> declaration
+  | Ast.Anonymous_union_member _ | Ast.Empty_aggregate_member _ ->
+      Alcotest.fail "expected an aggregate member declaration"
+
+let expect_anonymous_union_member = function
+  | Ast.Anonymous_union_member anonymous_union -> anonymous_union
+  | Ast.Aggregate_member_declaration _ | Ast.Empty_aggregate_member _ ->
+      Alcotest.fail "expected an anonymous union member"
+
 let expect_primitive_specifier = function
   | Ast.Primitive_type_specifier primitive -> primitive
   | Ast.Named_type_specifier name ->
@@ -371,6 +388,9 @@ let globals ast =
       | Ast.Aggregate_forward_declaration _ ->
           Alcotest.fail
             "expected singleton globals, got an aggregate forward declaration"
+      | Ast.Aggregate_definition _ ->
+          Alcotest.fail
+            "expected singleton globals, got an aggregate definition"
       | Ast.Global_declaration _ ->
           Alcotest.fail "expected singleton globals, got a declaration group"
       | Ast.Function_prototype _ ->
@@ -388,6 +408,9 @@ let prototypes ast =
       | Ast.Aggregate_forward_declaration _ ->
           Alcotest.fail
             "expected function prototypes, got an aggregate forward declaration"
+      | Ast.Aggregate_definition _ ->
+          Alcotest.fail
+            "expected function prototypes, got an aggregate definition"
       | Ast.Global_variable _ ->
           Alcotest.fail "expected function prototypes, got a singleton global"
       | Ast.Global_declaration _ ->
@@ -408,6 +431,9 @@ let function_definitions ast =
           Alcotest.fail
             "expected function definitions, got an aggregate forward \
              declaration"
+      | Ast.Aggregate_definition _ ->
+          Alcotest.fail
+            "expected function definitions, got an aggregate definition"
       | Ast.Global_variable _ ->
           Alcotest.fail "expected function definitions, got a singleton global"
       | Ast.Global_declaration _ ->
@@ -453,6 +479,9 @@ let supported_primitives () =
           Alcotest.fail
             "primitive fixture unexpectedly formed an aggregate forward \
              declaration"
+      | Ast.Aggregate_definition _ ->
+          Alcotest.fail
+            "primitive fixture unexpectedly formed an aggregate definition"
       | Ast.Global_declaration _ ->
           Alcotest.fail "primitive fixture unexpectedly formed a group"
       | Ast.Function_prototype _ ->
@@ -1887,6 +1916,421 @@ let deterministic_aggregate_forward_dumps () =
     "JSON aggregate kinds" [ "class"; "union" ]
     (List.map (fun item -> item |> member "aggregate_kind" |> to_string) items)
 
+let aggregate_definition_source_behavior () =
+  let statements = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains statements fragment))
+    [
+      ("class parser entry", "CHashClass *PrsClass(");
+      ("class name is published", "HashAdd(tmpc,cc->htc.glbl_hash_table);");
+      ("class body dispatch", "PrsVarLst(cc,tmpc,PRS0_NULL|PRS1_CLASS);");
+      ( "union body dispatch",
+        "PrsVarLst(cc,tmpc,PRS0_NULL|PRS1_CLASS|PRSF_UNION);" );
+      ("top-level class dispatch", "case KW_CLASS:");
+    ];
+  let variables = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variables fragment))
+    [
+      ("member parser entry", "U0 PrsVarLst(");
+      ("anonymous union recursion", "PrsVarLst(cc,tmpc,mode|PRSF_UNION");
+      ("shared member type parser", "tmpm->member_class=PrsType(");
+      ("class member branch", "case PRS1B_CLASS:");
+      ("comma group restart", "goto pvl_restart2;");
+    ];
+  let language = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language guide distinguishes union naming" true
+    (contains language "union$FG$ is more like a class");
+  Alcotest.(check bool)
+    "language guide records one base class" true
+    (contains language "Only one base class is allowed.")
+
+let direct_aggregate_definitions () =
+  let source =
+    "public class Node\n\
+     {\n\
+     Node *next,*last;\n\
+     I64 value;\n\
+     U8 bytes[2][3];\n\
+     union { I64 signed_value; U64 unsigned_value; };\n\
+     union { U8 tag; }\n\
+     I16 tail;\n\
+     ;\n\
+     };\n\
+     union Payload { I64 number; U8 bytes[8]; };\n\
+     Node *head;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [
+   Ast.Aggregate_definition node;
+   Ast.Aggregate_definition payload;
+   Ast.Global_variable head;
+  ] ->
+      Alcotest.(check bool)
+        "class kind" true
+        (node.aggregate_kind = Ast.Class_aggregate);
+      Alcotest.(check bool)
+        "union kind" true
+        (payload.aggregate_kind = Ast.Union_aggregate);
+      Alcotest.(check string) "class name" "Node" node.name.spelling;
+      Alcotest.(check string) "union name" "Payload" payload.name.spelling;
+      Alcotest.(check (list string))
+        "class modifier" [ "public" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           node.modifiers);
+      Alcotest.(check int)
+        "seven ordered class members" 7 (List.length node.members);
+      let links =
+        List.nth node.members 0 |> expect_aggregate_member_declaration
+      in
+      ignore (expect_named_specifier "Node" links.member_type_specifier);
+      Alcotest.(check (list string))
+        "self pointer group" [ "next"; "last" ]
+        (List.map
+           (fun (member : Ast.aggregate_member_declarator) ->
+             member.member_name.spelling)
+           links.member_declarators);
+      Alcotest.(check (list int))
+        "independent self pointer depths" [ 1; 1 ]
+        (List.map
+           (fun (member : Ast.aggregate_member_declarator) ->
+             List.length member.member_pointer_layers)
+           links.member_declarators);
+      let bytes =
+        List.nth node.members 2 |> expect_aggregate_member_declaration
+      in
+      Alcotest.(check int)
+        "two array dimensions" 2
+        (List.length (List.hd bytes.member_declarators).member_array_dimensions);
+      let first_union =
+        List.nth node.members 3 |> expect_anonymous_union_member
+      in
+      Alcotest.(check int)
+        "two overlapping source members" 2
+        (List.length first_union.anonymous_union_members);
+      Alcotest.(check bool)
+        "first anonymous union keeps semicolon" true
+        (Option.is_some first_union.anonymous_union_semicolon);
+      let second_union =
+        List.nth node.members 4 |> expect_anonymous_union_member
+      in
+      Alcotest.(check bool)
+        "anonymous union semicolon may be omitted" true
+        (Option.is_none second_union.anonymous_union_semicolon);
+      let tail =
+        List.nth node.members 5 |> expect_aggregate_member_declaration
+      in
+      Alcotest.(check string)
+        "member after an unterminated anonymous union" "tail"
+        (List.hd tail.member_declarators).member_name.spelling;
+      (match List.nth node.members 6 with
+      | Ast.Empty_aggregate_member _ -> ()
+      | _ -> Alcotest.fail "the extra member semicolon was not retained");
+      Alcotest.(check int) "class begins at public" 0 node.location.span.start;
+      Alcotest.(check int)
+        "class ends at final semicolon" node.semicolon.span.stop
+        node.location.span.stop;
+      ignore (expect_named_specifier "Node" head.type_specifier)
+  | items ->
+      Alcotest.failf "expected two aggregates and one global, got %d items"
+        (List.length items)
+
+let aggregate_definition_forward_completion () =
+  let source =
+    "extern class Forward;\n\
+     class Forward { Forward *next; };\n\
+     #ifdef Forward\n\
+     U8 selected;\n\
+     #endif\n\
+     Forward *root;"
+  in
+  let session, _, output = parse_string source in
+  (match (expect_ast output).items with
+  | [
+   Ast.Aggregate_forward_declaration forward;
+   Ast.Aggregate_definition definition;
+   Ast.Global_variable selected;
+   Ast.Global_variable root;
+  ] ->
+      Alcotest.(check string) "forward name" "Forward" forward.name.spelling;
+      Alcotest.(check string)
+        "definition completes the same spelling" forward.name.spelling
+        definition.name.spelling;
+      let self_member =
+        List.hd definition.members |> expect_aggregate_member_declaration
+      in
+      ignore
+        (expect_named_specifier "Forward" self_member.member_type_specifier);
+      Alcotest.(check string)
+        "conditional sees the completed type" "selected" selected.name.spelling;
+      ignore (expect_named_specifier "Forward" root.type_specifier)
+  | items ->
+      Alcotest.failf "expected a forward, definition, and two globals, got %d"
+        (List.length items));
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "Forward"
+  with
+  | Symbol_visibility.Present entry ->
+      Alcotest.(check string)
+        "completed symbol remains a class" "class"
+        (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "completed aggregate name is not visible"
+
+let aggregate_definition_modes () =
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "class ModeNode { ModeNode *next; }; ModeNode *head;"
+      in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition definition; Ast.Global_variable head ] ->
+          Alcotest.(check string)
+            "mode keeps definition" "ModeNode" definition.name.spelling;
+          ignore (expect_named_specifier "ModeNode" head.type_specifier)
+      | items ->
+          Alcotest.failf "expected a definition and global, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let pinned_kernel_ordinary_class_slice () =
+  let source =
+    pinned "Kernel/KernelA.HH" |> String.split_on_char '\n'
+    |> List.filteri (fun index _ -> index >= 114 && index < 183)
+    |> String.concat "\n"
+  in
+  let _, _, output =
+    parse_string ~path:"Kernel/KernelA.aggregate-bodies.HH" source
+  in
+  let definitions =
+    (expect_ast output).items
+    |> List.map (function
+      | Ast.Aggregate_definition definition -> definition
+      | _ -> Alcotest.fail "kernel class slice produced a non-aggregate item")
+  in
+  Alcotest.(check (list string))
+    "unfiltered ordinary class names"
+    [
+      "Complex";
+      "CQue";
+      "CD3I32";
+      "CQueD3I32";
+      "CD2I32";
+      "CD2I64";
+      "CD3I64";
+      "CD2";
+      "CD3";
+      "CQueVectU8";
+      "CFifoU8";
+      "CFifoI64";
+    ]
+    (List.map
+       (fun (definition : Ast.aggregate_definition) -> definition.name.spelling)
+       definitions);
+  let queue_vector =
+    List.find
+      (fun (definition : Ast.aggregate_definition) ->
+        String.equal definition.name.spelling "CQueVectU8")
+      definitions
+  in
+  let body_member =
+    List.nth queue_vector.members 2 |> expect_aggregate_member_declaration
+  in
+  Alcotest.(check int)
+    "source definition sizes the array" 1
+    (List.length
+       (List.hd body_member.member_declarators).member_array_dimensions)
+
+let aggregate_definition_provenance () =
+  let source =
+    "#define AGG class\n#define FIELD I64\nAGG Generated { FIELD value; };"
+  in
+  let session, root, output = parse_string source in
+  let definition = expect_ast output |> expect_one_aggregate_definition in
+  Alcotest.(check bool)
+    "generated aggregate begins in another frame" false
+    (Source_id.equal definition.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "aggregate keeps its invocation" true
+    (Option.is_some definition.location.generated_from);
+  Alcotest.(check bool)
+    "aggregate keyword keeps its definition" true
+    (Option.is_some definition.aggregate_keyword_location.defined_at);
+  let member =
+    List.hd definition.members |> expect_aggregate_member_declaration
+  in
+  let member_type = expect_primitive_specifier member.member_type_specifier in
+  Alcotest.(check bool)
+    "generated member type keeps its definition" true
+    (Option.is_some member_type.location.defined_at);
+  let open Yojson.Safe.Util in
+  let item =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON keeps aggregate generation" true
+    (item |> member "location" |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "record.HC" in
+      write_file root_file "#include \"record\"";
+      write_file definition_file "class Included { I64 value; };";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_definition
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included aggregate keeps its canonical path"
+        (Unix.realpath definition_file)
+        (Source_file.path included_source))
+
+let aggregate_definition_failures () =
+  List.iter
+    (fun (description, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ("name is missing", "class { I64 value; };", "HCPARSE0109", "name");
+      ("opening brace is missing", "class Missing;", "HCPARSE0110", "'{'");
+      ( "closing brace is missing",
+        "class Missing { I64 value;",
+        "HCPARSE0111",
+        "close" );
+      ( "member type is unresolved",
+        "class Missing { Unknown value; };",
+        "HCPARSE0112",
+        "member type" );
+      ( "member name is missing",
+        "class Missing { I64 ; };",
+        "HCPARSE0113",
+        "member name" );
+      ( "member delimiter is missing",
+        "class Missing { I64 value } ;",
+        "HCPARSE0114",
+        "after aggregate member" );
+      ( "definition semicolon is missing",
+        "class Missing { I64 value; }",
+        "HCPARSE0115",
+        "after aggregate definition" );
+      ( "nested named union is excluded",
+        "class Outer { union Named { I64 value; }; };",
+        "HCPARSE0116",
+        "nested named" );
+      ( "explicit offset is excluded",
+        "class Offset { $$=8; I64 value; };",
+        "HCPARSE0117",
+        "offsets" );
+      ( "member metadata is excluded",
+        "class Meta { I64 value format 3; };",
+        "HCPARSE0118",
+        "metadata" );
+      ( "trailing object is excluded",
+        "class Object { I64 value; } object;",
+        "HCPARSE0119",
+        "object declarators" );
+      ( "backing type is excluded",
+        "I64 class Backed { I64 value; };",
+        "HCPARSE0120",
+        "backing types" );
+      ( "inheritance is excluded",
+        "class Derived:Base { I64 value; };",
+        "HCPARSE0121",
+        "inheritance" );
+      ( "function pointer member is excluded",
+        "class Callbacks { I64 (*callback)(I64 value); };",
+        "HCPARSE0123",
+        "function-pointer" );
+    ];
+  let nested_unions = Parser.max_aggregate_depth + 1 in
+  let source =
+    "class Deep { "
+    ^ String.concat "" (List.init nested_unions (fun _ -> "union { "))
+    ^ "I64 value;"
+    ^ String.concat "" (List.init nested_unions (fun _ -> " }"))
+    ^ "; }; I64 after;"
+  in
+  let session, _, output = parse_string source in
+  Alcotest.(check (list string))
+    "depth recovery consumes the complete aggregate" [ "HCPARSE0122" ]
+    (List.map (fun diagnostic -> diagnostic.Diagnostic.code) output.diagnostics);
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "after"
+  with
+  | Symbol_visibility.Present entry ->
+      Alcotest.(check string)
+        "parsing resumes after the rejected aggregate" "global-variable"
+        (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "recovery did not reach the following declaration"
+
+let deterministic_aggregate_definition_dumps () =
+  let session, _, output =
+    parse_string
+      "public class Node { Node *next,*last; union { I64 number; U8 bytes[8]; \
+       }; ; };"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human aggregate definition dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON aggregate definition dump is deterministic" json
+    (Ast_dump.json sources ast);
+  List.iter
+    (fun fragment ->
+      Alcotest.(check bool)
+        ("human dump contains " ^ fragment)
+        true (contains human fragment))
+    [
+      "aggregate_definition aggregate_kind=class";
+      "member_declaration";
+      "anonymous_union";
+      "empty_member";
+    ];
+  let open Yojson.Safe.Util in
+  let members =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "members" |> to_list
+  in
+  Alcotest.(check (list string))
+    "JSON aggregate member kinds"
+    [ "member_declaration"; "anonymous_union"; "empty_member" ]
+    (List.map (fun item -> item |> member "kind" |> to_string) members)
+
 let named_type_source_behavior () =
   let statements = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -2886,6 +3330,9 @@ let parenthesis_free_call_shapes () =
       | Ast.Aggregate_forward_declaration _ ->
           Alcotest.fail
             "the call fixture contains an unexpected forward declaration"
+      | Ast.Aggregate_definition _ ->
+          Alcotest.fail
+            "the call fixture contains an unexpected aggregate definition"
       | Ast.Function_prototype _ -> None
       | Ast.Global_variable _
       | Ast.Global_declaration _
@@ -8499,6 +8946,10 @@ let order_and_spans () =
             Alcotest.fail
               "independent declarations unexpectedly formed a forward \
                declaration"
+        | Ast.Aggregate_definition _ ->
+            Alcotest.fail
+              "independent declarations unexpectedly formed an aggregate \
+               definition"
         | Ast.Global_declaration _ ->
             Alcotest.fail "independent declarations unexpectedly formed a group"
         | Ast.Function_prototype _ ->
@@ -8635,6 +9086,9 @@ let declarations_update_symbol_conditionals () =
          | Ast.Aggregate_forward_declaration _ ->
              Alcotest.fail
                "conditional fixture unexpectedly formed a forward declaration"
+         | Ast.Aggregate_definition _ ->
+             Alcotest.fail
+               "conditional fixture unexpectedly formed an aggregate definition"
          | Ast.Global_declaration _ ->
              Alcotest.fail "conditional fixture unexpectedly formed a group"
          | Ast.Function_prototype _ ->
@@ -8713,6 +9167,7 @@ let implicit_output_shapes () =
         | Ast.Top_level_statement (Ast.Implicit_output_statement statement) ->
             statement
         | Ast.Aggregate_forward_declaration _
+        | Ast.Aggregate_definition _
         | Ast.Global_variable _
         | Ast.Global_declaration _
         | Ast.Function_prototype _
@@ -12810,6 +13265,22 @@ let tests =
       aggregate_forward_failures;
     Alcotest.test_case "deterministic aggregate forward dumps" `Quick
       deterministic_aggregate_forward_dumps;
+    Alcotest.test_case "pinned aggregate definition behavior" `Quick
+      aggregate_definition_source_behavior;
+    Alcotest.test_case "direct aggregate definitions" `Quick
+      direct_aggregate_definitions;
+    Alcotest.test_case "aggregate definition forward completion" `Quick
+      aggregate_definition_forward_completion;
+    Alcotest.test_case "aggregate definition modes" `Quick
+      aggregate_definition_modes;
+    Alcotest.test_case "pinned kernel ordinary class slice" `Quick
+      pinned_kernel_ordinary_class_slice;
+    Alcotest.test_case "aggregate definition provenance" `Quick
+      aggregate_definition_provenance;
+    Alcotest.test_case "aggregate definition failures" `Quick
+      aggregate_definition_failures;
+    Alcotest.test_case "deterministic aggregate definition dumps" `Quick
+      deterministic_aggregate_definition_dumps;
     Alcotest.test_case "pinned named type behavior" `Quick
       named_type_source_behavior;
     Alcotest.test_case "direct named type declarations" `Quick

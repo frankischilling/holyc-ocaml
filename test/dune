@@ -2875,6 +2875,87 @@
 
 (rule
  (alias runtest)
+ (targets parse-aggregate-definition.human.actual)
+ (deps
+  cli/parse-aggregate-definition.hc
+  cli/parse-aggregate-definition.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-definition.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-definition.hc))
+   (diff
+    cli/parse-aggregate-definition.human
+    parse-aggregate-definition.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-definition.json.actual)
+ (deps cli/parse-aggregate-definition.hc cli/parse-aggregate-definition.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-definition.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-definition.hc))
+   (diff
+    cli/parse-aggregate-definition.json
+    parse-aggregate-definition.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-definition-error.human.actual
+  parse-aggregate-definition-error.human.stdout.actual)
+ (deps
+  cli/parse-aggregate-definition-error.hc
+  cli/parse-aggregate-definition-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-definition-error.human.stdout.actual
+    (with-stderr-to
+     parse-aggregate-definition-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-definition-error.hc))))
+   (diff
+    cli/parse-aggregate-definition-error.human
+    parse-aggregate-definition-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-definition-error.json.actual
+  parse-aggregate-definition-error.json.stdout.actual)
+ (deps
+  cli/parse-aggregate-definition-error.hc
+  cli/parse-aggregate-definition-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-definition-error.json.stdout.actual
+    (with-stderr-to
+     parse-aggregate-definition-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-aggregate-definition-error.hc))))
+   (diff
+    cli/parse-aggregate-definition-error.json
+    parse-aggregate-definition-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-named-types.human.actual)
  (deps cli/parse-named-types.hc cli/parse-named-types.human)
  (action

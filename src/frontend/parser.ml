@@ -62,6 +62,24 @@ type parsed_array_dimension = {
   tokens : Token.t list;
 }
 
+type parsed_aggregate_member_declarator = {
+  node : Ast.aggregate_member_declarator;
+  tokens : Token.t list;
+}
+
+type parsed_aggregate_member = {
+  node : Ast.aggregate_member;
+  tokens : Token.t list;
+}
+
+type parsed_aggregate_members = {
+  members : Ast.aggregate_member list;
+  tokens : Token.t list;
+  closing_brace : Ast.location;
+}
+
+type aggregate_parse_failure = { recovery_depth : int }
+
 type expression_context =
   | Default_expression
   | Array_dimension_expression
@@ -129,6 +147,7 @@ let max_loop_depth = 256
 let max_lock_depth = 256
 let max_try_depth = 256
 let max_switch_depth = 256
+let max_aggregate_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -319,6 +338,27 @@ let rec recover_declaration cursor =
   | _ ->
       ignore (take cursor);
       recover_declaration cursor
+
+let recover_aggregate_declaration cursor ~depth =
+  let rec skip depth =
+    let item = peek cursor in
+    match item.token.Token.kind with
+    | Token_kind.Eof -> ()
+    | Token_kind.Punctuation '{' ->
+        ignore (take cursor);
+        skip (depth + 1)
+    | Token_kind.Punctuation '}' when depth > 0 ->
+        ignore (take cursor);
+        if depth = 1 then (
+          if (peek cursor).token.kind = Token_kind.Punctuation ';' then
+            ignore (take cursor))
+        else skip (depth - 1)
+    | Token_kind.Punctuation ';' when depth = 0 -> ignore (take cursor)
+    | _ ->
+        ignore (take cursor);
+        skip depth
+  in
+  skip depth
 
 let rec statement_boundary_stops_at_closing_brace = function
   | Block_boundary | Switch_boundary -> true
@@ -2028,6 +2068,309 @@ let rec parse_declarators cursor base_spelling declarators_rev =
       | Ast.Semicolon -> Some (List.rev declarators_rev)
       | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev)
 
+let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
+  report cursor item ~code ~message;
+  Error { recovery_depth }
+
+let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
+    members_rev tokens_rev :
+    (parsed_aggregate_members, aggregate_parse_failure) result =
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.Punctuation '}' ->
+      let closing_item = take cursor in
+      Ok
+        {
+          members = List.rev members_rev;
+          tokens = List.rev (closing_item.token :: tokens_rev);
+          closing_brace = token_location closing_item.token;
+        }
+  | Token_kind.Eof ->
+      report cursor item ~code:"HCPARSE0111"
+        ~secondary:
+          [
+            ({
+               Common.Diagnostic.span = opening_brace.Ast.span;
+               message = "aggregate body starts here";
+             }
+              : Common.Diagnostic.related);
+          ]
+        ~message:"expected '}' to close the aggregate body";
+      Error { recovery_depth = depth + 1 }
+  | Token_kind.Punctuation ';' ->
+      let semicolon_item = take cursor in
+      parse_aggregate_members cursor ~opening_brace ~depth
+        (Ast.Empty_aggregate_member (token_location semicolon_item.token)
+        :: members_rev)
+        (semicolon_item.token :: tokens_rev)
+  | Token_kind.Keyword Keyword.Union -> (
+      match parse_anonymous_union_member cursor ~depth with
+      | Error failure -> Error failure
+      | Ok member ->
+          parse_aggregate_members cursor ~opening_brace ~depth
+            (member.node :: members_rev)
+            (List.rev_append member.tokens tokens_rev))
+  | Token_kind.Keyword Keyword.Class ->
+      aggregate_member_failure cursor item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0116"
+        ~message:
+          "nested named class definitions are not implemented in aggregate \
+           bodies"
+  | Token_kind.Operator Operator.Current_position ->
+      aggregate_member_failure cursor item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0117"
+        ~message:
+          "explicit '$$' aggregate offsets are not implemented in this parser \
+           slice"
+  | _ -> (
+      match
+        parse_aggregate_member_declaration cursor ~recovery_depth:(depth + 1)
+      with
+      | Error failure -> Error failure
+      | Ok member ->
+          parse_aggregate_members cursor ~opening_brace ~depth
+            (member.node :: members_rev)
+            (List.rev_append member.tokens tokens_rev))
+
+and parse_anonymous_union_member cursor ~depth :
+    (parsed_aggregate_member, aggregate_parse_failure) result =
+  let keyword_item = take cursor in
+  if depth >= max_aggregate_depth then
+    aggregate_member_failure cursor keyword_item ~recovery_depth:(depth + 1)
+      ~code:"HCPARSE0122"
+      ~message:
+        (Printf.sprintf "anonymous-union nesting exceeds the hosted limit of %d"
+           max_aggregate_depth)
+  else
+    let opening_item = peek cursor in
+    if opening_item.token.kind <> Token_kind.Punctuation '{' then
+      aggregate_member_failure cursor opening_item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0116"
+        ~message:
+          (Printf.sprintf
+             "expected '{' after anonymous union keyword, but found %s; nested \
+              named aggregate definitions are not implemented"
+             (token_description opening_item.token))
+    else
+      let opening_item = take cursor in
+      let opening_brace = token_location opening_item.token in
+      match
+        parse_aggregate_members cursor ~opening_brace ~depth:(depth + 1) [] []
+      with
+      | Error failure -> Error failure
+      | Ok parsed_members ->
+          let semicolon_item =
+            if (peek cursor).token.kind = Token_kind.Punctuation ';' then
+              Some (take cursor)
+            else None
+          in
+          let semicolon =
+            Option.map (fun item -> token_location item.token) semicolon_item
+          in
+          let tokens =
+            [ keyword_item.token; opening_item.token ]
+            @ parsed_members.tokens
+            @ Option.to_list
+                (Option.map (fun item -> item.token) semicolon_item)
+          in
+          let node =
+            Ast.make_anonymous_union_member
+              ~keyword_spelling:keyword_item.token.raw
+              ~keyword_location:(token_location keyword_item.token)
+              ~opening_brace ~members:parsed_members.members
+              ~closing_brace:parsed_members.closing_brace ~semicolon
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Ok { node = Ast.Anonymous_union_member node; tokens }
+
+and parse_aggregate_member_declaration cursor ~recovery_depth :
+    (parsed_aggregate_member, aggregate_parse_failure) result =
+  let type_item = peek cursor in
+  match type_specifier_of_item cursor type_item with
+  | None ->
+      aggregate_member_failure cursor type_item ~recovery_depth
+        ~code:"HCPARSE0112"
+        ~message:
+          (Printf.sprintf
+             "expected a primitive, class, or union member type, but found %s"
+             (token_description type_item.token))
+  | Some type_specifier ->
+      let type_item = take cursor in
+      let base_spelling = Ast.type_specifier_spelling type_specifier in
+      let rec collect declarators_rev tokens_rev :
+          (parsed_aggregate_member, aggregate_parse_failure) result =
+        match
+          parse_aggregate_member_declarator cursor ~base_spelling
+            ~recovery_depth
+        with
+        | Error failure -> Error failure
+        | Ok declarator -> (
+            let declarators_rev = declarator.node :: declarators_rev in
+            let tokens_rev = List.rev_append declarator.tokens tokens_rev in
+            match declarator.node.member_delimiter.kind with
+            | Ast.Comma -> collect declarators_rev tokens_rev
+            | Ast.Semicolon ->
+                let tokens = type_item.token :: List.rev tokens_rev in
+                let declaration =
+                  Ast.make_aggregate_member_declaration ~type_specifier
+                    ~declarators:(List.rev declarators_rev)
+                    ~location:(location_from_expression_tokens tokens)
+                in
+                Ok
+                  ({
+                     node = Ast.Aggregate_member_declaration declaration;
+                     tokens;
+                   }
+                    : parsed_aggregate_member))
+      in
+      collect [] []
+
+and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth :
+    (parsed_aggregate_member_declarator, aggregate_parse_failure) result =
+  match parse_pointer_layers cursor 0 [] [] with
+  | None -> Error { recovery_depth }
+  | Some (pointer_layers, pointer_items) -> (
+      let pointer_tokens = List.map (fun item -> item.token) pointer_items in
+      let name_item = peek cursor in
+      if name_item.token.kind = Token_kind.Punctuation '(' then
+        aggregate_member_failure cursor name_item ~recovery_depth
+          ~code:"HCPARSE0123"
+          ~message:
+            "function-pointer aggregate members are not implemented in this \
+             parser slice"
+      else if name_item.token.kind <> Token_kind.Identifier then
+        aggregate_member_failure cursor name_item ~recovery_depth
+          ~code:"HCPARSE0113"
+          ~message:
+            (Printf.sprintf "expected a member name after type %S, but found %s"
+               (type_spelling base_spelling pointer_layers)
+               (token_description name_item.token))
+      else
+        let name_item = take cursor in
+        let name =
+          Ast.make_identifier ~spelling:name_item.token.raw
+            ~location:(token_location name_item.token)
+        in
+        match parse_array_dimensions cursor 0 [] [] with
+        | None -> Error { recovery_depth }
+        | Some (array_dimensions, array_tokens) -> (
+            let delimiter_item = peek cursor in
+            match delimiter_item.token.kind with
+            | Token_kind.Identifier ->
+                aggregate_member_failure cursor delimiter_item ~recovery_depth
+                  ~code:"HCPARSE0118"
+                  ~message:
+                    "aggregate member metadata is not implemented in this \
+                     parser slice"
+            | _ -> (
+                match delimiter_kind delimiter_item.token with
+                | None ->
+                    aggregate_member_failure cursor delimiter_item
+                      ~recovery_depth ~code:"HCPARSE0114"
+                      ~message:
+                        (Printf.sprintf
+                           "expected ',' or ';' after aggregate member %S, but \
+                            found %s"
+                           name.spelling
+                           (token_description delimiter_item.token))
+                | Some kind ->
+                    let delimiter_item = take cursor in
+                    let delimiter =
+                      Ast.make_declaration_delimiter ~kind
+                        ~spelling:delimiter_item.token.raw
+                        ~location:(token_location delimiter_item.token)
+                    in
+                    let tokens =
+                      pointer_tokens
+                      @ (name_item.token :: array_tokens)
+                      @ [ delimiter_item.token ]
+                    in
+                    let node =
+                      Ast.make_aggregate_member_declarator ~pointer_layers ~name
+                        ~array_dimensions ~delimiter
+                        ~location:(location_from_expression_tokens tokens)
+                    in
+                    Ok { node; tokens })))
+
+let parse_aggregate_definition cursor ~modifier_tokens ~modifiers
+    ~aggregate_kind =
+  let aggregate_item = take cursor in
+  let name_item = peek cursor in
+  if name_item.token.kind <> Token_kind.Identifier then (
+    report cursor name_item ~code:"HCPARSE0109"
+      ~message:
+        (Printf.sprintf "expected a name after %S, but found %s"
+           aggregate_item.token.raw
+           (token_description name_item.token));
+    recover_aggregate_declaration cursor ~depth:0;
+    None)
+  else
+    let name_item = take cursor in
+    let name =
+      Ast.make_identifier ~spelling:name_item.token.raw
+        ~location:(token_location name_item.token)
+    in
+    publish_class cursor name;
+    let opening_item = peek cursor in
+    if opening_item.token.kind = Token_kind.Punctuation ':' then (
+      report cursor opening_item ~code:"HCPARSE0121"
+        ~message:"aggregate inheritance is not implemented in this parser slice";
+      recover_aggregate_declaration cursor ~depth:0;
+      None)
+    else if opening_item.token.kind <> Token_kind.Punctuation '{' then (
+      report cursor opening_item ~code:"HCPARSE0110"
+        ~message:
+          (Printf.sprintf "expected '{' after %s name %S, but found %s"
+             aggregate_item.token.raw name.spelling
+             (token_description opening_item.token));
+      recover_aggregate_declaration cursor ~depth:0;
+      None)
+    else
+      let opening_item = take cursor in
+      let opening_brace = token_location opening_item.token in
+      match parse_aggregate_members cursor ~opening_brace ~depth:0 [] [] with
+      | Error failure ->
+          recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
+          None
+      | Ok parsed_members ->
+          let semicolon_item = peek cursor in
+          if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
+            let trailing_declarator =
+              semicolon_item.token.kind = Token_kind.Identifier
+            in
+            report cursor semicolon_item
+              ~code:
+                (if trailing_declarator then "HCPARSE0119" else "HCPARSE0115")
+              ~message:
+                (if trailing_declarator then
+                   "global object declarators after an aggregate definition \
+                    are not implemented in this parser slice"
+                 else
+                   Printf.sprintf
+                     "expected ';' after aggregate definition %S, but found %s"
+                     name.spelling
+                     (token_description semicolon_item.token));
+            if trailing_declarator then recover_declaration cursor;
+            None)
+          else
+            let semicolon_item = take cursor in
+            let tokens =
+              modifier_tokens
+              @ [ aggregate_item.token; name_item.token; opening_item.token ]
+              @ parsed_members.tokens @ [ semicolon_item.token ]
+            in
+            let definition =
+              Ast.make_aggregate_definition ~modifiers ~aggregate_kind
+                ~aggregate_keyword_spelling:aggregate_item.token.raw
+                ~aggregate_keyword_location:
+                  (token_location aggregate_item.token)
+                ~name ~opening_brace ~members:parsed_members.members
+                ~closing_brace:parsed_members.closing_brace
+                ~semicolon:(token_location semicolon_item.token)
+                ~location:(location_from_expression_tokens tokens)
+            in
+            Some (Ast.Aggregate_definition definition)
+
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
   let parsed_default =
@@ -2454,122 +2797,145 @@ let parse_global cursor ~parse_function_definition =
           publish_class cursor name;
           Some (Ast.Aggregate_forward_declaration declaration)
   | None -> (
-      match parse_binding cursor with
-      | Bad_binding -> None
-      | Parsed_binding binding
-        when binding.node.kind = Ast.Import
-             && cursor.compilation_mode = Preprocessor.Jit ->
-          report cursor binding.keyword ~code:"HCPARSE0006"
-            ~message:
-              "import declarations require AOT mode; select AOT mode before \
-               parsing this declaration";
-          recover_declaration cursor;
-          None
-      | binding_parse -> (
-          let binding, binding_tokens =
-            match binding_parse with
-            | No_binding -> (None, [])
-            | Parsed_binding binding -> (Some binding.node, binding.tokens)
-            | Bad_binding -> assert false
-          in
-          let type_item = peek cursor in
-          match type_specifier_of_item cursor type_item with
-          | Some type_specifier -> (
-              let type_item = take cursor in
-              let spelling = Ast.type_specifier_spelling type_specifier in
-              match parse_declarator_prefix cursor spelling with
-              | None -> None
-              | Some first_prefix -> (
-                  let next_item = peek cursor in
-                  match (next_item.token.kind, binding) with
-                  | Token_kind.Punctuation '(', Some binding ->
-                      parse_function_prototype cursor ~modifier_tokens
-                        ~modifiers ~binding_tokens ~binding ~type_item
-                        ~return_type:type_specifier first_prefix
-                  | Token_kind.Punctuation '(', None ->
-                      parse_function_definition cursor ~modifier_tokens
-                        ~modifiers ~type_item ~return_type:type_specifier
-                        first_prefix
-                  | _ -> (
-                      match
-                        parse_variable_declarator_suffix cursor first_prefix
-                      with
-                      | None -> None
-                      | Some first_declarator -> (
-                          let parsed_declarators =
-                            match first_declarator.node.delimiter.kind with
-                            | Ast.Semicolon -> Some [ first_declarator ]
-                            | Ast.Comma ->
-                                parse_declarators cursor spelling
-                                  [ first_declarator ]
-                          in
-                          match parsed_declarators with
-                          | None -> None
-                          | Some declarators -> (
-                              let declaration_tokens =
-                                modifier_tokens @ binding_tokens
-                                @ type_item.token
-                                  :: List.concat_map
-                                       (fun (item : parsed_declarator) ->
-                                         item.tokens)
-                                       declarators
-                              in
-                              match declarators with
-                              | [ declarator ] ->
-                                  let variable =
-                                    Ast.make_global_variable ~modifiers ~binding
-                                      ~type_specifier
-                                      ~pointer_layers:
-                                        declarator.node.pointer_layers
-                                      ~name:declarator.node.name
-                                      ~array_dimensions:
-                                        declarator.node.array_dimensions
-                                      ~semicolon:
-                                        declarator.node.delimiter.location.span
-                                      ~location:
-                                        (location_from_tokens declaration_tokens)
-                                  in
-                                  Some (Ast.Global_variable variable)
-                              | _ ->
-                                  let declaration =
-                                    Ast.make_global_declaration ~modifiers
-                                      ~binding ~type_specifier
-                                      ~declarators:
-                                        (List.map
-                                           (fun (item : parsed_declarator) ->
-                                             item.node)
-                                           declarators)
-                                      ~location:
-                                        (location_from_tokens declaration_tokens)
-                                  in
-                                  Some (Ast.Global_declaration declaration))))))
-          | _ ->
-              let prefix =
-                match binding with
-                | Some (binding : Ast.declaration_binding) ->
-                    Printf.sprintf "after declaration binding %S"
-                      binding.spelling
-                | None -> (
-                    match modifiers with
-                    | [] -> "at the start of a global declaration"
-                    | _ ->
-                        Printf.sprintf "after declaration modifier%s %S"
-                          (if List.length modifiers = 1 then "" else "s")
-                          (modifiers
-                          |> List.map
-                               (fun (modifier : Ast.declaration_modifier) ->
-                                 modifier.spelling)
-                          |> String.concat " "))
-              in
-              report cursor type_item ~code:"HCPARSE0001"
+      match aggregate_kind_of_token (peek cursor).token with
+      | Some aggregate_kind ->
+          parse_aggregate_definition cursor ~modifier_tokens ~modifiers
+            ~aggregate_kind
+      | None -> (
+          match parse_binding cursor with
+          | Bad_binding -> None
+          | Parsed_binding binding
+            when binding.node.kind = Ast.Import
+                 && cursor.compilation_mode = Preprocessor.Jit ->
+              report cursor binding.keyword ~code:"HCPARSE0006"
                 ~message:
-                  (Printf.sprintf
-                     "expected a primitive, class, or union type %s, but found \
-                      %s"
-                     prefix
-                     (token_description type_item.token));
+                  "import declarations require AOT mode; select AOT mode \
+                   before parsing this declaration";
               recover_declaration cursor;
-              None))
+              None
+          | binding_parse -> (
+              let binding, binding_tokens =
+                match binding_parse with
+                | No_binding -> (None, [])
+                | Parsed_binding binding -> (Some binding.node, binding.tokens)
+                | Bad_binding -> assert false
+              in
+              let type_item = peek cursor in
+              match type_specifier_of_item cursor type_item with
+              | Some type_specifier -> (
+                  let type_item = take cursor in
+                  if
+                    Option.is_some (aggregate_kind_of_token (peek cursor).token)
+                  then (
+                    report cursor (peek cursor) ~code:"HCPARSE0120"
+                      ~message:
+                        "aggregate backing types before 'class' or 'union' are \
+                         not implemented in this parser slice";
+                    recover_aggregate_declaration cursor ~depth:0;
+                    None)
+                  else
+                    let spelling = Ast.type_specifier_spelling type_specifier in
+                    match parse_declarator_prefix cursor spelling with
+                    | None -> None
+                    | Some first_prefix -> (
+                        let next_item = peek cursor in
+                        match (next_item.token.kind, binding) with
+                        | Token_kind.Punctuation '(', Some binding ->
+                            parse_function_prototype cursor ~modifier_tokens
+                              ~modifiers ~binding_tokens ~binding ~type_item
+                              ~return_type:type_specifier first_prefix
+                        | Token_kind.Punctuation '(', None ->
+                            parse_function_definition cursor ~modifier_tokens
+                              ~modifiers ~type_item ~return_type:type_specifier
+                              first_prefix
+                        | _ -> (
+                            match
+                              parse_variable_declarator_suffix cursor
+                                first_prefix
+                            with
+                            | None -> None
+                            | Some first_declarator -> (
+                                let parsed_declarators =
+                                  match
+                                    first_declarator.node.delimiter.kind
+                                  with
+                                  | Ast.Semicolon -> Some [ first_declarator ]
+                                  | Ast.Comma ->
+                                      parse_declarators cursor spelling
+                                        [ first_declarator ]
+                                in
+                                match parsed_declarators with
+                                | None -> None
+                                | Some declarators -> (
+                                    let declaration_tokens =
+                                      modifier_tokens @ binding_tokens
+                                      @ type_item.token
+                                        :: List.concat_map
+                                             (fun (item : parsed_declarator) ->
+                                               item.tokens)
+                                             declarators
+                                    in
+                                    match declarators with
+                                    | [ declarator ] ->
+                                        let variable =
+                                          Ast.make_global_variable ~modifiers
+                                            ~binding ~type_specifier
+                                            ~pointer_layers:
+                                              declarator.node.pointer_layers
+                                            ~name:declarator.node.name
+                                            ~array_dimensions:
+                                              declarator.node.array_dimensions
+                                            ~semicolon:
+                                              declarator.node.delimiter.location
+                                                .span
+                                            ~location:
+                                              (location_from_tokens
+                                                 declaration_tokens)
+                                        in
+                                        Some (Ast.Global_variable variable)
+                                    | _ ->
+                                        let declaration =
+                                          Ast.make_global_declaration ~modifiers
+                                            ~binding ~type_specifier
+                                            ~declarators:
+                                              (List.map
+                                                 (fun (item : parsed_declarator)
+                                                    -> item.node)
+                                                 declarators)
+                                            ~location:
+                                              (location_from_tokens
+                                                 declaration_tokens)
+                                        in
+                                        Some
+                                          (Ast.Global_declaration declaration)))
+                            )))
+              | _ ->
+                  let prefix =
+                    match binding with
+                    | Some (binding : Ast.declaration_binding) ->
+                        Printf.sprintf "after declaration binding %S"
+                          binding.spelling
+                    | None -> (
+                        match modifiers with
+                        | [] -> "at the start of a global declaration"
+                        | _ ->
+                            Printf.sprintf "after declaration modifier%s %S"
+                              (if List.length modifiers = 1 then "" else "s")
+                              (modifiers
+                              |> List.map
+                                   (fun (modifier : Ast.declaration_modifier) ->
+                                     modifier.spelling)
+                              |> String.concat " "))
+                  in
+                  report cursor type_item ~code:"HCPARSE0001"
+                    ~message:
+                      (Printf.sprintf
+                         "expected a primitive, class, or union type %s, but \
+                          found %s"
+                         prefix
+                         (token_description type_item.token));
+                  recover_declaration cursor;
+                  None)))
 
 let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let marker_item = peek cursor in
@@ -2764,6 +3130,7 @@ let token_starts_statement_expression cursor token =
 let token_starts_global_declaration cursor token =
   Option.is_some (primitive_type_of_token token)
   || token_is_named_type cursor token
+  || Option.is_some (aggregate_kind_of_token token)
   || Option.is_some (declaration_modifier_kind token)
   || Option.is_some (declaration_binding_kind token)
   || token.kind = Token_kind.Keyword Keyword.Underscore_intern

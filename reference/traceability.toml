@@ -2055,9 +2055,61 @@ invalid_terminator_diagnostic = "HCPARSE0108"
 body_recovery = "tracks nested braces through the declaration semicolon"
 native_oracle_status = "not required; acceptance and publication order are explicit in pinned source"
 named_type_use = "implemented in HC-PARSER-NAMED-AGGREGATE-TYPES"
-aggregate_body_parsing = "planned"
-inheritance_members_layout_and_metadata = "planned"
+aggregate_body_parsing = "implemented in HC-PARSER-AGGREGATE-DEFINITIONS"
+inheritance_layout_and_metadata = "planned"
 semantic_duplicate_and_linkage_checks = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-DEFINITIONS"
+description = "Named class and union bodies retain ordinary member declarations, recursive anonymous unions, punctuation, and source provenance."
+sources = [
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Kernel/KernelA.HH:116-179",
+  "Doc/HolyC.DD:union and base-class notes"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-definition.hc",
+  "test/cli/parse-aggregate-definition.human",
+  "test/cli/parse-aggregate-definition.json",
+  "test/cli/parse-aggregate-definition-error.hc",
+  "test/cli/parse-aggregate-definition-error.human",
+  "test/cli/parse-aggregate-definition-error.json"
+]
+status = "implemented"
+issue = 129
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["modifier* class identifier { aggregate-member* } ;", "modifier* union identifier { aggregate-member* } ;"]
+ordinary_member_shape = "one primitive or visible named type followed by one or more pointer and array declarators"
+member_delimiters = "commas continue a shared type group; a semicolon completes it"
+anonymous_union_shape = "recursive union { aggregate-member* } with an optional following semicolon"
+empty_member_semicolons = "retained as ordered AST nodes"
+publication_order = "after the aggregate identifier and before opening-brace lookahead or member parsing"
+forward_completion = "a prior extern class or union name can be followed by an ordinary definition"
+reference_slice = "the 12 consecutive definitions in Kernel/KernelA.HH:116-179 parse without filtering"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_name_diagnostic = "HCPARSE0109"
+missing_opening_brace_diagnostic = "HCPARSE0110"
+missing_closing_brace_diagnostic = "HCPARSE0111"
+invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
+missing_final_semicolon_diagnostic = "HCPARSE0115"
+deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0121 and HCPARSE0123"
+anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
+native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
+backing_types_inheritance_metadata_and_explicit_offsets = "planned"
+nested_named_definitions_and_trailing_objects = "planned"
+function_pointer_members = "planned"
+semantic_identity_layout_overlap_and_linkage = "planned"
 
 [[feature]]
 id = "HC-PARSER-NAMED-AGGREGATE-TYPES"
@@ -2101,7 +2153,8 @@ rejected_name_publication = "disabled"
 primitive_dump_compatibility = "existing human and JSON forms remain unchanged"
 native_oracle_status = "not required; dispatch categories and source forms are explicit in the pinned parser"
 semantic_type_identity = "planned"
-aggregate_body_layout_members_and_metadata = "planned"
+aggregate_member_syntax = "implemented in HC-PARSER-AGGREGATE-DEFINITIONS"
+aggregate_layout_and_metadata = "planned"
 cast_conversion_and_lowering = "planned"
 
 [[feature]]

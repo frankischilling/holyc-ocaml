@@ -1,0 +1,3 @@
+cli/parse-aggregate-definition-error.hc:1:26: error[HCPARSE0114]: expected ',' or ';' after aggregate member "value", but found "}"
+    1 | class Broken { I64 value };
+      |                          ^
