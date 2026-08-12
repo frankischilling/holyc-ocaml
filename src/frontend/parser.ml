@@ -142,6 +142,7 @@ let rec ensure_lookahead cursor count =
 
 let peek_n cursor offset =
   if offset < 0 then invalid_arg "parser lookahead offset cannot be negative";
+  if offset > 1 then invalid_arg "parser lookahead is limited to two tokens";
   ensure_lookahead cursor (offset + 1);
   List.nth cursor.lookahead offset
 
@@ -2438,31 +2439,21 @@ let parse_goto_statement cursor ~boundary : parsed_statement option =
         in
         Some { node = Ast.Goto_statement statement; tokens }
 
-let parse_label_statement cursor ~boundary : parsed_statement option =
+let parse_label_statement cursor : parsed_statement option =
   let name_item = take cursor in
-  let colon_item = peek cursor in
-  if colon_item.token.kind <> Token_kind.Punctuation ':' then (
-    report cursor colon_item ~code:"HCPARSE0077"
-      ~message:
-        (Printf.sprintf "expected ':' after label name %S, but found %s"
-           (token_text name_item.token)
-           (token_description colon_item.token));
-    recover_statement cursor ~boundary;
-    None)
-  else
-    let colon_item = take cursor in
-    let tokens = [ name_item.token; colon_item.token ] in
-    let name =
-      Ast.make_identifier
-        ~spelling:(token_text name_item.token)
-        ~location:(token_location name_item.token)
-    in
-    let statement =
-      Ast.make_label_statement ~name
-        ~colon:(token_location colon_item.token)
-        ~location:(location_from_expression_tokens tokens)
-    in
-    Some { node = Ast.Label_statement statement; tokens }
+  let colon_item = take cursor in
+  let tokens = [ name_item.token; colon_item.token ] in
+  let name =
+    Ast.make_identifier
+      ~spelling:(token_text name_item.token)
+      ~location:(token_location name_item.token)
+  in
+  let statement =
+    Ast.make_label_statement ~name
+      ~colon:(token_location colon_item.token)
+      ~location:(location_from_expression_tokens tokens)
+  in
+  Some { node = Ast.Label_statement statement; tokens }
 
 let parse_return_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
@@ -2604,7 +2595,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       None
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
   | Token_kind.Identifier when token_starts_function_label cursor item.token ->
-      parse_label_statement cursor ~boundary
+      parse_label_statement cursor
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary
   | _ ->

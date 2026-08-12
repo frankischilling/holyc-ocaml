@@ -244,6 +244,14 @@ let expect_for_statement = function
   | Ast.For_statement statement -> statement
   | _ -> Alcotest.fail "expected a for statement"
 
+let expect_goto_statement = function
+  | Ast.Goto_statement statement -> statement
+  | _ -> Alcotest.fail "expected a goto statement"
+
+let expect_label_statement = function
+  | Ast.Label_statement statement -> statement
+  | _ -> Alcotest.fail "expected a function label"
+
 let expect_break_statement = function
   | Ast.Break_statement statement -> statement
   | _ -> Alcotest.fail "expected a break statement"
@@ -8654,6 +8662,344 @@ let deterministic_for_dumps () =
     "JSON for body keeps its block" "block_statement"
     (loop |> member "body" |> member "kind" |> to_string)
 
+let goto_label_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches goto", "case KW_GOTO:");
+      ("goto requires an identifier", "if (Lex(cc)!=TK_IDENT)");
+      ("goto looks up an existing label", "COCGoToLabelFind(cc,cc->cur_str)");
+      ("goto creates a missing label", "COCMiscNew(cc,CMT_GOTO_LABEL)");
+      ("goto counts label uses", "g_lb->use_cnt++;");
+      ("goto emits a jump", "ICAdd(cc,IC_JMP,g_lb,0);");
+      ("goto uses the common terminator", "goto sm_semicolon;");
+      ("labels start on unresolved identifiers", "Ident, not in hash table");
+      ("local variables stay expressions", "if (cc->local_var_entry)");
+      ("labels are marked as defined", "g_lb->flags|=CMF_DEFINED;");
+      ("labels emit their own IC", "ICAdd(cc,IC_LABEL,g_lb,0);");
+      ("labels require a colon", "if (Lex(cc)==':')");
+      ("duplicate labels are rejected", "Duplicate goto label at");
+      ("native compilation rejects global labels", "No global labels at");
+      ("the common terminator accepts a comma", "else if (cc->token!=',')");
+    ];
+  let parser_library = pinned "Compiler/PrsLib.HC" in
+  Alcotest.(check bool)
+    "language and assembly labels share lookup" true
+    (contains parser_library "cm->type==CMT_GOTO_LABEL||cm->type==CMT_ASM_LABEL");
+  Alcotest.(check bool)
+    "cleanup checks unresolved labels" true
+    (contains parser_library "if (!(cm->flags&CMF_DEFINED))");
+  Alcotest.(check bool)
+    "cleanup warns about unused labels" true
+    (contains parser_library "else if (!cm->use_cnt)");
+  Alcotest.(check bool)
+    "goto keeps its pinned keyword ID" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_GOTO\t\t17");
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  Alcotest.(check bool)
+    "goto labels keep their pinned misc kind" true
+    (contains kernel_header "#define CMT_GOTO_LABEL\t\t2");
+  Alcotest.(check bool)
+    "label definitions keep their pinned flag" true
+    (contains kernel_header "#define CMF_DEFINED\t\t0x02");
+  Alcotest.(check bool)
+    "the language guide recommends goto instead of continue" true
+    (contains (pinned "Doc/HolyC.DD")
+       "There is no $FG,2$continue$FG$ stmt.  Use $FG,2$goto$FG$.");
+  Alcotest.(check bool)
+    "the linkage guide records global-name collisions" true
+    (contains
+       (pinned "Doc/ScopingLinkage.DD")
+       "Goto labels must not have the same name as global scope objects");
+  Alcotest.(check bool)
+    "the compiler corpus uses a forward goto" true
+    (contains (pinned "Compiler/UAsm.HC") "goto ief_compare_done;");
+  Alcotest.(check bool)
+    "the compiler corpus defines the forward target" true
+    (contains (pinned "Compiler/UAsm.HC") "ief_compare_done:");
+  Alcotest.(check bool)
+    "the kernel corpus uses a shared completion label" true
+    (contains (pinned "Kernel/Job.HC") "goto jh_done;")
+
+let goto_label_statement_shapes () =
+  let source = "goto forward;forward:goto forward;{backward:goto backward;}" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Top_level_statement forward_goto;
+       Ast.Top_level_statement forward_label;
+       Ast.Top_level_statement backward_goto;
+       Ast.Top_level_statement block;
+      ] -> (
+          let forward_goto = expect_goto_statement forward_goto in
+          Alcotest.(check int)
+            "goto keyword is four bytes" 4
+            (Span.length forward_goto.goto_keyword.span);
+          Alcotest.(check string)
+            "forward goto keeps its target" "forward"
+            forward_goto.goto_target.spelling;
+          Alcotest.(check bool)
+            "ordinary goto retains its semicolon" true
+            (Option.is_some forward_goto.goto_semicolon);
+          Alcotest.(check bool)
+            "goto span covers its terminator" true
+            (forward_goto.goto_location.span.stop
+           = (Option.get forward_goto.goto_semicolon).span.stop);
+          let forward_label = expect_label_statement forward_label in
+          Alcotest.(check string)
+            "forward label keeps its name" "forward"
+            forward_label.label_name.spelling;
+          Alcotest.(check bool)
+            "label span ends at the colon" true
+            (forward_label.label_location.span.stop
+           = forward_label.label_colon.span.stop);
+          Alcotest.(check string)
+            "backward goto keeps the same target" "forward"
+            (expect_goto_statement backward_goto).goto_target.spelling;
+          let block = expect_block_statement block in
+          match block.block_statements with
+          | [ backward_label; backward_goto ] ->
+              Alcotest.(check string)
+                "block label keeps its name" "backward"
+                (expect_label_statement backward_label).label_name.spelling;
+              Alcotest.(check string)
+                "block goto keeps its target" "backward"
+                (expect_goto_statement backward_goto).goto_target.spelling
+          | statements ->
+              Alcotest.failf
+                "expected a label and goto in the block, got %d statements"
+                (List.length statements))
+      | items ->
+          Alcotest.failf "expected three statements and a block, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let goto_label_boundaries_and_routing () =
+  let source =
+    "I64 active;goto first,first:,goto first;for(;active;goto done)done:"
+  in
+  let _, _, output = parse_string source in
+  (match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement sequence;
+   Ast.Top_level_statement for_loop;
+  ] ->
+      let sequence = expect_statement_sequence sequence in
+      Alcotest.(check int)
+        "comma sequence keeps goto, label, and goto" 3
+        (List.length sequence.sequence_elements);
+      let first = List.nth sequence.sequence_elements 0 in
+      let first_goto = expect_goto_statement first.sequence_statement in
+      Alcotest.(check bool)
+        "comma-terminated goto has no semicolon" true
+        (Option.is_none first_goto.goto_semicolon);
+      Alcotest.(check int)
+        "goto element retains its following comma" 1
+        (List.length first.sequence_following_commas);
+      let second = List.nth sequence.sequence_elements 1 in
+      ignore (expect_label_statement second.sequence_statement);
+      Alcotest.(check int)
+        "label element retains its following comma" 1
+        (List.length second.sequence_following_commas);
+      ignore
+        ( List.nth sequence.sequence_elements 2 |> fun element ->
+          expect_goto_statement element.sequence_statement );
+      let for_loop = expect_for_statement for_loop in
+      let update =
+        match for_loop.for_update with
+        | Some update -> expect_goto_statement update
+        | None -> Alcotest.fail "expected goto in the for update"
+      in
+      Alcotest.(check bool)
+        "for-update goto has no fabricated semicolon" true
+        (Option.is_none update.goto_semicolon);
+      Alcotest.(check string)
+        "for-update goto keeps its target" "done" update.goto_target.spelling;
+      Alcotest.(check string)
+        "for body accepts the matching label" "done"
+        (expect_label_statement for_loop.for_body).label_name.spelling
+  | items ->
+      Alcotest.failf "expected a declaration, sequence, and for loop, got %d"
+        (List.length items));
+  List.iter
+    (fun (description, source) ->
+      let _, _, collision = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none collision.ast);
+      Alcotest.(check string)
+        (description ^ " keeps expression routing")
+        "HCPARSE0047" (first_diagnostic collision).code)
+    [
+      ("global-variable collision", "I64 occupied;occupied:");
+      ("function collision", "extern I64 occupied();occupied:");
+    ];
+  let _, _, unresolved_declaration = parse_string "Widget value;" in
+  Alcotest.(check string)
+    "an unresolved name without a colon remains a declaration" "HCPARSE0001"
+    (first_diagnostic unresolved_declaration).code
+
+let goto_label_provenance () =
+  let source =
+    "#define JUMP goto\n\
+     #define TARGET finish\n\
+     #define END ;\n\
+     #define LABEL finish\n\
+     #define COLON :\n\
+     JUMP TARGET END LABEL COLON"
+  in
+  let session, _, output = parse_string source in
+  let goto_statement, label_statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Top_level_statement goto_statement; Ast.Top_level_statement label ]
+      -> (expect_goto_statement goto_statement, expect_label_statement label)
+    | _ -> Alcotest.fail "expected definition-backed goto and label statements"
+  in
+  let semicolon = Option.get goto_statement.goto_semicolon in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("goto keyword", goto_statement.goto_keyword);
+      ("goto target", goto_statement.goto_target.location);
+      ("goto semicolon", semicolon);
+      ("label name", label_statement.label_name.location);
+      ("label colon", label_statement.label_colon);
+    ];
+  let open Yojson.Safe.Util in
+  let items =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated goto-target provenance" true
+    (List.hd items |> member "statement" |> member "target" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let labels_file = Filename.concat directory "labels.HC" in
+      write_file root_file "#include \"labels\"";
+      write_file labels_file "goto finish;finish:";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_goto, included_label =
+        match (expect_ast include_output).Ast.items with
+        | [
+         Ast.Top_level_statement goto_statement; Ast.Top_level_statement label;
+        ] -> (expect_goto_statement goto_statement, expect_label_statement label)
+        | _ -> Alcotest.fail "expected one included goto and label"
+      in
+      List.iter
+        (fun (name, (location : Ast.location)) ->
+          let included_source =
+            Source_manager.find
+              (Session.sources include_session)
+              location.Ast.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            (name ^ " keeps its canonical include path")
+            (Unix.realpath labels_file)
+            (Source_file.path included_source))
+        [
+          ("included goto", included_goto.goto_keyword);
+          ("included label", included_label.label_name.location);
+        ])
+
+let goto_label_failures () =
+  List.iter
+    (fun (name, source, code, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the failure")
+        true
+        (contains diagnostic.message found))
+    [
+      ("missing target at end of input", "goto", "HCPARSE0075", "end of input");
+      ("missing target before semicolon", "goto;", "HCPARSE0075", "found \";\"");
+      ("numeric target", "goto 1;", "HCPARSE0075", "found \"1\"");
+      ("invalid terminator", "goto done)", "HCPARSE0076", "found \")\"");
+      ("following expression", "goto done 1;", "HCPARSE0076", "found \"1\"");
+    ];
+  let _, _, block_recovery = parse_string "{goto done}" in
+  Alcotest.(check (list string))
+    "goto recovery preserves the enclosing block close" [ "HCPARSE0076" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       block_recovery.diagnostics);
+  let _, _, update_semicolon =
+    parse_string "I64 active;for(;active;goto done;)done:"
+  in
+  Alcotest.(check string)
+    "for-update semicolon stays an outer header error" "HCPARSE0070"
+    (first_diagnostic update_semicolon).code
+
+let deterministic_goto_label_dumps () =
+  let session, _, output = parse_string "goto done;done:" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human goto-label dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON goto-label dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies goto statements" true
+    (contains human "goto_statement");
+  Alcotest.(check bool)
+    "human dump identifies function labels" true
+    (contains human "label_statement");
+  let open Yojson.Safe.Util in
+  let items =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+  in
+  let goto_statement = List.hd items |> member "statement" in
+  Alcotest.(check string)
+    "JSON keeps the goto kind" "goto_statement"
+    (goto_statement |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON keeps the goto target" "done"
+    (goto_statement |> member "target" |> member "spelling" |> to_string);
+  Alcotest.(check bool)
+    "ordinary JSON goto retains its semicolon" true
+    (goto_statement |> member "semicolon" <> `Null);
+  let label = List.nth items 1 |> member "statement" in
+  Alcotest.(check string)
+    "JSON keeps the label kind" "label_statement"
+    (label |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON keeps the label name" "done"
+    (label |> member "name" |> member "spelling" |> to_string)
+
 let break_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -9552,6 +9898,16 @@ let tests =
     Alcotest.test_case "for statement failures" `Quick for_statement_failures;
     Alcotest.test_case "deterministic for statement dumps" `Quick
       deterministic_for_dumps;
+    Alcotest.test_case "pinned goto and label behavior" `Quick
+      goto_label_source_behavior;
+    Alcotest.test_case "goto and label statement shapes" `Quick
+      goto_label_statement_shapes;
+    Alcotest.test_case "goto and label boundaries and routing" `Quick
+      goto_label_boundaries_and_routing;
+    Alcotest.test_case "goto and label provenance" `Quick goto_label_provenance;
+    Alcotest.test_case "goto and label failures" `Quick goto_label_failures;
+    Alcotest.test_case "deterministic goto and label dumps" `Quick
+      deterministic_goto_label_dumps;
     Alcotest.test_case "pinned break behavior" `Quick
       break_statement_source_behavior;
     Alcotest.test_case "break statement shapes" `Quick break_statement_shapes;

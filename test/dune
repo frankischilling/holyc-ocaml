@@ -64,10 +64,12 @@
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Compiler/UAsm.HC
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
+  ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
   ../third_party/TempleOS/Kernel/KStart16.HC
@@ -2274,3 +2276,63 @@
        --format=json
        cli/parse-return-error.hc))))
    (diff cli/parse-return-error.json parse-return-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-labels.human.actual)
+ (deps cli/parse-goto-labels.hc cli/parse-goto-labels.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-labels.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-goto-labels.hc))
+   (diff cli/parse-goto-labels.human parse-goto-labels.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-labels.json.actual)
+ (deps cli/parse-goto-labels.hc cli/parse-goto-labels.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-labels.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-goto-labels.hc))
+   (diff cli/parse-goto-labels.json parse-goto-labels.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-error.human.actual parse-goto-error.human.stdout.actual)
+ (deps cli/parse-goto-error.hc cli/parse-goto-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-error.human.stdout.actual
+    (with-stderr-to
+     parse-goto-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-goto-error.hc))))
+   (diff cli/parse-goto-error.human parse-goto-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-error.json.actual parse-goto-error.json.stdout.actual)
+ (deps cli/parse-goto-error.hc cli/parse-goto-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-error.json.stdout.actual
+    (with-stderr-to
+     parse-goto-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-goto-error.hc))))
+   (diff cli/parse-goto-error.json parse-goto-error.json.actual))))

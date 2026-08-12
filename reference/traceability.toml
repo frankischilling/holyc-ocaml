@@ -1043,7 +1043,7 @@ status = "implemented"
 issue = 95
 ast_schema = "holyc-ast-v1"
 implemented_scope = "top-level statement position and compound-block children"
-statement_kinds = ["block", "expression", "empty", "break", "return", "Print", "PutChars"]
+statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars"]
 leading_repeated_and_trailing_commas = "preserved"
 comma_only_sequence = "preserved with no semantic elements"
 expression_terminators = ["semicolon", "statement comma"]
@@ -1056,7 +1056,8 @@ missing_terminator_diagnostic = "HCPARSE0047"
 unsupported_sequence_form_diagnostic = "HCPARSE0048"
 block_status = "implemented by issue 97"
 control_flow_status = "planned"
-declaration_and_label_after_comma_status = "planned"
+label_after_comma_status = "implemented by issue 111"
+declaration_after_comma_status = "planned"
 semantic_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
@@ -1088,7 +1089,7 @@ issue = 97
 ast_schema = "holyc-ast-v1"
 implemented_scope = "top-level statement position and recursive compound-block children"
 accepted_shapes = ["empty block", "nested block", "ordered child statements", "block followed by a statement comma"]
-child_statement_kinds = ["block", "expression", "empty", "break", "return", "Print", "PutChars", "statement sequence"]
+child_statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars", "statement sequence"]
 brace_locations = "preserved independently and as the complete block location"
 comma_after_closing_brace = "continues the enclosing statement sequence"
 comma_before_closing_brace = "rejected because the source loop expects another statement"
@@ -1101,7 +1102,8 @@ hosted_nesting_limit = 256
 nesting_limit_diagnostic = "HCPARSE0051"
 lexical_scope_status = "planned"
 local_declaration_status = "planned"
-control_flow_and_label_status = "planned"
+goto_and_label_syntax_status = "implemented by issue 111"
+control_flow_and_label_binding_status = "planned"
 function_body_status = "planned"
 semantic_checking_status = "planned"
 lowering_status = "planned"
@@ -1139,7 +1141,7 @@ condition_expression_grammar = "shared audited core expression parser"
 then_branch = "required and parsed through the common statement path"
 else_branch = "optional and parsed through the common statement path"
 dangling_else = "owned by the nearest unmatched if"
-branch_statement_kinds = ["block", "conditional", "while", "do-while", "for", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+branch_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0052", "HCPARSE0053", "HCPARSE0054", "HCPARSE0055", "HCPARSE0056"]
@@ -1181,7 +1183,7 @@ implemented_scope = "top-level statement position and recursive supported statem
 condition_parentheses = "required and preserved independently"
 condition_expression_grammar = "shared audited core expression parser"
 body = "required and parsed through the common statement path"
-body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
 dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
@@ -1227,7 +1229,7 @@ trailing_while_keyword = "required and preserved independently"
 condition_parentheses = "required and preserved independently"
 condition_expression_grammar = "shared audited core expression parser"
 final_semicolon = "required and preserved independently"
-body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
 dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
@@ -1275,7 +1277,7 @@ initializer = "required statement; a semicolon represents the empty initializer"
 condition = "required shared core expression followed by a preserved semicolon"
 update = "optional statement parsed without a required semicolon; comma-linked updates retain their sequence"
 body = "required and parsed through the common statement path"
-body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
 local_declaration_initializer_status = "planned"
 dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
 compilation_modes = ["jit", "aot"]
@@ -1372,6 +1374,55 @@ return_type_validation_status = "planned"
 try_unwind_status = "planned"
 function_metadata_status = "planned"
 leave_label_resolution_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-GOTO-LABELS"
+description = "Goto statements and function labels retain their names, punctuation, source boundary, and unresolved-identifier routing."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_GOTO dispatch and unresolved-identifier label path",
+  "Compiler/PrsLib.HC:COCGoToLabelFind and COCDel",
+  "Compiler/CompilerA.HH:KW_GOTO",
+  "Kernel/KernelA.HH:CMT_GOTO_LABEL, CMF_DEFINED, HTF_GOTO_LABEL, and IEF_GOTO_LABEL",
+  "Compiler/UAsm.HC:ief_compare_done forward references",
+  "Kernel/Job.HC:jh_done completion label",
+  "Doc/HolyC.DD:no continue statement",
+  "Doc/ScopingLinkage.DD:function scope and global collision note"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-goto-labels.hc",
+  "test/cli/parse-goto-labels.human",
+  "test/cli/parse-goto-labels.json",
+  "test/cli/parse-goto-error.hc",
+  "test/cli/parse-goto-error.human",
+  "test/cli/parse-goto-error.json"
+]
+status = "implemented"
+issue = 111
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+goto_target = "required identifier preserved separately from the keyword"
+goto_semicolon = "preserved when present; absent at a comma or semicolon-free for-update boundary"
+label_selection = "identifier absent from the current symbol environment and immediately followed by a colon"
+known_symbol_collision = "known globals and functions retain expression routing rather than becoming labels"
+label_colon = "required and preserved"
+comma_boundary = "retained by the shared statement-sequence node"
+for_update_boundary = "stops before the closing parenthesis without fabricating a semicolon"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0075", "HCPARSE0076"]
+block_recovery = "preserves the enclosing closing brace"
+top_level_context = "accepted for tooling; native function-context enforcement is planned"
+stable_label_identity_status = "planned"
+duplicate_unresolved_unused_and_collision_checks_status = "planned"
+control_flow_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
 
