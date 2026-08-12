@@ -6700,7 +6700,8 @@ let implicit_output_shapes () =
      \"\" fmt,name,age;\n\
      '*';\n\
      'ABC';\n\
-     '' drv;"
+     '' drv;\n\
+     \"\\0tail\" nul_fmt;"
   in
   let _, _, output = parse_string source in
   let ast = expect_ast output in
@@ -6715,7 +6716,7 @@ let implicit_output_shapes () =
             Alcotest.fail "output fixture unexpectedly parsed a declaration")
       ast.items
   in
-  Alcotest.(check int) "six statements" 6 (List.length statements);
+  Alcotest.(check int) "seven statements" 7 (List.length statements);
   let hello = List.nth statements 0 in
   Alcotest.(check bool)
     "ordinary string targets Print" true
@@ -6776,7 +6777,17 @@ let implicit_output_shapes () =
   in
   Alcotest.(check string)
     "following expression supplies the character" "drv"
-    variable_character_identifier.spelling
+    variable_character_identifier.spelling;
+  let nul_format = List.nth statements 6 in
+  Alcotest.(check string)
+    "a leading decoded NUL selects the variable format" "\000tail"
+    (expect_bytes_value nul_format.marker);
+  let nul_format_identifier =
+    expect_following_fixed_argument nul_format |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "NUL-prefixed marker uses the following expression" "nul_fmt"
+    nul_format_identifier.spelling
 
 let implicit_output_fixed_expressions () =
   let source = "\"prefix\"+suffix;\n'A'+1;\n\"\" BuildFmt();\n'' value(U8);" in

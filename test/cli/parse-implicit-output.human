@@ -1,0 +1,54 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-implicit-output.hc:1:1..8:1 items=7
+  global_variable span=cli/parse-implicit-output.hc:1:1..1:12
+    type primitive=I64 spelling="I64" span=cli/parse-implicit-output.hc:1:1..1:4
+    name spelling="before" span=cli/parse-implicit-output.hc:1:5..1:11
+    semicolon span=cli/parse-implicit-output.hc:1:11..1:12
+  top_level_statement span=cli/parse-implicit-output.hc:2:1..2:11
+    implicit_output target=print span=cli/parse-implicit-output.hc:2:1..2:11 arguments=0
+      marker kind=string_literal spelling="\"hello\\n\"" value="hello\\x0a" span=cli/parse-implicit-output.hc:2:1..2:10
+      fixed_argument kind=marker_expression
+        expression kind=string_literal spelling="\"hello\\n\"" value="hello\\x0a" span=cli/parse-implicit-output.hc:2:1..2:10
+      semicolon span=cli/parse-implicit-output.hc:2:10..2:11
+  top_level_statement span=cli/parse-implicit-output.hc:3:1..3:13
+    implicit_output target=print span=cli/parse-implicit-output.hc:3:1..3:13 arguments=1
+      marker kind=string_literal spelling="\"%s\"" value="%s" span=cli/parse-implicit-output.hc:3:1..3:5
+      fixed_argument kind=marker_expression
+        expression kind=string_literal spelling="\"%s\"" value="%s" span=cli/parse-implicit-output.hc:3:1..3:5
+      argument index=0 span=cli/parse-implicit-output.hc:3:5..3:12
+        comma span=cli/parse-implicit-output.hc:3:5..3:6
+        expression kind=identifier spelling="before" span=cli/parse-implicit-output.hc:3:6..3:12
+      semicolon span=cli/parse-implicit-output.hc:3:12..3:13
+  top_level_statement span=cli/parse-implicit-output.hc:4:1..4:15
+    implicit_output target=print span=cli/parse-implicit-output.hc:4:1..4:15 arguments=1
+      marker kind=string_literal spelling="\"\"" value="" span=cli/parse-implicit-output.hc:4:1..4:3
+      fixed_argument kind=following_expression
+        expression kind=identifier spelling="fmt" span=cli/parse-implicit-output.hc:4:4..4:7
+      argument index=0 span=cli/parse-implicit-output.hc:4:7..4:14
+        comma span=cli/parse-implicit-output.hc:4:7..4:8
+        expression kind=identifier spelling="before" span=cli/parse-implicit-output.hc:4:8..4:14
+      semicolon span=cli/parse-implicit-output.hc:4:14..4:15
+  top_level_statement span=cli/parse-implicit-output.hc:5:1..5:6
+    implicit_output target=put_chars span=cli/parse-implicit-output.hc:5:1..5:6 arguments=0
+      marker kind=character_literal spelling="'OK'" value="0x0000000000004b4f" span=cli/parse-implicit-output.hc:5:1..5:5
+      fixed_argument kind=marker_expression
+        expression kind=character_literal spelling="'OK'" value="0x0000000000004b4f" span=cli/parse-implicit-output.hc:5:1..5:5
+      semicolon span=cli/parse-implicit-output.hc:5:5..5:6
+  top_level_statement span=cli/parse-implicit-output.hc:6:1..6:7
+    implicit_output target=put_chars span=cli/parse-implicit-output.hc:6:1..6:7 arguments=0
+      marker kind=character_literal spelling="'A'" value="0x0000000000000041" span=cli/parse-implicit-output.hc:6:1..6:4
+      fixed_argument kind=marker_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-implicit-output.hc:6:1..6:6
+          left
+            expression kind=character_literal spelling="'A'" value="0x0000000000000041" span=cli/parse-implicit-output.hc:6:1..6:4
+          operator spelling="+" span=cli/parse-implicit-output.hc:6:4..6:5
+          right
+            expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-implicit-output.hc:6:5..6:6
+      semicolon span=cli/parse-implicit-output.hc:6:6..6:7
+  top_level_statement span=cli/parse-implicit-output.hc:7:1..7:11
+    implicit_output target=put_chars span=cli/parse-implicit-output.hc:7:1..7:11 arguments=0
+      marker kind=character_literal spelling="''" value="0x0000000000000000" span=cli/parse-implicit-output.hc:7:1..7:3
+      fixed_argument kind=following_expression
+        expression kind=identifier spelling="before" span=cli/parse-implicit-output.hc:7:4..7:10
+      semicolon span=cli/parse-implicit-output.hc:7:10..7:11
