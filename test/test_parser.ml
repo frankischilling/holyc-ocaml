@@ -8138,7 +8138,7 @@ let do_while_statement_shapes () =
 let do_while_body_shapes_and_else_binding () =
   let source =
     "I64 a;I64 b;do{do,b--,b++;while(b);}while(a);if(a)do;while(b);else;do \
-     if(a);else;while(b);"
+     if(a);else;while(b);do while(a);while(b);"
   in
   let _, _, output = parse_string source in
   match (expect_ast output).Ast.items with
@@ -8148,6 +8148,7 @@ let do_while_body_shapes_and_else_binding () =
    Ast.Top_level_statement block_loop;
    Ast.Top_level_statement outer_if;
    Ast.Top_level_statement outer_do;
+   Ast.Top_level_statement pre_test_body;
   ] ->
       let block =
         expect_do_while_statement block_loop |> fun loop ->
@@ -8176,10 +8177,12 @@ let do_while_body_shapes_and_else_binding () =
       let inner_if = expect_if_statement outer_do.do_body in
       Alcotest.(check bool)
         "else inside a do-while body belongs to the inner if" true
-        (Option.is_some inner_if.if_else_clause)
+        (Option.is_some inner_if.if_else_clause);
+      let pre_test_body = expect_do_while_statement pre_test_body in
+      ignore (expect_while_statement pre_test_body.do_body)
   | items ->
       Alcotest.failf
-        "expected two declarations and three control-flow statements, got %d"
+        "expected two declarations and four control-flow statements, got %d"
         (List.length items)
 
 let do_while_statement_provenance () =
