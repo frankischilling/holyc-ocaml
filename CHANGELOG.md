@@ -33,6 +33,7 @@
 - Added primitive global array declarators with ordered dimensions, an explicit unsized first dimension, shared core expression syntax, bracket provenance, deterministic dumps, and source-specific diagnostics for malformed suffixes.
 - Added `_intern` bindings with source-positioned target expressions, JIT and AOT syntax coverage, pinned `KernelB.HH` prototypes, deterministic dumps, and bounded malformed-target diagnostics.
 - Added parenthesized call expressions with explicit omitted argument slots, nested-call precedence, punctuation provenance, deterministic dumps, and distinct diagnostics for missing separators and closing parentheses.
+- Added parenthesis-free direct calls with retained fixed-parameter shapes, default holes, adjacent required arguments, recursive visibility, address-of and shadowing safeguards, deterministic dumps, stable diagnostics, and a matching native TempleOS fixture.
 - Added bracket index expressions with repeated and mixed postfix chaining, source-positioned brackets, deterministic dumps, and distinct diagnostics for empty or unclosed indexes.
 - Added direct and pointer member expressions with explicit access kinds, source-positioned member names, mixed postfix chaining, deterministic dumps, and a dedicated missing-member diagnostic.
 - Added source-shaped `sizeof` terms with matched wrapper parentheses, unresolved named and member targets, uncapped target stars, deterministic dumps, and diagnostics for malformed targets and forbidden direct suffixes.
