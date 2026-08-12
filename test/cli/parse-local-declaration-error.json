@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0099",
+    "severity": "error",
+    "message": "register qualifiers are not accepted on static local declarations by the pinned parser",
+    "primary": {
+      "path": "cli/parse-local-declaration-error.hc",
+      "line": 4,
+      "column": 14,
+      "source_id": 0,
+      "start": 98,
+      "stop": 101
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

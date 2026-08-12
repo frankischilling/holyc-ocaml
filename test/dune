@@ -1006,6 +1006,86 @@
 
 (rule
  (alias runtest)
+ (targets parse-local-declarations.human.actual)
+ (deps cli/parse-local-declarations.hc cli/parse-local-declarations.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declarations.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-local-declarations.hc))
+   (diff
+    cli/parse-local-declarations.human
+    parse-local-declarations.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-local-declarations.json.actual)
+ (deps cli/parse-local-declarations.hc cli/parse-local-declarations.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declarations.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-local-declarations.hc))
+   (diff
+    cli/parse-local-declarations.json
+    parse-local-declarations.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-local-declaration-error.human.actual
+  parse-local-declaration-error.human.stdout.actual)
+ (deps
+  cli/parse-local-declaration-error.hc
+  cli/parse-local-declaration-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declaration-error.human.stdout.actual
+    (with-stderr-to
+     parse-local-declaration-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=human
+       cli/parse-local-declaration-error.hc))))
+   (diff
+    cli/parse-local-declaration-error.human
+    parse-local-declaration-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-local-declaration-error.json.actual
+  parse-local-declaration-error.json.stdout.actual)
+ (deps
+  cli/parse-local-declaration-error.hc
+  cli/parse-local-declaration-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declaration-error.json.stdout.actual
+    (with-stderr-to
+     parse-local-declaration-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-local-declaration-error.hc))))
+   (diff
+    cli/parse-local-declaration-error.json
+    parse-local-declaration-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-register-parameters.human.actual)
  (deps cli/parse-register-parameters.hc cli/parse-register-parameters.human)
  (action
