@@ -34,3 +34,4 @@
 - Added bracket index expressions with repeated and mixed postfix chaining, source-positioned brackets, deterministic dumps, and distinct diagnostics for empty or unclosed indexes.
 - Added direct and pointer member expressions with explicit access kinds, source-positioned member names, mixed postfix chaining, deterministic dumps, and a dedicated missing-member diagnostic.
 - Added source-shaped `sizeof` terms with matched wrapper parentheses, unresolved named and member targets, uncapped target stars, deterministic dumps, and diagnostics for malformed targets and forbidden direct suffixes.
+- Added source-shaped `offset` terms with required member paths, repeated nested members, matched wrapper parentheses, deterministic dumps, and diagnostics for malformed targets and forbidden direct suffixes.

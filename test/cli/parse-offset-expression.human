@@ -1,0 +1,55 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-offset-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-offset-expression.hc:1:1..1:92 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-offset-expression.hc:1:1..1:8
+      target_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-offset-expression.hc:1:9..1:76
+          left
+            expression kind=postfix_cast span=cli/parse-offset-expression.hc:1:9..1:47
+              operand
+                expression kind=offset wrappers=3 members=2 span=cli/parse-offset-expression.hc:1:9..1:42
+                  keyword spelling="offset" span=cli/parse-offset-expression.hc:1:9..1:15
+                  opening_parenthesis depth=1 span=cli/parse-offset-expression.hc:1:15..1:16
+                  opening_parenthesis depth=2 span=cli/parse-offset-expression.hc:1:16..1:17
+                  opening_parenthesis depth=3 span=cli/parse-offset-expression.hc:1:17..1:18
+                  target spelling="Packet" span=cli/parse-offset-expression.hc:1:18..1:24
+                  member span=cli/parse-offset-expression.hc:1:24..1:31
+                    dot span=cli/parse-offset-expression.hc:1:24..1:25
+                    name spelling="header" span=cli/parse-offset-expression.hc:1:25..1:31
+                  member span=cli/parse-offset-expression.hc:1:31..1:39
+                    dot span=cli/parse-offset-expression.hc:1:31..1:32
+                    name spelling="payload" span=cli/parse-offset-expression.hc:1:32..1:39
+                  closing_parenthesis depth=3 span=cli/parse-offset-expression.hc:1:39..1:40
+                  closing_parenthesis depth=2 span=cli/parse-offset-expression.hc:1:40..1:41
+                  closing_parenthesis depth=1 span=cli/parse-offset-expression.hc:1:41..1:42
+              opening_parenthesis span=cli/parse-offset-expression.hc:1:42..1:43
+              target
+                type primitive=U64 spelling="U64" span=cli/parse-offset-expression.hc:1:43..1:46
+              closing_parenthesis span=cli/parse-offset-expression.hc:1:46..1:47
+          operator spelling="+" span=cli/parse-offset-expression.hc:1:48..1:49
+          right
+            expression kind=index span=cli/parse-offset-expression.hc:1:50..1:76
+              base
+                expression kind=postfix_cast span=cli/parse-offset-expression.hc:1:50..1:73
+                  operand
+                    expression kind=offset wrappers=0 members=1 span=cli/parse-offset-expression.hc:1:50..1:67
+                      keyword spelling="offset" span=cli/parse-offset-expression.hc:1:50..1:56
+                      target spelling="table" span=cli/parse-offset-expression.hc:1:57..1:62
+                      member span=cli/parse-offset-expression.hc:1:62..1:67
+                        dot span=cli/parse-offset-expression.hc:1:62..1:63
+                        name spelling="item" span=cli/parse-offset-expression.hc:1:63..1:67
+                  opening_parenthesis span=cli/parse-offset-expression.hc:1:67..1:68
+                  target
+                    type primitive=U8 spelling="U8" span=cli/parse-offset-expression.hc:1:68..1:70
+                    pointer_layer depth=1 spelling="*" span=cli/parse-offset-expression.hc:1:71..1:72
+                  closing_parenthesis span=cli/parse-offset-expression.hc:1:72..1:73
+              opening_bracket span=cli/parse-offset-expression.hc:1:73..1:74
+              index
+                expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-offset-expression.hc:1:74..1:75
+              closing_bracket span=cli/parse-offset-expression.hc:1:75..1:76
+    return_type primitive=I64 spelling="I64" span=cli/parse-offset-expression.hc:1:77..1:80
+    name spelling="Measured" span=cli/parse-offset-expression.hc:1:81..1:89
+    opening_parenthesis span=cli/parse-offset-expression.hc:1:89..1:90
+    closing_parenthesis span=cli/parse-offset-expression.hc:1:90..1:91
+    semicolon span=cli/parse-offset-expression.hc:1:91..1:92

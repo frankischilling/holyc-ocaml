@@ -1442,6 +1442,54 @@ byte_size_calculation = "planned"
 ic_lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-OFFSET-EXPRESSIONS"
+description = "HolyC offset terms retain their wrapper parentheses, unresolved named root, and required member path."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_OFFSET branch",
+  "Compiler/PrsExp.HC:PrsOffsetOf",
+  "Compiler/CompilerA.HH:KW_OFFSET",
+  "Doc/HolyC.DD:sizeof and offset note",
+  "Compiler/PrsVar.HC:offset(CVI2.base)",
+  "Kernel/MultiProc.HC:offset(CGDT.tr)",
+  "Adam/AMem.HC:offset(CMemUsed.next)"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-offset-expression.hc",
+  "test/cli/parse-offset-expression.human",
+  "test/cli/parse-offset-expression.json",
+  "test/cli/parse-offset-error.hc",
+  "test/cli/parse-offset-error.human",
+  "test/cli/parse-offset-error.json"
+]
+status = "implemented"
+issue = 87
+ast_schema = "holyc-ast-v1"
+accepted_targets = "one unresolved identifier followed by one or more dot-separated member identifiers"
+wrapper_parentheses = "zero or more matched pairs"
+target_pointer_depth = "not accepted; PrsOffsetOf has no pointer-star loop"
+member_documentation_difference = "the executable PrsOffsetOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_target_diagnostic = "HCPARSE0035"
+missing_dot_diagnostic = "HCPARSE0036"
+missing_member_diagnostic = "HCPARSE0037"
+unmatched_wrapper_diagnostic = "HCPARSE0038"
+direct_suffix_diagnostic = "HCPARSE0039"
+target_and_member_resolution = "planned"
+local_use_count_behavior = "planned"
+member_offset_calculation = "planned"
+ic_lowering_status = "planned IC_IMM_I64 emission"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

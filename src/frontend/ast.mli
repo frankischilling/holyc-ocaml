@@ -84,6 +84,7 @@ type expression =
   | Identifier_expression of identifier
   | Current_position_expression of expression_operator
   | Sizeof_expression of sizeof_expression
+  | Offset_expression of offset_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -119,6 +120,22 @@ and sizeof_expression = private {
   sizeof_pointer_layers : pointer_layer list;
   sizeof_closing_parentheses : location list;
   sizeof_location : location;
+}
+
+and offset_member = private {
+  offset_member_dot : location;
+  offset_member_name : identifier;
+  offset_member_location : location;
+}
+
+and offset_expression = private {
+  offset_keyword_spelling : string;
+  offset_keyword_location : location;
+  offset_opening_parentheses : location list;
+  offset_target : identifier;
+  offset_members : offset_member list;
+  offset_closing_parentheses : location list;
+  offset_location : location;
 }
 
 and parenthesized_expression = private {
@@ -396,6 +413,19 @@ val make_sizeof_expression :
   closing_parentheses:location list ->
   location:location ->
   sizeof_expression
+
+val make_offset_member :
+  dot:location -> name:identifier -> location:location -> offset_member
+
+val make_offset_expression :
+  keyword_spelling:string ->
+  keyword_location:location ->
+  opening_parentheses:location list ->
+  target:identifier ->
+  members:offset_member list ->
+  closing_parentheses:location list ->
+  location:location ->
+  offset_expression
 
 val make_parenthesized_expression :
   opening_parenthesis:location ->

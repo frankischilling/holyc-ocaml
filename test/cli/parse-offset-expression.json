@@ -1,0 +1,1825 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-offset-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 92
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-offset-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "binary",
+            "left": {
+              "kind": "postfix_cast",
+              "operand": {
+                "kind": "offset",
+                "keyword": {
+                  "spelling": "offset",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 14
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 8,
+                        "stop": 14
+                      }
+                    ]
+                  }
+                },
+                "opening_parentheses": [
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 15
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 14,
+                        "stop": 15
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 15,
+                        "stop": 16
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 16,
+                        "stop": 17
+                      }
+                    ]
+                  }
+                ],
+                "target": {
+                  "spelling": "Packet",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 23
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 17,
+                        "stop": 23
+                      }
+                    ]
+                  }
+                },
+                "members": [
+                  {
+                    "dot": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 24,
+                          "source_id": 0,
+                          "start": 23,
+                          "stop": 24
+                        }
+                      ]
+                    },
+                    "name": {
+                      "spelling": "header",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 30
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 25,
+                            "source_id": 0,
+                            "start": 24,
+                            "stop": 30
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 30
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 24,
+                          "source_id": 0,
+                          "start": 23,
+                          "stop": 24
+                        },
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 30
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "dot": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 31
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 31
+                        }
+                      ]
+                    },
+                    "name": {
+                      "spelling": "payload",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 32,
+                          "source_id": 0,
+                          "start": 31,
+                          "stop": 38
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 32,
+                            "source_id": 0,
+                            "start": 31,
+                            "stop": 38
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 38
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 31
+                        },
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 32,
+                          "source_id": 0,
+                          "start": 31,
+                          "stop": 38
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_parentheses": [
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 39,
+                      "source_id": 0,
+                      "start": 38,
+                      "stop": 39
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 39,
+                        "source_id": 0,
+                        "start": 38,
+                        "stop": 39
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 40
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 40,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 40
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 41,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 41
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 41,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 41
+                      }
+                    ]
+                  }
+                ],
+                "location": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 41
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 14
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 15
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 23
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 30
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 31
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 31,
+                      "stop": 38
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 39,
+                      "source_id": 0,
+                      "start": 38,
+                      "stop": 39
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 40
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 41,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 41
+                    }
+                  ]
+                }
+              },
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 41,
+                  "stop": 42
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 42,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 42
+                  }
+                ]
+              },
+              "target_type": {
+                "kind": "primitive",
+                "primitive": "U64",
+                "spelling": "U64",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 45
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 43,
+                      "source_id": 0,
+                      "start": 42,
+                      "stop": 45
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 46
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 46,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 46
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 46
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 14
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 15
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 30
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 31
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 40
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 41
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 42,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 42
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 45
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 46,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 46
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 48
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 48,
+                    "source_id": 0,
+                    "start": 47,
+                    "stop": 48
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "index",
+              "base": {
+                "kind": "postfix_cast",
+                "operand": {
+                  "kind": "offset",
+                  "keyword": {
+                    "spelling": "offset",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 50,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 55
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 50,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 55
+                        }
+                      ]
+                    }
+                  },
+                  "opening_parentheses": [],
+                  "target": {
+                    "spelling": "table",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 57,
+                        "source_id": 0,
+                        "start": 56,
+                        "stop": 61
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 57,
+                          "source_id": 0,
+                          "start": 56,
+                          "stop": 61
+                        }
+                      ]
+                    }
+                  },
+                  "members": [
+                    {
+                      "dot": {
+                        "span": {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 62,
+                          "source_id": 0,
+                          "start": 61,
+                          "stop": 62
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 62,
+                            "source_id": 0,
+                            "start": 61,
+                            "stop": 62
+                          }
+                        ]
+                      },
+                      "name": {
+                        "spelling": "item",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 63,
+                            "source_id": 0,
+                            "start": 62,
+                            "stop": 66
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-offset-expression.hc",
+                              "line": 1,
+                              "column": 63,
+                              "source_id": 0,
+                              "start": 62,
+                              "stop": 66
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 62,
+                          "source_id": 0,
+                          "start": 61,
+                          "stop": 66
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 62,
+                            "source_id": 0,
+                            "start": 61,
+                            "stop": 62
+                          },
+                          {
+                            "path": "cli/parse-offset-expression.hc",
+                            "line": 1,
+                            "column": 63,
+                            "source_id": 0,
+                            "start": 62,
+                            "stop": 66
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "closing_parentheses": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 66
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 50,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 55
+                      },
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 57,
+                        "source_id": 0,
+                        "start": 56,
+                        "stop": 61
+                      },
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 62,
+                        "source_id": 0,
+                        "start": 61,
+                        "stop": 62
+                      },
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 63,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 66
+                      }
+                    ]
+                  }
+                },
+                "opening_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 67,
+                    "source_id": 0,
+                    "start": 66,
+                    "stop": 67
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 67,
+                      "source_id": 0,
+                      "start": 66,
+                      "stop": 67
+                    }
+                  ]
+                },
+                "target_type": {
+                  "kind": "primitive",
+                  "primitive": "U8",
+                  "spelling": "U8",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 68,
+                      "source_id": 0,
+                      "start": 67,
+                      "stop": 69
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 68,
+                        "source_id": 0,
+                        "start": 67,
+                        "stop": 69
+                      }
+                    ]
+                  }
+                },
+                "pointer_layers": [
+                  {
+                    "depth": 1,
+                    "spelling": "*",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-offset-expression.hc",
+                        "line": 1,
+                        "column": 71,
+                        "source_id": 0,
+                        "start": 70,
+                        "stop": 71
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-offset-expression.hc",
+                          "line": 1,
+                          "column": 71,
+                          "source_id": 0,
+                          "start": 70,
+                          "stop": 71
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 72,
+                    "source_id": 0,
+                    "start": 71,
+                    "stop": 72
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 72,
+                      "source_id": 0,
+                      "start": 71,
+                      "stop": 72
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 72
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 55
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 57,
+                      "source_id": 0,
+                      "start": 56,
+                      "stop": 61
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 62,
+                      "source_id": 0,
+                      "start": 61,
+                      "stop": 62
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 63,
+                      "source_id": 0,
+                      "start": 62,
+                      "stop": 66
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 67,
+                      "source_id": 0,
+                      "start": 66,
+                      "stop": 67
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 68,
+                      "source_id": 0,
+                      "start": 67,
+                      "stop": 69
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 71,
+                      "source_id": 0,
+                      "start": 70,
+                      "stop": 71
+                    },
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 72,
+                      "source_id": 0,
+                      "start": 71,
+                      "stop": 72
+                    }
+                  ]
+                }
+              },
+              "opening_bracket": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 73,
+                  "source_id": 0,
+                  "start": 72,
+                  "stop": 73
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 73,
+                    "source_id": 0,
+                    "start": 72,
+                    "stop": 73
+                  }
+                ]
+              },
+              "index": {
+                "kind": "integer_literal",
+                "spelling": "0",
+                "value": "0x0000000000000000",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 74,
+                    "source_id": 0,
+                    "start": 73,
+                    "stop": 74
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-offset-expression.hc",
+                      "line": 1,
+                      "column": 74,
+                      "source_id": 0,
+                      "start": 73,
+                      "stop": 74
+                    }
+                  ]
+                }
+              },
+              "closing_bracket": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 75,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 75
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 75,
+                    "source_id": 0,
+                    "start": 74,
+                    "stop": 75
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 75
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 55
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 57,
+                    "source_id": 0,
+                    "start": 56,
+                    "stop": 61
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 61,
+                    "stop": 62
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 63,
+                    "source_id": 0,
+                    "start": 62,
+                    "stop": 66
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 67,
+                    "source_id": 0,
+                    "start": 66,
+                    "stop": 67
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 68,
+                    "source_id": 0,
+                    "start": 67,
+                    "stop": 69
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 71,
+                    "source_id": 0,
+                    "start": 70,
+                    "stop": 71
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 72,
+                    "source_id": 0,
+                    "start": 71,
+                    "stop": 72
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 73,
+                    "source_id": 0,
+                    "start": 72,
+                    "stop": 73
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 74,
+                    "source_id": 0,
+                    "start": 73,
+                    "stop": 74
+                  },
+                  {
+                    "path": "cli/parse-offset-expression.hc",
+                    "line": 1,
+                    "column": 75,
+                    "source_id": 0,
+                    "start": 74,
+                    "stop": 75
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-offset-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 75
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 14
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 15
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 38
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 38,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 40
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 41
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 41,
+                  "stop": 42
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 42,
+                  "stop": 45
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 46,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 46
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 48
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 55
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 57,
+                  "source_id": 0,
+                  "start": 56,
+                  "stop": 61
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 61,
+                  "stop": 62
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 63,
+                  "source_id": 0,
+                  "start": 62,
+                  "stop": 66
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 67,
+                  "source_id": 0,
+                  "start": 66,
+                  "stop": 67
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 68,
+                  "source_id": 0,
+                  "start": 67,
+                  "stop": 69
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 71,
+                  "source_id": 0,
+                  "start": 70,
+                  "stop": 71
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 72,
+                  "source_id": 0,
+                  "start": 71,
+                  "stop": 72
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 73,
+                  "source_id": 0,
+                  "start": 72,
+                  "stop": 73
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 74,
+                  "source_id": 0,
+                  "start": 73,
+                  "stop": 74
+                },
+                {
+                  "path": "cli/parse-offset-expression.hc",
+                  "line": 1,
+                  "column": 75,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 75
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 77,
+              "source_id": 0,
+              "start": 76,
+              "stop": 79
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-offset-expression.hc",
+                "line": 1,
+                "column": 77,
+                "source_id": 0,
+                "start": 76,
+                "stop": 79
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Measured",
+          "location": {
+            "span": {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 81,
+              "source_id": 0,
+              "start": 80,
+              "stop": 88
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-offset-expression.hc",
+                "line": 1,
+                "column": 81,
+                "source_id": 0,
+                "start": 80,
+                "stop": 88
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-offset-expression.hc",
+            "line": 1,
+            "column": 89,
+            "source_id": 0,
+            "start": 88,
+            "stop": 89
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 89,
+              "source_id": 0,
+              "start": 88,
+              "stop": 89
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-offset-expression.hc",
+            "line": 1,
+            "column": 90,
+            "source_id": 0,
+            "start": 89,
+            "stop": 90
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 90,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-offset-expression.hc",
+            "line": 1,
+            "column": 91,
+            "source_id": 0,
+            "start": 90,
+            "stop": 91
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 91,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-offset-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 91
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 15,
+              "source_id": 0,
+              "start": 14,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 32,
+              "source_id": 0,
+              "start": 31,
+              "stop": 38
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 42,
+              "source_id": 0,
+              "start": 41,
+              "stop": 42
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 43,
+              "source_id": 0,
+              "start": 42,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 46,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 48,
+              "source_id": 0,
+              "start": 47,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 50,
+              "source_id": 0,
+              "start": 49,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 61
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 62,
+              "source_id": 0,
+              "start": 61,
+              "stop": 62
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 63,
+              "source_id": 0,
+              "start": 62,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 67,
+              "source_id": 0,
+              "start": 66,
+              "stop": 67
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 68,
+              "source_id": 0,
+              "start": 67,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 71,
+              "source_id": 0,
+              "start": 70,
+              "stop": 71
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 72,
+              "source_id": 0,
+              "start": 71,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 73,
+              "source_id": 0,
+              "start": 72,
+              "stop": 73
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 74,
+              "source_id": 0,
+              "start": 73,
+              "stop": 74
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 75,
+              "source_id": 0,
+              "start": 74,
+              "stop": 75
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 77,
+              "source_id": 0,
+              "start": 76,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 81,
+              "source_id": 0,
+              "start": 80,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 89,
+              "source_id": 0,
+              "start": 88,
+              "stop": 89
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 90,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-offset-expression.hc",
+              "line": 1,
+              "column": 91,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

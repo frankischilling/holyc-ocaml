@@ -64,6 +64,7 @@
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
+  ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
@@ -71,6 +72,7 @@
   ../third_party/TempleOS/Kernel/KStart32.HC
   ../third_party/TempleOS/Kernel/StrPrint.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
+  ../third_party/TempleOS/Kernel/MultiProc.HC
   ../third_party/TempleOS/Doc/HolyC.DD
   ../third_party/TempleOS/Doc/Options.DD
   (glob_files golden/*)
@@ -1464,3 +1466,71 @@
        --format=json
        cli/parse-sizeof-error.hc))))
    (diff cli/parse-sizeof-error.json parse-sizeof-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-offset-expression.human.actual)
+ (deps cli/parse-offset-expression.hc cli/parse-offset-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-offset-expression.hc))
+   (diff
+    cli/parse-offset-expression.human
+    parse-offset-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-offset-expression.json.actual)
+ (deps cli/parse-offset-expression.hc cli/parse-offset-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-offset-expression.hc))
+   (diff
+    cli/parse-offset-expression.json
+    parse-offset-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-offset-error.human.actual
+  parse-offset-error.human.stdout.actual)
+ (deps cli/parse-offset-error.hc cli/parse-offset-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-error.human.stdout.actual
+    (with-stderr-to
+     parse-offset-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-offset-error.hc))))
+   (diff cli/parse-offset-error.human parse-offset-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-offset-error.json.actual
+  parse-offset-error.json.stdout.actual)
+ (deps cli/parse-offset-error.hc cli/parse-offset-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-error.json.stdout.actual
+    (with-stderr-to
+     parse-offset-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-offset-error.hc))))
+   (diff cli/parse-offset-error.json parse-offset-error.json.actual))))
