@@ -1,0 +1,937 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-lock-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 56
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-lock-statements.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lock-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "lock_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 15
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 15
+              }
+            ]
+          },
+          "body": {
+            "kind": "block_statement",
+            "opening_brace": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 16,
+                "stop": 17
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 2,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                }
+              ]
+            },
+            "statements": [
+              {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_increment",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lock-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 25
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lock-statements.hc",
+                          "line": 3,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 20,
+                          "stop": 25
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "++",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-lock-statements.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 27
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-lock-statements.hc",
+                          "line": 3,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 25,
+                          "stop": 27
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 27
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-lock-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 25
+                      },
+                      {
+                        "path": "cli/parse-lock-statements.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 27
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 3,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 3,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 27,
+                      "stop": 28
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 25
+                    },
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 3,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 27
+                    },
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 3,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 27,
+                      "stop": 28
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_brace": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 29,
+                "stop": 30
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 29,
+                  "stop": 30
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 16,
+                "stop": 30
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 2,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 3,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 27
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 3,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 27,
+                  "stop": 28
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 29,
+                  "stop": 30
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 30
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 15
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 16,
+                "stop": 17
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 20,
+                "stop": 25
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 3,
+                "column": 8,
+                "source_id": 0,
+                "start": 25,
+                "stop": 27
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 3,
+                "column": 10,
+                "source_id": 0,
+                "start": 27,
+                "stop": 28
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 29,
+                "stop": 30
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lock-statements.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 30
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 2,
+              "column": 6,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 20,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 3,
+              "column": 8,
+              "source_id": 0,
+              "start": 25,
+              "stop": 27
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 3,
+              "column": 10,
+              "source_id": 0,
+              "start": 27,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 29,
+              "stop": 30
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "lock_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 31,
+              "stop": 35
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 31,
+                "stop": 35
+              }
+            ]
+          },
+          "body": {
+            "kind": "expression_statement",
+            "expression": {
+              "kind": "postfix",
+              "operator_kind": "post_decrement",
+              "operand": {
+                "kind": "identifier",
+                "spelling": "value",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 41
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 5,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 36,
+                      "stop": 41
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "--",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 5,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 43
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-lock-statements.hc",
+                      "line": 5,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 41,
+                      "stop": 43
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 5,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 43
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 41
+                  },
+                  {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 5,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 43
+                  }
+                ]
+              }
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 13,
+                "source_id": 0,
+                "start": 43,
+                "stop": 44
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 5,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 44
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 6,
+                "source_id": 0,
+                "start": 36,
+                "stop": 44
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 5,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 41
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 5,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 41,
+                  "stop": 43
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 5,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 44
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 31,
+              "stop": 44
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 31,
+                "stop": 35
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 6,
+                "source_id": 0,
+                "start": 36,
+                "stop": 41
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 11,
+                "source_id": 0,
+                "start": 41,
+                "stop": 43
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 5,
+                "column": 13,
+                "source_id": 0,
+                "start": 43,
+                "stop": 44
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lock-statements.hc",
+            "line": 5,
+            "column": 1,
+            "source_id": 0,
+            "start": 31,
+            "stop": 44
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 31,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 6,
+              "source_id": 0,
+              "start": 36,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 11,
+              "source_id": 0,
+              "start": 41,
+              "stop": 43
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 5,
+              "column": 13,
+              "source_id": 0,
+              "start": 43,
+              "stop": 44
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "lock_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 45,
+              "stop": 49
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 45,
+                "stop": 49
+              }
+            ]
+          },
+          "body": {
+            "kind": "lock_statement",
+            "keyword": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 6,
+                "source_id": 0,
+                "start": 50,
+                "stop": 54
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 6,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 50,
+                  "stop": 54
+                }
+              ]
+            },
+            "body": {
+              "kind": "empty_statement",
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 6,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 54,
+                  "stop": 55
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 6,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 54,
+                    "stop": 55
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 6,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 54,
+                  "stop": 55
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-lock-statements.hc",
+                    "line": 6,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 54,
+                    "stop": 55
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 6,
+                "source_id": 0,
+                "start": 50,
+                "stop": 55
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 6,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 50,
+                  "stop": 54
+                },
+                {
+                  "path": "cli/parse-lock-statements.hc",
+                  "line": 6,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 54,
+                  "stop": 55
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 45,
+              "stop": 55
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 45,
+                "stop": 49
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 6,
+                "source_id": 0,
+                "start": 50,
+                "stop": 54
+              },
+              {
+                "path": "cli/parse-lock-statements.hc",
+                "line": 6,
+                "column": 10,
+                "source_id": 0,
+                "start": 54,
+                "stop": 55
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-lock-statements.hc",
+            "line": 6,
+            "column": 1,
+            "source_id": 0,
+            "start": 45,
+            "stop": 55
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 45,
+              "stop": 49
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 6,
+              "column": 6,
+              "source_id": 0,
+              "start": 50,
+              "stop": 54
+            },
+            {
+              "path": "cli/parse-lock-statements.hc",
+              "line": 6,
+              "column": 10,
+              "source_id": 0,
+              "start": 54,
+              "stop": 55
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

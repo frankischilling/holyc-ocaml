@@ -5,6 +5,7 @@
   test_source
   test_lexer
   test_preprocessor
+  test_parser
   test_conditional_expression
   test_assert_directive
   test_help_directive
@@ -40,6 +41,7 @@
  (deps
   ../third_party/TempleOS/Compiler/OpCodes.DD
   ../third_party/TempleOS/Compiler/CInit.HC
+  ../third_party/TempleOS/Compiler/CExts.HC
   ../third_party/TempleOS/Compiler/CExcept.HC
   ../third_party/TempleOS/Compiler/CMain.HC
   ../third_party/TempleOS/Compiler/CMisc.HC
@@ -55,18 +57,35 @@
   ../third_party/TempleOS/Compiler/OptPass6.HC
   ../third_party/TempleOS/Compiler/OptPass789A.HC
   ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KernelB.HH
   ../third_party/TempleOS/Kernel/KernelC.HH
+  ../third_party/TempleOS/Kernel/KExts.HC
   ../third_party/TempleOS/Compiler/PrsLib.HC
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Compiler/UAsm.HC
+  ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
+  ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
+  ../third_party/TempleOS/Adam/AMem.HC
+  ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
+  ../third_party/TempleOS/Demo/MultiCore/Lock.HC
+  ../third_party/TempleOS/Demo/Exceptions.HC
+  ../third_party/TempleOS/Demo/NullCase.HC
+  ../third_party/TempleOS/Demo/SubSwitch.HC
+  ../third_party/TempleOS/Kernel/Compress.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
+  ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
   ../third_party/TempleOS/Kernel/KStart16.HC
   ../third_party/TempleOS/Kernel/KStart32.HC
   ../third_party/TempleOS/Kernel/StrPrint.HC
   ../third_party/TempleOS/Kernel/KUtils.HC
+  ../third_party/TempleOS/Kernel/MultiProc.HC
+  ../third_party/TempleOS/Doc/HolyC.DD
+  ../third_party/TempleOS/Doc/Options.DD
+  ../third_party/TempleOS/Doc/PreProcessor.DD
   (glob_files golden/*)
   (glob_files fixtures/*)
   (glob_files negative/*)))
@@ -295,3 +314,2326 @@
      lex
      --reference-root=%{env:DUNE_SOURCEROOT=}/third_party/TempleOS))
    (diff cli/corpus-lexer.human corpus-lexer.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-globals.human.actual)
+ (deps cli/parse-globals.hc cli/parse-globals.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-globals.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-globals.hc))
+   (diff cli/parse-globals.human parse-globals.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-globals.json.actual)
+ (deps cli/parse-globals.hc cli/parse-globals.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-globals.json.actual
+    (run %{exe:../bin/holyc.exe} dump-ast --format=json cli/parse-globals.hc))
+   (diff cli/parse-globals.json parse-globals.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-pointers.human.actual)
+ (deps cli/parse-pointers.hc cli/parse-pointers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-pointers.hc))
+   (diff cli/parse-pointers.human parse-pointers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-pointers.json.actual)
+ (deps cli/parse-pointers.hc cli/parse-pointers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-pointers.hc))
+   (diff cli/parse-pointers.json parse-pointers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-error.human.actual parse-error.human.stdout.actual)
+ (deps cli/parse-error.hc cli/parse-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-error.human.stdout.actual
+    (with-stderr-to
+     parse-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-error.hc))))
+   (diff cli/parse-error.human parse-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-error.json.actual parse-error.json.stdout.actual)
+ (deps cli/parse-error.hc cli/parse-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-error.json.stdout.actual
+    (with-stderr-to
+     parse-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-error.hc))))
+   (diff cli/parse-error.json parse-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-pointer-errors.human.actual
+  parse-pointer-errors.human.stdout.actual)
+ (deps cli/parse-pointer-errors.hc cli/parse-pointer-errors.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointer-errors.human.stdout.actual
+    (with-stderr-to
+     parse-pointer-errors.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-pointer-errors.hc))))
+   (diff cli/parse-pointer-errors.human parse-pointer-errors.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-pointer-errors.json.actual
+  parse-pointer-errors.json.stdout.actual)
+ (deps cli/parse-pointer-errors.hc cli/parse-pointer-errors.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-pointer-errors.json.stdout.actual
+    (with-stderr-to
+     parse-pointer-errors.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-pointer-errors.hc))))
+   (diff cli/parse-pointer-errors.json parse-pointer-errors.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-comma-globals.human.actual)
+ (deps cli/parse-comma-globals.hc cli/parse-comma-globals.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-globals.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-comma-globals.hc))
+   (diff cli/parse-comma-globals.human parse-comma-globals.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-comma-globals.json.actual)
+ (deps cli/parse-comma-globals.hc cli/parse-comma-globals.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-globals.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-comma-globals.hc))
+   (diff cli/parse-comma-globals.json parse-comma-globals.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-comma-errors.human.actual
+  parse-comma-errors.human.stdout.actual)
+ (deps cli/parse-comma-errors.hc cli/parse-comma-errors.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-errors.human.stdout.actual
+    (with-stderr-to
+     parse-comma-errors.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-comma-errors.hc))))
+   (diff cli/parse-comma-errors.human parse-comma-errors.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-comma-errors.json.actual
+  parse-comma-errors.json.stdout.actual)
+ (deps cli/parse-comma-errors.hc cli/parse-comma-errors.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-comma-errors.json.stdout.actual
+    (with-stderr-to
+     parse-comma-errors.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-comma-errors.hc))))
+   (diff cli/parse-comma-errors.json parse-comma-errors.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-modifiers.human.actual)
+ (deps cli/parse-modifiers.hc cli/parse-modifiers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifiers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-modifiers.hc))
+   (diff cli/parse-modifiers.human parse-modifiers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-modifiers.json.actual)
+ (deps cli/parse-modifiers.hc cli/parse-modifiers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifiers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-modifiers.hc))
+   (diff cli/parse-modifiers.json parse-modifiers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-modifier-error.human.actual
+  parse-modifier-error.human.stdout.actual)
+ (deps cli/parse-modifier-error.hc cli/parse-modifier-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifier-error.human.stdout.actual
+    (with-stderr-to
+     parse-modifier-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-modifier-error.hc))))
+   (diff cli/parse-modifier-error.human parse-modifier-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-modifier-error.json.actual
+  parse-modifier-error.json.stdout.actual)
+ (deps cli/parse-modifier-error.hc cli/parse-modifier-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-modifier-error.json.stdout.actual
+    (with-stderr-to
+     parse-modifier-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-modifier-error.hc))))
+   (diff cli/parse-modifier-error.json parse-modifier-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-bindings.human.actual)
+ (deps cli/parse-bindings.hc cli/parse-bindings.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-bindings.human.actual
+    (run %{exe:../bin/holyc.exe} parse --mode=aot cli/parse-bindings.hc))
+   (diff cli/parse-bindings.human parse-bindings.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-bindings.json.actual)
+ (deps cli/parse-bindings.hc cli/parse-bindings.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-bindings.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-bindings.hc))
+   (diff cli/parse-bindings.json parse-bindings.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-import-jit.human.actual parse-import-jit.human.stdout.actual)
+ (deps cli/parse-import-jit.hc cli/parse-import-jit.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-import-jit.human.stdout.actual
+    (with-stderr-to
+     parse-import-jit.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-import-jit.hc))))
+   (diff cli/parse-import-jit.human parse-import-jit.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-import-jit.json.actual parse-import-jit.json.stdout.actual)
+ (deps cli/parse-import-jit.hc cli/parse-import-jit.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-import-jit.json.stdout.actual
+    (with-stderr-to
+     parse-import-jit.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-import-jit.hc))))
+   (diff cli/parse-import-jit.json parse-import-jit.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-alternate-bindings.human.actual)
+ (deps cli/parse-alternate-bindings.hc cli/parse-alternate-bindings.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-bindings.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     --mode=aot
+     cli/parse-alternate-bindings.hc))
+   (diff
+    cli/parse-alternate-bindings.human
+    parse-alternate-bindings.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-alternate-bindings.json.actual)
+ (deps cli/parse-alternate-bindings.hc cli/parse-alternate-bindings.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-bindings.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-alternate-bindings.hc))
+   (diff
+    cli/parse-alternate-bindings.json
+    parse-alternate-bindings.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-alternate-import-jit.human.actual
+  parse-alternate-import-jit.human.stdout.actual)
+ (deps
+  cli/parse-alternate-import-jit.hc
+  cli/parse-alternate-import-jit.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-import-jit.human.stdout.actual
+    (with-stderr-to
+     parse-alternate-import-jit.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-alternate-import-jit.hc))))
+   (diff
+    cli/parse-alternate-import-jit.human
+    parse-alternate-import-jit.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-alternate-import-jit.json.actual
+  parse-alternate-import-jit.json.stdout.actual)
+ (deps cli/parse-alternate-import-jit.hc cli/parse-alternate-import-jit.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-alternate-import-jit.json.stdout.actual
+    (with-stderr-to
+     parse-alternate-import-jit.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-alternate-import-jit.hc))))
+   (diff
+    cli/parse-alternate-import-jit.json
+    parse-alternate-import-jit.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-prototypes.human.actual)
+ (deps cli/parse-function-prototypes.hc cli/parse-function-prototypes.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototypes.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     --mode=aot
+     cli/parse-function-prototypes.hc))
+   (diff
+    cli/parse-function-prototypes.human
+    parse-function-prototypes.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-prototypes.json.actual)
+ (deps cli/parse-function-prototypes.hc cli/parse-function-prototypes.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototypes.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --mode=aot
+     --format=json
+     cli/parse-function-prototypes.hc))
+   (diff
+    cli/parse-function-prototypes.json
+    parse-function-prototypes.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-default-parameters.human.actual)
+ (deps cli/parse-default-parameters.hc cli/parse-default-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-default-parameters.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-default-parameters.hc))
+   (diff
+    cli/parse-default-parameters.human
+    parse-default-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-default-parameters.json.actual)
+ (deps cli/parse-default-parameters.hc cli/parse-default-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-default-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-default-parameters.hc))
+   (diff
+    cli/parse-default-parameters.json
+    parse-default-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-arrays.human.actual)
+ (deps cli/parse-arrays.hc cli/parse-arrays.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-arrays.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-arrays.hc))
+   (diff cli/parse-arrays.human parse-arrays.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-arrays.json.actual)
+ (deps cli/parse-arrays.hc cli/parse-arrays.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-arrays.json.actual
+    (run %{exe:../bin/holyc.exe} dump-ast --format=json cli/parse-arrays.hc))
+   (diff cli/parse-arrays.json parse-arrays.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-array-error.human.actual
+  parse-array-error.human.stdout.actual)
+ (deps cli/parse-array-error.hc cli/parse-array-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-array-error.human.stdout.actual
+    (with-stderr-to
+     parse-array-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-array-error.hc))))
+   (diff cli/parse-array-error.human parse-array-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-array-error.json.actual parse-array-error.json.stdout.actual)
+ (deps cli/parse-array-error.hc cli/parse-array-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-array-error.json.stdout.actual
+    (with-stderr-to
+     parse-array-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-array-error.hc))))
+   (diff cli/parse-array-error.json parse-array-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-intern-binding.human.actual)
+ (deps cli/parse-intern-binding.hc cli/parse-intern-binding.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-binding.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-intern-binding.hc))
+   (diff cli/parse-intern-binding.human parse-intern-binding.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-intern-binding.json.actual)
+ (deps cli/parse-intern-binding.hc cli/parse-intern-binding.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-binding.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-intern-binding.hc))
+   (diff cli/parse-intern-binding.json parse-intern-binding.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-intern-error.human.actual
+  parse-intern-error.human.stdout.actual)
+ (deps cli/parse-intern-error.hc cli/parse-intern-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-error.human.stdout.actual
+    (with-stderr-to
+     parse-intern-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-intern-error.hc))))
+   (diff cli/parse-intern-error.human parse-intern-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-intern-error.json.actual
+  parse-intern-error.json.stdout.actual)
+ (deps cli/parse-intern-error.hc cli/parse-intern-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-intern-error.json.stdout.actual
+    (with-stderr-to
+     parse-intern-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-intern-error.hc))))
+   (diff cli/parse-intern-error.json parse-intern-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-prototype-error.human.actual
+  parse-function-prototype-error.human.stdout.actual)
+ (deps
+  cli/parse-function-prototype-error.hc
+  cli/parse-function-prototype-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototype-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-prototype-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-prototype-error.hc))))
+   (diff
+    cli/parse-function-prototype-error.human
+    parse-function-prototype-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-prototype-error.json.actual
+  parse-function-prototype-error.json.stdout.actual)
+ (deps
+  cli/parse-function-prototype-error.hc
+  cli/parse-function-prototype-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-prototype-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-prototype-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-prototype-error.hc))))
+   (diff
+    cli/parse-function-prototype-error.json
+    parse-function-prototype-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-modifiers.human.actual)
+ (deps cli/parse-function-modifiers.hc cli/parse-function-modifiers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifiers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-modifiers.hc))
+   (diff
+    cli/parse-function-modifiers.human
+    parse-function-modifiers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-modifiers.json.actual)
+ (deps cli/parse-function-modifiers.hc cli/parse-function-modifiers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifiers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-modifiers.hc))
+   (diff
+    cli/parse-function-modifiers.json
+    parse-function-modifiers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-modifier-error.human.actual
+  parse-function-modifier-error.human.stdout.actual)
+ (deps
+  cli/parse-function-modifier-error.hc
+  cli/parse-function-modifier-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifier-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-modifier-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-modifier-error.hc))))
+   (diff
+    cli/parse-function-modifier-error.human
+    parse-function-modifier-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-modifier-error.json.actual
+  parse-function-modifier-error.json.stdout.actual)
+ (deps
+  cli/parse-function-modifier-error.hc
+  cli/parse-function-modifier-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-modifier-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-modifier-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-modifier-error.hc))))
+   (diff
+    cli/parse-function-modifier-error.json
+    parse-function-modifier-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-register-parameters.human.actual)
+ (deps cli/parse-register-parameters.hc cli/parse-register-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameters.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-register-parameters.hc))
+   (diff
+    cli/parse-register-parameters.human
+    parse-register-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-register-parameters.json.actual)
+ (deps cli/parse-register-parameters.hc cli/parse-register-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-register-parameters.hc))
+   (diff
+    cli/parse-register-parameters.json
+    parse-register-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-register-parameter-error.human.actual
+  parse-register-parameter-error.human.stdout.actual)
+ (deps
+  cli/parse-register-parameter-error.hc
+  cli/parse-register-parameter-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameter-error.human.stdout.actual
+    (with-stderr-to
+     parse-register-parameter-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-register-parameter-error.hc))))
+   (diff
+    cli/parse-register-parameter-error.human
+    parse-register-parameter-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-register-parameter-error.json.actual
+  parse-register-parameter-error.json.stdout.actual)
+ (deps
+  cli/parse-register-parameter-error.hc
+  cli/parse-register-parameter-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-register-parameter-error.json.stdout.actual
+    (with-stderr-to
+     parse-register-parameter-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-register-parameter-error.hc))))
+   (diff
+    cli/parse-register-parameter-error.json
+    parse-register-parameter-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-parameters.human.actual)
+ (deps
+  cli/parse-function-pointer-parameters.hc
+  cli/parse-function-pointer-parameters.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameters.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     cli/parse-function-pointer-parameters.hc))
+   (diff
+    cli/parse-function-pointer-parameters.human
+    parse-function-pointer-parameters.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-parameters.json.actual)
+ (deps
+  cli/parse-function-pointer-parameters.hc
+  cli/parse-function-pointer-parameters.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameters.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-pointer-parameters.hc))
+   (diff
+    cli/parse-function-pointer-parameters.json
+    parse-function-pointer-parameters.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-parameter-error.human.actual
+  parse-function-pointer-parameter-error.human.stdout.actual)
+ (deps
+  cli/parse-function-pointer-parameter-error.hc
+  cli/parse-function-pointer-parameter-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameter-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-parameter-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-pointer-parameter-error.hc))))
+   (diff
+    cli/parse-function-pointer-parameter-error.human
+    parse-function-pointer-parameter-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-parameter-error.json.actual
+  parse-function-pointer-parameter-error.json.stdout.actual)
+ (deps
+  cli/parse-function-pointer-parameter-error.hc
+  cli/parse-function-pointer-parameter-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-parameter-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-parameter-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-pointer-parameter-error.hc))))
+   (diff
+    cli/parse-function-pointer-parameter-error.json
+    parse-function-pointer-parameter-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-expression.human.actual)
+ (deps cli/parse-call-expression.hc cli/parse-call-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-call-expression.hc))
+   (diff cli/parse-call-expression.human parse-call-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-expression.json.actual)
+ (deps cli/parse-call-expression.hc cli/parse-call-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-call-expression.hc))
+   (diff cli/parse-call-expression.json parse-call-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-error.human.actual parse-call-error.human.stdout.actual)
+ (deps cli/parse-call-error.hc cli/parse-call-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-error.human.stdout.actual
+    (with-stderr-to
+     parse-call-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-call-error.hc))))
+   (diff cli/parse-call-error.human parse-call-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-call-error.json.actual parse-call-error.json.stdout.actual)
+ (deps cli/parse-call-error.hc cli/parse-call-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-call-error.json.stdout.actual
+    (with-stderr-to
+     parse-call-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-call-error.hc))))
+   (diff cli/parse-call-error.json parse-call-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-expression.human.actual)
+ (deps cli/parse-index-expression.hc cli/parse-index-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-index-expression.hc))
+   (diff
+    cli/parse-index-expression.human
+    parse-index-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-expression.json.actual)
+ (deps cli/parse-index-expression.hc cli/parse-index-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-index-expression.hc))
+   (diff cli/parse-index-expression.json parse-index-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-index-error.human.actual
+  parse-index-error.human.stdout.actual)
+ (deps cli/parse-index-error.hc cli/parse-index-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-error.human.stdout.actual
+    (with-stderr-to
+     parse-index-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-index-error.hc))))
+   (diff cli/parse-index-error.human parse-index-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-index-error.json.actual parse-index-error.json.stdout.actual)
+ (deps cli/parse-index-error.hc cli/parse-index-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-index-error.json.stdout.actual
+    (with-stderr-to
+     parse-index-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-index-error.hc))))
+   (diff cli/parse-index-error.json parse-index-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-member-expression.human.actual)
+ (deps cli/parse-member-expression.hc cli/parse-member-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-member-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-member-expression.hc))
+   (diff
+    cli/parse-member-expression.human
+    parse-member-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-member-expression.json.actual)
+ (deps cli/parse-member-expression.hc cli/parse-member-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-member-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-member-expression.hc))
+   (diff
+    cli/parse-member-expression.json
+    parse-member-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-member-error.human.actual
+  parse-member-error.human.stdout.actual)
+ (deps cli/parse-member-error.hc cli/parse-member-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-member-error.human.stdout.actual
+    (with-stderr-to
+     parse-member-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-member-error.hc))))
+   (diff cli/parse-member-error.human parse-member-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-member-error.json.actual
+  parse-member-error.json.stdout.actual)
+ (deps cli/parse-member-error.hc cli/parse-member-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-member-error.json.stdout.actual
+    (with-stderr-to
+     parse-member-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-member-error.hc))))
+   (diff cli/parse-member-error.json parse-member-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-expression.human.actual)
+ (deps cli/parse-postfix-expression.hc cli/parse-postfix-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-expression.hc))
+   (diff
+    cli/parse-postfix-expression.human
+    parse-postfix-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-expression.json.actual)
+ (deps cli/parse-postfix-expression.hc cli/parse-postfix-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-postfix-expression.hc))
+   (diff
+    cli/parse-postfix-expression.json
+    parse-postfix-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-error.human.actual
+  parse-postfix-error.human.stdout.actual)
+ (deps cli/parse-postfix-error.hc cli/parse-postfix-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-error.human.stdout.actual
+    (with-stderr-to
+     parse-postfix-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-error.hc))))
+   (diff cli/parse-postfix-error.human parse-postfix-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-error.json.actual
+  parse-postfix-error.json.stdout.actual)
+ (deps cli/parse-postfix-error.hc cli/parse-postfix-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-error.json.stdout.actual
+    (with-stderr-to
+     parse-postfix-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-postfix-error.hc))))
+   (diff cli/parse-postfix-error.json parse-postfix-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-cast.human.actual)
+ (deps cli/parse-postfix-cast.hc cli/parse-postfix-cast.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-cast.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-cast.hc))
+   (diff cli/parse-postfix-cast.human parse-postfix-cast.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-postfix-cast.json.actual)
+ (deps cli/parse-postfix-cast.hc cli/parse-postfix-cast.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-cast.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-postfix-cast.hc))
+   (diff cli/parse-postfix-cast.json parse-postfix-cast.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-cast-error.human.actual
+  parse-postfix-cast-error.human.stdout.actual)
+ (deps cli/parse-postfix-cast-error.hc cli/parse-postfix-cast-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-cast-error.human.stdout.actual
+    (with-stderr-to
+     parse-postfix-cast-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-postfix-cast-error.hc))))
+   (diff
+    cli/parse-postfix-cast-error.human
+    parse-postfix-cast-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-postfix-cast-error.json.actual
+  parse-postfix-cast-error.json.stdout.actual)
+ (deps cli/parse-postfix-cast-error.hc cli/parse-postfix-cast-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-postfix-cast-error.json.stdout.actual
+    (with-stderr-to
+     parse-postfix-cast-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-postfix-cast-error.hc))))
+   (diff
+    cli/parse-postfix-cast-error.json
+    parse-postfix-cast-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-sizeof-expression.human.actual)
+ (deps cli/parse-sizeof-expression.hc cli/parse-sizeof-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-sizeof-expression.hc))
+   (diff
+    cli/parse-sizeof-expression.human
+    parse-sizeof-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-sizeof-expression.json.actual)
+ (deps cli/parse-sizeof-expression.hc cli/parse-sizeof-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-sizeof-expression.hc))
+   (diff
+    cli/parse-sizeof-expression.json
+    parse-sizeof-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-sizeof-error.human.actual
+  parse-sizeof-error.human.stdout.actual)
+ (deps cli/parse-sizeof-error.hc cli/parse-sizeof-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-error.human.stdout.actual
+    (with-stderr-to
+     parse-sizeof-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-sizeof-error.hc))))
+   (diff cli/parse-sizeof-error.human parse-sizeof-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-sizeof-error.json.actual
+  parse-sizeof-error.json.stdout.actual)
+ (deps cli/parse-sizeof-error.hc cli/parse-sizeof-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-error.json.stdout.actual
+    (with-stderr-to
+     parse-sizeof-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-sizeof-error.hc))))
+   (diff cli/parse-sizeof-error.json parse-sizeof-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-offset-expression.human.actual)
+ (deps cli/parse-offset-expression.hc cli/parse-offset-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-offset-expression.hc))
+   (diff
+    cli/parse-offset-expression.human
+    parse-offset-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-offset-expression.json.actual)
+ (deps cli/parse-offset-expression.hc cli/parse-offset-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-offset-expression.hc))
+   (diff
+    cli/parse-offset-expression.json
+    parse-offset-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-offset-error.human.actual
+  parse-offset-error.human.stdout.actual)
+ (deps cli/parse-offset-error.hc cli/parse-offset-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-error.human.stdout.actual
+    (with-stderr-to
+     parse-offset-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-offset-error.hc))))
+   (diff cli/parse-offset-error.human parse-offset-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-offset-error.json.actual
+  parse-offset-error.json.stdout.actual)
+ (deps cli/parse-offset-error.hc cli/parse-offset-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-offset-error.json.stdout.actual
+    (with-stderr-to
+     parse-offset-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-offset-error.hc))))
+   (diff cli/parse-offset-error.json parse-offset-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-defined-expression.human.actual)
+ (deps cli/parse-defined-expression.hc cli/parse-defined-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-defined-expression.hc))
+   (diff
+    cli/parse-defined-expression.human
+    parse-defined-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-defined-expression.json.actual)
+ (deps cli/parse-defined-expression.hc cli/parse-defined-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-defined-expression.hc))
+   (diff
+    cli/parse-defined-expression.json
+    parse-defined-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-defined-error.human.actual
+  parse-defined-error.human.stdout.actual)
+ (deps cli/parse-defined-error.hc cli/parse-defined-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-error.human.stdout.actual
+    (with-stderr-to
+     parse-defined-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-defined-error.hc))))
+   (diff cli/parse-defined-error.human parse-defined-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-defined-error.json.actual
+  parse-defined-error.json.stdout.actual)
+ (deps cli/parse-defined-error.hc cli/parse-defined-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-error.json.stdout.actual
+    (with-stderr-to
+     parse-defined-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-defined-error.hc))))
+   (diff cli/parse-defined-error.json parse-defined-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lastclass-default.human.actual)
+ (deps cli/parse-lastclass-default.hc cli/parse-lastclass-default.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-default.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-lastclass-default.hc))
+   (diff
+    cli/parse-lastclass-default.human
+    parse-lastclass-default.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lastclass-default.json.actual)
+ (deps cli/parse-lastclass-default.hc cli/parse-lastclass-default.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-default.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-lastclass-default.hc))
+   (diff
+    cli/parse-lastclass-default.json
+    parse-lastclass-default.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-lastclass-error.human.actual
+  parse-lastclass-error.human.stdout.actual)
+ (deps cli/parse-lastclass-error.hc cli/parse-lastclass-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-error.human.stdout.actual
+    (with-stderr-to
+     parse-lastclass-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-lastclass-error.hc))))
+   (diff cli/parse-lastclass-error.human parse-lastclass-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-lastclass-error.json.actual
+  parse-lastclass-error.json.stdout.actual)
+ (deps cli/parse-lastclass-error.hc cli/parse-lastclass-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-error.json.stdout.actual
+    (with-stderr-to
+     parse-lastclass-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-lastclass-error.hc))))
+   (diff cli/parse-lastclass-error.json parse-lastclass-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-implicit-output.human.actual)
+ (deps cli/parse-implicit-output.hc cli/parse-implicit-output.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-implicit-output.hc))
+   (diff cli/parse-implicit-output.human parse-implicit-output.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-implicit-output.json.actual)
+ (deps cli/parse-implicit-output.hc cli/parse-implicit-output.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-implicit-output.hc))
+   (diff cli/parse-implicit-output.json parse-implicit-output.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-implicit-output-error.human.actual
+  parse-implicit-output-error.human.stdout.actual)
+ (deps
+  cli/parse-implicit-output-error.hc
+  cli/parse-implicit-output-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output-error.human.stdout.actual
+    (with-stderr-to
+     parse-implicit-output-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-implicit-output-error.hc))))
+   (diff
+    cli/parse-implicit-output-error.human
+    parse-implicit-output-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-implicit-output-error.json.actual
+  parse-implicit-output-error.json.stdout.actual)
+ (deps
+  cli/parse-implicit-output-error.hc
+  cli/parse-implicit-output-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output-error.json.stdout.actual
+    (with-stderr-to
+     parse-implicit-output-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-implicit-output-error.hc))))
+   (diff
+    cli/parse-implicit-output-error.json
+    parse-implicit-output-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-statement-sequences.human.actual)
+ (deps cli/parse-statement-sequences.hc cli/parse-statement-sequences.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequences.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-statement-sequences.hc))
+   (diff
+    cli/parse-statement-sequences.human
+    parse-statement-sequences.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-statement-sequences.json.actual)
+ (deps cli/parse-statement-sequences.hc cli/parse-statement-sequences.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequences.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-statement-sequences.hc))
+   (diff
+    cli/parse-statement-sequences.json
+    parse-statement-sequences.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-statement-sequence-error.human.actual
+  parse-statement-sequence-error.human.stdout.actual)
+ (deps
+  cli/parse-statement-sequence-error.hc
+  cli/parse-statement-sequence-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequence-error.human.stdout.actual
+    (with-stderr-to
+     parse-statement-sequence-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-statement-sequence-error.hc))))
+   (diff
+    cli/parse-statement-sequence-error.human
+    parse-statement-sequence-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-statement-sequence-error.json.actual
+  parse-statement-sequence-error.json.stdout.actual)
+ (deps
+  cli/parse-statement-sequence-error.hc
+  cli/parse-statement-sequence-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequence-error.json.stdout.actual
+    (with-stderr-to
+     parse-statement-sequence-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-statement-sequence-error.hc))))
+   (diff
+    cli/parse-statement-sequence-error.json
+    parse-statement-sequence-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-compound-blocks.human.actual)
+ (deps cli/parse-compound-blocks.hc cli/parse-compound-blocks.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-blocks.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-compound-blocks.hc))
+   (diff cli/parse-compound-blocks.human parse-compound-blocks.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-compound-blocks.json.actual)
+ (deps cli/parse-compound-blocks.hc cli/parse-compound-blocks.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-blocks.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-compound-blocks.hc))
+   (diff cli/parse-compound-blocks.json parse-compound-blocks.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-compound-block-error.human.actual
+  parse-compound-block-error.human.stdout.actual)
+ (deps
+  cli/parse-compound-block-error.hc
+  cli/parse-compound-block-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-block-error.human.stdout.actual
+    (with-stderr-to
+     parse-compound-block-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-compound-block-error.hc))))
+   (diff
+    cli/parse-compound-block-error.human
+    parse-compound-block-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-compound-block-error.json.actual
+  parse-compound-block-error.json.stdout.actual)
+ (deps cli/parse-compound-block-error.hc cli/parse-compound-block-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-block-error.json.stdout.actual
+    (with-stderr-to
+     parse-compound-block-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-compound-block-error.hc))))
+   (diff
+    cli/parse-compound-block-error.json
+    parse-compound-block-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-statements.human.actual)
+ (deps cli/parse-if-statements.hc cli/parse-if-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-if-statements.hc))
+   (diff cli/parse-if-statements.human parse-if-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-statements.json.actual)
+ (deps cli/parse-if-statements.hc cli/parse-if-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-if-statements.hc))
+   (diff cli/parse-if-statements.json parse-if-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-error.human.actual parse-if-error.human.stdout.actual)
+ (deps cli/parse-if-error.hc cli/parse-if-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-error.human.stdout.actual
+    (with-stderr-to
+     parse-if-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-if-error.hc))))
+   (diff cli/parse-if-error.human parse-if-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-if-error.json.actual parse-if-error.json.stdout.actual)
+ (deps cli/parse-if-error.hc cli/parse-if-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-if-error.json.stdout.actual
+    (with-stderr-to
+     parse-if-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-if-error.hc))))
+   (diff cli/parse-if-error.json parse-if-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-statements.human.actual)
+ (deps cli/parse-while-statements.hc cli/parse-while-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-while-statements.hc))
+   (diff
+    cli/parse-while-statements.human
+    parse-while-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-statements.json.actual)
+ (deps cli/parse-while-statements.hc cli/parse-while-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-while-statements.hc))
+   (diff cli/parse-while-statements.json parse-while-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-while-error.human.actual
+  parse-while-error.human.stdout.actual)
+ (deps cli/parse-while-error.hc cli/parse-while-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-error.human.stdout.actual
+    (with-stderr-to
+     parse-while-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-while-error.hc))))
+   (diff cli/parse-while-error.human parse-while-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-error.json.actual parse-while-error.json.stdout.actual)
+ (deps cli/parse-while-error.hc cli/parse-while-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-error.json.stdout.actual
+    (with-stderr-to
+     parse-while-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-while-error.hc))))
+   (diff cli/parse-while-error.json parse-while-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-do-while-statements.human.actual)
+ (deps cli/parse-do-while-statements.hc cli/parse-do-while-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-do-while-statements.hc))
+   (diff
+    cli/parse-do-while-statements.human
+    parse-do-while-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-do-while-statements.json.actual)
+ (deps cli/parse-do-while-statements.hc cli/parse-do-while-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-do-while-statements.hc))
+   (diff
+    cli/parse-do-while-statements.json
+    parse-do-while-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-do-while-error.human.actual
+  parse-do-while-error.human.stdout.actual)
+ (deps cli/parse-do-while-error.hc cli/parse-do-while-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-error.human.stdout.actual
+    (with-stderr-to
+     parse-do-while-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-do-while-error.hc))))
+   (diff cli/parse-do-while-error.human parse-do-while-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-do-while-error.json.actual
+  parse-do-while-error.json.stdout.actual)
+ (deps cli/parse-do-while-error.hc cli/parse-do-while-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-error.json.stdout.actual
+    (with-stderr-to
+     parse-do-while-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-do-while-error.hc))))
+   (diff cli/parse-do-while-error.json parse-do-while-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-statements.human.actual)
+ (deps cli/parse-for-statements.hc cli/parse-for-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-for-statements.hc))
+   (diff cli/parse-for-statements.human parse-for-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-statements.json.actual)
+ (deps cli/parse-for-statements.hc cli/parse-for-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-for-statements.hc))
+   (diff cli/parse-for-statements.json parse-for-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-error.human.actual parse-for-error.human.stdout.actual)
+ (deps cli/parse-for-error.hc cli/parse-for-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-error.human.stdout.actual
+    (with-stderr-to
+     parse-for-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-for-error.hc))))
+   (diff cli/parse-for-error.human parse-for-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-error.json.actual parse-for-error.json.stdout.actual)
+ (deps cli/parse-for-error.hc cli/parse-for-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-error.json.stdout.actual
+    (with-stderr-to
+     parse-for-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-for-error.hc))))
+   (diff cli/parse-for-error.json parse-for-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-statements.human.actual)
+ (deps cli/parse-break-statements.hc cli/parse-break-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-break-statements.hc))
+   (diff
+    cli/parse-break-statements.human
+    parse-break-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-statements.json.actual)
+ (deps cli/parse-break-statements.hc cli/parse-break-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-break-statements.hc))
+   (diff cli/parse-break-statements.json parse-break-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-break-error.human.actual
+  parse-break-error.human.stdout.actual)
+ (deps cli/parse-break-error.hc cli/parse-break-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-error.human.stdout.actual
+    (with-stderr-to
+     parse-break-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-break-error.hc))))
+   (diff cli/parse-break-error.human parse-break-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-error.json.actual parse-break-error.json.stdout.actual)
+ (deps cli/parse-break-error.hc cli/parse-break-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-error.json.stdout.actual
+    (with-stderr-to
+     parse-break-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-break-error.hc))))
+   (diff cli/parse-break-error.json parse-break-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-return-statements.human.actual)
+ (deps cli/parse-return-statements.hc cli/parse-return-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-return-statements.hc))
+   (diff
+    cli/parse-return-statements.human
+    parse-return-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-return-statements.json.actual)
+ (deps cli/parse-return-statements.hc cli/parse-return-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-return-statements.hc))
+   (diff
+    cli/parse-return-statements.json
+    parse-return-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-return-error.human.actual
+  parse-return-error.human.stdout.actual)
+ (deps cli/parse-return-error.hc cli/parse-return-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-error.human.stdout.actual
+    (with-stderr-to
+     parse-return-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-return-error.hc))))
+   (diff cli/parse-return-error.human parse-return-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-return-error.json.actual
+  parse-return-error.json.stdout.actual)
+ (deps cli/parse-return-error.hc cli/parse-return-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-error.json.stdout.actual
+    (with-stderr-to
+     parse-return-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-return-error.hc))))
+   (diff cli/parse-return-error.json parse-return-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-labels.human.actual)
+ (deps cli/parse-goto-labels.hc cli/parse-goto-labels.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-labels.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-goto-labels.hc))
+   (diff cli/parse-goto-labels.human parse-goto-labels.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-labels.json.actual)
+ (deps cli/parse-goto-labels.hc cli/parse-goto-labels.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-labels.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-goto-labels.hc))
+   (diff cli/parse-goto-labels.json parse-goto-labels.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-error.human.actual parse-goto-error.human.stdout.actual)
+ (deps cli/parse-goto-error.hc cli/parse-goto-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-error.human.stdout.actual
+    (with-stderr-to
+     parse-goto-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-goto-error.hc))))
+   (diff cli/parse-goto-error.human parse-goto-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-goto-error.json.actual parse-goto-error.json.stdout.actual)
+ (deps cli/parse-goto-error.hc cli/parse-goto-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-goto-error.json.stdout.actual
+    (with-stderr-to
+     parse-goto-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-goto-error.hc))))
+   (diff cli/parse-goto-error.json parse-goto-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-statements.human.actual)
+ (deps cli/parse-lock-statements.hc cli/parse-lock-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-lock-statements.hc))
+   (diff cli/parse-lock-statements.human parse-lock-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-statements.json.actual)
+ (deps cli/parse-lock-statements.hc cli/parse-lock-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-lock-statements.hc))
+   (diff cli/parse-lock-statements.json parse-lock-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-error.human.actual parse-lock-error.human.stdout.actual)
+ (deps cli/parse-lock-error.hc cli/parse-lock-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-error.human.stdout.actual
+    (with-stderr-to
+     parse-lock-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-lock-error.hc))))
+   (diff cli/parse-lock-error.human parse-lock-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-error.json.actual parse-lock-error.json.stdout.actual)
+ (deps cli/parse-lock-error.hc cli/parse-lock-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-error.json.stdout.actual
+    (with-stderr-to
+     parse-lock-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-lock-error.hc))))
+   (diff cli/parse-lock-error.json parse-lock-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-switch-statements.human.actual)
+ (deps cli/parse-switch-statements.hc cli/parse-switch-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-switch-statements.hc))
+   (diff
+    cli/parse-switch-statements.human
+    parse-switch-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-switch-statements.json.actual)
+ (deps cli/parse-switch-statements.hc cli/parse-switch-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-switch-statements.hc))
+   (diff
+    cli/parse-switch-statements.json
+    parse-switch-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-switch-error.human.actual
+  parse-switch-error.human.stdout.actual)
+ (deps cli/parse-switch-error.hc cli/parse-switch-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-error.human.stdout.actual
+    (with-stderr-to
+     parse-switch-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-switch-error.hc))))
+   (diff cli/parse-switch-error.human parse-switch-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-switch-error.json.actual
+  parse-switch-error.json.stdout.actual)
+ (deps cli/parse-switch-error.hc cli/parse-switch-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-error.json.stdout.actual
+    (with-stderr-to
+     parse-switch-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-switch-error.hc))))
+   (diff cli/parse-switch-error.json parse-switch-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-try-catch-statements.human.actual)
+ (deps
+  cli/parse-try-catch-statements.hc
+  cli/parse-try-catch-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-try-catch-statements.hc))
+   (diff
+    cli/parse-try-catch-statements.human
+    parse-try-catch-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-try-catch-statements.json.actual)
+ (deps cli/parse-try-catch-statements.hc cli/parse-try-catch-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-try-catch-statements.hc))
+   (diff
+    cli/parse-try-catch-statements.json
+    parse-try-catch-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-try-catch-error.human.actual
+  parse-try-catch-error.human.stdout.actual)
+ (deps cli/parse-try-catch-error.hc cli/parse-try-catch-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-error.human.stdout.actual
+    (with-stderr-to
+     parse-try-catch-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-try-catch-error.hc))))
+   (diff cli/parse-try-catch-error.human parse-try-catch-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-try-catch-error.json.actual
+  parse-try-catch-error.json.stdout.actual)
+ (deps cli/parse-try-catch-error.hc cli/parse-try-catch-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-error.json.stdout.actual
+    (with-stderr-to
+     parse-try-catch-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-try-catch-error.hc))))
+   (diff cli/parse-try-catch-error.json parse-try-catch-error.json.actual))))

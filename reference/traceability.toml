@@ -634,6 +634,1583 @@ hosted_path_behavior = "canonical host paths rather than TempleOS drive paths"
 general_exe_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-PRIMITIVE-GLOBALS"
+description = "The integrated parser accepts empty input and ordered direct global variables using the 12 checked public primitive spellings, while unsupported syntax fails without a raw-token AST fallback."
+sources = [
+  "Compiler/Compiler.PRJ",
+  "Compiler/PrsLib.HC:PrsKeyWord",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CMain.HC:CmpJoin",
+  "Compiler/CInit.HC:internal_types_table",
+  "Compiler/CompilerA.HH:PRS0_* and PRS1_*",
+  "Compiler/CompilerB.HH:PrsKeyWord",
+  "Doc/HolyC.DD",
+  "Doc/Lex.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/preprocessor.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-globals.hc",
+  "test/cli/parse-globals.human",
+  "test/cli/parse-globals.json",
+  "test/cli/parse-error.hc",
+  "test/cli/parse-error.human",
+  "test/cli/parse-error.json"
+]
+status = "implemented"
+issue = 49
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "module := (primitive identifier ';')*"
+remaining_parser_issues = [46, 47, 48]
+
+[[feature]]
+id = "HC-PARSER-POINTER-GLOBALS"
+description = "Primitive global declarations may carry one through four pointer stars before the identifier, with each star represented as an ordered, source-linked AST layer."
+sources = [
+  "Kernel/KernelA.HH:PTR_STARS_NUM",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CExcept.HC:ICClassPut"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-pointers.hc",
+  "test/cli/parse-pointers.human",
+  "test/cli/parse-pointers.json",
+  "test/cli/parse-pointer-errors.hc",
+  "test/cli/parse-pointer-errors.human",
+  "test/cli/parse-pointer-errors.json"
+]
+status = "implemented"
+issue = 51
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-variable := primitive pointer-star{0,4} identifier ';'"
+max_pointer_depth = 4
+semantic_pointer_status = "planned"
+function_pointer_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-COMMA-GLOBALS"
+description = "A primitive global declaration can contain several comma-separated names, with one shared base type and an independent pointer depth for each name."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Demo/MultiCore/Primes.HC:2",
+  "Demo/MultiCore/MPRadix.HC:11",
+  "Kernel/KDefine.HC:16"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-comma-globals.hc",
+  "test/cli/parse-comma-globals.human",
+  "test/cli/parse-comma-globals.json",
+  "test/cli/parse-comma-errors.hc",
+  "test/cli/parse-comma-errors.human",
+  "test/cli/parse-comma-errors.json"
+]
+status = "implemented"
+issue = 53
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-declaration := primitive declarator (',' declarator)* ';'"
+delimiter_provenance = "implemented"
+streaming_symbol_publication = "implemented"
+initializer_status = "planned"
+array_suffix_status = "implemented in HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
+function_declarator_status = "bound primitive prototypes implemented in HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+
+[[feature]]
+id = "HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
+description = "Primitive global declarators retain ordered array dimensions, including an optional expression in the first dimension."
+sources = [
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsExp.HC:LexExpressionI64",
+  "Kernel/KernelC.HH:32-44 and 750-751",
+  "Compiler/Lex.HC:322",
+  "Compiler/Asm.HC:393",
+  "Adam/Gr/GrGlbls.HC:28-35"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-arrays.hc",
+  "test/cli/parse-arrays.human",
+  "test/cli/parse-arrays.json",
+  "test/cli/parse-array-error.hc",
+  "test/cli/parse-array-error.human",
+  "test/cli/parse-array-error.json"
+]
+status = "implemented"
+issue = 71
+ast_schema = "holyc-ast-v1"
+accepted_context = "primitive global declarators"
+direct_arrays = "implemented"
+pointer_arrays = "implemented"
+comma_group_arrays = "implemented"
+multidimensional_arrays = "implemented"
+empty_first_dimension = "represented separately from an explicit zero"
+empty_later_dimension_diagnostic = "HCPARSE0022"
+missing_closing_bracket_diagnostic = "HCPARSE0023"
+dimension_expression_grammar = "shared with HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+definition_and_include_provenance = "preserved"
+array_parameter_status = "rejected with HCPARSE0011 to match PrsArrayDims"
+dimension_evaluation_status = "planned"
+negative_dimension_check_status = "planned"
+total_element_count_status = "planned"
+initializer_status = "planned"
+local_and_member_array_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-DECLARATION-MODIFIERS"
+description = "Primitive global declarations preserve ordered public and static prefix tokens with source provenance."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW_PUBLIC, KW_STATIC, FSF_PUBLIC, and FSF_STATIC",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-modifiers.hc",
+  "test/cli/parse-modifiers.human",
+  "test/cli/parse-modifiers.json",
+  "test/cli/parse-modifier-error.hc",
+  "test/cli/parse-modifier-error.human",
+  "test/cli/parse-modifier-error.json"
+]
+status = "implemented"
+issue = 55
+ast_schema = "holyc-ast-v1"
+accepted_modifiers = ["public", "static"]
+modifier_order = "preserved"
+definition_provenance = "implemented"
+linkage_status = "planned"
+storage_status = "planned"
+local_static_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-ORDINARY-BINDINGS"
+description = "Primitive global declarations preserve one ordinary extern or import binding, and import is accepted only in AOT mode."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW_EXTERN, KW_IMPORT, PRS0_EXTERN, and PRS0_IMPORT",
+  "Compiler/CompilerB.HH:13",
+  "Kernel/KernelC.HH:10",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-bindings.hc",
+  "test/cli/parse-bindings.human",
+  "test/cli/parse-bindings.json",
+  "test/cli/parse-import-jit.hc",
+  "test/cli/parse-import-jit.human",
+  "test/cli/parse-import-jit.json"
+]
+status = "implemented"
+issue = 57
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["extern", "import"]
+import_mode = "aot-only"
+jit_import_diagnostic = "HCPARSE0006"
+rejected_name_publication = "disabled"
+linkage_resolution_status = "planned"
+underscored_binding_status = "implemented in HC-PARSER-ALTERNATE-BINDINGS"
+extern_to_import_option_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+description = "Bound declarations with primitive return and parameter types retain their complete prototype syntax and enter the streaming symbol environment as functions."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/CompilerA.HH:PRS1_FUN_ARG and PRS1B_FUN_ARG",
+  "Kernel/KernelA.HH:Ff_DOT_DOT_DOT and TK_ELLIPSIS",
+  "Compiler/CExts.HC:10-40",
+  "Kernel/KernelB.HH:44, 122-163, and 270-274",
+  "Kernel/KernelC.HH:104, 547, and 711",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-prototypes.hc",
+  "test/cli/parse-function-prototypes.human",
+  "test/cli/parse-function-prototypes.json",
+  "test/cli/parse-function-prototype-error.hc",
+  "test/cli/parse-function-prototype-error.human",
+  "test/cli/parse-function-prototype-error.json"
+]
+status = "implemented"
+issue = 61
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["extern", "_extern", "import", "_import", "_intern"]
+import_mode = "aot-only"
+parameter_type_status = "primitive types with zero through four pointer layers"
+parameter_name_status = "optional"
+variadic_marker_status = "implemented"
+function_symbol_publication = "after the complete semicolon"
+default_argument_status = "core syntax implemented in HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+lastclass_default_status = "implemented in HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
+register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
+function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
+array_parameter_status = "rejected to match PrsArrayDims"
+calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
+function_body_status = "planned"
+linkage_resolution_status = "planned"
+abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+description = "Ordinary and nested function parameters retain source-positioned core default expressions without requiring defaults to trail."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst PRS1B_FUN_ARG default branch",
+  "Compiler/PrsExp.HC:PrsExpression2",
+  "Compiler/PrsExp.HC:PrsUnaryTerm",
+  "Compiler/CInit.HC:CmpFillTables binary operator records",
+  "Compiler/CompilerA.HH:PREC_* and ASSOCF_RIGHT",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/operator.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-default-parameters.hc",
+  "test/cli/parse-default-parameters.human",
+  "test/cli/parse-default-parameters.json",
+  "test/cli/parse-function-prototype-error.hc",
+  "test/cli/parse-function-prototype-error.human",
+  "test/cli/parse-function-prototype-error.json"
+]
+status = "implemented"
+issue = 69
+ast_schema = "holyc-ast-v1"
+contexts = ["ordinary parameters", "nested function-pointer parameters", "global array dimensions", "_intern targets"]
+primary_terms = [
+  "integer",
+  "floating",
+  "character",
+  "multi-character",
+  "string",
+  "identifier",
+  "$$",
+  "grouping"
+]
+prefix_operators = ["+", "-", "!", "~", "*", "&", "++", "--"]
+binary_operator_source = "all 31 checked entries in Operator.binary_operators"
+association_rule = "ASSOCF_RIGHT groups right; all other source entries group left"
+unary_minus_power_rule = "implemented"
+non_trailing_defaults = "implemented"
+absent_vs_explicit_value = "distinct AST representation"
+definition_provenance = "preserved"
+hosted_expression_depth_limit = 256
+missing_operand_diagnostic = "HCPARSE0018"
+missing_parenthesis_diagnostic = "HCPARSE0019"
+unsupported_form_diagnostic = "HCPARSE0020"
+nesting_limit_diagnostic = "HCPARSE0021"
+evaluation_status = "planned"
+conversion_status = "planned"
+string_storage_status = "planned"
+lastclass_default_status = "implemented in HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
+call_site_default_filling = "planned"
+
+[[feature]]
+id = "HC-PARSER-LASTCLASS-PARAMETER-DEFAULTS"
+description = "A parameter default written as lastclass retains a distinct source-positioned marker in ordinary and nested function signatures."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst PRS1B_FUN_ARG lastclass branch",
+  "Compiler/PrsExp.HC:PrsFunCall last_class substitution",
+  "Compiler/CompilerA.HH:KW_LASTCLASS",
+  "Kernel/KernelA.HH:MLF_DFT_AVAILABLE and MLF_LASTCLASS",
+  "Doc/HolyC.DD:lastclass default argument note",
+  "Demo/LastClass.HC"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-lastclass-default.hc",
+  "test/cli/parse-lastclass-default.human",
+  "test/cli/parse-lastclass-default.json",
+  "test/cli/parse-lastclass-error.hc",
+  "test/cli/parse-lastclass-error.human",
+  "test/cli/parse-lastclass-error.json"
+]
+status = "implemented"
+issue = 91
+ast_schema = "holyc-ast-v1"
+accepted_contexts = ["ordinary parameters", "nested function-pointer parameters"]
+compilation_modes = ["jit", "aot"]
+ordinary_expression_distinction = "distinct parameter_default_value constructor"
+non_trailing_defaults = "implemented"
+definition_and_include_provenance = "preserved"
+expression_continuation = "rejected by the surrounding parameter grammar"
+member_flag_application = "planned"
+previous_argument_class_tracking = "planned"
+call_time_class_name_substitution = "planned"
+
+[[feature]]
+id = "HC-PARSER-STATEMENT-OUTPUT-LITERALS"
+description = "A string or character literal in a supported statement position keeps the implicit Print or PutChars call shape required by HolyC statement parsing."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt TK_STR and TK_CHAR_CONST branch",
+  "Compiler/PrsExp.HC:PrsFunCall literal entry path",
+  "Doc/HolyC.DD:statement-position string and character examples",
+  "Kernel/KExts.HC:Print and PutChars prototypes"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-implicit-output.hc",
+  "test/cli/parse-implicit-output.human",
+  "test/cli/parse-implicit-output.json",
+  "test/cli/parse-implicit-output-error.hc",
+  "test/cli/parse-implicit-output-error.human",
+  "test/cli/parse-implicit-output-error.json"
+]
+status = "implemented"
+issue = 93
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and compound-block children"
+targets = ["Print", "PutChars"]
+nonempty_marker_argument = "the complete expression beginning at the marker"
+empty_marker_argument = "the complete expression following the marker"
+print_varargs = "ordered expressions with source-positioned leading commas"
+putchars_varargs = "not applicable; a following comma belongs to the statement sequence"
+top_level_source_order = "preserved with declarations and prototypes"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+semicolon_shape = "required for Print; optional before a PutChars statement comma"
+malformed_form_diagnostics = ["HCPARSE0043", "HCPARSE0044", "HCPARSE0046"]
+block_statement_status = "implemented by issue 97"
+name_resolution_status = "planned"
+type_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-STATEMENT-SEQUENCES"
+description = "Expression and empty statements retain HolyC comma-linked sequencing and every source separator at top level and inside compound blocks."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
+  "Compiler/PrsStmt.HC:PrsStmt semicolon and expression branches",
+  "Compiler/PrsExp.HC:PrsFunCall literal entry path",
+  "Compiler/CMain.HC:LexStmt2Bin and CmpJoin"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-statement-sequences.hc",
+  "test/cli/parse-statement-sequences.human",
+  "test/cli/parse-statement-sequences.json",
+  "test/cli/parse-statement-sequence-error.hc",
+  "test/cli/parse-statement-sequence-error.human",
+  "test/cli/parse-statement-sequence-error.json"
+]
+status = "implemented"
+issue = 95
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and compound-block children"
+statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars"]
+leading_repeated_and_trailing_commas = "preserved"
+comma_only_sequence = "preserved with no semantic elements"
+expression_terminators = ["semicolon", "statement comma"]
+putchars_comma_boundary = "implemented"
+print_comma_boundary = "a Print comma remains a call argument until the required semicolon"
+top_level_source_order = "preserved with declarations and prototypes"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_terminator_diagnostic = "HCPARSE0047"
+unsupported_sequence_form_diagnostic = "HCPARSE0048"
+block_status = "implemented by issue 97"
+control_flow_status = "planned"
+label_after_comma_status = "implemented by issue 111"
+declaration_after_comma_status = "planned"
+semantic_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-COMPOUND-BLOCKS"
+description = "Compound statements retain both braces, recursively ordered child statements, and the pinned comma boundary after the closing brace."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt opening-brace branch",
+  "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
+  "Compiler/CMain.HC:LexStmt2Bin AOT statement loop"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-compound-blocks.hc",
+  "test/cli/parse-compound-blocks.human",
+  "test/cli/parse-compound-blocks.json",
+  "test/cli/parse-compound-block-error.hc",
+  "test/cli/parse-compound-block-error.human",
+  "test/cli/parse-compound-block-error.json"
+]
+status = "implemented"
+issue = 97
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive compound-block children"
+accepted_shapes = ["empty block", "nested block", "ordered child statements", "block followed by a statement comma"]
+child_statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars", "statement sequence"]
+brace_locations = "preserved independently and as the complete block location"
+comma_after_closing_brace = "continues the enclosing statement sequence"
+comma_before_closing_brace = "rejected because the source loop expects another statement"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_closing_brace_diagnostic = "HCPARSE0049 with the opening brace as a secondary location"
+unmatched_closing_brace_diagnostic = "HCPARSE0050"
+block_recovery = "stops before the closing brace"
+hosted_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0051"
+lexical_scope_status = "planned"
+local_declaration_status = "planned"
+goto_and_label_syntax_status = "implemented by issue 111"
+control_flow_and_label_binding_status = "planned"
+function_body_status = "planned"
+semantic_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-IF-STATEMENTS"
+description = "If statements retain their parenthesized condition, recursively parsed branches, and nearest-if else association."
+sources = [
+  "Compiler/PrsStmt.HC:PrsIf",
+  "Compiler/PrsStmt.HC:PrsStmt KW_IF dispatch and statement-comma continuation",
+  "Compiler/CompilerA.HH:KW_IF and KW_ELSE",
+  "Doc/HolyC.DD:chained comparison condition example"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-if-statements.hc",
+  "test/cli/parse-if-statements.human",
+  "test/cli/parse-if-statements.json",
+  "test/cli/parse-if-error.hc",
+  "test/cli/parse-if-error.human",
+  "test/cli/parse-if-error.json"
+]
+status = "implemented"
+issue = 99
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+condition_parentheses = "required and preserved independently"
+condition_expression_grammar = "shared audited core expression parser"
+then_branch = "required and parsed through the common statement path"
+else_branch = "optional and parsed through the common statement path"
+dangling_else = "owned by the nearest unmatched if"
+branch_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0052", "HCPARSE0053", "HCPARSE0054", "HCPARSE0055", "HCPARSE0056"]
+hosted_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0057"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-WHILE-STATEMENTS"
+description = "While statements retain their parenthesized condition and recursively parsed body."
+sources = [
+  "Compiler/PrsStmt.HC:PrsWhile",
+  "Compiler/PrsStmt.HC:PrsStmt KW_WHILE dispatch and statement-comma continuation",
+  "Compiler/CompilerA.HH:KW_WHILE",
+  "Kernel/Job.HC:representative while bodies"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-while-statements.hc",
+  "test/cli/parse-while-statements.human",
+  "test/cli/parse-while-statements.json",
+  "test/cli/parse-while-error.hc",
+  "test/cli/parse-while-error.human",
+  "test/cli/parse-while-error.json"
+]
+status = "implemented"
+issue = 101
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+condition_parentheses = "required and preserved independently"
+condition_expression_grammar = "shared audited core expression parser"
+body = "required and parsed through the common statement path"
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0058", "HCPARSE0059", "HCPARSE0060"]
+shared_loop_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0061"
+break_status = "syntax implemented; target validation planned"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-DO-WHILE-STATEMENTS"
+description = "Do-while statements retain the body before a required trailing while condition and final semicolon."
+sources = [
+  "Compiler/PrsStmt.HC:PrsDoWhile",
+  "Compiler/PrsStmt.HC:PrsStmt KW_DO dispatch and statement-comma continuation",
+  "Compiler/CompilerA.HH:KW_DO and KW_WHILE",
+  "Kernel/Job.HC:TaskRstAwaitingMsg"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-do-while-statements.hc",
+  "test/cli/parse-do-while-statements.human",
+  "test/cli/parse-do-while-statements.json",
+  "test/cli/parse-do-while-error.hc",
+  "test/cli/parse-do-while-error.human",
+  "test/cli/parse-do-while-error.json"
+]
+status = "implemented"
+issue = 103
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+body = "required and parsed before the trailing condition through the common statement path"
+trailing_while_keyword = "required and preserved independently"
+condition_parentheses = "required and preserved independently"
+condition_expression_grammar = "shared audited core expression parser"
+final_semicolon = "required and preserved independently"
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0062", "HCPARSE0063", "HCPARSE0064", "HCPARSE0065", "HCPARSE0066"]
+shared_loop_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0061"
+break_status = "syntax implemented; target validation planned"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FOR-STATEMENTS"
+description = "For statements retain their statement initializer, required condition, optional update statement, and recursive body."
+sources = [
+  "Compiler/PrsStmt.HC:PrsFor",
+  "Compiler/PrsStmt.HC:PrsStmt CMPF_PRS_SEMICOLON handling",
+  "Compiler/CompilerA.HH:KW_FOR",
+  "Kernel/StrPrint.HC:empty initializer forms",
+  "Adam/Opt/Utils/StrUtils.HC:empty and comma-linked update forms",
+  "Doc/HolyC.DD:AddNums"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-for-statements.hc",
+  "test/cli/parse-for-statements.human",
+  "test/cli/parse-for-statements.json",
+  "test/cli/parse-for-error.hc",
+  "test/cli/parse-for-error.human",
+  "test/cli/parse-for-error.json"
+]
+status = "implemented"
+issue = 105
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+opening_parenthesis = "required and preserved"
+initializer = "required statement; a semicolon represents the empty initializer"
+condition = "required shared core expression followed by a preserved semicolon"
+update = "optional statement parsed without a required semicolon; comma-linked updates retain their sequence"
+body = "required and parsed through the common statement path"
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "goto", "label", "break", "return", "expression", "empty", "Print", "PutChars", "statement sequence"]
+local_declaration_initializer_status = "planned"
+dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0067", "HCPARSE0068", "HCPARSE0069", "HCPARSE0070", "HCPARSE0071"]
+shared_loop_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0061"
+break_status = "syntax implemented; target validation planned"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-BREAK-STATEMENTS"
+description = "Break statements retain their keyword and source-shaped statement boundary."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_BREAK dispatch, lb_break check, and sm_semicolon",
+  "Compiler/PrsStmt.HC:PrsWhile, PrsDoWhile, PrsFor, and PrsSwitch break-target propagation",
+  "Compiler/CompilerA.HH:KW_BREAK",
+  "Doc/HolyC.DD:switch examples"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-break-statements.hc",
+  "test/cli/parse-break-statements.human",
+  "test/cli/parse-break-statements.json",
+  "test/cli/parse-break-error.hc",
+  "test/cli/parse-break-error.human",
+  "test/cli/parse-break-error.json"
+]
+status = "implemented"
+issue = 107
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+keyword = "required and preserved"
+semicolon = "preserved when present; absent at a comma or semicolon-free for-update boundary"
+comma_boundary = "retained by the shared statement-sequence node"
+for_update_boundary = "stops before the closing parenthesis without fabricating a semicolon"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostic = "HCPARSE0072"
+block_recovery = "preserves the enclosing closing brace"
+target_validation_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-RETURN-STATEMENTS"
+description = "Return statements retain their keyword, optional value expression, and source-shaped statement boundary without conflating an absent value with zero."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_RETURN dispatch, try unwind loop, value branch, leave-label jump, and sm_semicolon",
+  "Compiler/CompilerA.HH:KW_RETURN and IC_RETURN_VAL",
+  "Compiler/BackC.HC:valueless return forms",
+  "Kernel/FunSeg.HC:early value-return forms",
+  "Doc/HolyC.DD:return res example"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-return-statements.hc",
+  "test/cli/parse-return-statements.human",
+  "test/cli/parse-return-statements.json",
+  "test/cli/parse-return-error.hc",
+  "test/cli/parse-return-error.human",
+  "test/cli/parse-return-error.json"
+]
+status = "implemented"
+issue = 109
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+keyword = "required and preserved"
+value = "absent only before an immediate semicolon; otherwise a parsed expression"
+semicolon = "preserved when present; absent after a value at a comma or semicolon-free for-update boundary"
+comma_boundary = "retained by the shared statement-sequence node"
+for_update_boundary = "a value-bearing form stops before the closing parenthesis without fabricating a semicolon; a valueless form is rejected"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0073", "HCPARSE0074"]
+block_recovery = "preserves the enclosing closing brace"
+function_context_validation_status = "planned"
+return_type_validation_status = "planned"
+try_unwind_status = "planned"
+function_metadata_status = "planned"
+leave_label_resolution_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-GOTO-LABELS"
+description = "Goto statements and function labels retain their names, punctuation, source boundary, and unresolved-identifier routing."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_GOTO dispatch and unresolved-identifier label path",
+  "Compiler/PrsLib.HC:COCGoToLabelFind and COCDel",
+  "Compiler/CompilerA.HH:KW_GOTO",
+  "Kernel/KernelA.HH:CMT_GOTO_LABEL, CMF_DEFINED, HTF_GOTO_LABEL, and IEF_GOTO_LABEL",
+  "Compiler/UAsm.HC:ief_compare_done forward references",
+  "Kernel/Job.HC:jh_done completion label",
+  "Doc/HolyC.DD:no continue statement",
+  "Doc/ScopingLinkage.DD:function scope and global collision note"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-goto-labels.hc",
+  "test/cli/parse-goto-labels.human",
+  "test/cli/parse-goto-labels.json",
+  "test/cli/parse-goto-error.hc",
+  "test/cli/parse-goto-error.human",
+  "test/cli/parse-goto-error.json"
+]
+status = "implemented"
+issue = 111
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+goto_target = "required identifier preserved separately from the keyword"
+goto_semicolon = "preserved when present; absent at a comma or semicolon-free for-update boundary"
+label_selection = "identifier absent from the current symbol environment and immediately followed by a colon"
+known_symbol_collision = "known globals and functions retain expression routing rather than becoming labels"
+label_colon = "required and preserved"
+comma_boundary = "retained by the shared statement-sequence node"
+for_update_boundary = "stops before the closing parenthesis without fabricating a semicolon"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0075", "HCPARSE0076"]
+block_recovery = "preserves the enclosing closing brace"
+top_level_context = "accepted for tooling; native function-context enforcement is planned"
+stable_label_identity_status = "planned"
+duplicate_unresolved_unused_and_collision_checks_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-LOCK-STATEMENTS"
+description = "Lock statements preserve the lexical region around one ordinary nested statement so later lowering can apply source-compatible lock flags."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_LOCK dispatch and lock_cnt lifetime",
+  "Compiler/PrsLib.HC:ICAdd ICF_LOCK handoff",
+  "Compiler/CompilerA.HH:KW_LOCK",
+  "Compiler/OpCodes.DD:KEYWORD lock",
+  "Doc/HolyC.DD:lock statement note",
+  "Demo/MultiCore/Lock.HC:braced and unbraced forms",
+  "Demo/MultiCore/LoadTest.HC:compound lock form"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-lock-statements.hc",
+  "test/cli/parse-lock-statements.human",
+  "test/cli/parse-lock-statements.json",
+  "test/cli/parse-lock-error.hc",
+  "test/cli/parse-lock-error.human",
+  "test/cli/parse-lock-error.json"
+]
+status = "implemented"
+issue = 113
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+keyword = "required and preserved"
+body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0077", "HCPARSE0078"]
+hosted_nesting_limit = 256
+source_nesting_limit = "none identified"
+ir_lock_flag_status = "planned"
+operation_validation_status = "planned"
+x86_prefix_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-TRY-CATCH-STATEMENTS"
+description = "A try statement retains its ordinary body and the required ordinary handler after catch as one source-positioned pair."
+sources = [
+  "Compiler/PrsStmt.HC:PrsTryBlk setup, body, catch requirement, handler, and try_cnt",
+  "Compiler/PrsStmt.HC:PrsStmt invalid-keyword expression route",
+  "Compiler/PrsExp.HC:PrsUnaryTerm unsupported keyword failure",
+  "Compiler/CompilerA.HH:KW_TRY and KW_CATCH",
+  "Compiler/OpCodes.DD:KEYWORD try and catch",
+  "Compiler/PrsExp.HC:unbraced try body",
+  "Kernel/Job.HC:unbraced body and handler",
+  "Demo/Exceptions.HC:braced and nested pairs",
+  "Doc/HolyC.DD:try/catch and throw notes"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-try-catch-statements.hc",
+  "test/cli/parse-try-catch-statements.human",
+  "test/cli/parse-try-catch-statements.json",
+  "test/cli/parse-try-catch-error.hc",
+  "test/cli/parse-try-catch-error.human",
+  "test/cli/parse-try-catch-error.json"
+]
+status = "implemented"
+issue = 115
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+try_keyword = "required and preserved"
+try_body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+catch_keyword = "required and preserved"
+catch_body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0079", "HCPARSE0080", "HCPARSE0081", "HCPARSE0082", "HCPARSE0083"]
+standalone_catch_diagnostic = "hosted HCPARSE0082 preserves rejection but is more specific than the pinned generic Missing expression diagnostic"
+hosted_nesting_limit = 256
+source_nesting_limit = "none identified"
+sys_try_and_untry_status = "planned"
+handler_control_flow_status = "planned"
+return_unwinding_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-SWITCH-STATEMENTS"
+description = "HolyC switch statements retain bounded and no-bound headers plus ordered case, default, statement, and nested sub-switch elements."
+sources = [
+  "Compiler/PrsStmt.HC:PrsSwitch",
+  "Compiler/PrsStmt.HC:PrsStmt KW_SWITCH dispatch",
+  "Compiler/CompilerA.HH:KW_SWITCH, KW_START, KW_END, KW_CASE, and KW_DFT",
+  "Compiler/OpCodes.DD:KEYWORD switch, start, end, case, and default",
+  "Compiler/UAsm.HC:no-bound switch, range, and sub-switch uses",
+  "Kernel/Compress.HC:no-bound switch use",
+  "Kernel/StrPrint.HC:nested switch and sub-switch uses",
+  "Demo/NullCase.HC:implicit cases",
+  "Demo/SubSwitch.HC:braced sub-switch",
+  "Doc/HolyC.DD:switch modes, ranges, implicit cases, and sub-switch rules"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-switch-statements.hc",
+  "test/cli/parse-switch-statements.human",
+  "test/cli/parse-switch-statements.json",
+  "test/cli/parse-switch-error.hc",
+  "test/cli/parse-switch-error.human",
+  "test/cli/parse-switch-error.json"
+]
+status = "implemented"
+issue = 117
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+switch_modes = ["bounded parentheses", "no-bound brackets"]
+case_patterns = ["implicit", "single expression", "ranged expressions"]
+default_spelling = "default; KW_DFT is the source compiler's internal keyword constant"
+body_elements = ["case label", "default label", "ordinary statement", "nested sub-switch"]
+subswitch_delimiters = ["start:", "end:"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = [
+  "HCPARSE0084",
+  "HCPARSE0085",
+  "HCPARSE0086",
+  "HCPARSE0087",
+  "HCPARSE0088",
+  "HCPARSE0090",
+  "HCPARSE0091",
+  "HCPARSE0092",
+  "HCPARSE0093",
+  "HCPARSE0094",
+  "HCPARSE0095",
+  "HCPARSE0096",
+  "HCPARSE0097"
+]
+recovery_boundary = "case, default, start, end, or the enclosing switch close"
+hosted_switch_nesting_limit = 256
+hosted_subswitch_nesting_limit = 256
+source_nesting_limit = "none identified"
+implicit_case_value_status = "planned"
+constant_and_duplicate_validation_status = "planned"
+front_porch_validation_status = "planned"
+break_target_status = "planned"
+jump_table_status = "planned"
+ic_lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
+description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
+sources = [
+  "Compiler/PrsVar.HC:PrsType function-pointer branch",
+  "Compiler/PrsVar.HC:PrsVarLst CMemberLst.fun_ptr and MLF_FUN",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsLib.HC:PrsFunNew",
+  "Kernel/KernelA.HH:PTR_STARS_NUM, CMemberLst.fun_ptr, and MLF_FUN",
+  "Kernel/KernelB.HH:49-53",
+  "Kernel/KernelC.HH:17-22, 517, and 603-605",
+  "Kernel/QSort.HC"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-pointer-parameters.hc",
+  "test/cli/parse-function-pointer-parameters.human",
+  "test/cli/parse-function-pointer-parameters.json",
+  "test/cli/parse-function-pointer-parameter-error.hc",
+  "test/cli/parse-function-pointer-parameter-error.human",
+  "test/cli/parse-function-pointer-parameter-error.json"
+]
+status = "implemented"
+issue = 67
+ast_schema = "holyc-ast-v1"
+return_pointer_depth = "zero through four"
+declarator_pointer_depth = "one through four"
+name_status = "optional"
+signature_status = ["empty", "fixed", "variadic", "nested"]
+nested_parameter_grammar = "shared with ordinary bound prototypes"
+definition_provenance = "preserved"
+hosted_nesting_limit = 32
+malformed_diagnostic = "HCPARSE0014"
+nesting_limit_diagnostic = "HCPARSE0017"
+function_type_checking = "planned"
+indirect_call_status = "planned"
+abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-CALLING-MODIFIERS"
+description = "Bound prototypes retain ordered interrupt, haserrcode, argpop, and noargpop prefixes with source provenance."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt calling modifier cases",
+  "Compiler/PrsStmt.HC:PrsFunJoin function flag transfer",
+  "Compiler/CompilerA.HH:KW_INTERRUPT through KW_NOARGPOP",
+  "Compiler/CompilerA.HH:FSF_INTERRUPT through FSG_FUN_FLAGS2",
+  "Kernel/KernelA.HH:Ff_INTERRUPT through Ff_NOARGPOP",
+  "Kernel/KernelC.HH:17-18",
+  "Doc/HolyC.DD:function flags"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/sema/function_flag.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/test_function_flag.ml",
+  "test/cli/parse-function-modifiers.hc",
+  "test/cli/parse-function-modifiers.human",
+  "test/cli/parse-function-modifiers.json",
+  "test/cli/parse-function-modifier-error.hc",
+  "test/cli/parse-function-modifier-error.human",
+  "test/cli/parse-function-modifier-error.json"
+]
+status = "implemented"
+issue = 63
+ast_schema = "holyc-ast-v1"
+accepted_modifiers = ["interrupt", "haserrcode", "argpop", "noargpop"]
+source_order = "preserved"
+definition_provenance = "preserved"
+transition_replay = "checked with Sema.Function_flag.apply_modifier"
+interrupt_implicit_noargpop = "checked"
+static_reset = "checked"
+function_symbol_publication = "after the complete semicolon"
+stored_flag_application = "planned"
+semantic_validation = "planned"
+abi_status = "planned"
+function_body_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"
+description = "Bound function parameters retain source-positioned reg and noreg qualifiers, including explicit canonical U64 register requests."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst pvl_restart1 and pvl_restart3",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/CInit.HC:ST_U64_REGS",
+  "Compiler/OpCodes.DD:R64 register records",
+  "Compiler/CompilerA.HH:KW_REG, KW_NOREG, and PRS1_FUN_ARG",
+  "Kernel/KernelA.HH:REG_NONE, REG_ALLOC, and REG_UNDEF",
+  "Doc/HolyC.DD:register variables",
+  "Doc/Options.DD:OPTf_NO_REG_VAR"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-register-parameters.hc",
+  "test/cli/parse-register-parameters.human",
+  "test/cli/parse-register-parameters.json",
+  "test/cli/parse-register-parameter-error.hc",
+  "test/cli/parse-register-parameter-error.human",
+  "test/cli/parse-register-parameter-error.json"
+]
+status = "implemented"
+issue = 65
+ast_schema = "holyc-ast-v1"
+accepted_qualifiers = ["reg", "noreg"]
+accepted_positions = ["before_type", "after_type"]
+explicit_registers = [
+  "RAX",
+  "RCX",
+  "RDX",
+  "RBX",
+  "RSP",
+  "RBP",
+  "RSI",
+  "RDI",
+  "R8",
+  "R9",
+  "R10",
+  "R11",
+  "R12",
+  "R13",
+  "R14",
+  "R15"
+]
+explicit_register_source = "first checked R64 record for each register number"
+assembler_alias_consumption = "disabled"
+source_order = "preserved"
+definition_provenance = "preserved"
+qualified_variadic_status = "implemented"
+misplaced_qualifier_diagnostic = "HCPARSE0013"
+semantic_request_resolution = "planned"
+register_allocation_status = "planned"
+compiler_option_effect = "planned"
+
+[[feature]]
+id = "HC-PARSER-ALTERNATE-BINDINGS"
+description = "Primitive global declarations preserve _extern and _import target identifiers, and _import is accepted only in AOT mode."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/CompilerA.HH:KW__EXTERN, KW__IMPORT, PRS0__EXTERN, PRS0__IMPORT, and FSF__",
+  "Compiler/CExts.HC:42-46",
+  "Kernel/KernelB.HH:37-41",
+  "Kernel/KernelC.HH:23-29",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-alternate-bindings.hc",
+  "test/cli/parse-alternate-bindings.human",
+  "test/cli/parse-alternate-bindings.json",
+  "test/cli/parse-alternate-import-jit.hc",
+  "test/cli/parse-alternate-import-jit.human",
+  "test/cli/parse-alternate-import-jit.json"
+]
+status = "implemented"
+issue = 59
+ast_schema = "holyc-ast-v1"
+accepted_bindings = ["_extern", "_import"]
+target_representation = "source-linked identifier"
+import_mode = "aot-only"
+jit_import_diagnostic = "HCPARSE0006"
+missing_target_diagnostic = "HCPARSE0007"
+rejected_name_publication = "disabled"
+target_lookup_status = "planned"
+alias_resolution_status = "planned"
+intern_expression_status = "implemented in HC-PARSER-INTERN-EXPRESSION-BINDINGS"
+extern_to_import_option_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-INTERN-EXPRESSION-BINDINGS"
+description = "_intern declarations retain a source-positioned target expression and remain available in both JIT and AOT parser modes."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW__INTERN branch",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst PRS0__INTERN function branch",
+  "Compiler/PrsExp.HC:LexExpressionI64",
+  "Compiler/CompilerA.HH:KW__INTERN and PRS0__INTERN",
+  "Kernel/KernelA.HH:Cf_EXTERN and Ff_INTERNAL",
+  "Kernel/KernelB.HH:all 60 _intern declarations"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-intern-binding.hc",
+  "test/cli/parse-intern-binding.human",
+  "test/cli/parse-intern-binding.json",
+  "test/cli/parse-intern-error.hc",
+  "test/cli/parse-intern-error.human",
+  "test/cli/parse-intern-error.json"
+]
+status = "implemented"
+issue = 73
+ast_schema = "holyc-ast-v1"
+accepted_binding = "_intern"
+target_representation = "source-positioned expression"
+target_expression_grammar = "shared with HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
+compilation_modes = ["jit", "aot"]
+pinned_declaration_count = 60
+definition_and_include_provenance = "preserved"
+rejected_name_publication = "disabled"
+target_evaluation_status = "planned"
+function_address_status = "planned"
+internal_flag_status = "planned"
+linkage_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-PARENTHESIZED-CALL-EXPRESSIONS"
+description = "Parenthesized calls retain ordered provided and omitted argument slots without treating a hole as an explicit zero."
+sources = [
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Compiler/PrsExp.HC:PrsUnaryTerm direct and indirect call branches",
+  "Doc/HolyC.DD:default arguments and calls",
+  "Compiler/AsmInit.HC:71",
+  "Compiler/CMain.HC:10 and 95",
+  "Compiler/CMisc.HC:152"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-call-expression.hc",
+  "test/cli/parse-call-expression.human",
+  "test/cli/parse-call-expression.json",
+  "test/cli/parse-call-error.hc",
+  "test/cli/parse-call-error.human",
+  "test/cli/parse-call-error.json"
+]
+status = "implemented"
+issue = 75
+ast_schema = "holyc-ast-v1"
+accepted_form = "parenthesized call suffix"
+argument_slot_kinds = ["provided", "omitted"]
+empty_call_slot_count = 0
+omitted_vs_explicit_zero = "distinct AST representation"
+leading_middle_consecutive_and_trailing_holes = "implemented"
+call_precedence = "postfix call binds before every audited binary operator"
+nested_calls = "implemented"
+parenthesized_callee = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "_intern targets", "nested call arguments"]
+definition_and_include_provenance = "preserved"
+missing_separator_diagnostic = "HCPARSE0024"
+missing_parenthesis_diagnostic = "HCPARSE0025"
+parentheses_free_call_status = "planned"
+callee_resolution_status = "planned"
+argument_type_and_count_checking = "planned"
+default_availability_and_filling = "planned"
+varargs_validation_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-BRACKET-INDEX-EXPRESSIONS"
+description = "Bracket indexes retain their base, delimiters, and subscript expression without rewriting the syntax as pointer arithmetic."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 modifier cycle",
+  "Compiler/PrsExp.HC:PrsUnaryModifier bracket branch",
+  "Compiler/CompilerA.HH:PREC_TERM",
+  "Doc/HolyC.DD:argv index example",
+  "Compiler/AsmLib.HC:17 and 121",
+  "Compiler/UAsm.HC:10 and 18",
+  "Kernel/Compress.HC:18 through 260",
+  "Kernel/Display.HC:54 through 90"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-index-expression.hc",
+  "test/cli/parse-index-expression.human",
+  "test/cli/parse-index-expression.json",
+  "test/cli/parse-index-error.hc",
+  "test/cli/parse-index-error.human",
+  "test/cli/parse-index-error.json"
+]
+status = "implemented"
+issue = 77
+ast_schema = "holyc-ast-v1"
+accepted_form = "bracket index suffix"
+index_precedence = "postfix index binds before every audited binary operator"
+repeated_indexes = "implemented"
+mixed_call_and_index_chains = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "_intern targets"]
+definition_and_include_provenance = "preserved"
+empty_index_diagnostic = "HCPARSE0018"
+missing_bracket_diagnostic = "HCPARSE0026"
+base_type_validation = "planned"
+dimension_and_stride_resolution = "planned"
+element_scaling_and_address_formation = "planned"
+implicit_dereference_and_lvalue_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-MEMBER-EXPRESSIONS"
+description = "Direct and pointer member expressions retain their access kind, operator, member name, and complete postfix base."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 modifier cycle",
+  "Compiler/PrsExp.HC:PrsUnaryModifier dot and TK_DEREFERENCE branches",
+  "Compiler/CInit.HC:CmpFillTables TK_DEREFERENCE construction",
+  "Kernel/KernelA.HH:TK_DEREFERENCE",
+  "Doc/HolyC.DD:offset and pointer-member examples",
+  "Compiler/PrsExp.HC:mixed direct and pointer member chain"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-member-expression.hc",
+  "test/cli/parse-member-expression.human",
+  "test/cli/parse-member-expression.json",
+  "test/cli/parse-member-error.hc",
+  "test/cli/parse-member-error.human",
+  "test/cli/parse-member-error.json"
+]
+status = "implemented"
+issue = 79
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["direct member suffix", "pointer member suffix"]
+access_kinds = ["direct", "pointer"]
+member_precedence = "postfix member access binds before every audited binary operator"
+repeated_members = "implemented"
+mixed_call_index_and_member_chains = "implemented"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+definition_and_include_provenance = "preserved"
+missing_member_diagnostic = "HCPARSE0027"
+base_type_validation = "planned"
+member_lookup_and_inheritance = "planned"
+layout_and_offset_resolution = "planned"
+address_value_dereference_and_lvalue_status = "planned"
+lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-POSTFIX-UPDATE-EXPRESSIONS"
+description = "Postfix increment and decrement retain their complete operand and end the postfix modifier chain before binary parsing resumes."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 PE_DEREFERENCE branch",
+  "Compiler/PrsExp.HC:PrsUnaryModifier TK_PLUS_PLUS and TK_MINUS_MINUS branches",
+  "Compiler/CompilerA.HH:IC__PP, IC__MM, and PREC_UNARY_POST",
+  "Compiler/CInit.HC:CmpFillTables compound token construction",
+  "Kernel/KernelA.HH:TK_PLUS_PLUS, TK_MINUS_MINUS, CCF_POSTINC, and CCF_POSTDEC",
+  "Compiler/AsmInit.HC:109-112",
+  "Kernel/Compress.HC:18-213",
+  "Adam/ADbg.HC:62-128",
+  "Demo/DbgDemo.HC:21"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-postfix-expression.hc",
+  "test/cli/parse-postfix-expression.human",
+  "test/cli/parse-postfix-expression.json",
+  "test/cli/parse-postfix-error.hc",
+  "test/cli/parse-postfix-error.human",
+  "test/cli/parse-postfix-error.json",
+  "test/cli/parse-intern-error.hc",
+  "test/cli/parse-intern-error.human",
+  "test/cli/parse-intern-error.json"
+]
+status = "implemented"
+issue = 81
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["postfix increment", "postfix decrement"]
+operator_kinds = ["post_increment", "post_decrement"]
+postfix_precedence = "binds before every audited binary operator"
+chain_behavior = "call, index, and member suffixes may precede one terminal update"
+prefix_interaction = "postfix update binds within an audited prefix operand such as *ptr++"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+continued_postfix_diagnostic = "HCPARSE0028"
+modifiable_lvalue_validation = "planned"
+operand_type_checking = "planned"
+mutation_and_old_value_semantics = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-PRIMITIVE-POSTFIX-CASTS"
+description = "Primitive HolyC casts follow their operand, retain zero through four pointer stars, and return to postfix modifier parsing."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression2 PE_MAYBE_MODIFIERS branch",
+  "Compiler/PrsExp.HC:PrsUnaryTerm parenthesized-expression branch",
+  "Compiler/PrsExp.HC:PrsUnaryModifier parenthesis branch",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/CompilerA.HH:IC_HOLYC_TYPECAST and PRS0_TYPECAST",
+  "Compiler/CInit.HC:IC_HOLYC_TYPECAST metadata",
+  "Doc/HolyC.DD:postfix type-casting note",
+  "Compiler/UAsm.HC:429-614",
+  "Adam/ADbg.HC:15-128",
+  "Kernel/BlkDev/DskCDDVD.HC:18-19",
+  "Demo/Graphics/Balloon.HC:25-31"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-postfix-cast.hc",
+  "test/cli/parse-postfix-cast.human",
+  "test/cli/parse-postfix-cast.json",
+  "test/cli/parse-postfix-cast-error.hc",
+  "test/cli/parse-postfix-cast-error.human",
+  "test/cli/parse-postfix-cast-error.json"
+]
+status = "implemented"
+issue = 83
+ast_schema = "holyc-ast-v1"
+accepted_targets = ["I0", "I8", "I16", "I32", "I64", "U0", "U8", "U16", "U32", "U64", "F64", "Bool"]
+pointer_depths = [0, 1, 2, 3, 4]
+cast_precedence = "postfix cast binds before every audited binary operator"
+chain_behavior = "calls, indexes, members, and casts may precede or follow a primitive cast; one terminal postfix update may follow"
+call_disambiguation = "a checked primitive spelling immediately after the opening parenthesis selects a cast; other tokens select a call"
+prefix_cast_diagnostic = "HCPARSE0029"
+unclosed_cast_diagnostic = "HCPARSE0030"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+class_union_array_and_function_pointer_targets = "planned"
+operand_type_checking = "planned"
+conversion_and_warning_behavior = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-SIZEOF-EXPRESSIONS"
+description = "HolyC sizeof terms retain their wrapper parentheses, unresolved named target, repeated member path, and every trailing target star."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_SIZEOF branch",
+  "Compiler/PrsExp.HC:PrsSizeOf",
+  "Compiler/CompilerA.HH:KW_SIZEOF and IC_SIZEOF",
+  "Compiler/CInit.HC:IC_SIZEOF metadata",
+  "Doc/HolyC.DD:sizeof and offset note",
+  "Compiler/PrsStmt.HC:j=sizeof(U8 *)",
+  "Kernel/MultiProc.HC:sizeof(CCPU.start_stk)",
+  "Adam/ADefine.HC:sizeof(CBinFile)",
+  "Demo/GlblVars.HC:D(g1,sizeof(g1))"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-sizeof-expression.hc",
+  "test/cli/parse-sizeof-expression.human",
+  "test/cli/parse-sizeof-expression.json",
+  "test/cli/parse-sizeof-error.hc",
+  "test/cli/parse-sizeof-error.human",
+  "test/cli/parse-sizeof-error.json"
+]
+status = "implemented"
+issue = 85
+ast_schema = "holyc-ast-v1"
+accepted_targets = "one unresolved identifier followed by zero or more dot-separated member identifiers"
+wrapper_parentheses = "zero or more matched pairs"
+target_pointer_depth = "all trailing stars; the pinned branch does not apply PTR_STARS_NUM"
+member_documentation_difference = "the executable PrsSizeOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_target_diagnostic = "HCPARSE0031"
+missing_member_diagnostic = "HCPARSE0032"
+unmatched_wrapper_diagnostic = "HCPARSE0033"
+direct_suffix_diagnostic = "HCPARSE0034"
+target_and_member_resolution = "planned"
+local_use_count_behavior = "planned"
+byte_size_calculation = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-OFFSET-EXPRESSIONS"
+description = "HolyC offset terms retain their wrapper parentheses, unresolved named root, and required member path."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_OFFSET branch",
+  "Compiler/PrsExp.HC:PrsOffsetOf",
+  "Compiler/CompilerA.HH:KW_OFFSET",
+  "Doc/HolyC.DD:sizeof and offset note",
+  "Compiler/PrsVar.HC:offset(CVI2.base)",
+  "Kernel/MultiProc.HC:offset(CGDT.tr)",
+  "Adam/AMem.HC:offset(CMemUsed.next)"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-offset-expression.hc",
+  "test/cli/parse-offset-expression.human",
+  "test/cli/parse-offset-expression.json",
+  "test/cli/parse-offset-error.hc",
+  "test/cli/parse-offset-error.human",
+  "test/cli/parse-offset-error.json"
+]
+status = "implemented"
+issue = 87
+ast_schema = "holyc-ast-v1"
+accepted_targets = "one unresolved identifier followed by one or more dot-separated member identifiers"
+wrapper_parentheses = "zero or more matched pairs"
+target_pointer_depth = "not accepted; PrsOffsetOf has no pointer-star loop"
+member_documentation_difference = "the executable PrsOffsetOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_target_diagnostic = "HCPARSE0035"
+missing_dot_diagnostic = "HCPARSE0036"
+missing_member_diagnostic = "HCPARSE0037"
+unmatched_wrapper_diagnostic = "HCPARSE0038"
+direct_suffix_diagnostic = "HCPARSE0039"
+target_and_member_resolution = "planned"
+local_use_count_behavior = "planned"
+member_offset_calculation = "planned"
+ic_lowering_status = "planned IC_IMM_I64 emission"
+
+[[feature]]
+id = "HC-PARSER-DEFINED-EXPRESSIONS"
+description = "HolyC defined terms retain repeated wrapper parentheses and exactly one source token, classified by the pinned identifier-token rule."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_DEFINED branch",
+  "Compiler/CompilerA.HH:KW_DEFINED",
+  "Compiler/PrsLib.HC:PrsKeyWord",
+  "Compiler/Lex.HC:identifier token construction",
+  "Doc/PreProcessor.DD:defined function note"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-defined-expression.hc",
+  "test/cli/parse-defined-expression.human",
+  "test/cli/parse-defined-expression.json",
+  "test/cli/parse-defined-error.hc",
+  "test/cli/parse-defined-error.human",
+  "test/cli/parse-defined-error.json"
+]
+status = "implemented"
+issue = 89
+ast_schema = "holyc-ast-v1"
+operand_shape = "exactly one non-EOF token after the opening-wrapper run; it is not parsed as a nested expression"
+identifier_shape = "ordinary identifiers and language keywords model the pinned TK_IDENT case; all other tokens remain explicit non-name operands"
+wrapper_parentheses = "zero or more matched pairs"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_operand_diagnostic = "HCPARSE0040"
+unmatched_wrapper_diagnostic = "HCPARSE0041"
+direct_suffix_diagnostic = "HCPARSE0042"
+corpus_language_expression_uses = 0
+hash_and_local_resolution = "planned"
+boolean_selection = "planned"
+ic_lowering_status = "planned IC_IMM_I64 emission"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

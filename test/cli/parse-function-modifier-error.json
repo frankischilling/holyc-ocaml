@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0008",
+    "severity": "error",
+    "message": "function \"MissingBinding\" has no declaration binding; function bodies are not implemented",
+    "primary": {
+      "path": "cli/parse-function-modifier-error.hc",
+      "line": 2,
+      "column": 28,
+      "source_id": 0,
+      "start": 115,
+      "stop": 116
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

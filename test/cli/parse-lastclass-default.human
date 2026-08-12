@@ -1,0 +1,57 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-lastclass-default.hc:1:1..3:1 items=2
+  function_prototype span=cli/parse-lastclass-default.hc:1:1..1:69 parameters=3 variadic=false
+    binding kind=extern spelling="extern" span=cli/parse-lastclass-default.hc:1:1..1:7
+    return_type primitive=U0 spelling="U0" span=cli/parse-lastclass-default.hc:1:8..1:10
+    name spelling="StructName" span=cli/parse-lastclass-default.hc:1:11..1:21
+    opening_parenthesis span=cli/parse-lastclass-default.hc:1:21..1:22
+    parameter index=0 span=cli/parse-lastclass-default.hc:1:22..1:32
+      type primitive=U8 spelling="U8" span=cli/parse-lastclass-default.hc:1:22..1:24
+      pointer_layer depth=1 spelling="*" span=cli/parse-lastclass-default.hc:1:25..1:26
+      name spelling="value" span=cli/parse-lastclass-default.hc:1:26..1:31
+      delimiter kind=comma spelling="," span=cli/parse-lastclass-default.hc:1:31..1:32
+    parameter index=1 span=cli/parse-lastclass-default.hc:1:32..1:57
+      type primitive=U8 spelling="U8" span=cli/parse-lastclass-default.hc:1:32..1:34
+      pointer_layer depth=1 spelling="*" span=cli/parse-lastclass-default.hc:1:35..1:36
+      name spelling="class_name" span=cli/parse-lastclass-default.hc:1:36..1:46
+      default span=cli/parse-lastclass-default.hc:1:46..1:56
+        equals span=cli/parse-lastclass-default.hc:1:46..1:47
+        lastclass spelling="lastclass" span=cli/parse-lastclass-default.hc:1:47..1:56
+      delimiter kind=comma spelling="," span=cli/parse-lastclass-default.hc:1:56..1:57
+    parameter index=2 span=cli/parse-lastclass-default.hc:1:57..1:67
+      type primitive=I64 spelling="I64" span=cli/parse-lastclass-default.hc:1:57..1:60
+      name spelling="mode" span=cli/parse-lastclass-default.hc:1:61..1:65
+      default span=cli/parse-lastclass-default.hc:1:65..1:67
+        equals span=cli/parse-lastclass-default.hc:1:65..1:66
+        expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-lastclass-default.hc:1:66..1:67
+    closing_parenthesis span=cli/parse-lastclass-default.hc:1:67..1:68
+    semicolon span=cli/parse-lastclass-default.hc:1:68..1:69
+  function_prototype span=cli/parse-lastclass-default.hc:2:1..2:74 parameters=1 variadic=false
+    binding kind=extern spelling="extern" span=cli/parse-lastclass-default.hc:2:1..2:7
+    return_type primitive=U0 spelling="U0" span=cli/parse-lastclass-default.hc:2:8..2:10
+    name spelling="Register" span=cli/parse-lastclass-default.hc:2:11..2:19
+    opening_parenthesis span=cli/parse-lastclass-default.hc:2:19..2:20
+    parameter index=0 span=cli/parse-lastclass-default.hc:2:20..2:72
+      type primitive=I64 spelling="I64" span=cli/parse-lastclass-default.hc:2:20..2:23
+      function_pointer span=cli/parse-lastclass-default.hc:2:24..2:72 parameters=2 variadic=false
+        opening_parenthesis span=cli/parse-lastclass-default.hc:2:24..2:25
+        pointer_layer depth=1 spelling="*" span=cli/parse-lastclass-default.hc:2:25..2:26
+        name spelling="callback" span=cli/parse-lastclass-default.hc:2:26..2:34
+        closing_parenthesis span=cli/parse-lastclass-default.hc:2:34..2:35
+        signature_opening_parenthesis span=cli/parse-lastclass-default.hc:2:35..2:36
+        parameter index=0 span=cli/parse-lastclass-default.hc:2:36..2:47
+          type primitive=U8 spelling="U8" span=cli/parse-lastclass-default.hc:2:36..2:38
+          pointer_layer depth=1 spelling="*" span=cli/parse-lastclass-default.hc:2:39..2:40
+          name spelling="object" span=cli/parse-lastclass-default.hc:2:40..2:46
+          delimiter kind=comma spelling="," span=cli/parse-lastclass-default.hc:2:46..2:47
+        parameter index=1 span=cli/parse-lastclass-default.hc:2:47..2:71
+          type primitive=U8 spelling="U8" span=cli/parse-lastclass-default.hc:2:47..2:49
+          pointer_layer depth=1 spelling="*" span=cli/parse-lastclass-default.hc:2:50..2:51
+          name spelling="class_name" span=cli/parse-lastclass-default.hc:2:51..2:61
+          default span=cli/parse-lastclass-default.hc:2:61..2:71
+            equals span=cli/parse-lastclass-default.hc:2:61..2:62
+            lastclass spelling="lastclass" span=cli/parse-lastclass-default.hc:2:62..2:71
+        signature_closing_parenthesis span=cli/parse-lastclass-default.hc:2:71..2:72
+    closing_parenthesis span=cli/parse-lastclass-default.hc:2:72..2:73
+    semicolon span=cli/parse-lastclass-default.hc:2:73..2:74

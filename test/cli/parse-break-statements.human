@@ -1,0 +1,13 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-break-statements.hc:1:1..2:1 items=1
+  top_level_statement span=cli/parse-break-statements.hc:1:1..1:14
+    statement_sequence span=cli/parse-break-statements.hc:1:1..1:14 leading_commas=0 elements=2
+      element index=0 span=cli/parse-break-statements.hc:1:1..1:7 following_commas=1
+        break_statement span=cli/parse-break-statements.hc:1:1..1:6 semicolon=false
+          keyword span=cli/parse-break-statements.hc:1:1..1:6
+        following_comma index=0 span=cli/parse-break-statements.hc:1:6..1:7
+      element index=1 span=cli/parse-break-statements.hc:1:8..1:14 following_commas=0
+        break_statement span=cli/parse-break-statements.hc:1:8..1:14 semicolon=true
+          keyword span=cli/parse-break-statements.hc:1:8..1:13
+          semicolon span=cli/parse-break-statements.hc:1:13..1:14

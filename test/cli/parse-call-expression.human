@@ -1,0 +1,27 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-call-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-call-expression.hc:1:1..1:40 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-call-expression.hc:1:1..1:8
+      target_expression
+        expression kind=call arguments=3 span=cli/parse-call-expression.hc:1:9..1:26
+          callee
+            expression kind=identifier spelling="Outer" span=cli/parse-call-expression.hc:1:9..1:14
+          opening_parenthesis span=cli/parse-call-expression.hc:1:14..1:15
+          argument index=0 kind=provided span=cli/parse-call-expression.hc:1:15..1:22
+            expression kind=call arguments=0 span=cli/parse-call-expression.hc:1:15..1:22
+              callee
+                expression kind=identifier spelling="Inner" span=cli/parse-call-expression.hc:1:15..1:20
+              opening_parenthesis span=cli/parse-call-expression.hc:1:20..1:21
+              closing_parenthesis span=cli/parse-call-expression.hc:1:21..1:22
+            comma span=cli/parse-call-expression.hc:1:22..1:23
+          argument index=1 kind=omitted span=cli/parse-call-expression.hc:1:23..1:23
+            comma span=cli/parse-call-expression.hc:1:23..1:24
+          argument index=2 kind=provided span=cli/parse-call-expression.hc:1:24..1:25
+            expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-call-expression.hc:1:24..1:25
+          closing_parenthesis span=cli/parse-call-expression.hc:1:25..1:26
+    return_type primitive=I64 spelling="I64" span=cli/parse-call-expression.hc:1:27..1:30
+    name spelling="Linked" span=cli/parse-call-expression.hc:1:31..1:37
+    opening_parenthesis span=cli/parse-call-expression.hc:1:37..1:38
+    closing_parenthesis span=cli/parse-call-expression.hc:1:38..1:39
+    semicolon span=cli/parse-call-expression.hc:1:39..1:40

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0018",
+    "severity": "error",
+    "message": "expected a default expression operand, but found \")\"",
+    "primary": {
+      "path": "cli/parse-function-prototype-error.hc",
+      "line": 2,
+      "column": 28,
+      "source_id": 0,
+      "start": 105,
+      "stop": 106
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0071",
+    "severity": "error",
+    "message": "expected a statement after the for header, but found end of input",
+    "primary": {
+      "path": "cli/parse-for-error.hc",
+      "line": 3,
+      "column": 1,
+      "source_id": 0,
+      "start": 19,
+      "stop": 19
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

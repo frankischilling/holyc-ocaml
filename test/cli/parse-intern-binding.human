@@ -1,0 +1,27 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-intern-binding.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-intern-binding.hc:1:1..1:53 parameters=1 variadic=false
+    modifier kind=public spelling="public" span=cli/parse-intern-binding.hc:1:1..1:7
+    binding kind=intern spelling="_intern" span=cli/parse-intern-binding.hc:1:8..1:15
+      target_expression
+        expression kind=parenthesized span=cli/parse-intern-binding.hc:1:16..1:26
+          opening_parenthesis span=cli/parse-intern-binding.hc:1:16..1:17
+          expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-intern-binding.hc:1:17..1:25
+            left
+              expression kind=identifier spelling="IC_BSF" span=cli/parse-intern-binding.hc:1:17..1:23
+            operator spelling="+" span=cli/parse-intern-binding.hc:1:23..1:24
+            right
+              expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-intern-binding.hc:1:24..1:25
+          closing_parenthesis span=cli/parse-intern-binding.hc:1:25..1:26
+    return_type primitive=I64 spelling="I64" span=cli/parse-intern-binding.hc:1:27..1:30
+    name spelling="Adjusted" span=cli/parse-intern-binding.hc:1:31..1:39
+    opening_parenthesis span=cli/parse-intern-binding.hc:1:39..1:40
+    parameter index=0 span=cli/parse-intern-binding.hc:1:40..1:51
+      type primitive=I64 spelling="I64" span=cli/parse-intern-binding.hc:1:40..1:43
+      name spelling="value" span=cli/parse-intern-binding.hc:1:44..1:49
+      default span=cli/parse-intern-binding.hc:1:49..1:51
+        equals span=cli/parse-intern-binding.hc:1:49..1:50
+        expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-intern-binding.hc:1:50..1:51
+    closing_parenthesis span=cli/parse-intern-binding.hc:1:51..1:52
+    semicolon span=cli/parse-intern-binding.hc:1:52..1:53

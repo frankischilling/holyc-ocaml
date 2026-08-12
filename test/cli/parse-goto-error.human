@@ -1,0 +1,3 @@
+cli/parse-goto-error.hc:1:6: error[HCPARSE0075]: expected a label name after 'goto', but found "1"
+    1 | goto 1;
+      |      ^

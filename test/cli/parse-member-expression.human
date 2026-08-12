@@ -1,0 +1,40 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-member-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-member-expression.hc:1:1..1:60 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-member-expression.hc:1:1..1:8
+      target_expression
+        expression kind=member access_kind=direct span=cli/parse-member-expression.hc:1:9..1:47
+          base
+            expression kind=call arguments=1 span=cli/parse-member-expression.hc:1:9..1:40
+              callee
+                expression kind=member access_kind=pointer span=cli/parse-member-expression.hc:1:9..1:37
+                  base
+                    expression kind=index span=cli/parse-member-expression.hc:1:9..1:27
+                      base
+                        expression kind=member access_kind=direct span=cli/parse-member-expression.hc:1:9..1:24
+                          base
+                            expression kind=call arguments=0 span=cli/parse-member-expression.hc:1:9..1:18
+                              callee
+                                expression kind=identifier spelling="Factory" span=cli/parse-member-expression.hc:1:9..1:16
+                              opening_parenthesis span=cli/parse-member-expression.hc:1:16..1:17
+                              closing_parenthesis span=cli/parse-member-expression.hc:1:17..1:18
+                          operator spelling="." span=cli/parse-member-expression.hc:1:18..1:19
+                          member spelling="nodes" span=cli/parse-member-expression.hc:1:19..1:24
+                      opening_bracket span=cli/parse-member-expression.hc:1:24..1:25
+                      index
+                        expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-member-expression.hc:1:25..1:26
+                      closing_bracket span=cli/parse-member-expression.hc:1:26..1:27
+                  operator spelling="->" span=cli/parse-member-expression.hc:1:27..1:29
+                  member spelling="callback" span=cli/parse-member-expression.hc:1:29..1:37
+              opening_parenthesis span=cli/parse-member-expression.hc:1:37..1:38
+              argument index=0 kind=provided span=cli/parse-member-expression.hc:1:38..1:39
+                expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-member-expression.hc:1:38..1:39
+              closing_parenthesis span=cli/parse-member-expression.hc:1:39..1:40
+          operator spelling="." span=cli/parse-member-expression.hc:1:40..1:41
+          member spelling="result" span=cli/parse-member-expression.hc:1:41..1:47
+    return_type primitive=I64 spelling="I64" span=cli/parse-member-expression.hc:1:48..1:51
+    name spelling="Mixed" span=cli/parse-member-expression.hc:1:52..1:57
+    opening_parenthesis span=cli/parse-member-expression.hc:1:57..1:58
+    closing_parenthesis span=cli/parse-member-expression.hc:1:58..1:59
+    semicolon span=cli/parse-member-expression.hc:1:59..1:60

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0033",
+    "severity": "error",
+    "message": "expected ')' to close sizeof target in _intern target expression; one wrapper parenthesis remains, but found identifier \"I64\"",
+    "primary": {
+      "path": "cli/parse-sizeof-error.hc",
+      "line": 1,
+      "column": 29,
+      "source_id": 0,
+      "start": 28,
+      "stop": 31
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

@@ -156,3 +156,9 @@ let binary_operators =
         source_line = entry.source_line;
       })
     Facts.binary_operators
+
+let find_binary spelling =
+  List.find_opt
+    (fun (operator : binary_operator) ->
+      String.equal operator.spelling spelling)
+    binary_operators

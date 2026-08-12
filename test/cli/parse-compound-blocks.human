@@ -1,0 +1,32 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-compound-blocks.hc:1:1..6:1 items=2
+  global_variable span=cli/parse-compound-blocks.hc:1:1..1:11
+    type primitive=I64 spelling="I64" span=cli/parse-compound-blocks.hc:1:1..1:4
+    name spelling="value" span=cli/parse-compound-blocks.hc:1:5..1:10
+    semicolon span=cli/parse-compound-blocks.hc:1:10..1:11
+  top_level_statement span=cli/parse-compound-blocks.hc:2:1..5:2
+    block_statement span=cli/parse-compound-blocks.hc:2:1..5:2 statements=2
+      opening_brace span=cli/parse-compound-blocks.hc:2:1..2:2
+      statement index=0
+        block_statement span=cli/parse-compound-blocks.hc:3:3..3:5 statements=0
+          opening_brace span=cli/parse-compound-blocks.hc:3:3..3:4
+          closing_brace span=cli/parse-compound-blocks.hc:3:4..3:5
+      statement index=1
+        statement_sequence span=cli/parse-compound-blocks.hc:4:3..4:19 leading_commas=0 elements=2
+          element index=0 span=cli/parse-compound-blocks.hc:4:3..4:11 following_commas=1
+            expression_statement span=cli/parse-compound-blocks.hc:4:3..4:10 semicolon=false
+              expression kind=binary precedence=PREC_ASSIGN precedence_value=0x3c association=right ic=IC_ASSIGN source_line=319 span=cli/parse-compound-blocks.hc:4:3..4:10
+                left
+                  expression kind=identifier spelling="value" span=cli/parse-compound-blocks.hc:4:3..4:8
+                operator spelling="=" span=cli/parse-compound-blocks.hc:4:8..4:9
+                right
+                  expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-compound-blocks.hc:4:9..4:10
+            following_comma index=0 span=cli/parse-compound-blocks.hc:4:10..4:11
+          element index=1 span=cli/parse-compound-blocks.hc:4:11..4:19 following_commas=0
+            expression_statement span=cli/parse-compound-blocks.hc:4:11..4:19 semicolon=true
+              expression kind=postfix operator_kind=post_increment span=cli/parse-compound-blocks.hc:4:11..4:18
+                expression kind=identifier spelling="value" span=cli/parse-compound-blocks.hc:4:11..4:16
+                operator spelling="++" span=cli/parse-compound-blocks.hc:4:16..4:18
+              semicolon span=cli/parse-compound-blocks.hc:4:18..4:19
+      closing_brace span=cli/parse-compound-blocks.hc:5:1..5:2

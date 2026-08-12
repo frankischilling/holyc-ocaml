@@ -1,0 +1,64 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-try-catch-statements.hc:1:1..9:1 items=4
+  global_variable span=cli/parse-try-catch-statements.hc:1:1..1:11
+    type primitive=I64 spelling="I64" span=cli/parse-try-catch-statements.hc:1:1..1:4
+    name spelling="value" span=cli/parse-try-catch-statements.hc:1:5..1:10
+    semicolon span=cli/parse-try-catch-statements.hc:1:10..1:11
+  top_level_statement span=cli/parse-try-catch-statements.hc:2:1..6:2
+    try_catch_statement span=cli/parse-try-catch-statements.hc:2:1..6:2
+      try_keyword span=cli/parse-try-catch-statements.hc:2:1..2:4
+      try_body
+        block_statement span=cli/parse-try-catch-statements.hc:2:5..4:2 statements=1
+          opening_brace span=cli/parse-try-catch-statements.hc:2:5..2:6
+          statement index=0
+            expression_statement span=cli/parse-try-catch-statements.hc:3:3..3:11 semicolon=true
+              expression kind=postfix operator_kind=post_increment span=cli/parse-try-catch-statements.hc:3:3..3:10
+                expression kind=identifier spelling="value" span=cli/parse-try-catch-statements.hc:3:3..3:8
+                operator spelling="++" span=cli/parse-try-catch-statements.hc:3:8..3:10
+              semicolon span=cli/parse-try-catch-statements.hc:3:10..3:11
+          closing_brace span=cli/parse-try-catch-statements.hc:4:1..4:2
+      catch_keyword span=cli/parse-try-catch-statements.hc:4:3..4:8
+      catch_body
+        block_statement span=cli/parse-try-catch-statements.hc:4:9..6:2 statements=1
+          opening_brace span=cli/parse-try-catch-statements.hc:4:9..4:10
+          statement index=0
+            expression_statement span=cli/parse-try-catch-statements.hc:5:3..5:11 semicolon=true
+              expression kind=postfix operator_kind=post_decrement span=cli/parse-try-catch-statements.hc:5:3..5:10
+                expression kind=identifier spelling="value" span=cli/parse-try-catch-statements.hc:5:3..5:8
+                operator spelling="--" span=cli/parse-try-catch-statements.hc:5:8..5:10
+              semicolon span=cli/parse-try-catch-statements.hc:5:10..5:11
+          closing_brace span=cli/parse-try-catch-statements.hc:6:1..6:2
+  top_level_statement span=cli/parse-try-catch-statements.hc:7:1..7:28
+    try_catch_statement span=cli/parse-try-catch-statements.hc:7:1..7:28
+      try_keyword span=cli/parse-try-catch-statements.hc:7:1..7:4
+      try_body
+        expression_statement span=cli/parse-try-catch-statements.hc:7:5..7:13 semicolon=true
+          expression kind=postfix operator_kind=post_increment span=cli/parse-try-catch-statements.hc:7:5..7:12
+            expression kind=identifier spelling="value" span=cli/parse-try-catch-statements.hc:7:5..7:10
+            operator spelling="++" span=cli/parse-try-catch-statements.hc:7:10..7:12
+          semicolon span=cli/parse-try-catch-statements.hc:7:12..7:13
+      catch_keyword span=cli/parse-try-catch-statements.hc:7:14..7:19
+      catch_body
+        expression_statement span=cli/parse-try-catch-statements.hc:7:20..7:28 semicolon=true
+          expression kind=postfix operator_kind=post_decrement span=cli/parse-try-catch-statements.hc:7:20..7:27
+            expression kind=identifier spelling="value" span=cli/parse-try-catch-statements.hc:7:20..7:25
+            operator spelling="--" span=cli/parse-try-catch-statements.hc:7:25..7:27
+          semicolon span=cli/parse-try-catch-statements.hc:7:27..7:28
+  top_level_statement span=cli/parse-try-catch-statements.hc:8:1..8:23
+    try_catch_statement span=cli/parse-try-catch-statements.hc:8:1..8:23
+      try_keyword span=cli/parse-try-catch-statements.hc:8:1..8:4
+      try_body
+        try_catch_statement span=cli/parse-try-catch-statements.hc:8:5..8:16
+          try_keyword span=cli/parse-try-catch-statements.hc:8:5..8:8
+          try_body
+            empty_statement span=cli/parse-try-catch-statements.hc:8:8..8:9
+              semicolon span=cli/parse-try-catch-statements.hc:8:8..8:9
+          catch_keyword span=cli/parse-try-catch-statements.hc:8:10..8:15
+          catch_body
+            empty_statement span=cli/parse-try-catch-statements.hc:8:15..8:16
+              semicolon span=cli/parse-try-catch-statements.hc:8:15..8:16
+      catch_keyword span=cli/parse-try-catch-statements.hc:8:17..8:22
+      catch_body
+        empty_statement span=cli/parse-try-catch-statements.hc:8:22..8:23
+          semicolon span=cli/parse-try-catch-statements.hc:8:22..8:23

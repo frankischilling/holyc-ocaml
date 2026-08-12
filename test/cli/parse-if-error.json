@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0054",
+    "severity": "error",
+    "message": "expected a statement after the if condition, but found \"else\"",
+    "primary": {
+      "path": "cli/parse-if-error.hc",
+      "line": 2,
+      "column": 11,
+      "source_id": 0,
+      "start": 21,
+      "stop": 25
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

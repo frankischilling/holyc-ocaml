@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0029",
+    "severity": "error",
+    "message": "C-style cast syntax is not valid HolyC in _intern target expression; write the cast after its operand, for example value(I64)",
+    "primary": {
+      "path": "cli/parse-postfix-cast-error.hc",
+      "line": 1,
+      "column": 10,
+      "source_id": 0,
+      "start": 9,
+      "stop": 12
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

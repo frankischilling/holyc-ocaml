@@ -1,0 +1,1068 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-defined-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 59
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-defined-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "binary",
+            "left": {
+              "kind": "postfix_cast",
+              "operand": {
+                "kind": "defined",
+                "keyword": {
+                  "spelling": "defined",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 15
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 8,
+                        "stop": 15
+                      }
+                    ]
+                  }
+                },
+                "opening_parentheses": [
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 15,
+                        "stop": 16
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 16,
+                        "stop": 17
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 18
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 17,
+                        "stop": 18
+                      }
+                    ]
+                  }
+                ],
+                "operand": {
+                  "kind": "name",
+                  "spelling": "I64",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 21
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 18,
+                        "stop": 21
+                      }
+                    ]
+                  }
+                },
+                "closing_parentheses": [
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 22
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 21,
+                        "stop": 22
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 23
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 23,
+                        "source_id": 0,
+                        "start": 22,
+                        "stop": 23
+                      }
+                    ]
+                  },
+                  {
+                    "span": {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-defined-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      }
+                    ]
+                  }
+                ],
+                "location": {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 24
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 15
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 18
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 21
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 22
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 23
+                    },
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    }
+                  ]
+                }
+              },
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 25
+                  }
+                ]
+              },
+              "target_type": {
+                "kind": "primitive",
+                "primitive": "U64",
+                "spelling": "U64",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 28
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 15
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 18
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 18,
+                    "stop": 21
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 22
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 31
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "defined",
+              "keyword": {
+                "spelling": "defined",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 39
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 32,
+                      "stop": 39
+                    }
+                  ]
+                }
+              },
+              "opening_parentheses": [
+                {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 40
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 40
+                    }
+                  ]
+                }
+              ],
+              "operand": {
+                "kind": "non_name",
+                "spelling": "42",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 42
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 41,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 42
+                    }
+                  ]
+                }
+              },
+              "closing_parentheses": [
+                {
+                  "span": {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 43
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-defined-expression.hc",
+                      "line": 1,
+                      "column": 43,
+                      "source_id": 0,
+                      "start": 42,
+                      "stop": 43
+                    }
+                  ]
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 43
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 39
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 40
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 42
+                  },
+                  {
+                    "path": "cli/parse-defined-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 43
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-defined-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 43
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 15
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 18
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 21
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 22
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 28
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 40
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 42
+                },
+                {
+                  "path": "cli/parse-defined-expression.hc",
+                  "line": 1,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 42,
+                  "stop": 43
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 47
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-defined-expression.hc",
+                "line": 1,
+                "column": 45,
+                "source_id": 0,
+                "start": 44,
+                "stop": 47
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Checked",
+          "location": {
+            "span": {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 49,
+              "source_id": 0,
+              "start": 48,
+              "stop": 55
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-defined-expression.hc",
+                "line": 1,
+                "column": 49,
+                "source_id": 0,
+                "start": 48,
+                "stop": 55
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-defined-expression.hc",
+            "line": 1,
+            "column": 56,
+            "source_id": 0,
+            "start": 55,
+            "stop": 56
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 56,
+              "source_id": 0,
+              "start": 55,
+              "stop": 56
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-defined-expression.hc",
+            "line": 1,
+            "column": 57,
+            "source_id": 0,
+            "start": 56,
+            "stop": 57
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-defined-expression.hc",
+            "line": 1,
+            "column": 58,
+            "source_id": 0,
+            "start": 57,
+            "stop": 58
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 58,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-defined-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 58
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 19,
+              "source_id": 0,
+              "start": 18,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 22,
+              "source_id": 0,
+              "start": 21,
+              "stop": 22
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 23,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 29,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 40,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 42
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 43,
+              "source_id": 0,
+              "start": 42,
+              "stop": 43
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 45,
+              "source_id": 0,
+              "start": 44,
+              "stop": 47
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 49,
+              "source_id": 0,
+              "start": 48,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 56,
+              "source_id": 0,
+              "start": 55,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 57,
+              "source_id": 0,
+              "start": 56,
+              "stop": 57
+            },
+            {
+              "path": "cli/parse-defined-expression.hc",
+              "line": 1,
+              "column": 58,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

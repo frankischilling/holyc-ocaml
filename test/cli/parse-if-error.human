@@ -1,0 +1,3 @@
+cli/parse-if-error.hc:2:11: error[HCPARSE0054]: expected a statement after the if condition, but found "else"
+    2 | if(value) else value=1;
+      |           ^^^^

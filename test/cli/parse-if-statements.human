@@ -1,0 +1,22 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-if-statements.hc:1:1..6:1 items=2
+  global_variable span=cli/parse-if-statements.hc:1:1..1:11
+    type primitive=I64 spelling="I64" span=cli/parse-if-statements.hc:1:1..1:4
+    name spelling="value" span=cli/parse-if-statements.hc:1:5..1:10
+    semicolon span=cli/parse-if-statements.hc:1:10..1:11
+  top_level_statement span=cli/parse-if-statements.hc:2:1..5:4
+    if_statement span=cli/parse-if-statements.hc:2:1..5:4 else=true
+      keyword span=cli/parse-if-statements.hc:2:1..2:3
+      opening_parenthesis span=cli/parse-if-statements.hc:2:3..2:4
+      condition
+        expression kind=identifier spelling="value" span=cli/parse-if-statements.hc:2:4..2:9
+      closing_parenthesis span=cli/parse-if-statements.hc:2:9..2:10
+      then_branch
+        empty_statement span=cli/parse-if-statements.hc:3:3..3:4
+          semicolon span=cli/parse-if-statements.hc:3:3..3:4
+      else_clause span=cli/parse-if-statements.hc:4:1..5:4
+        keyword span=cli/parse-if-statements.hc:4:1..4:5
+        branch
+          empty_statement span=cli/parse-if-statements.hc:5:3..5:4
+            semicolon span=cli/parse-if-statements.hc:5:3..5:4

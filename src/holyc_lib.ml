@@ -26,6 +26,9 @@ module Help_metadata = Frontend.Help_metadata
 module Symbol_visibility = Frontend.Symbol_visibility
 module Lexer_frame = Frontend.Lexer_frame
 module Preprocessor = Frontend.Preprocessor
+module Ast = Frontend.Ast
+module Ast_dump = Frontend.Ast_dump
+module Parser = Frontend.Parser
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -38,3 +41,22 @@ let preprocess session ~config ~source =
   let output = preprocess_detailed session ~config ~source in
   if Frontend.Preprocessor.has_errors output then Error output.diagnostics
   else Ok output.tokens
+
+let parse_detailed session ~config ~source =
+  Frontend.Parser.parse ~sources:(Session.sources session)
+    ~definitions:(Session.definitions session)
+    ~symbols:(Session.symbols session) ~config source
+
+let parse_with_config session ~config ~source =
+  let output = parse_detailed session ~config ~source in
+  match output.ast with
+  | Some ast -> Ok ast
+  | None -> Error output.diagnostics
+
+let parse session ~source =
+  let config =
+    match Frontend.Preprocessor.Config.create () with
+    | Ok config -> config
+    | Error message -> invalid_arg message
+  in
+  parse_with_config session ~config ~source

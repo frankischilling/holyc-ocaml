@@ -1,0 +1,207 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-globals.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 81
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-globals.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 58,
+              "stop": 61
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-globals.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 58,
+                "stop": 61
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "count",
+          "location": {
+            "span": {
+              "path": "cli/parse-globals.hc",
+              "line": 2,
+              "column": 5,
+              "source_id": 0,
+              "start": 62,
+              "stop": 67
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-globals.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 62,
+                "stop": 67
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-globals.hc",
+          "line": 2,
+          "column": 10,
+          "source_id": 0,
+          "start": 67,
+          "stop": 68
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-globals.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 58,
+            "stop": 68
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 58,
+              "stop": 61
+            },
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 2,
+              "column": 5,
+              "source_id": 0,
+              "start": 62,
+              "stop": 67
+            },
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            }
+          ]
+        }
+      },
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "Bool",
+          "spelling": "Bool",
+          "location": {
+            "span": {
+              "path": "cli/parse-globals.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 73
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-globals.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 69,
+                "stop": 73
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "ready",
+          "location": {
+            "span": {
+              "path": "cli/parse-globals.hc",
+              "line": 3,
+              "column": 6,
+              "source_id": 0,
+              "start": 74,
+              "stop": 79
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-globals.hc",
+                "line": 3,
+                "column": 6,
+                "source_id": 0,
+                "start": 74,
+                "stop": 79
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-globals.hc",
+          "line": 3,
+          "column": 11,
+          "source_id": 0,
+          "start": 79,
+          "stop": 80
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-globals.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 69,
+            "stop": 80
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 73
+            },
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 3,
+              "column": 6,
+              "source_id": 0,
+              "start": 74,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-globals.hc",
+              "line": 3,
+              "column": 11,
+              "source_id": 0,
+              "start": 79,
+              "stop": 80
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

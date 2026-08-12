@@ -1,0 +1,312 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-break-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 14
+    },
+    "items": [
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "statement_sequence",
+          "leading_commas": [],
+          "elements": [
+            {
+              "statement": {
+                "kind": "break_statement",
+                "keyword": {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 0,
+                    "stop": 5
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 0,
+                      "stop": 5
+                    }
+                  ]
+                },
+                "semicolon": null,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 0,
+                    "stop": 5
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 0,
+                      "stop": 5
+                    }
+                  ]
+                }
+              },
+              "following_commas": [
+                {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 5,
+                    "stop": 6
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 5,
+                      "stop": 6
+                    }
+                  ]
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-break-statements.hc",
+                  "line": 1,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 0,
+                  "stop": 6
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 0,
+                    "stop": 5
+                  },
+                  {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 5,
+                    "stop": 6
+                  }
+                ]
+              }
+            },
+            {
+              "statement": {
+                "kind": "break_statement",
+                "keyword": {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 7,
+                    "stop": 12
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 7,
+                      "stop": 12
+                    }
+                  ]
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 12,
+                    "stop": 13
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 13
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 7,
+                    "stop": 13
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 7,
+                      "stop": 12
+                    },
+                    {
+                      "path": "cli/parse-break-statements.hc",
+                      "line": 1,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 12,
+                      "stop": 13
+                    }
+                  ]
+                }
+              },
+              "following_commas": [],
+              "location": {
+                "span": {
+                  "path": "cli/parse-break-statements.hc",
+                  "line": 1,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 7,
+                  "stop": 13
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 7,
+                    "stop": 12
+                  },
+                  {
+                    "path": "cli/parse-break-statements.hc",
+                    "line": 1,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 12,
+                    "stop": 13
+                  }
+                ]
+              }
+            }
+          ],
+          "location": {
+            "span": {
+              "path": "cli/parse-break-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 13
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-break-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 5
+              },
+              {
+                "path": "cli/parse-break-statements.hc",
+                "line": 1,
+                "column": 6,
+                "source_id": 0,
+                "start": 5,
+                "stop": 6
+              },
+              {
+                "path": "cli/parse-break-statements.hc",
+                "line": 1,
+                "column": 8,
+                "source_id": 0,
+                "start": 7,
+                "stop": 12
+              },
+              {
+                "path": "cli/parse-break-statements.hc",
+                "line": 1,
+                "column": 13,
+                "source_id": 0,
+                "start": 12,
+                "stop": 13
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-break-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 13
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-break-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-break-statements.hc",
+              "line": 1,
+              "column": 6,
+              "source_id": 0,
+              "start": 5,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-break-statements.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-break-statements.hc",
+              "line": 1,
+              "column": 13,
+              "source_id": 0,
+              "start": 12,
+              "stop": 13
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,1794 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-default-parameters.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 162
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 80,
+              "stop": 86
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 80,
+                "stop": 86
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 87,
+              "stop": 90
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 87,
+                "stop": 90
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Defaults",
+          "location": {
+            "span": {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 12,
+              "source_id": 0,
+              "start": 91,
+              "stop": 99
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 12,
+                "source_id": 0,
+                "start": 91,
+                "stop": 99
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-default-parameters.hc",
+            "line": 2,
+            "column": 20,
+            "source_id": 0,
+            "start": 99,
+            "stop": 100
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 20,
+              "source_id": 0,
+              "start": 99,
+              "stop": 100
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 103
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 100,
+                    "stop": 103
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "power",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 104,
+                  "stop": 109
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 104,
+                    "stop": 109
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 109,
+                  "stop": 110
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 109,
+                    "stop": 110
+                  }
+                ]
+              },
+              "value": {
+                "kind": "prefix",
+                "operator_kind": "unary_minus",
+                "operator": {
+                  "spelling": "-",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 110,
+                      "stop": 111
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 110,
+                        "stop": 111
+                      }
+                    ]
+                  }
+                },
+                "operand": {
+                  "kind": "binary",
+                  "left": {
+                    "kind": "integer_literal",
+                    "spelling": "2",
+                    "value": "0x0000000000000002",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 32,
+                        "source_id": 0,
+                        "start": 111,
+                        "stop": 112
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 32,
+                          "source_id": 0,
+                          "start": 111,
+                          "stop": 112
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "`",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 33,
+                        "source_id": 0,
+                        "start": 112,
+                        "stop": 113
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 112,
+                          "stop": 113
+                        }
+                      ]
+                    }
+                  },
+                  "precedence": "PREC_EXP",
+                  "precedence_value": 16,
+                  "association": "right",
+                  "ic": "IC_POWER",
+                  "source_line": 288,
+                  "right": {
+                    "kind": "integer_literal",
+                    "spelling": "2",
+                    "value": "0x0000000000000002",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 34,
+                        "source_id": 0,
+                        "start": 113,
+                        "stop": 114
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 34,
+                          "source_id": 0,
+                          "start": 113,
+                          "stop": 114
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 111,
+                      "stop": 114
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 32,
+                        "source_id": 0,
+                        "start": 111,
+                        "stop": 112
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 33,
+                        "source_id": 0,
+                        "start": 112,
+                        "stop": 113
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 34,
+                        "source_id": 0,
+                        "start": 113,
+                        "stop": 114
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 110,
+                    "stop": 114
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 110,
+                      "stop": 111
+                    },
+                    {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 111,
+                      "stop": 112
+                    },
+                    {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 112,
+                      "stop": 113
+                    },
+                    {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 34,
+                      "source_id": 0,
+                      "start": 113,
+                      "stop": 114
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 109,
+                  "stop": 114
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 109,
+                    "stop": 110
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 110,
+                    "stop": 111
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 111,
+                    "stop": 112
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 112,
+                    "stop": 113
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 34,
+                    "source_id": 0,
+                    "start": 113,
+                    "stop": 114
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 114,
+                  "stop": 115
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 35,
+                    "source_id": 0,
+                    "start": 114,
+                    "stop": 115
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 21,
+                "source_id": 0,
+                "start": 100,
+                "stop": 115
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 103
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 104,
+                  "stop": 109
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 109,
+                  "stop": 110
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 110,
+                  "stop": 111
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 111,
+                  "stop": 112
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 112,
+                  "stop": 113
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 34,
+                  "source_id": 0,
+                  "start": 113,
+                  "stop": 114
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 114,
+                  "stop": 115
+                }
+              ]
+            }
+          },
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 115,
+                  "stop": 118
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 115,
+                    "stop": 118
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "required",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 119,
+                  "stop": 127
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 119,
+                    "stop": 127
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 127,
+                  "stop": 128
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 48,
+                    "source_id": 0,
+                    "start": 127,
+                    "stop": 128
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 36,
+                "source_id": 0,
+                "start": 115,
+                "stop": 128
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 115,
+                  "stop": 118
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 119,
+                  "stop": 127
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 127,
+                  "stop": 128
+                }
+              ]
+            }
+          },
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "U0",
+              "spelling": "U0",
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 128,
+                  "stop": 130
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 49,
+                    "source_id": 0,
+                    "start": 128,
+                    "stop": 130
+                  }
+                ]
+              }
+            },
+            "function_pointer": {
+              "kind": "function_pointer",
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 52,
+                  "source_id": 0,
+                  "start": 131,
+                  "stop": 132
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 52,
+                    "source_id": 0,
+                    "start": 131,
+                    "stop": 132
+                  }
+                ]
+              },
+              "pointer_layers": [
+                {
+                  "depth": 1,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 53,
+                      "source_id": 0,
+                      "start": 132,
+                      "stop": 133
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 53,
+                        "source_id": 0,
+                        "start": 132,
+                        "stop": 133
+                      }
+                    ]
+                  }
+                }
+              ],
+              "name": {
+                "spelling": "callback",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 54,
+                    "source_id": 0,
+                    "start": 133,
+                    "stop": 141
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 54,
+                      "source_id": 0,
+                      "start": 133,
+                      "stop": 141
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 141,
+                  "stop": 142
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 141,
+                    "stop": 142
+                  }
+                ]
+              },
+              "signature_opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 63,
+                  "source_id": 0,
+                  "start": 142,
+                  "stop": 143
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 63,
+                    "source_id": 0,
+                    "start": 142,
+                    "stop": 143
+                  }
+                ]
+              },
+              "parameters": [
+                {
+                  "type": {
+                    "kind": "primitive",
+                    "primitive": "I64",
+                    "spelling": "I64",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 64,
+                        "source_id": 0,
+                        "start": 143,
+                        "stop": 146
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 64,
+                          "source_id": 0,
+                          "start": 143,
+                          "stop": 146
+                        }
+                      ]
+                    }
+                  },
+                  "name": {
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 68,
+                        "source_id": 0,
+                        "start": 147,
+                        "stop": 152
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 68,
+                          "source_id": 0,
+                          "start": 147,
+                          "stop": 152
+                        }
+                      ]
+                    }
+                  },
+                  "default": {
+                    "equals": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 73,
+                        "source_id": 0,
+                        "start": 152,
+                        "stop": 153
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 73,
+                          "source_id": 0,
+                          "start": 152,
+                          "stop": 153
+                        }
+                      ]
+                    },
+                    "value": {
+                      "kind": "binary",
+                      "left": {
+                        "kind": "integer_literal",
+                        "spelling": "1",
+                        "value": "0x0000000000000001",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 74,
+                            "source_id": 0,
+                            "start": 153,
+                            "stop": 154
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 74,
+                              "source_id": 0,
+                              "start": 153,
+                              "stop": 154
+                            }
+                          ]
+                        }
+                      },
+                      "operator": {
+                        "spelling": "+",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 75,
+                            "source_id": 0,
+                            "start": 154,
+                            "stop": 155
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 75,
+                              "source_id": 0,
+                              "start": 154,
+                              "stop": 155
+                            }
+                          ]
+                        }
+                      },
+                      "precedence": "PREC_ADD",
+                      "precedence_value": 36,
+                      "association": "unspecified",
+                      "ic": "IC_ADD",
+                      "source_line": 302,
+                      "right": {
+                        "kind": "binary",
+                        "left": {
+                          "kind": "integer_literal",
+                          "spelling": "2",
+                          "value": "0x0000000000000002",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 76,
+                              "source_id": 0,
+                              "start": 155,
+                              "stop": 156
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-default-parameters.hc",
+                                "line": 2,
+                                "column": 76,
+                                "source_id": 0,
+                                "start": 155,
+                                "stop": 156
+                              }
+                            ]
+                          }
+                        },
+                        "operator": {
+                          "spelling": "*",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 77,
+                              "source_id": 0,
+                              "start": 156,
+                              "stop": 157
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-default-parameters.hc",
+                                "line": 2,
+                                "column": 77,
+                                "source_id": 0,
+                                "start": 156,
+                                "stop": 157
+                              }
+                            ]
+                          }
+                        },
+                        "precedence": "PREC_MUL",
+                        "precedence_value": 20,
+                        "association": "unspecified",
+                        "ic": "IC_MUL",
+                        "source_line": 292,
+                        "right": {
+                          "kind": "integer_literal",
+                          "spelling": "3",
+                          "value": "0x0000000000000003",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 78,
+                              "source_id": 0,
+                              "start": 157,
+                              "stop": 158
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-default-parameters.hc",
+                                "line": 2,
+                                "column": 78,
+                                "source_id": 0,
+                                "start": 157,
+                                "stop": 158
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 76,
+                            "source_id": 0,
+                            "start": 155,
+                            "stop": 158
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 76,
+                              "source_id": 0,
+                              "start": 155,
+                              "stop": 156
+                            },
+                            {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 77,
+                              "source_id": 0,
+                              "start": 156,
+                              "stop": 157
+                            },
+                            {
+                              "path": "cli/parse-default-parameters.hc",
+                              "line": 2,
+                              "column": 78,
+                              "source_id": 0,
+                              "start": 157,
+                              "stop": 158
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 74,
+                          "source_id": 0,
+                          "start": 153,
+                          "stop": 158
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 74,
+                            "source_id": 0,
+                            "start": 153,
+                            "stop": 154
+                          },
+                          {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 75,
+                            "source_id": 0,
+                            "start": 154,
+                            "stop": 155
+                          },
+                          {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 76,
+                            "source_id": 0,
+                            "start": 155,
+                            "stop": 156
+                          },
+                          {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 77,
+                            "source_id": 0,
+                            "start": 156,
+                            "stop": 157
+                          },
+                          {
+                            "path": "cli/parse-default-parameters.hc",
+                            "line": 2,
+                            "column": 78,
+                            "source_id": 0,
+                            "start": 157,
+                            "stop": 158
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 73,
+                        "source_id": 0,
+                        "start": 152,
+                        "stop": 158
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 73,
+                          "source_id": 0,
+                          "start": 152,
+                          "stop": 153
+                        },
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 74,
+                          "source_id": 0,
+                          "start": 153,
+                          "stop": 154
+                        },
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 75,
+                          "source_id": 0,
+                          "start": 154,
+                          "stop": 155
+                        },
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 76,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 156
+                        },
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 77,
+                          "source_id": 0,
+                          "start": 156,
+                          "stop": 157
+                        },
+                        {
+                          "path": "cli/parse-default-parameters.hc",
+                          "line": 2,
+                          "column": 78,
+                          "source_id": 0,
+                          "start": 157,
+                          "stop": 158
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-default-parameters.hc",
+                      "line": 2,
+                      "column": 64,
+                      "source_id": 0,
+                      "start": 143,
+                      "stop": 158
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 64,
+                        "source_id": 0,
+                        "start": 143,
+                        "stop": 146
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 68,
+                        "source_id": 0,
+                        "start": 147,
+                        "stop": 152
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 73,
+                        "source_id": 0,
+                        "start": 152,
+                        "stop": 153
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 74,
+                        "source_id": 0,
+                        "start": 153,
+                        "stop": 154
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 75,
+                        "source_id": 0,
+                        "start": 154,
+                        "stop": 155
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 76,
+                        "source_id": 0,
+                        "start": 155,
+                        "stop": 156
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 77,
+                        "source_id": 0,
+                        "start": 156,
+                        "stop": 157
+                      },
+                      {
+                        "path": "cli/parse-default-parameters.hc",
+                        "line": 2,
+                        "column": 78,
+                        "source_id": 0,
+                        "start": 157,
+                        "stop": 158
+                      }
+                    ]
+                  }
+                }
+              ],
+              "signature_closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 79,
+                  "source_id": 0,
+                  "start": 158,
+                  "stop": 159
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 79,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 159
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 52,
+                  "source_id": 0,
+                  "start": 131,
+                  "stop": 159
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 52,
+                    "source_id": 0,
+                    "start": 131,
+                    "stop": 132
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 53,
+                    "source_id": 0,
+                    "start": 132,
+                    "stop": 133
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 54,
+                    "source_id": 0,
+                    "start": 133,
+                    "stop": 141
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 141,
+                    "stop": 142
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 63,
+                    "source_id": 0,
+                    "start": 142,
+                    "stop": 143
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 64,
+                    "source_id": 0,
+                    "start": 143,
+                    "stop": 146
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 68,
+                    "source_id": 0,
+                    "start": 147,
+                    "stop": 152
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 73,
+                    "source_id": 0,
+                    "start": 152,
+                    "stop": 153
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 74,
+                    "source_id": 0,
+                    "start": 153,
+                    "stop": 154
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 75,
+                    "source_id": 0,
+                    "start": 154,
+                    "stop": 155
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 76,
+                    "source_id": 0,
+                    "start": 155,
+                    "stop": 156
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 77,
+                    "source_id": 0,
+                    "start": 156,
+                    "stop": 157
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 78,
+                    "source_id": 0,
+                    "start": 157,
+                    "stop": 158
+                  },
+                  {
+                    "path": "cli/parse-default-parameters.hc",
+                    "line": 2,
+                    "column": 79,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 159
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-default-parameters.hc",
+                "line": 2,
+                "column": 49,
+                "source_id": 0,
+                "start": 128,
+                "stop": 159
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 128,
+                  "stop": 130
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 52,
+                  "source_id": 0,
+                  "start": 131,
+                  "stop": 132
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 53,
+                  "source_id": 0,
+                  "start": 132,
+                  "stop": 133
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 54,
+                  "source_id": 0,
+                  "start": 133,
+                  "stop": 141
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 141,
+                  "stop": 142
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 63,
+                  "source_id": 0,
+                  "start": 142,
+                  "stop": 143
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 64,
+                  "source_id": 0,
+                  "start": 143,
+                  "stop": 146
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 68,
+                  "source_id": 0,
+                  "start": 147,
+                  "stop": 152
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 73,
+                  "source_id": 0,
+                  "start": 152,
+                  "stop": 153
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 74,
+                  "source_id": 0,
+                  "start": 153,
+                  "stop": 154
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 75,
+                  "source_id": 0,
+                  "start": 154,
+                  "stop": 155
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 76,
+                  "source_id": 0,
+                  "start": 155,
+                  "stop": 156
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 77,
+                  "source_id": 0,
+                  "start": 156,
+                  "stop": 157
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 78,
+                  "source_id": 0,
+                  "start": 157,
+                  "stop": 158
+                },
+                {
+                  "path": "cli/parse-default-parameters.hc",
+                  "line": 2,
+                  "column": 79,
+                  "source_id": 0,
+                  "start": 158,
+                  "stop": 159
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-default-parameters.hc",
+            "line": 2,
+            "column": 80,
+            "source_id": 0,
+            "start": 159,
+            "stop": 160
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 80,
+              "source_id": 0,
+              "start": 159,
+              "stop": 160
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-default-parameters.hc",
+            "line": 2,
+            "column": 81,
+            "source_id": 0,
+            "start": 160,
+            "stop": 161
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 81,
+              "source_id": 0,
+              "start": 160,
+              "stop": 161
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-default-parameters.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 80,
+            "stop": 161
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 80,
+              "stop": 86
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 87,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 12,
+              "source_id": 0,
+              "start": 91,
+              "stop": 99
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 20,
+              "source_id": 0,
+              "start": 99,
+              "stop": 100
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 21,
+              "source_id": 0,
+              "start": 100,
+              "stop": 103
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 25,
+              "source_id": 0,
+              "start": 104,
+              "stop": 109
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 30,
+              "source_id": 0,
+              "start": 109,
+              "stop": 110
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 31,
+              "source_id": 0,
+              "start": 110,
+              "stop": 111
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 32,
+              "source_id": 0,
+              "start": 111,
+              "stop": 112
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 33,
+              "source_id": 0,
+              "start": 112,
+              "stop": 113
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 34,
+              "source_id": 0,
+              "start": 113,
+              "stop": 114
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 35,
+              "source_id": 0,
+              "start": 114,
+              "stop": 115
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 36,
+              "source_id": 0,
+              "start": 115,
+              "stop": 118
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 40,
+              "source_id": 0,
+              "start": 119,
+              "stop": 127
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 48,
+              "source_id": 0,
+              "start": 127,
+              "stop": 128
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 49,
+              "source_id": 0,
+              "start": 128,
+              "stop": 130
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 52,
+              "source_id": 0,
+              "start": 131,
+              "stop": 132
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 53,
+              "source_id": 0,
+              "start": 132,
+              "stop": 133
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 54,
+              "source_id": 0,
+              "start": 133,
+              "stop": 141
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 62,
+              "source_id": 0,
+              "start": 141,
+              "stop": 142
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 63,
+              "source_id": 0,
+              "start": 142,
+              "stop": 143
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 64,
+              "source_id": 0,
+              "start": 143,
+              "stop": 146
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 68,
+              "source_id": 0,
+              "start": 147,
+              "stop": 152
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 73,
+              "source_id": 0,
+              "start": 152,
+              "stop": 153
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 74,
+              "source_id": 0,
+              "start": 153,
+              "stop": 154
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 75,
+              "source_id": 0,
+              "start": 154,
+              "stop": 155
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 76,
+              "source_id": 0,
+              "start": 155,
+              "stop": 156
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 77,
+              "source_id": 0,
+              "start": 156,
+              "stop": 157
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 78,
+              "source_id": 0,
+              "start": 157,
+              "stop": 158
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 79,
+              "source_id": 0,
+              "start": 158,
+              "stop": 159
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 80,
+              "source_id": 0,
+              "start": 159,
+              "stop": 160
+            },
+            {
+              "path": "cli/parse-default-parameters.hc",
+              "line": 2,
+              "column": 81,
+              "source_id": 0,
+              "start": 160,
+              "stop": 161
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

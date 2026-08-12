@@ -1,0 +1,3 @@
+cli/parse-array-error.hc:1:16: error[HCPARSE0022]: only the first array dimension may be empty
+    1 | I64 invalid[2][];
+      |                ^

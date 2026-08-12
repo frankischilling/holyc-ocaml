@@ -1,0 +1,13 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-while-statements.hc:1:1..2:1 items=1
+  top_level_statement span=cli/parse-while-statements.hc:1:1..1:10
+    while_statement span=cli/parse-while-statements.hc:1:1..1:10
+      keyword span=cli/parse-while-statements.hc:1:1..1:6
+      opening_parenthesis span=cli/parse-while-statements.hc:1:6..1:7
+      condition
+        expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-while-statements.hc:1:7..1:8
+      closing_parenthesis span=cli/parse-while-statements.hc:1:8..1:9
+      body
+        empty_statement span=cli/parse-while-statements.hc:1:9..1:10
+          semicolon span=cli/parse-while-statements.hc:1:9..1:10

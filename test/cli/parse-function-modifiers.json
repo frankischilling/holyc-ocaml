@@ -1,0 +1,375 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-function-modifiers.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 139
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "modifiers": [
+          {
+            "kind": "public",
+            "spelling": "public",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 74,
+                "stop": 80
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-modifiers.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 80
+                }
+              ]
+            }
+          },
+          {
+            "kind": "interrupt",
+            "spelling": "interrupt",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 81,
+                "stop": 90
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-modifiers.hc",
+                  "line": 2,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 81,
+                  "stop": 90
+                }
+              ]
+            }
+          },
+          {
+            "kind": "haserrcode",
+            "spelling": "haserrcode",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 18,
+                "source_id": 0,
+                "start": 91,
+                "stop": 101
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-modifiers.hc",
+                  "line": 2,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 101
+                }
+              ]
+            }
+          },
+          {
+            "kind": "argpop",
+            "spelling": "argpop",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 29,
+                "source_id": 0,
+                "start": 102,
+                "stop": 108
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-modifiers.hc",
+                  "line": 2,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 108
+                }
+              ]
+            }
+          },
+          {
+            "kind": "noargpop",
+            "spelling": "noargpop",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 36,
+                "source_id": 0,
+                "start": 109,
+                "stop": 117
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-modifiers.hc",
+                  "line": 2,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 109,
+                  "stop": 117
+                }
+              ]
+            }
+          }
+        ],
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 45,
+              "source_id": 0,
+              "start": 118,
+              "stop": 124
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 45,
+                "source_id": 0,
+                "start": 118,
+                "stop": 124
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 52,
+              "source_id": 0,
+              "start": 125,
+              "stop": 127
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 52,
+                "source_id": 0,
+                "start": 125,
+                "stop": 127
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Handler",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 55,
+              "source_id": 0,
+              "start": 128,
+              "stop": 135
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-modifiers.hc",
+                "line": 2,
+                "column": 55,
+                "source_id": 0,
+                "start": 128,
+                "stop": 135
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-modifiers.hc",
+            "line": 2,
+            "column": 62,
+            "source_id": 0,
+            "start": 135,
+            "stop": 136
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 62,
+              "source_id": 0,
+              "start": 135,
+              "stop": 136
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-modifiers.hc",
+            "line": 2,
+            "column": 63,
+            "source_id": 0,
+            "start": 136,
+            "stop": 137
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 63,
+              "source_id": 0,
+              "start": 136,
+              "stop": 137
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-function-modifiers.hc",
+            "line": 2,
+            "column": 64,
+            "source_id": 0,
+            "start": 137,
+            "stop": 138
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 64,
+              "source_id": 0,
+              "start": 137,
+              "stop": 138
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-function-modifiers.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 74,
+            "stop": 138
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 74,
+              "stop": 80
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 81,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 91,
+              "stop": 101
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 29,
+              "source_id": 0,
+              "start": 102,
+              "stop": 108
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 36,
+              "source_id": 0,
+              "start": 109,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 45,
+              "source_id": 0,
+              "start": 118,
+              "stop": 124
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 52,
+              "source_id": 0,
+              "start": 125,
+              "stop": 127
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 55,
+              "source_id": 0,
+              "start": 128,
+              "stop": 135
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 62,
+              "source_id": 0,
+              "start": 135,
+              "stop": 136
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 63,
+              "source_id": 0,
+              "start": 136,
+              "stop": 137
+            },
+            {
+              "path": "cli/parse-function-modifiers.hc",
+              "line": 2,
+              "column": 64,
+              "source_id": 0,
+              "start": 137,
+              "stop": 138
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

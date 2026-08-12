@@ -179,6 +179,8 @@ let current_diagnostic_context stream =
     definition_trace = Lexer_frame.definition_trace stream.current;
   }
 
+let diagnostic_context stream = current_diagnostic_context stream
+
 let same_related (left : Common.Diagnostic.related)
     (right : Common.Diagnostic.related) =
   Common.Span.compare left.span right.span = 0

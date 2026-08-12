@@ -1,0 +1,18 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-return-statements.hc:1:1..3:1 items=2
+  top_level_statement span=cli/parse-return-statements.hc:1:1..1:8
+    return_statement span=cli/parse-return-statements.hc:1:1..1:8 value=false semicolon=true
+      keyword span=cli/parse-return-statements.hc:1:1..1:7
+      semicolon span=cli/parse-return-statements.hc:1:7..1:8
+  top_level_statement span=cli/parse-return-statements.hc:2:1..2:12
+    return_statement span=cli/parse-return-statements.hc:2:1..2:12 value=true semicolon=true
+      keyword span=cli/parse-return-statements.hc:2:1..2:7
+      value
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-return-statements.hc:2:8..2:11
+          left
+            expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-return-statements.hc:2:8..2:9
+          operator spelling="+" span=cli/parse-return-statements.hc:2:9..2:10
+          right
+            expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-return-statements.hc:2:10..2:11
+      semicolon span=cli/parse-return-statements.hc:2:11..2:12

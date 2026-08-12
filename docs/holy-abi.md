@@ -19,7 +19,19 @@ These notes describe the ABI facts audited so far from TempleOS commit `c26482bb
 
 `Compiler/CompilerA.HH` defines a separate parser mask. Its low bits represent `public`, assembly state, `static`, and the underscore-name form. Only `FSF_INTERRUPT`, `FSF_HASERRCODE`, `FSF_ARGPOP`, and `FSF_NOARGPOP` are copied into `CHashFun.flags` through `FSG_FUN_FLAGS1`. `public` updates the hash entry's type flags instead. Assembly, `static`, and underscore-name state remain parser concerns.
 
-`PrsStmt` preserves existing function flags, public state, and assembly state while reading `interrupt`, `haserrcode`, `argpop`, `noargpop`, or `public`. Reading `interrupt` also sets `FSF_NOARGPOP`. Reading `static` clears other staged declaration flags and retains only assembly state. The generated `Function_flag.apply_modifier` function reproduces these assignments for later parser work.
+`PrsStmt` preserves existing function flags, public state, and assembly state while reading `interrupt`, `haserrcode`, `argpop`, `noargpop`, or `public`. Reading `interrupt` also sets `FSF_NOARGPOP`. Reading `static` clears other staged declaration flags and retains only assembly state. The generated `Function_flag.apply_modifier` function reproduces these assignments. Bound prototype AST nodes now retain the modifier tokens in order, and parser tests fold them through this function. No stored flag or ABI effect is applied yet.
+
+## Parameter register requests
+
+`Compiler/PrsVar.HC:PrsVarLst` accepts `reg` and `noreg` before a function parameter type or immediately after it. `reg` sets the working member value to `REG_ALLOC`; `noreg` sets it to `REG_NONE`. Repeated qualifiers overwrite that working value in source order. A following identifier is an explicit register only when it belongs to `Compiler/CInit.HC:ST_U64_REGS`, whose pinned value is `RAX`, `RCX`, `RDX`, `RBX`, `RSP`, `RBP`, `RSI`, `RDI`, and `R8` through `R15`. The parser keeps all qualifiers and any explicit register as syntax nodes. It does not assign a physical register.
+
+The accepted name set is not the complete assembler register set. For example, `EAX` and `R8u64` do not match `ST_U64_REGS`, so `reg EAX` or `reg R8u64` leaves that identifier available as the parameter name. A terminal variadic marker may also carry a preceding request because `PrsVarLst` passes `_reg` to `PrsDotDotDot`. `OPTf_NO_REG_VAR` affects later register-variable optimization and does not disable this syntax. Semantic validation, register availability, conflicts, spill behavior, and ABI placement remain to be audited before requested registers can affect code generation.
+
+## Function-pointer parameters
+
+`Compiler/PrsVar.HC:PrsType` parses a parenthesized function-pointer declarator and calls `PrsFunJoin` with a null name for its signature metadata. One through four stars inside the declarator determine the function-pointer type, while any stars between the primitive type and the declarator belong to the callback return type. `PrsVarLst` stores the returned function metadata in `CMemberLst.fun_ptr` and sets `MLF_FUN`. The parser keeps these parts separate in a recursive AST and accepts empty, fixed, variadic, and nested callback signatures.
+
+This is syntax and metadata capture, not ABI implementation. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
 
 ## Argument cleanup
 
@@ -39,4 +51,4 @@ The final TempleOS backend saves the clobbered register set on interrupt entry a
 
 ## Work still requiring source audit
 
-Argument order, the complete saved-register contract, floating returns, frame layout, register-variable interactions, indirect-call details, exception unwinding, and hosted ABI bridging are not yet specified here. Those findings require the remaining backend and runtime audit before implementation. Until executable tests cover them, this document should be read as a checked function-flag specification, not a complete HolyC ABI description.
+Argument order, the complete saved-register contract, floating returns, frame layout, register-variable allocation, indirect-call details, exception unwinding, and hosted ABI bridging are not yet specified here. Those findings require the remaining backend and runtime audit before implementation. Until executable tests cover them, this document should be read as a checked function-flag and parameter-request specification, not a complete HolyC ABI description.

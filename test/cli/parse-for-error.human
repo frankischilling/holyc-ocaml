@@ -1,0 +1,1 @@
+cli/parse-for-error.hc:3:1: error[HCPARSE0071]: expected a statement after the for header, but found end of input

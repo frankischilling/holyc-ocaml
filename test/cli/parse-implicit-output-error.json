@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0043",
+    "severity": "error",
+    "message": "empty string output marker must be followed by a format expression",
+    "primary": {
+      "path": "cli/parse-implicit-output-error.hc",
+      "line": 1,
+      "column": 3,
+      "source_id": 0,
+      "start": 2,
+      "stop": 3
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

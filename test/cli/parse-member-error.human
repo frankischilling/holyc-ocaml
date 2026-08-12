@@ -1,0 +1,3 @@
+cli/parse-member-error.hc:1:17: error[HCPARSE0027]: expected a member name after "." in _intern target expression, but found "1"
+    1 | _intern object. 1 I64 Broken();
+      |                 ^

@@ -1,0 +1,38 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-lock-statements.hc:1:1..7:1 items=4
+  global_variable span=cli/parse-lock-statements.hc:1:1..1:11
+    type primitive=I64 spelling="I64" span=cli/parse-lock-statements.hc:1:1..1:4
+    name spelling="value" span=cli/parse-lock-statements.hc:1:5..1:10
+    semicolon span=cli/parse-lock-statements.hc:1:10..1:11
+  top_level_statement span=cli/parse-lock-statements.hc:2:1..4:2
+    lock_statement span=cli/parse-lock-statements.hc:2:1..4:2
+      keyword span=cli/parse-lock-statements.hc:2:1..2:5
+      body
+        block_statement span=cli/parse-lock-statements.hc:2:6..4:2 statements=1
+          opening_brace span=cli/parse-lock-statements.hc:2:6..2:7
+          statement index=0
+            expression_statement span=cli/parse-lock-statements.hc:3:3..3:11 semicolon=true
+              expression kind=postfix operator_kind=post_increment span=cli/parse-lock-statements.hc:3:3..3:10
+                expression kind=identifier spelling="value" span=cli/parse-lock-statements.hc:3:3..3:8
+                operator spelling="++" span=cli/parse-lock-statements.hc:3:8..3:10
+              semicolon span=cli/parse-lock-statements.hc:3:10..3:11
+          closing_brace span=cli/parse-lock-statements.hc:4:1..4:2
+  top_level_statement span=cli/parse-lock-statements.hc:5:1..5:14
+    lock_statement span=cli/parse-lock-statements.hc:5:1..5:14
+      keyword span=cli/parse-lock-statements.hc:5:1..5:5
+      body
+        expression_statement span=cli/parse-lock-statements.hc:5:6..5:14 semicolon=true
+          expression kind=postfix operator_kind=post_decrement span=cli/parse-lock-statements.hc:5:6..5:13
+            expression kind=identifier spelling="value" span=cli/parse-lock-statements.hc:5:6..5:11
+            operator spelling="--" span=cli/parse-lock-statements.hc:5:11..5:13
+          semicolon span=cli/parse-lock-statements.hc:5:13..5:14
+  top_level_statement span=cli/parse-lock-statements.hc:6:1..6:11
+    lock_statement span=cli/parse-lock-statements.hc:6:1..6:11
+      keyword span=cli/parse-lock-statements.hc:6:1..6:5
+      body
+        lock_statement span=cli/parse-lock-statements.hc:6:6..6:11
+          keyword span=cli/parse-lock-statements.hc:6:6..6:10
+          body
+            empty_statement span=cli/parse-lock-statements.hc:6:10..6:11
+              semicolon span=cli/parse-lock-statements.hc:6:10..6:11
