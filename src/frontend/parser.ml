@@ -28,6 +28,7 @@ type parsed_declarator_prefix = {
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
 type parsed_statement = { node : Ast.statement; tokens : Token.t list }
+type statement_boundary = Top_level_boundary | Block_boundary
 
 type parsed_array_dimension = {
   node : Ast.array_dimension;
@@ -82,6 +83,7 @@ type binding_parse =
 let max_pointer_depth = 4
 let max_function_pointer_depth = 32
 let max_expression_depth = 256
+let max_block_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -252,6 +254,33 @@ let rec recover_declaration cursor =
   | _ ->
       ignore (take cursor);
       recover_declaration cursor
+
+let rec recover_statement cursor ~boundary =
+  let item = peek cursor in
+  match item.token.Token.kind with
+  | Token_kind.Eof -> ()
+  | Token_kind.Punctuation '}' when boundary = Block_boundary -> ()
+  | Token_kind.Punctuation ';' -> ignore (take cursor)
+  | _ ->
+      ignore (take cursor);
+      recover_statement cursor ~boundary
+
+let recover_compound_statement cursor =
+  let rec skip depth =
+    let item = peek cursor in
+    match item.token.Token.kind with
+    | Token_kind.Eof -> ()
+    | Token_kind.Punctuation '{' ->
+        ignore (take cursor);
+        skip (depth + 1)
+    | Token_kind.Punctuation '}' ->
+        ignore (take cursor);
+        if depth > 1 then skip (depth - 1)
+    | _ ->
+        ignore (take cursor);
+        skip depth
+  in
+  skip 0
 
 let rec parse_pointer_layers cursor depth layers_rev items_rev =
   let item = peek cursor in
@@ -2043,7 +2072,7 @@ let parse_global cursor =
           recover_declaration cursor;
           None)
 
-let parse_implicit_output_statement cursor : parsed_statement option =
+let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let marker_item = peek cursor in
   let target, marker_value, empty_marker =
     match (marker_item.token.Token.kind, marker_item.token.value) with
@@ -2092,7 +2121,7 @@ let parse_implicit_output_statement cursor : parsed_statement option =
   in
   match fixed_argument with
   | None ->
-      recover_declaration cursor;
+      recover_statement cursor ~boundary;
       None
   | Some (fixed_argument, fixed_tokens) -> (
       let rec parse_print_arguments arguments_rev tokens_rev =
@@ -2138,7 +2167,7 @@ let parse_implicit_output_statement cursor : parsed_statement option =
       in
       match parsed_arguments with
       | None ->
-          recover_declaration cursor;
+          recover_statement cursor ~boundary;
           None
       | Some (arguments, argument_tokens) -> (
           let terminator_item = peek cursor in
@@ -2164,7 +2193,7 @@ let parse_implicit_output_statement cursor : parsed_statement option =
           in
           match terminator with
           | None ->
-              recover_declaration cursor;
+              recover_statement cursor ~boundary;
               None
           | Some (semicolon, terminator_tokens) ->
               let tokens = fixed_tokens @ argument_tokens @ terminator_tokens in
@@ -2240,7 +2269,7 @@ let parse_empty_statement cursor : parsed_statement =
     tokens = [ semicolon_item.token ];
   }
 
-let parse_expression_statement cursor : parsed_statement option =
+let parse_expression_statement cursor ~boundary : parsed_statement option =
   match
     parse_expression cursor ~context:Statement_expression ~depth:0
       ~minimum_binding_power:0
@@ -2267,7 +2296,7 @@ let parse_expression_statement cursor : parsed_statement option =
       in
       match terminator with
       | None ->
-          recover_declaration cursor;
+          recover_statement cursor ~boundary;
           None
       | Some (semicolon, terminator_tokens) ->
           let tokens = expression.tokens @ terminator_tokens in
@@ -2277,36 +2306,108 @@ let parse_expression_statement cursor : parsed_statement option =
           in
           Some { node = Ast.Expression_statement statement; tokens })
 
-let parse_statement_atom cursor : parsed_statement option =
+let rec parse_statement_atom cursor ~boundary ~block_depth :
+    parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | Token_kind.Punctuation '{' -> parse_block_statement cursor ~block_depth
   | Token_kind.String | Token_kind.Character ->
-      parse_implicit_output_statement cursor
+      parse_implicit_output_statement cursor ~boundary
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
   | _ when token_starts_statement_expression cursor item.token ->
-      parse_expression_statement cursor
+      parse_expression_statement cursor ~boundary
   | _ ->
-      let message =
+      let code, message =
         match item.token.kind with
+        | Token_kind.Punctuation '}' when boundary = Top_level_boundary ->
+            ("HCPARSE0050", "found '}' without a matching '{'")
+        | Token_kind.Punctuation '}' ->
+            ( "HCPARSE0048",
+              "expected another statement after ',', but found '}'" )
         | Token_kind.Identifier
           when not
                  (statement_symbol_is_expression cursor (token_text item.token))
           ->
-            Printf.sprintf
-              "label or declaration syntax for unresolved identifier %S after \
-               a statement comma is not implemented"
-              (token_text item.token)
+            ( "HCPARSE0048",
+              Printf.sprintf
+                "label or declaration syntax for unresolved identifier %S \
+                 after a statement comma is not implemented"
+                (token_text item.token) )
         | _ when token_starts_global_declaration cursor item.token ->
-            "a declaration after a statement comma is not implemented"
+            ( "HCPARSE0048",
+              "a declaration after a statement comma is not implemented" )
         | _ ->
-            Printf.sprintf "statement form beginning with %s is not implemented"
-              (token_description item.token)
+            ( "HCPARSE0048",
+              Printf.sprintf
+                "statement form beginning with %s is not implemented"
+                (token_description item.token) )
       in
-      report cursor item ~code:"HCPARSE0048" ~message;
-      recover_declaration cursor;
+      report cursor item ~code ~message;
+      recover_statement cursor ~boundary;
       None
 
-let parse_statement_sequence cursor : parsed_statement option =
+and parse_block_statement cursor ~block_depth : parsed_statement option =
+  let opening_item = peek cursor in
+  if block_depth >= max_block_depth then (
+    report cursor opening_item ~code:"HCPARSE0051"
+      ~message:
+        (Printf.sprintf
+           "compound-statement nesting exceeds the hosted limit of %d"
+           max_block_depth);
+    recover_compound_statement cursor;
+    None)
+  else
+    let opening_item = take cursor in
+    let rec collect statements_rev tokens_rev had_error :
+        parsed_statement option =
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Punctuation '}' ->
+          let closing_item = take cursor in
+          if had_error then None
+          else
+            let statements = List.rev statements_rev in
+            let tokens =
+              (opening_item.token :: List.rev tokens_rev)
+              @ [ closing_item.token ]
+            in
+            let statement =
+              Ast.make_block_statement
+                ~opening_brace:(token_location opening_item.token)
+                ~statements
+                ~closing_brace:(token_location closing_item.token)
+                ~location:(location_from_expression_tokens tokens)
+            in
+            Some { node = Ast.Block_statement statement; tokens }
+      | Token_kind.Eof ->
+          let secondary =
+            [
+              ({
+                 Common.Diagnostic.span = opening_item.token.span;
+                 message = "block starts here";
+               }
+                : Common.Diagnostic.related);
+            ]
+          in
+          report ~secondary cursor item ~code:"HCPARSE0049"
+            ~message:"expected '}' to close the compound statement";
+          None
+      | _ -> (
+          match
+            parse_statement_sequence cursor ~boundary:Block_boundary
+              ~block_depth:(block_depth + 1)
+          with
+          | Some statement ->
+              collect
+                (statement.node :: statements_rev)
+                (List.rev_append statement.tokens tokens_rev)
+                had_error
+          | None -> collect statements_rev tokens_rev true)
+    in
+    collect [] [] false
+
+and parse_statement_sequence cursor ~boundary ~block_depth :
+    parsed_statement option =
   let leading_items = take_statement_commas cursor [] in
   let leading_commas =
     List.map (fun item -> token_location item.token) leading_items
@@ -2317,7 +2418,7 @@ let parse_statement_sequence cursor : parsed_statement option =
     if item.token.kind = Token_kind.Eof then
       Some (List.rev elements_rev, List.rev tokens_rev)
     else
-      match parse_statement_atom cursor with
+      match parse_statement_atom cursor ~boundary ~block_depth with
       | None -> None
       | Some (statement : parsed_statement) ->
           let comma_items = take_statement_commas cursor [] in
@@ -2397,7 +2498,10 @@ let parse ~sources ~definitions ~symbols ~config source =
         | Some item -> items_rev := item :: !items_rev
         | None -> ())
     | _ -> (
-        match parse_statement_sequence cursor with
+        match
+          parse_statement_sequence cursor ~boundary:Top_level_boundary
+            ~block_depth:0
+        with
         | Some statement ->
             items_rev := Ast.Top_level_statement statement.node :: !items_rev
         | None -> ())
