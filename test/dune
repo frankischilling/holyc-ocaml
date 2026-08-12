@@ -1603,3 +1603,75 @@
        --format=json
        cli/parse-defined-error.hc))))
    (diff cli/parse-defined-error.json parse-defined-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lastclass-default.human.actual)
+ (deps cli/parse-lastclass-default.hc cli/parse-lastclass-default.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-default.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-lastclass-default.hc))
+   (diff
+    cli/parse-lastclass-default.human
+    parse-lastclass-default.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lastclass-default.json.actual)
+ (deps cli/parse-lastclass-default.hc cli/parse-lastclass-default.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-default.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-lastclass-default.hc))
+   (diff
+    cli/parse-lastclass-default.json
+    parse-lastclass-default.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-lastclass-error.human.actual
+  parse-lastclass-error.human.stdout.actual)
+ (deps cli/parse-lastclass-error.hc cli/parse-lastclass-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-error.human.stdout.actual
+    (with-stderr-to
+     parse-lastclass-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-lastclass-error.hc))))
+   (diff
+    cli/parse-lastclass-error.human
+    parse-lastclass-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-lastclass-error.json.actual
+  parse-lastclass-error.json.stdout.actual)
+ (deps cli/parse-lastclass-error.hc cli/parse-lastclass-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lastclass-error.json.stdout.actual
+    (with-stderr-to
+     parse-lastclass-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-lastclass-error.hc))))
+   (diff
+    cli/parse-lastclass-error.json
+    parse-lastclass-error.json.actual))))

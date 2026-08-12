@@ -469,7 +469,13 @@ let print_parameter_default buffer sources ~indent
     (location_text sources default.location);
   Printf.bprintf buffer "%sequals span=%s\n" child_indent
     (location_text sources default.equals);
-  print_expression buffer sources ~indent:child_indent default.value
+  match default.value with
+  | Ast.Expression_default expression ->
+      print_expression buffer sources ~indent:child_indent expression
+  | Ast.Lastclass_default lastclass ->
+      Printf.bprintf buffer "%slastclass spelling=%S span=%s\n" child_indent
+        lastclass.lastclass_spelling
+        (location_text sources lastclass.lastclass_location)
 
 let rec print_function_parameter buffer sources ~indent index
     (parameter : Ast.function_parameter) =
@@ -1084,10 +1090,22 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
       ])
 
 let parameter_default_to_yojson sources (default : Ast.parameter_default) =
+  let value =
+    match default.value with
+    | Ast.Expression_default expression ->
+        expression_to_yojson sources expression
+    | Ast.Lastclass_default lastclass ->
+        `Assoc
+          [
+            ("kind", `String "lastclass_default");
+            ("spelling", `String lastclass.lastclass_spelling);
+            ("location", location_to_yojson sources lastclass.lastclass_location);
+          ]
+  in
   `Assoc
     [
       ("equals", location_to_yojson sources default.equals);
-      ("value", expression_to_yojson sources default.value);
+      ("value", value);
       ("location", location_to_yojson sources default.location);
     ]
 

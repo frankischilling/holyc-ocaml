@@ -1,0 +1,3 @@
+cli/parse-lastclass-error.hc:1:52: error[HCPARSE0010]: expected ',' or ')' after function parameter, but found "+"
+    1 | extern U0 Broken(U8 *value,U8 *class_name=lastclass+1);
+      |                                                    ^

@@ -108,6 +108,17 @@ let expect_parameter_default (parameter : Ast.function_parameter) =
   | Some default -> default
   | None -> Alcotest.fail "expected a parameter default"
 
+let expect_default_expression (default : Ast.parameter_default) =
+  match default.value with
+  | Ast.Expression_default expression -> expression
+  | Ast.Lastclass_default _ ->
+      Alcotest.fail "expected an ordinary default expression"
+
+let expect_lastclass_default (default : Ast.parameter_default) =
+  match default.value with
+  | Ast.Lastclass_default lastclass -> lastclass
+  | Ast.Expression_default _ -> Alcotest.fail "expected a lastclass default"
+
 let expect_symbol_binding_target (binding : Ast.declaration_binding) =
   match binding.target with
   | Ast.Symbol_binding_target target -> target
@@ -2025,7 +2036,7 @@ let call_expression_contexts_and_modes () =
   let default_call =
     expect_ast default_output |> expect_one_prototype |> fun prototype ->
     List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-    expect_call_expression default.value
+    expect_call_expression (expect_default_expression default)
   in
   Alcotest.(check int)
     "default-expression call has no arguments" 0
@@ -2337,7 +2348,7 @@ let index_expression_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_index_expression default.value );
+      expect_index_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[sizes[0]];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -2652,7 +2663,7 @@ let member_expression_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_member_expression default.value );
+      expect_member_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[context->count];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -2975,7 +2986,7 @@ let postfix_update_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_postfix_expression default.value );
+      expect_postfix_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[count--];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -3323,7 +3334,7 @@ let postfix_cast_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_postfix_cast_expression default.value );
+      expect_postfix_cast_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[count(I64)];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -3709,7 +3720,7 @@ let sizeof_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_sizeof_expression default.value );
+      expect_sizeof_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[sizeof(I64)];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -4121,7 +4132,7 @@ let offset_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_offset_expression default.value );
+      expect_offset_expression (expect_default_expression default) );
   let _, _, dimension_output =
     parse_string "I64 values[offset(Packet.field)];"
   in
@@ -4535,7 +4546,7 @@ let defined_contexts_and_modes () =
   ignore
     ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
       List.hd prototype.parameters |> expect_parameter_default |> fun default ->
-      expect_defined_expression default.value );
+      expect_defined_expression (expect_default_expression default) );
   let _, _, dimension_output = parse_string "I64 values[defined(Name)];" in
   ignore
     ( expect_ast dimension_output |> expect_one_global |> fun variable ->
@@ -5400,7 +5411,7 @@ let default_expression_atoms () =
     |> List.filter_map (fun (parameter : Ast.function_parameter) ->
         parameter.default)
   in
-  (match (List.nth defaults 0).value with
+  (match expect_default_expression (List.nth defaults 0) with
   | Ast.Integer_literal literal ->
       Alcotest.(check string) "integer spelling" "0" literal.literal_spelling;
       Alcotest.(check int64)
@@ -5409,7 +5420,7 @@ let default_expression_atoms () =
         | Ast.Integer_value value -> value
         | _ -> Alcotest.fail "integer literal has the wrong value kind")
   | _ -> Alcotest.fail "expected an integer default");
-  (match (List.nth defaults 1).value with
+  (match expect_default_expression (List.nth defaults 1) with
   | Ast.Float_literal literal ->
       Alcotest.(check (float 0.))
         "floating value" 1.5
@@ -5417,7 +5428,7 @@ let default_expression_atoms () =
         | Ast.Float_value value -> value
         | _ -> Alcotest.fail "floating literal has the wrong value kind")
   | _ -> Alcotest.fail "expected a floating default");
-  (match (List.nth defaults 2).value with
+  (match expect_default_expression (List.nth defaults 2) with
   | Ast.Character_literal literal ->
       Alcotest.(check int64)
         "multi-character value" 0x4241L
@@ -5425,7 +5436,7 @@ let default_expression_atoms () =
         | Ast.Integer_value value -> value
         | _ -> Alcotest.fail "character literal has the wrong value kind")
   | _ -> Alcotest.fail "expected a character default");
-  (match (List.nth defaults 3).value with
+  (match expect_default_expression (List.nth defaults 3) with
   | Ast.String_literal literal ->
       Alcotest.(check string)
         "decoded string bytes" "ok\n"
@@ -5433,11 +5444,11 @@ let default_expression_atoms () =
         | Ast.Bytes_value value -> value
         | _ -> Alcotest.fail "string literal has the wrong value kind")
   | _ -> Alcotest.fail "expected a string default");
-  (match (List.nth defaults 4).value with
+  (match expect_default_expression (List.nth defaults 4) with
   | Ast.Identifier_expression identifier ->
       Alcotest.(check string) "identifier spelling" "NULL" identifier.spelling
   | _ -> Alcotest.fail "expected an identifier default");
-  (match (List.nth defaults 5).value with
+  (match expect_default_expression (List.nth defaults 5) with
   | Ast.Current_position_expression operator ->
       Alcotest.(check string)
         "current-position spelling" "$$" operator.operator_spelling
@@ -5482,7 +5493,9 @@ let default_expression_prefixes () =
         expect_ast output |> expect_one_prototype |> fun prototype ->
         List.hd prototype.parameters |> expect_parameter_default
       in
-      let prefix = expect_prefix_expression default.value in
+      let prefix =
+        expect_prefix_expression (expect_default_expression default)
+      in
       Alcotest.(check bool)
         (spelling ^ " prefix kind")
         true
@@ -5503,7 +5516,8 @@ let default_expression_binary_registry () =
       let binary =
         expect_ast output |> expect_one_prototype |> fun prototype ->
         List.hd prototype.parameters |> expect_parameter_default
-        |> fun default -> expect_binary_expression default.value
+        |> fun default ->
+        expect_binary_expression (expect_default_expression default)
       in
       Alcotest.(check string)
         (operator.spelling ^ " spelling")
@@ -5531,7 +5545,8 @@ let default_expression_precedence () =
           let root =
             expect_ast output |> expect_one_prototype |> fun prototype ->
             List.hd prototype.parameters |> expect_parameter_default
-            |> fun default -> expect_binary_expression default.value
+            |> fun default ->
+            expect_binary_expression (expect_default_expression default)
           in
           Alcotest.(check string)
             "weaker operator is the root" weaker.Operator.spelling
@@ -5573,7 +5588,8 @@ let default_expression_associativity () =
       let root =
         expect_ast output |> expect_one_prototype |> fun prototype ->
         List.hd prototype.parameters |> expect_parameter_default
-        |> fun default -> expect_binary_expression default.value
+        |> fun default ->
+        expect_binary_expression (expect_default_expression default)
       in
       match operator.association with
       | Operator.Right -> ignore (expect_binary_expression root.binary_right)
@@ -5587,7 +5603,8 @@ let default_expression_grouping_and_power () =
   let prototype = expect_ast output |> expect_one_prototype in
   let grouped =
     List.nth prototype.parameters 0 |> expect_parameter_default
-    |> fun default -> expect_binary_expression default.value
+    |> fun default ->
+    expect_binary_expression (expect_default_expression default)
   in
   Alcotest.(check string)
     "multiplication remains outside explicit grouping" "*"
@@ -5598,7 +5615,8 @@ let default_expression_grouping_and_power () =
   | _ -> Alcotest.fail "expected explicit grouping on the left");
   let power =
     List.nth prototype.parameters 1 |> expect_parameter_default
-    |> fun default -> expect_prefix_expression default.value
+    |> fun default ->
+    expect_prefix_expression (expect_default_expression default)
   in
   Alcotest.(check bool)
     "unary minus wraps exponentiation" true
@@ -5622,7 +5640,9 @@ let default_expression_nested_and_provenance () =
   let outer_default =
     List.hd prototype.parameters |> expect_parameter_default
   in
-  let outer_binary = expect_binary_expression outer_default.value in
+  let outer_binary =
+    expect_binary_expression (expect_default_expression outer_default)
+  in
   List.iter
     (fun ((description, location) : string * Ast.location) ->
       Alcotest.(check bool)
@@ -5677,13 +5697,251 @@ let included_default_expression () =
       in
       let expression_source =
         Source_manager.find (Session.sources session)
-          (Ast.expression_location default.value).span.source
+          (Ast.expression_location (expect_default_expression default)).span
+            .source
         |> Option.get
       in
       Alcotest.(check string)
         "default keeps its included source path"
         (Unix.realpath declaration_file)
         (Source_file.path expression_source))
+
+let lastclass_default_source_behavior () =
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "lastclass keyword number is pinned" true
+    (contains compiler_header "#define KW_LASTCLASS\t37");
+  let variable_parser =
+    pinned "Compiler/PrsVar.HC" |> String.split_on_char '\r' |> String.concat ""
+  in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ( "lastclass is checked before expression compilation",
+        "if (PrsKeyWord(cc)==KW_LASTCLASS)" );
+      ("lastclass marks the member", "tmpm->flags|=MLF_LASTCLASS;");
+      ( "lastclass consumes one token",
+        "tmpm->flags|=MLF_LASTCLASS;\n\t      Lex(cc);" );
+      ("the default remains available", "tmpm->flags|=MLF_DFT_AVAILABLE;");
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  Alcotest.(check bool)
+    "lastclass has a separate member flag" true
+    (contains kernel_header "#define MLF_LASTCLASS\t\t2");
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "call parsing substitutes the prior explicit class" true
+    (contains expression_parser
+       "dft_val=(last_class-last_class->ptr_stars_cnt)->str;");
+  let language_notes = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language notes call lastclass a default argument" true
+    (contains language_notes "lastclass$FG$ you use as a dft arg");
+  let example = pinned "Demo/LastClass.HC" in
+  Alcotest.(check bool)
+    "pinned example uses the default" true
+    (contains example "U8 *class_name=lastclass")
+
+let lastclass_default_shapes () =
+  let source =
+    "extern U0 Mixed(I64 first=1,U8 *object,U8 *class_name=lastclass,\n\
+     I64 after=2,I64 plain);"
+  in
+  let session, _, output = parse_string source in
+  let prototype = expect_ast output |> expect_one_prototype in
+  Alcotest.(check (list bool))
+    "lastclass does not force trailing defaults"
+    [ true; false; true; true; false ]
+    (List.map
+       (fun (parameter : Ast.function_parameter) ->
+         Option.is_some parameter.default)
+       prototype.parameters);
+  let first_default =
+    List.nth prototype.parameters 0 |> expect_parameter_default
+  in
+  Alcotest.(check int64)
+    "ordinary defaults retain their expression value" 1L
+    (expect_default_expression first_default |> expect_integer_expression);
+  let default = List.nth prototype.parameters 2 |> expect_parameter_default in
+  let lastclass = expect_lastclass_default default in
+  Alcotest.(check string)
+    "keyword spelling" "lastclass" lastclass.lastclass_spelling;
+  Alcotest.(check int)
+    "default begins at equals" default.equals.span.start
+    default.location.span.start;
+  Alcotest.(check int)
+    "default ends after keyword" lastclass.lastclass_location.span.stop
+    default.location.span.stop;
+  let open Yojson.Safe.Util in
+  let value_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list
+    |> fun parameters ->
+    List.nth parameters 2 |> member "default" |> member "value"
+  in
+  Alcotest.(check string)
+    "JSON uses a distinct value kind" "lastclass_default"
+    (value_json |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON retains keyword spelling" "lastclass"
+    (value_json |> member "spelling" |> to_string)
+
+let lastclass_function_pointer_and_modes () =
+  let nested_source =
+    "extern U0 Register(I64 (*callback)(U8 *object,\n\
+     U8 *class_name=lastclass));"
+  in
+  let _, _, nested_output = parse_string nested_source in
+  let callback =
+    expect_ast nested_output |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.parameters |> expect_function_pointer
+  in
+  let nested_default =
+    List.nth callback.signature_parameters 1 |> expect_parameter_default
+  in
+  Alcotest.(check string)
+    "nested function pointer keeps lastclass" "lastclass"
+    (expect_lastclass_default nested_default).lastclass_spelling;
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "extern U0 Mode(U8 *value,U8 *class_name=lastclass);"
+      in
+      let lastclass =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.nth prototype.parameters 1
+        |> expect_parameter_default |> expect_lastclass_default
+      in
+      Alcotest.(check string)
+        "mode preserves keyword spelling" "lastclass"
+        lastclass.lastclass_spelling)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let lastclass_default_provenance () =
+  let source =
+    "#define LAST_CLASS lastclass\n\
+     extern U0 Generated(U8 *value,U8 *class_name=LAST_CLASS);"
+  in
+  let session, root, output = parse_string source in
+  let default =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    List.nth prototype.parameters 1 |> expect_parameter_default
+  in
+  let lastclass = expect_lastclass_default default in
+  let location = lastclass.lastclass_location in
+  Alcotest.(check bool)
+    "definition-backed keyword uses generated source" false
+    (Source_id.equal location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "definition-backed keyword keeps invocation provenance" true
+    (Option.is_some location.generated_from);
+  Alcotest.(check bool)
+    "definition-backed keyword keeps definition provenance" true
+    (Option.is_some location.defined_at);
+  Alcotest.(check bool)
+    "combined default retains both source segments" true
+    (List.length default.location.source_segments > 1);
+  let open Yojson.Safe.Util in
+  let value_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list
+    |> fun parameters ->
+    List.nth parameters 1 |> member "default" |> member "value"
+  in
+  Alcotest.(check bool)
+    "JSON keeps keyword generation provenance" true
+    (value_json |> member "location" |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "lastclass.HC" in
+      write_file root_file "#include \"lastclass\"";
+      write_file declaration_file
+        "extern U0 Included(U8 *value,U8 *class_name=lastclass);";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_lastclass =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        List.nth prototype.parameters 1
+        |> expect_parameter_default |> expect_lastclass_default
+      in
+      let keyword_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_lastclass.lastclass_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included keyword keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path keyword_source))
+
+let lastclass_default_failures () =
+  List.iter
+    (fun (description, source, name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected lastclass prototype %s became visible" name)
+    [
+      ( "binary continuation",
+        "extern U0 Added(U8 *value,U8 *name=lastclass+1);",
+        "Added",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "call continuation",
+        "extern U0 Called(U8 *value,U8 *name=lastclass());",
+        "Called",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "keyword after an ordinary expression",
+        "extern U0 Later(U8 *name=1 lastclass);",
+        "Later",
+        "HCPARSE0010",
+        "expected ',' or ')'" );
+      ( "ordinary binding expression",
+        "_intern lastclass I64 Bound();",
+        "Bound",
+        "HCPARSE0020",
+        "not implemented" );
+    ]
+
+let deterministic_lastclass_dumps () =
+  let session, _, output =
+    parse_string "extern U0 Stable(U8 *value,U8 *name=lastclass);"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human lastclass dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON lastclass dump repeats byte for byte" json
+    (Ast_dump.json sources ast)
 
 let array_dimension_source_behavior () =
   let parser_source = pinned "Compiler/PrsVar.HC" in
@@ -6056,11 +6314,6 @@ let default_expression_failures () =
         "Postfix",
         "HCPARSE0028",
         "postfix chain" );
-      ( "unsupported lastclass",
-        "extern U0 LastClass(I64 value=lastclass);",
-        "LastClass",
-        "HCPARSE0020",
-        "not implemented" );
     ];
   let nesting = Parser.max_expression_depth in
   let source =
@@ -6575,6 +6828,18 @@ let tests =
       default_expression_nested_and_provenance;
     Alcotest.test_case "included default expression" `Quick
       included_default_expression;
+    Alcotest.test_case "pinned lastclass default behavior" `Quick
+      lastclass_default_source_behavior;
+    Alcotest.test_case "lastclass default shapes" `Quick
+      lastclass_default_shapes;
+    Alcotest.test_case "lastclass function pointers and modes" `Quick
+      lastclass_function_pointer_and_modes;
+    Alcotest.test_case "lastclass default provenance" `Quick
+      lastclass_default_provenance;
+    Alcotest.test_case "lastclass default failures" `Quick
+      lastclass_default_failures;
+    Alcotest.test_case "deterministic lastclass dumps" `Quick
+      deterministic_lastclass_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

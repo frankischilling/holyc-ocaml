@@ -275,9 +275,18 @@ type global_declaration = private {
   location : location;
 }
 
+type lastclass_default = private {
+  lastclass_spelling : string;
+  lastclass_location : location;
+}
+
+type parameter_default_value =
+  | Expression_default of expression
+  | Lastclass_default of lastclass_default
+
 type parameter_default = private {
   equals : location;
-  value : expression;
+  value : parameter_default_value;
   location : location;
 }
 
@@ -530,7 +539,13 @@ val make_member_expression :
 val expression_location : expression -> location
 
 val make_parameter_default :
-  equals:location -> value:expression -> location:location -> parameter_default
+  equals:location ->
+  value:parameter_default_value ->
+  location:location ->
+  parameter_default
+
+val make_lastclass_default :
+  spelling:string -> location:location -> lastclass_default
 
 val make_function_parameter :
   register_qualifiers:register_qualifier list ->
