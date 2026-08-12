@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0077",
+    "severity": "error",
+    "message": "expected a statement after 'lock', but found \"}\"",
+    "primary": {
+      "path": "cli/parse-lock-error.hc",
+      "line": 3,
+      "column": 1,
+      "source_id": 0,
+      "start": 9,
+      "stop": 10
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

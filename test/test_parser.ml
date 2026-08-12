@@ -252,6 +252,10 @@ let expect_label_statement = function
   | Ast.Label_statement statement -> statement
   | _ -> Alcotest.fail "expected a function label"
 
+let expect_lock_statement = function
+  | Ast.Lock_statement statement -> statement
+  | _ -> Alcotest.fail "expected a lock statement"
+
 let expect_break_statement = function
   | Ast.Break_statement statement -> statement
   | _ -> Alcotest.fail "expected a break statement"
@@ -9000,6 +9004,275 @@ let deterministic_goto_label_dumps () =
     "JSON keeps the label name" "done"
     (label |> member "name" |> member "spelling" |> to_string)
 
+let lock_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches lock", "case KW_LOCK:");
+      ("lock enters a nested region", "cc->lock_cnt++;");
+      ("lock parses an ordinary statement", "PrsStmt(cc,try_cnt);");
+      ("lock leaves its nested region", "cc->lock_cnt--;");
+    ];
+  let parser_library = pinned "Compiler/PrsLib.HC" in
+  Alcotest.(check bool)
+    "ICAdd observes the active lock region" true
+    (contains parser_library "if (cc->lock_cnt)");
+  Alcotest.(check bool)
+    "ICAdd carries the lock flag" true
+    (contains parser_library "flags|=ICF_LOCK;");
+  Alcotest.(check bool)
+    "lock keeps its pinned keyword ID" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_LOCK\t\t42");
+  Alcotest.(check bool)
+    "the generated keyword source keeps the same ID" true
+    (contains (pinned "Compiler/OpCodes.DD") "KEYWORD lock\t\t42;");
+  Alcotest.(check bool)
+    "the language guide describes lock regions" true
+    (contains (pinned "Doc/HolyC.DD")
+       "$FG,2$lock{}$FG$ can be used to apply asm");
+  let demo = pinned "Demo/MultiCore/Lock.HC" in
+  Alcotest.(check bool)
+    "the reference demo permits an unbraced lock" true
+    (contains demo "lock  //Can be used without {}");
+  Alcotest.(check bool)
+    "the corpus also uses braced locks" true
+    (contains (pinned "Demo/MultiCore/LoadTest.HC") "lock {app_done_ack--;}")
+
+let lock_statement_shapes () =
+  let source =
+    "I64 value;lock {value++;}lock value++;lock lock value++;lock;"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable _;
+       Ast.Top_level_statement braced;
+       Ast.Top_level_statement unbraced;
+       Ast.Top_level_statement nested;
+       Ast.Top_level_statement empty;
+      ] ->
+          let braced = expect_lock_statement braced in
+          Alcotest.(check int)
+            "lock keyword is four bytes" 4
+            (Span.length braced.lock_keyword.span);
+          let block = expect_block_statement braced.lock_body in
+          Alcotest.(check int)
+            "braced lock retains one statement" 1
+            (List.length block.block_statements);
+          ignore (List.hd block.block_statements |> expect_expression_statement);
+          Alcotest.(check bool)
+            "braced lock span ends with its body" true
+            (braced.lock_location.span.stop = block.block_location.span.stop);
+          let unbraced = expect_lock_statement unbraced in
+          let expression = expect_expression_statement unbraced.lock_body in
+          Alcotest.(check bool)
+            "unbraced lock retains the body semicolon" true
+            (Option.is_some expression.expression_statement_semicolon);
+          let outer = expect_lock_statement nested in
+          let inner = expect_lock_statement outer.lock_body in
+          ignore (expect_expression_statement inner.lock_body);
+          let empty = expect_lock_statement empty in
+          ignore (expect_empty_statement empty.lock_body)
+      | items ->
+          Alcotest.failf
+            "expected a declaration and four lock statements, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let lock_statement_boundaries_and_nesting () =
+  let source =
+    "I64 value;lock value++,value--;if(value)lock value++;else \
+     lock;while(value)lock {value--;}for(;value;lock value--;)lock value++;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement sequence_lock;
+   Ast.Top_level_statement conditional;
+   Ast.Top_level_statement while_loop;
+   Ast.Top_level_statement for_loop;
+  ] ->
+      let sequence_lock = expect_lock_statement sequence_lock in
+      let sequence = expect_statement_sequence sequence_lock.lock_body in
+      Alcotest.(check int)
+        "one lock covers its comma-linked statement sequence" 2
+        (List.length sequence.sequence_elements);
+      let first = List.hd sequence.sequence_elements in
+      Alcotest.(check int)
+        "the first locked expression retains its comma" 1
+        (List.length first.sequence_following_commas);
+      let conditional = expect_if_statement conditional in
+      ignore
+        ( conditional.if_then_branch |> expect_lock_statement |> fun statement ->
+          expect_expression_statement statement.lock_body );
+      let else_lock =
+        match conditional.if_else_clause with
+        | Some clause -> expect_lock_statement clause.else_branch
+        | None -> Alcotest.fail "expected an else lock"
+      in
+      ignore (expect_empty_statement else_lock.lock_body);
+      let while_lock =
+        expect_while_statement while_loop |> fun statement ->
+        expect_lock_statement statement.while_body
+      in
+      ignore (expect_block_statement while_lock.lock_body);
+      let for_loop = expect_for_statement for_loop in
+      let update_lock =
+        match for_loop.for_update with
+        | Some update -> expect_lock_statement update
+        | None -> Alcotest.fail "expected a lock in the for update"
+      in
+      let update_expression =
+        expect_expression_statement update_lock.lock_body
+      in
+      Alcotest.(check bool)
+        "a for-update lock keeps its nested statement semicolon" true
+        (Option.is_some update_expression.expression_statement_semicolon);
+      ignore
+        ( for_loop.for_body |> expect_lock_statement |> fun statement ->
+          expect_expression_statement statement.lock_body )
+  | items ->
+      Alcotest.failf
+        "expected a declaration and four structured statements, got %d items"
+        (List.length items)
+
+let lock_statement_provenance () =
+  let source = "#define ATOMIC lock\n#define END ;\nATOMIC END" in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Top_level_statement statement ] -> expect_lock_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed lock statement"
+  in
+  let body = expect_empty_statement statement.lock_body in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("lock keyword", statement.lock_keyword);
+      ("locked semicolon", body.empty_statement_semicolon);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated lock provenance" true
+    (statement_json |> member "keyword" |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let lock_file = Filename.concat directory "locked.HC" in
+      write_file root_file "I64 value;\n#include \"locked\"";
+      write_file lock_file "lock value++;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_lock =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_lock_statement statement
+        | _ -> Alcotest.fail "expected one included lock statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_lock.lock_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included lock keeps its canonical path" (Unix.realpath lock_file)
+        (Source_file.path included_source))
+
+let lock_statement_failures () =
+  List.iter
+    (fun (name, source, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (name ^ " diagnostic") "HCPARSE0077" diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the missing body")
+        true
+        (contains diagnostic.message found))
+    [
+      ("end of input", "lock", "end of input");
+      ("closing block", "{lock}", "found \"}\"");
+      ("stray else", "lock else", "found \"else\"");
+      ("comma-only body", "lock,,,", "only statement commas");
+    ];
+  let _, _, malformed = parse_string "lock )" in
+  Alcotest.(check string)
+    "malformed child keeps the ordinary statement diagnostic" "HCPARSE0048"
+    (first_diagnostic malformed).code;
+  let excessive =
+    String.concat "" (List.init (Parser.max_lock_depth + 1) (fun _ -> "lock "))
+    ^ ";"
+  in
+  let _, _, nested = parse_string excessive in
+  let diagnostic = first_diagnostic nested in
+  Alcotest.(check string)
+    "lock nesting diagnostic" "HCPARSE0078" diagnostic.code;
+  Alcotest.(check bool)
+    "lock nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_lock_depth))
+
+let deterministic_lock_dumps () =
+  let session, _, output = parse_string "I64 value;lock {lock value++;}" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human lock dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON lock dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies lock statements" true
+    (contains human "lock_statement");
+  let open Yojson.Safe.Util in
+  let outer =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON keeps the outer lock kind" "lock_statement"
+    (outer |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON keeps the braced body" "block_statement"
+    (outer |> member "body" |> member "kind" |> to_string);
+  let inner =
+    outer |> member "body" |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON keeps the nested lock kind" "lock_statement"
+    (inner |> member "kind" |> to_string)
+
 let break_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -9908,6 +10181,16 @@ let tests =
     Alcotest.test_case "goto and label failures" `Quick goto_label_failures;
     Alcotest.test_case "deterministic goto and label dumps" `Quick
       deterministic_goto_label_dumps;
+    Alcotest.test_case "pinned lock behavior" `Quick
+      lock_statement_source_behavior;
+    Alcotest.test_case "lock statement shapes" `Quick lock_statement_shapes;
+    Alcotest.test_case "lock statement boundaries and nesting" `Quick
+      lock_statement_boundaries_and_nesting;
+    Alcotest.test_case "lock statement provenance" `Quick
+      lock_statement_provenance;
+    Alcotest.test_case "lock statement failures" `Quick lock_statement_failures;
+    Alcotest.test_case "deterministic lock statement dumps" `Quick
+      deterministic_lock_dumps;
     Alcotest.test_case "pinned break behavior" `Quick
       break_statement_source_behavior;
     Alcotest.test_case "break statement shapes" `Quick break_statement_shapes;

@@ -57,6 +57,8 @@
     {"path": "Kernel/StrPrint.HC", "sha256": "5faa7c97acae07d38a2775e15fa73844f36480eca4c8023a9f55362d7be05daa"},
     {"path": "StartOS.HC", "sha256": "501a463128ce77b66668a9ed8adbcfdc7da71db2bbf3d857534378da71990346"},
     {"path": "Demo/GlblVars.HC", "sha256": "70d2ef4e34378455ddf42dcf62a77093e3f415f8e73623cca0b3dd68ba8f2d21"},
+    {"path": "Demo/MultiCore/LoadTest.HC", "sha256": "09f23ac0a4cd204e95127274fb6902223ec96bef1dc951de440b661a92f01ca5"},
+    {"path": "Demo/MultiCore/Lock.HC", "sha256": "02b3029b9a9b0084877f8d241364f0b9826eb9236dd81fa316d897acdb2e27b7"},
     {"path": "Adam/Gr/GrGlbls.HC", "sha256": "8f952ca14766ec24e7c2dae5629ca31a2873e9d557a0e842d1c852a497b44baa"},
     {"path": "Adam/Opt/Utils/StrUtils.HC", "sha256": "d3bebee3611021e7e5cce1cd5682eee8ac5f4331ff521db00263f3f4addd6154"},
     {"path": "Doc/HolyC.DD", "sha256": "bacd70e46107b03949a3ded7459e1acb771ffbb1864e2b5ef9166d8a81bf10d6"},

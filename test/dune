@@ -68,6 +68,8 @@
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
+  ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
+  ../third_party/TempleOS/Demo/MultiCore/Lock.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
@@ -2336,3 +2338,63 @@
        --format=json
        cli/parse-goto-error.hc))))
    (diff cli/parse-goto-error.json parse-goto-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-statements.human.actual)
+ (deps cli/parse-lock-statements.hc cli/parse-lock-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-lock-statements.hc))
+   (diff cli/parse-lock-statements.human parse-lock-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-statements.json.actual)
+ (deps cli/parse-lock-statements.hc cli/parse-lock-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-lock-statements.hc))
+   (diff cli/parse-lock-statements.json parse-lock-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-error.human.actual parse-lock-error.human.stdout.actual)
+ (deps cli/parse-lock-error.hc cli/parse-lock-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-error.human.stdout.actual
+    (with-stderr-to
+     parse-lock-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-lock-error.hc))))
+   (diff cli/parse-lock-error.human parse-lock-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-lock-error.json.actual parse-lock-error.json.stdout.actual)
+ (deps cli/parse-lock-error.hc cli/parse-lock-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-lock-error.json.stdout.actual
+    (with-stderr-to
+     parse-lock-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-lock-error.hc))))
+   (diff cli/parse-lock-error.json parse-lock-error.json.actual))))

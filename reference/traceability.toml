@@ -1427,6 +1427,49 @@ lowering_status = "planned"
 execution_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-LOCK-STATEMENTS"
+description = "Lock statements preserve the lexical region around one ordinary nested statement so later lowering can apply source-compatible lock flags."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_LOCK dispatch and lock_cnt lifetime",
+  "Compiler/PrsLib.HC:ICAdd ICF_LOCK handoff",
+  "Compiler/CompilerA.HH:KW_LOCK",
+  "Compiler/OpCodes.DD:KEYWORD lock",
+  "Doc/HolyC.DD:lock statement note",
+  "Demo/MultiCore/Lock.HC:braced and unbraced forms",
+  "Demo/MultiCore/LoadTest.HC:compound lock form"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-lock-statements.hc",
+  "test/cli/parse-lock-statements.human",
+  "test/cli/parse-lock-statements.json",
+  "test/cli/parse-lock-error.hc",
+  "test/cli/parse-lock-error.human",
+  "test/cli/parse-lock-error.json"
+]
+status = "implemented"
+issue = 113
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+keyword = "required and preserved"
+body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0077", "HCPARSE0078"]
+hosted_nesting_limit = 256
+source_nesting_limit = "none identified"
+ir_lock_flag_status = "planned"
+operation_validation_status = "planned"
+x86_prefix_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
 sources = [
