@@ -157,6 +157,10 @@ let expect_offset_expression = function
   | Ast.Offset_expression offset_expression -> offset_expression
   | _ -> Alcotest.fail "expected an offset expression"
 
+let expect_defined_expression = function
+  | Ast.Defined_expression defined_expression -> defined_expression
+  | _ -> Alcotest.fail "expected a defined expression"
+
 let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
@@ -4371,6 +4375,397 @@ let deterministic_offset_dumps () =
     (binary_json |> member "right" |> member "base" |> member "operand"
    |> member "kind" |> to_string)
 
+let defined_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("defined keyword dispatch", "case KW_DEFINED:");
+      ("defined accepts wrapper parentheses", "while (Lex(cc)=='(')");
+      ("defined checks an identifier token", "if (cc->token==TK_IDENT &&");
+      ( "defined checks global and local lookup",
+        "(cc->hash_entry || cc->local_var_entry))" );
+      ( "defined emits true as I64",
+        "ICAdd(cc,IC_IMM_I64,TRUE,cmp.internal_types[RT_I64]);" );
+      ( "defined emits false as I64",
+        "ICAdd(cc,IC_IMM_I64,FALSE,cmp.internal_types[RT_I64]);" );
+      ( "defined returns the restricted modifier state",
+        "return PE_MAYBE_MODIFIERS;" );
+    ];
+  Alcotest.(check bool)
+    "defined keyword identity" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_DEFINED\t43");
+  Alcotest.(check bool)
+    "keywords remain identifier tokens" true
+    (contains
+       (pinned "Compiler/PrsLib.HC")
+       "cc->token==TK_IDENT &&(tmph=cc->hash_entry) && tmph->type&HTT_KEYWORD");
+  Alcotest.(check bool)
+    "the lexer emits identifier tokens" true
+    (contains (pinned "Compiler/Lex.HC") "cc->token=TK_IDENT;");
+  Alcotest.(check bool)
+    "preprocessor documentation names its separate defined function" true
+    (contains
+       (pinned "Doc/PreProcessor.DD")
+       "$FG,2$defined()$FG$\tIs a function that can be used in expressions.")
+
+let defined_shapes () =
+  let defined_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_defined_expression
+  in
+  let bare = defined_from "_intern defined Missing I64 Bare();" in
+  Alcotest.(check string)
+    "bare keyword spelling" "defined" bare.defined_keyword_spelling;
+  Alcotest.(check int)
+    "bare form has no wrapper" 0
+    (List.length bare.defined_opening_parentheses);
+  Alcotest.(check string)
+    "bare operand" "Missing" bare.defined_operand.defined_operand_spelling;
+  Alcotest.(check bool)
+    "an unresolved-looking identifier keeps the name shape" true
+    (bare.defined_operand.defined_operand_kind = Ast.Defined_name);
+  let wrapped = defined_from "_intern defined(((Known))) I64 Wrapped();" in
+  Alcotest.(check int)
+    "three opening wrappers" 3
+    (List.length wrapped.defined_opening_parentheses);
+  Alcotest.(check int)
+    "three closing wrappers" 3
+    (List.length wrapped.defined_closing_parentheses);
+  let keyword = defined_from "_intern defined(I64) I64 Keyword();" in
+  Alcotest.(check bool)
+    "a language keyword has the pinned identifier shape" true
+    (keyword.defined_operand.defined_operand_kind = Ast.Defined_name);
+  Alcotest.(check string)
+    "keyword spelling is retained" "I64"
+    keyword.defined_operand.defined_operand_spelling;
+  let literal = defined_from "_intern defined(42) I64 Literal();" in
+  Alcotest.(check bool)
+    "an integer is retained as a non-name token" true
+    (literal.defined_operand.defined_operand_kind = Ast.Defined_non_name);
+  Alcotest.(check string)
+    "integer spelling is retained" "42"
+    literal.defined_operand.defined_operand_spelling;
+  let closing = defined_from "_intern defined()) I64 ClosingToken();" in
+  Alcotest.(check bool)
+    "the source-shaped operand may be a closing parenthesis" true
+    (closing.defined_operand.defined_operand_kind = Ast.Defined_non_name);
+  Alcotest.(check string)
+    "the consumed closing token remains distinct from the wrapper close" ")"
+    closing.defined_operand.defined_operand_spelling;
+  Alcotest.(check int)
+    "one later parenthesis closes the wrapper" 1
+    (List.length closing.defined_closing_parentheses)
+
+let defined_postfix_and_precedence () =
+  let expression_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+  in
+  let cast =
+    expression_from "_intern defined(Name)(U64) I64 Casted();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_defined_expression cast.cast_operand);
+  let called =
+    expression_from "_intern defined(Name)(U0 *)() I64 Called();"
+    |> expect_call_expression
+  in
+  ignore
+    ( called.call_callee |> expect_postfix_cast_expression |> fun cast ->
+      expect_defined_expression cast.cast_operand );
+  let indexed =
+    expression_from "_intern defined(Name)(U8 *)[0] I64 Indexed();"
+    |> expect_index_expression
+  in
+  ignore
+    ( indexed.index_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_defined_expression cast.cast_operand );
+  let member =
+    expression_from "_intern defined(Name)(U8 *).value I64 Member();"
+    |> expect_member_expression
+  in
+  ignore
+    ( member.member_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_defined_expression cast.cast_operand );
+  let update =
+    expression_from "_intern defined(Name)(I64)++ I64 Updated();"
+    |> expect_postfix_expression
+  in
+  ignore
+    ( update.postfix_operand |> expect_postfix_cast_expression |> fun cast ->
+      expect_defined_expression cast.cast_operand );
+  let prefix =
+    expression_from "_intern -defined(Name) I64 Negated();"
+    |> expect_prefix_expression
+  in
+  ignore (expect_defined_expression prefix.prefix_operand);
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let root =
+        expression_from
+          (Printf.sprintf "_intern defined(Name) %s 2 I64 Binary%d();"
+             operator.spelling index)
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_defined_expression root.binary_left))
+    Operator.binary_operators;
+  let multiplication =
+    expression_from "_intern defined(Name) * 2 I64 Multiplied();"
+    |> expect_binary_expression
+  in
+  Alcotest.(check string)
+    "a star after defined is multiplication" "*"
+    multiplication.binary_operator.operator_spelling;
+  ignore (expect_defined_expression multiplication.binary_left)
+
+let defined_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=defined(Name));"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_defined_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[defined(Name)];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_defined_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(defined(Name)) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_defined_expression );
+  let _, _, index_output =
+    parse_string "_intern table[defined(Name)] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_defined_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "_intern defined(Name) I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_defined_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let defined_provenance () =
+  let source =
+    "#define DEFINED defined\n\
+     #define OPEN (\n\
+     #define TARGET Missing\n\
+     #define CLOSE )\n\
+     _intern DEFINED OPEN TARGET CLOSE I64 Generated();"
+  in
+  let session, root, output = parse_string source in
+  let defined_expression =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_defined_expression
+  in
+  let opening = List.hd defined_expression.defined_opening_parentheses in
+  let closing = List.hd defined_expression.defined_closing_parentheses in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("keyword", defined_expression.defined_keyword_location);
+      ("opening parenthesis", opening);
+      ("operand", defined_expression.defined_operand.defined_operand_location);
+      ("closing parenthesis", closing);
+    ];
+  Alcotest.(check bool)
+    "combined defined location retains generated segments" true
+    (List.length defined_expression.defined_location.source_segments > 1);
+  let open Yojson.Safe.Util in
+  let defined_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated operand provenance" true
+    (defined_json |> member "operand" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "defined.HC" in
+      write_file root_file "#include \"defined\"";
+      write_file declaration_file "_intern defined(Name) I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_defined =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_defined_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_defined.defined_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included defined term keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let defined_failures () =
+  let check_failure description source code message_fragment =
+    let _, _, output = parse_string source in
+    Alcotest.(check bool)
+      (description ^ " has no AST")
+      true
+      (Option.is_none output.ast);
+    let diagnostic = first_diagnostic output in
+    Alcotest.(check string) (description ^ " code") code diagnostic.code;
+    Alcotest.(check bool)
+      (description ^ " message") true
+      (contains diagnostic.message message_fragment)
+  in
+  List.iter
+    (fun (description, source, code, message_fragment) ->
+      check_failure description source code message_fragment)
+    [
+      ( "end of input before operand",
+        "_intern defined",
+        "HCPARSE0040",
+        "expected one token after defined" );
+      ( "empty wrapper",
+        "_intern defined() I64 Empty();",
+        "HCPARSE0041",
+        "one wrapper parenthesis remains" );
+      ( "unclosed wrapper",
+        "_intern defined(Name I64 Unclosed();",
+        "HCPARSE0041",
+        "expected ')' to close defined target" );
+      ( "unclosed nested wrapper",
+        "_intern defined((Name) I64 Nested();",
+        "HCPARSE0041",
+        "one wrapper parenthesis remains" );
+      ( "expression-shaped operand",
+        "_intern defined(Name + Other) I64 Expression();",
+        "HCPARSE0041",
+        "found \"+\"" );
+      ( "direct call suffix",
+        "_intern defined(Name)() I64 Called();",
+        "HCPARSE0042",
+        "expected a postfix cast target after defined" );
+      ( "direct index suffix",
+        "_intern defined(Name)[0] I64 Indexed();",
+        "HCPARSE0042",
+        "cannot be followed directly by \"[\"" );
+      ( "direct member suffix",
+        "_intern defined(Name).value I64 Member();",
+        "HCPARSE0042",
+        "cannot be followed directly by \".\"" );
+      ( "direct pointer-member suffix",
+        "_intern defined(Name)->value I64 PointerMember();",
+        "HCPARSE0042",
+        "cannot be followed directly by \"->\"" );
+      ( "direct increment suffix",
+        "_intern defined(Name)++ I64 Incremented();",
+        "HCPARSE0042",
+        "cannot be followed directly by \"++\"" );
+      ( "direct decrement suffix",
+        "_intern defined(Name)-- I64 Decremented();",
+        "HCPARSE0042",
+        "cannot be followed directly by \"--\"" );
+      ( "nonprimitive cast target",
+        "_intern defined(Name)(Widget) I64 Casted();",
+        "HCPARSE0020",
+        "nonprimitive postfix cast target" );
+    ]
+
+let deterministic_defined_dumps () =
+  let session, _, output =
+    parse_string
+      "_intern defined(((I64)))(U64) + defined(42)(U8 *)[0] I64 Checked();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human defined dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON defined dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names the identifier-shaped operand" true
+    (contains human "expression kind=defined wrappers=3");
+  Alcotest.(check bool)
+    "human dump keeps the name operand" true
+    (contains human "operand kind=name spelling=\"I64\"");
+  Alcotest.(check bool)
+    "human dump names the non-name operand" true
+    (contains human "operand kind=non_name spelling=\"42\"");
+  let open Yojson.Safe.Util in
+  let binary_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  let left_defined = binary_json |> member "left" |> member "operand" in
+  Alcotest.(check string)
+    "JSON left cast wraps defined" "defined"
+    (left_defined |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "JSON keeps three opening wrappers" 3
+    (left_defined |> member "opening_parentheses" |> to_list |> List.length);
+  Alcotest.(check string)
+    "JSON keeps the keyword operand as name-shaped" "name"
+    (left_defined |> member "operand" |> member "kind" |> to_string);
+  let right_defined =
+    binary_json |> member "right" |> member "base" |> member "operand"
+  in
+  Alcotest.(check string)
+    "JSON right index base wraps defined" "defined"
+    (right_defined |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON keeps the literal operand as non-name" "non_name"
+    (right_defined |> member "operand" |> member "kind" |> to_string)
+
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -6142,6 +6537,16 @@ let tests =
     Alcotest.test_case "offset failures" `Quick offset_failures;
     Alcotest.test_case "deterministic offset dumps" `Quick
       deterministic_offset_dumps;
+    Alcotest.test_case "pinned defined behavior" `Quick defined_source_behavior;
+    Alcotest.test_case "defined token shapes" `Quick defined_shapes;
+    Alcotest.test_case "defined postfix and precedence" `Quick
+      defined_postfix_and_precedence;
+    Alcotest.test_case "defined contexts and modes" `Quick
+      defined_contexts_and_modes;
+    Alcotest.test_case "defined provenance" `Quick defined_provenance;
+    Alcotest.test_case "defined failures" `Quick defined_failures;
+    Alcotest.test_case "deterministic defined dumps" `Quick
+      deterministic_defined_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick

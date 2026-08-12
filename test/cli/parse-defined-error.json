@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0041",
+    "severity": "error",
+    "message": "expected ')' to close defined target in _intern target expression; one wrapper parenthesis remains, but found identifier \"I64\"",
+    "primary": {
+      "path": "cli/parse-defined-error.hc",
+      "line": 1,
+      "column": 22,
+      "source_id": 0,
+      "start": 21,
+      "stop": 24
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

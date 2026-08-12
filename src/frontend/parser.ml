@@ -445,6 +445,7 @@ let is_postfix_continuation token =
 let restricted_modifier_term = function
   | Ast.Sizeof_expression _ -> Some ("sizeof", "HCPARSE0034")
   | Ast.Offset_expression _ -> Some ("offset", "HCPARSE0039")
+  | Ast.Defined_expression _ -> Some ("defined", "HCPARSE0042")
   | _ -> None
 
 let binary_operator token =
@@ -608,6 +609,8 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
       parse_sizeof_expression cursor ~context
   | Token_kind.Keyword Keyword.Offset, _ ->
       parse_offset_expression cursor ~context
+  | Token_kind.Keyword Keyword.Defined, _ ->
+      parse_defined_expression cursor ~context
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
       let first = peek cursor in
@@ -919,6 +922,99 @@ and parse_offset_expression cursor ~context : parsed_expression option =
                      ~location:(location_from_expression_tokens tokens))
               in
               Some { node; tokens })
+
+and parse_defined_expression cursor ~context : parsed_expression option =
+  let keyword_item = take cursor in
+  let rec take_opening_parentheses items_rev =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Punctuation '(' ->
+        take_opening_parentheses (take cursor :: items_rev)
+    | _ -> List.rev items_rev
+  in
+  let opening_items = take_opening_parentheses [] in
+  let operand_item = peek cursor in
+  if operand_item.token.kind = Token_kind.Eof then
+    let definition_trace =
+      List.fold_left
+        (fun trace item ->
+          append_unique_related trace item.context.definition_trace)
+        keyword_item.context.definition_trace opening_items
+    in
+    expression_failure ~secondary:definition_trace cursor operand_item
+      ~code:"HCPARSE0040"
+      ~message:
+        (Printf.sprintf
+           "expected one token after defined in %s, but reached end of input"
+           (expression_context_name context))
+  else
+    let operand_item = take cursor in
+    let operand_kind =
+      match operand_item.token.kind with
+      | Token_kind.Identifier | Token_kind.Keyword _ -> Ast.Defined_name
+      | _ -> Ast.Defined_non_name
+    in
+    let operand =
+      Ast.make_defined_operand ~kind:operand_kind
+        ~spelling:operand_item.token.raw
+        ~location:(token_location operand_item.token)
+    in
+    let items_before_closing =
+      keyword_item :: (opening_items @ [ operand_item ])
+    in
+    let definition_trace =
+      List.fold_left
+        (fun trace item ->
+          append_unique_related trace item.context.definition_trace)
+        [] items_before_closing
+    in
+    let rec take_closing_parentheses remaining items_rev =
+      if remaining = 0 then Some (List.rev items_rev)
+      else
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Punctuation ')' ->
+            take_closing_parentheses (remaining - 1) (take cursor :: items_rev)
+        | _ ->
+            let remaining_text =
+              if remaining = 1 then "one wrapper parenthesis remains"
+              else Printf.sprintf "%d wrapper parentheses remain" remaining
+            in
+            expression_failure ~secondary:definition_trace cursor item
+              ~code:"HCPARSE0041"
+              ~message:
+                (Printf.sprintf
+                   "expected ')' to close defined target in %s; %s, but found \
+                    %s"
+                   (expression_context_name context)
+                   remaining_text
+                   (token_description item.token))
+    in
+    match take_closing_parentheses (List.length opening_items) [] with
+    | None -> None
+    | Some closing_items ->
+        let tokens =
+          List.map
+            (fun item -> item.token)
+            (items_before_closing @ closing_items)
+        in
+        let node =
+          Ast.Defined_expression
+            (Ast.make_defined_expression
+               ~keyword_spelling:keyword_item.token.raw
+               ~keyword_location:(token_location keyword_item.token)
+               ~opening_parentheses:
+                 (List.map
+                    (fun item -> token_location item.token)
+                    opening_items)
+               ~operand
+               ~closing_parentheses:
+                 (List.map
+                    (fun item -> token_location item.token)
+                    closing_items)
+               ~location:(location_from_expression_tokens tokens))
+        in
+        Some { node; tokens }
 
 and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
     opening : parsed_expression option =

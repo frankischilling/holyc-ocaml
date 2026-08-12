@@ -75,6 +75,7 @@ type unary_operator_kind =
 
 type postfix_operator_kind = Post_increment | Post_decrement
 type member_access_kind = Direct_member | Pointer_member
+type defined_operand_kind = Defined_name | Defined_non_name
 
 type expression =
   | Integer_literal of expression_literal
@@ -85,6 +86,7 @@ type expression =
   | Current_position_expression of expression_operator
   | Sizeof_expression of sizeof_expression
   | Offset_expression of offset_expression
+  | Defined_expression of defined_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -136,6 +138,21 @@ and offset_expression = private {
   offset_members : offset_member list;
   offset_closing_parentheses : location list;
   offset_location : location;
+}
+
+and defined_operand = private {
+  defined_operand_kind : defined_operand_kind;
+  defined_operand_spelling : string;
+  defined_operand_location : location;
+}
+
+and defined_expression = private {
+  defined_keyword_spelling : string;
+  defined_keyword_location : location;
+  defined_opening_parentheses : location list;
+  defined_operand : defined_operand;
+  defined_closing_parentheses : location list;
+  defined_location : location;
 }
 
 and parenthesized_expression = private {
@@ -426,6 +443,21 @@ val make_offset_expression :
   closing_parentheses:location list ->
   location:location ->
   offset_expression
+
+val make_defined_operand :
+  kind:defined_operand_kind ->
+  spelling:string ->
+  location:location ->
+  defined_operand
+
+val make_defined_expression :
+  keyword_spelling:string ->
+  keyword_location:location ->
+  opening_parentheses:location list ->
+  operand:defined_operand ->
+  closing_parentheses:location list ->
+  location:location ->
+  defined_expression
 
 val make_parenthesized_expression :
   opening_parenthesis:location ->

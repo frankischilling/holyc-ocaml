@@ -1490,6 +1490,49 @@ member_offset_calculation = "planned"
 ic_lowering_status = "planned IC_IMM_I64 emission"
 
 [[feature]]
+id = "HC-PARSER-DEFINED-EXPRESSIONS"
+description = "HolyC defined terms retain repeated wrapper parentheses and exactly one source token, classified by the pinned identifier-token rule."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_DEFINED branch",
+  "Compiler/CompilerA.HH:KW_DEFINED",
+  "Compiler/PrsLib.HC:PrsKeyWord",
+  "Compiler/Lex.HC:identifier token construction",
+  "Doc/PreProcessor.DD:defined function note"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-defined-expression.hc",
+  "test/cli/parse-defined-expression.human",
+  "test/cli/parse-defined-expression.json",
+  "test/cli/parse-defined-error.hc",
+  "test/cli/parse-defined-error.human",
+  "test/cli/parse-defined-error.json"
+]
+status = "implemented"
+issue = 89
+ast_schema = "holyc-ast-v1"
+operand_shape = "exactly one non-EOF token after the opening-wrapper run; it is not parsed as a nested expression"
+identifier_shape = "ordinary identifiers and language keywords model the pinned TK_IDENT case; all other tokens remain explicit non-name operands"
+wrapper_parentheses = "zero or more matched pairs"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_operand_diagnostic = "HCPARSE0040"
+unmatched_wrapper_diagnostic = "HCPARSE0041"
+direct_suffix_diagnostic = "HCPARSE0042"
+corpus_language_expression_uses = 0
+hash_and_local_resolution = "planned"
+boolean_selection = "planned"
+ic_lowering_status = "planned IC_IMM_I64 emission"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

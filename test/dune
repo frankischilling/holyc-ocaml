@@ -75,6 +75,7 @@
   ../third_party/TempleOS/Kernel/MultiProc.HC
   ../third_party/TempleOS/Doc/HolyC.DD
   ../third_party/TempleOS/Doc/Options.DD
+  ../third_party/TempleOS/Doc/PreProcessor.DD
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -1534,3 +1535,71 @@
        --format=json
        cli/parse-offset-error.hc))))
    (diff cli/parse-offset-error.json parse-offset-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-defined-expression.human.actual)
+ (deps cli/parse-defined-expression.hc cli/parse-defined-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-defined-expression.hc))
+   (diff
+    cli/parse-defined-expression.human
+    parse-defined-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-defined-expression.json.actual)
+ (deps cli/parse-defined-expression.hc cli/parse-defined-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-defined-expression.hc))
+   (diff
+    cli/parse-defined-expression.json
+    parse-defined-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-defined-error.human.actual
+  parse-defined-error.human.stdout.actual)
+ (deps cli/parse-defined-error.hc cli/parse-defined-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-error.human.stdout.actual
+    (with-stderr-to
+     parse-defined-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-defined-error.hc))))
+   (diff cli/parse-defined-error.human parse-defined-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-defined-error.json.actual
+  parse-defined-error.json.stdout.actual)
+ (deps cli/parse-defined-error.hc cli/parse-defined-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-defined-error.json.stdout.actual
+    (with-stderr-to
+     parse-defined-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-defined-error.hc))))
+   (diff cli/parse-defined-error.json parse-defined-error.json.actual))))
