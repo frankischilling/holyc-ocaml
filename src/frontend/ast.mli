@@ -365,8 +365,10 @@ type statement =
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
   | For_statement of for_statement
+  | Goto_statement of goto_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
+  | Label_statement of label_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
@@ -413,6 +415,13 @@ and for_statement = private {
   for_location : location;
 }
 
+and goto_statement = private {
+  goto_keyword : location;
+  goto_target : identifier;
+  goto_semicolon : location option;
+  goto_location : location;
+}
+
 and if_statement = private {
   if_keyword : location;
   if_opening_parenthesis : location;
@@ -421,6 +430,12 @@ and if_statement = private {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and label_statement = private {
+  label_name : identifier;
+  label_colon : location;
+  label_location : location;
 }
 
 and return_statement = private {
@@ -778,6 +793,13 @@ val make_for_statement :
   location:location ->
   for_statement
 
+val make_goto_statement :
+  keyword:location ->
+  target:identifier ->
+  semicolon:location option ->
+  location:location ->
+  goto_statement
+
 val make_if_statement :
   keyword:location ->
   opening_parenthesis:location ->
@@ -787,6 +809,9 @@ val make_if_statement :
   else_clause:else_clause option ->
   location:location ->
   if_statement
+
+val make_label_statement :
+  name:identifier -> colon:location -> location:location -> label_statement
 
 val make_return_statement :
   keyword:location ->
