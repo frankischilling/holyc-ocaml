@@ -1,0 +1,41 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-backing.hc:1:1..10:1 items=2
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-backing.hc:1:1..4:3 members=1
+    backing span=cli/parse-aggregate-backing.hc:1:1..1:5
+      type internal=I64 spelling="I64i" span=cli/parse-aggregate-backing.hc:1:1..1:5
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-backing.hc:1:6..1:11
+    name spelling="I64View" span=cli/parse-aggregate-backing.hc:1:12..1:19
+    opening_brace span=cli/parse-aggregate-backing.hc:2:1..2:2
+    member_declaration index=0 span=cli/parse-aggregate-backing.hc:3:3..3:16 declarators=1
+      type internal=I8 spelling="I8i" span=cli/parse-aggregate-backing.hc:3:3..3:6
+      declarator index=0 span=cli/parse-aggregate-backing.hc:3:7..3:16
+        name spelling="bytes" span=cli/parse-aggregate-backing.hc:3:7..3:12
+        array_dimension index=0 sized=true span=cli/parse-aggregate-backing.hc:3:12..3:15
+          opening_bracket span=cli/parse-aggregate-backing.hc:3:12..3:13
+          expression kind=integer_literal spelling="8" value="0x0000000000000008" span=cli/parse-aggregate-backing.hc:3:13..3:14
+          closing_bracket span=cli/parse-aggregate-backing.hc:3:14..3:15
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-backing.hc:3:15..3:16
+    closing_brace span=cli/parse-aggregate-backing.hc:4:1..4:2
+    semicolon span=cli/parse-aggregate-backing.hc:4:2..4:3
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-backing.hc:5:1..9:3 members=2
+    modifier kind=public spelling="public" span=cli/parse-aggregate-backing.hc:5:1..5:7
+    backing span=cli/parse-aggregate-backing.hc:5:8..5:14
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-backing.hc:5:8..5:11
+      pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-backing.hc:5:12..5:13
+      pointer_layer depth=2 spelling="*" span=cli/parse-aggregate-backing.hc:5:13..5:14
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-backing.hc:5:15..5:20
+    name spelling="Packed" span=cli/parse-aggregate-backing.hc:5:21..5:27
+    opening_brace span=cli/parse-aggregate-backing.hc:6:1..6:2
+    member_declaration index=0 span=cli/parse-aggregate-backing.hc:7:3..7:11 declarators=1
+      type internal=U8 spelling="U8i" span=cli/parse-aggregate-backing.hc:7:3..7:6
+      declarator index=0 span=cli/parse-aggregate-backing.hc:7:7..7:11
+        name spelling="tag" span=cli/parse-aggregate-backing.hc:7:7..7:10
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-backing.hc:7:10..7:11
+    member_declaration index=1 span=cli/parse-aggregate-backing.hc:8:3..8:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-backing.hc:8:3..8:6
+      declarator index=0 span=cli/parse-aggregate-backing.hc:8:7..8:13
+        name spelling="value" span=cli/parse-aggregate-backing.hc:8:7..8:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-backing.hc:8:12..8:13
+    closing_brace span=cli/parse-aggregate-backing.hc:9:1..9:2
+    semicolon span=cli/parse-aggregate-backing.hc:9:2..9:3

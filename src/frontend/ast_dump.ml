@@ -165,6 +165,11 @@ let print_type buffer sources ~indent = function
         (Sema.Primitive_type.to_string primitive.Ast.primitive)
         primitive.spelling
         (location_text sources primitive.location)
+  | Ast.Internal_type_specifier internal ->
+      Printf.bprintf buffer "%stype internal=%s spelling=%S span=%s\n" indent
+        (Sema.Primitive_type.to_string internal.Ast.primitive)
+        internal.spelling
+        (location_text sources internal.location)
   | Ast.Named_type_specifier name ->
       Printf.bprintf buffer "%stype named spelling=%S span=%s\n" indent
         name.Ast.spelling
@@ -177,6 +182,12 @@ let print_return_type buffer sources ~indent = function
         (Sema.Primitive_type.to_string primitive.Ast.primitive)
         primitive.spelling
         (location_text sources primitive.location)
+  | Ast.Internal_type_specifier internal ->
+      Printf.bprintf buffer "%sreturn_type internal=%s spelling=%S span=%s\n"
+        indent
+        (Sema.Primitive_type.to_string internal.Ast.primitive)
+        internal.spelling
+        (location_text sources internal.location)
   | Ast.Named_type_specifier name ->
       Printf.bprintf buffer "%sreturn_type named spelling=%S span=%s\n" indent
         name.Ast.spelling
@@ -189,6 +200,15 @@ let print_pointer_layers buffer sources ~indent pointer_layers =
         indent pointer.Ast.depth pointer.spelling
         (location_text sources pointer.location))
     pointer_layers
+
+let print_aggregate_backing buffer sources ~indent
+    (backing : Ast.aggregate_backing) =
+  Printf.bprintf buffer "%sbacking span=%s\n" indent
+    (location_text sources backing.backing_location);
+  print_type buffer sources ~indent:(indent ^ "  ")
+    backing.backing_type_specifier;
+  print_pointer_layers buffer sources ~indent:(indent ^ "  ")
+    backing.backing_pointer_layers
 
 let print_parameter_name buffer sources ~indent = function
   | Some (name : Ast.identifier) ->
@@ -1100,6 +1120,9 @@ let human sources module_ =
             (location_text sources definition.location)
             (List.length definition.members);
           print_modifiers buffer sources ~indent:"    " definition.modifiers;
+          Option.iter
+            (print_aggregate_backing buffer sources ~indent:"    ")
+            definition.backing;
           Printf.bprintf buffer "    aggregate_keyword spelling=%S span=%s\n"
             definition.aggregate_keyword_spelling
             (location_text sources definition.aggregate_keyword_location);
@@ -1253,7 +1276,7 @@ let location_to_yojson sources (location : Ast.location) =
     | None -> []
     | Some span -> [ ("defined_at", span_to_yojson sources span) ])
 
-let primitive_to_yojson sources primitive =
+let primitive_to_yojson sources (primitive : Ast.primitive_type) =
   `Assoc
     [
       ("kind", `String "primitive");
@@ -1266,6 +1289,15 @@ let primitive_to_yojson sources primitive =
 let type_to_yojson sources = function
   | Ast.Primitive_type_specifier primitive ->
       primitive_to_yojson sources primitive
+  | Ast.Internal_type_specifier internal ->
+      `Assoc
+        [
+          ("kind", `String "internal");
+          ( "primitive",
+            `String (Sema.Primitive_type.to_string internal.Ast.primitive) );
+          ("spelling", `String internal.spelling);
+          ("location", location_to_yojson sources internal.location);
+        ]
   | Ast.Named_type_specifier name ->
       `Assoc
         [
@@ -2190,6 +2222,12 @@ let rec aggregate_member_to_yojson sources = function
           ("semicolon", location_to_yojson sources semicolon);
         ]
 
+let aggregate_backing_to_yojson sources (backing : Ast.aggregate_backing) =
+  `Assoc
+    ([ ("type", type_to_yojson sources backing.backing_type_specifier) ]
+    @ pointer_layer_fields sources backing.backing_pointer_layers
+    @ [ ("location", location_to_yojson sources backing.backing_location) ])
+
 let parameter_default_to_yojson sources (default : Ast.parameter_default) =
   let value =
     match default.value with
@@ -2305,6 +2343,10 @@ let item_to_yojson sources = function
              `String (aggregate_kind_name definition.aggregate_kind) );
          ]
         @ modifier_fields sources definition.modifiers
+        @ (match definition.backing with
+          | None -> []
+          | Some backing ->
+              [ ("backing", aggregate_backing_to_yojson sources backing) ])
         @ [
             ( "aggregate_keyword",
               `Assoc

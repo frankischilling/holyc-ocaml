@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0124",
+    "severity": "error",
+    "message": "\"Missing\" is not a visible HolyC type and cannot back this aggregate definition",
+    "primary": {
+      "path": "cli/parse-aggregate-backing-error.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 7
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

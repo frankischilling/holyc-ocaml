@@ -2907,6 +2907,85 @@
 
 (rule
  (alias runtest)
+ (targets parse-aggregate-backing.human.actual)
+ (deps cli/parse-aggregate-backing.hc cli/parse-aggregate-backing.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-backing.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-backing.hc))
+   (diff
+    cli/parse-aggregate-backing.human
+    parse-aggregate-backing.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-backing.json.actual)
+ (deps cli/parse-aggregate-backing.hc cli/parse-aggregate-backing.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-backing.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-backing.hc))
+   (diff
+    cli/parse-aggregate-backing.json
+    parse-aggregate-backing.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-backing-error.human.actual
+  parse-aggregate-backing-error.human.stdout.actual)
+ (deps
+  cli/parse-aggregate-backing-error.hc
+  cli/parse-aggregate-backing-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-backing-error.human.stdout.actual
+    (with-stderr-to
+     parse-aggregate-backing-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-backing-error.hc))))
+   (diff
+    cli/parse-aggregate-backing-error.human
+    parse-aggregate-backing-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-backing-error.json.actual
+  parse-aggregate-backing-error.json.stdout.actual)
+ (deps
+  cli/parse-aggregate-backing-error.hc
+  cli/parse-aggregate-backing-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-backing-error.json.stdout.actual
+    (with-stderr-to
+     parse-aggregate-backing-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-aggregate-backing-error.hc))))
+   (diff
+    cli/parse-aggregate-backing-error.json
+    parse-aggregate-backing-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets
   parse-aggregate-definition-error.human.actual
   parse-aggregate-definition-error.human.stdout.actual)

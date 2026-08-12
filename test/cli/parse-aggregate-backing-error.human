@@ -1,0 +1,3 @@
+cli/parse-aggregate-backing-error.hc:1:1: error[HCPARSE0124]: "Missing" is not a visible HolyC type and cannot back this aggregate definition
+    1 | Missing class Unknown
+      | ^^^^^^^
