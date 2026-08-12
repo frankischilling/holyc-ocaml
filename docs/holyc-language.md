@@ -179,13 +179,13 @@ This slice parses but does not execute default, dimension, `_intern`, call, inde
 
 The AST keeps an ordinary expression statement, an empty statement, and a comma-linked sequence as different shapes. A sequence records every leading comma, every statement in source order, and every following comma. An expression records whether it ended with its own semicolon or at a sequence comma. A group containing only commas has no semantic statements but still keeps those source locations, matching the pinned loop's behavior at end of input.
 
-At top level, a known global or function name can begin an expression statement. An unresolved identifier still takes the declaration or label path used by `PrsStmt`; label and declaration syntax after a sequence comma is not implemented yet. The same sequence representation is used recursively inside compound blocks and conditional branches. Remaining control flow, local declarations, labels, and function-body statements are separate parser work. `HCPARSE0047` reports a missing expression-statement terminator. `HCPARSE0048` reports a statement form at a comma boundary that this slice cannot represent.
+At top level, a known global or function name can begin an expression statement. An unresolved identifier still takes the declaration or label path used by `PrsStmt`; label and declaration syntax after a sequence comma is not implemented yet. The same sequence representation is used recursively inside compound blocks, conditional branches, and loop bodies. Other control flow, local declarations, labels, and function-body statements are separate parser work. `HCPARSE0047` reports a missing expression-statement terminator. `HCPARSE0048` reports a statement form at a comma boundary that this slice cannot represent.
 
 ## Compound statements
 
 When `PrsStmt` sees `{`, it advances past the opening brace and calls itself until it reaches `}` or end of input. This makes empty and nested blocks ordinary statement forms. After consuming the closing brace, a comma continues the surrounding `PrsStmt` loop; without that comma, the current statement group ends.
 
-The AST records both braces, every child statement in source order, and one location spanning the complete block. A block may appear at top level or inside another block. Its children use the same expression, empty, output-literal, sequence, conditional, and block nodes as top-level statements. Include and definition expansions retain their normal origins on either brace.
+The AST records both braces, every child statement in source order, and one location spanning the complete block. A block may appear at top level or inside another block. Its children use the same expression, empty, output-literal, sequence, conditional, loop, and block nodes as top-level statements. Include and definition expansions retain their normal origins on either brace.
 
 This is a syntactic boundary only. A block does not create a semantic scope yet, and local declarations, remaining control flow, labels, function bodies, lowering, and execution remain unimplemented. `HCPARSE0049` reports end of input before a closing brace and points back to the opener. `HCPARSE0050` reports a top-level closing brace without a matching opener. A comma immediately before `}` still expects another statement and receives `HCPARSE0048`, matching the source loop rather than treating the comma as an optional trailing delimiter. The hosted parser accepts at most 256 nested blocks and reports `HCPARSE0051` beyond that point. This fixed guard is a denial-of-service limit, not a TempleOS syntax rule.
 
@@ -193,13 +193,21 @@ This is a syntactic boundary only. A block does not create a semantic scope yet,
 
 `Compiler/PrsStmt.HC:PrsIf` requires `(` immediately after `if`, parses one ordinary expression, requires `)`, and then calls `PrsStmt` for the then branch. If the following keyword is `else`, it calls `PrsStmt` again for that branch. Recursive statement parsing gives an `else` to the nearest unmatched `if` without a separate disambiguation rule.
 
-The AST records the `if` keyword, both parentheses, the condition, the complete then branch, and an optional else clause with its own keyword and branch. A branch may be an empty, expression, output, sequence, block, or nested conditional statement. Comma-linked branch statements use the same sequence node as top-level and block input. JIT and AOT modes share this syntax, and tokens supplied by an include or definition keep their normal provenance.
+The AST records the `if` keyword, both parentheses, the condition, the complete then branch, and an optional else clause with its own keyword and branch. A branch may be an empty, expression, output, sequence, block, loop, or nested conditional statement. Comma-linked branch statements use the same sequence node as top-level and block input. JIT and AOT modes share this syntax, and tokens supplied by an include or definition keep their normal provenance.
 
 This pass does not convert the condition to a Boolean, resolve names, validate branch types, build control flow, lower `IC_BR_ZERO`, or execute either branch. `HCPARSE0052` and `HCPARSE0053` report missing condition parentheses. `HCPARSE0054` and `HCPARSE0056` report missing then and else branches, while `HCPARSE0055` reports an unmatched `else`. The hosted parser accepts at most 256 nested conditional statements and reports `HCPARSE0057` beyond that point. This guard limits recursive parsing of untrusted input; it is not a TempleOS language limit.
 
+## While statements
+
+`Compiler/PrsStmt.HC:PrsWhile` requires `(` immediately after `while`, parses one ordinary expression, requires `)`, and calls `PrsStmt` for the body. The source emits a condition branch, parses the body with the loop's break label, and emits a jump back to the condition. The current parser preserves this syntax without claiming those executable semantics.
+
+The AST records the `while` keyword, both parentheses, the condition, and the complete body. A body may use any currently supported statement form, including blocks, comma-linked sequences, nested loops, and conditionals. Recursive parsing keeps the usual dangling-`else` behavior: an `else` after an `if` whose body is a loop belongs to that `if`, while an `else` inside a loop body belongs to the nearest inner `if`. JIT and AOT modes share the node, and include or definition frames keep their normal provenance.
+
+`HCPARSE0058` and `HCPARSE0059` report missing condition parentheses, while `HCPARSE0060` reports a missing body. The hosted parser accepts at most 256 nested `while` statements and reports `HCPARSE0061` beyond that point. This is a denial-of-service guard, not a TempleOS language rule. Condition truth conversion, `break`, label creation, control-flow construction, semantic checks, IR lowering, and execution remain unimplemented.
+
 ## Statement-position output literals
 
-`PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items and recursively inside compound blocks and conditional branches. HolyC permits executable top-level statements without a conventional `main`.
+`PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items and recursively inside compound blocks, conditional branches, and loop bodies. HolyC permits executable top-level statements without a conventional `main`.
 
 The marker determines how the fixed argument begins:
 
