@@ -83,6 +83,20 @@ let expect_one_aggregate_forward ast =
       Alcotest.failf "expected one aggregate forward declaration, got %d items"
         (List.length items)
 
+let expect_primitive_specifier = function
+  | Ast.Primitive_type_specifier primitive -> primitive
+  | Ast.Named_type_specifier name ->
+      Alcotest.failf "expected a primitive type, got named type %S"
+        name.spelling
+
+let expect_named_specifier expected = function
+  | Ast.Named_type_specifier name ->
+      Alcotest.(check string) "named type spelling" expected name.spelling;
+      name
+  | Ast.Primitive_type_specifier primitive ->
+      Alcotest.failf "expected named type %S, got primitive type %S" expected
+        primitive.spelling
+
 let expect_one_declaration ast =
   match ast.Ast.items with
   | [ Ast.Global_declaration declaration ] -> declaration
@@ -425,13 +439,16 @@ let supported_primitives () =
     (fun primitive item ->
       match item with
       | Ast.Global_variable variable ->
+          let type_specifier =
+            expect_primitive_specifier variable.type_specifier
+          in
           Alcotest.(check bool)
             "primitive identity" true
-            (Primitive_type.equal primitive variable.type_specifier.primitive);
+            (Primitive_type.equal primitive type_specifier.primitive);
           Alcotest.(check string)
             "primitive spelling"
             (Primitive_type.to_string primitive)
-            variable.type_specifier.spelling
+            type_specifier.spelling
       | Ast.Aggregate_forward_declaration _ ->
           Alcotest.fail
             "primitive fixture unexpectedly formed an aggregate forward \
@@ -480,9 +497,10 @@ let pointer_layers () =
   in
   List.iter2
     (fun (primitive, name, depth) (variable : Ast.global_variable) ->
+      let type_specifier = expect_primitive_specifier variable.type_specifier in
       Alcotest.(check bool)
         (name ^ " base primitive") true
-        (Primitive_type.equal primitive variable.type_specifier.primitive);
+        (Primitive_type.equal primitive type_specifier.primitive);
       Alcotest.(check string) (name ^ " identifier") name variable.name.spelling;
       Alcotest.(check (list int))
         (name ^ " ordered depths")
@@ -618,7 +636,7 @@ let comma_declaration_group () =
   Alcotest.(check bool)
     "shared primitive" true
     (Primitive_type.equal Primitive_type.I64
-       declaration.type_specifier.primitive);
+       (expect_primitive_specifier declaration.type_specifier).primitive);
   Alcotest.(check (list string))
     "names"
     [ "first"; "second"; "third" ]
@@ -1869,6 +1887,339 @@ let deterministic_aggregate_forward_dumps () =
     "JSON aggregate kinds" [ "class"; "union" ]
     (List.map (fun item -> item |> member "aggregate_kind" |> to_string) items)
 
+let named_type_source_behavior () =
+  let statements = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains statements fragment))
+    [
+      ( "named types use class and internal type symbols",
+        "tmpex->type & (HTT_CLASS|HTT_INTERNAL_TYPE)" );
+      ( "function locals use the shared variable parser",
+        "PrsVarLst(cc,cc->htc.fun,PRS0_NULL|PRS1_LOCAL_VAR)" );
+      ( "globals use the shared global parser",
+        "PrsGlblVarLst(cc,PRS0_NULL|PRS1_NULL,tmpex,0,fsp_flags)" );
+    ];
+  let variables = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variables fragment))
+    [
+      ("PrsType validates class symbols", "Invalid class at");
+      ("PrsType parses pointer stars", "while (cc->token=='*')");
+      ("PrsType parses function pointers", "ptr_stars_cnt=1; //fun_ptr");
+      ("PrsType parses array suffixes", "PrsArrayDims(cc,mode,tmpad);");
+    ];
+  let externs = pinned "Compiler/CExts.HC" in
+  Alcotest.(check bool)
+    "compiler externs use named returns and parameters" true
+    (contains externs
+       "extern CHashClass *PrsType(CCmpCtrl *cc,CHashClass **_tmpc1,")
+
+let direct_named_type_declarations () =
+  let source =
+    "extern class Node;\n\
+     extern union Payload;\n\
+     Node *head,nodes[2];\n\
+     extern Node *Find(Node *node,Payload *payload);\n\
+     extern U0 Walk(Node (*factory)(Payload *payload));\n\
+     Node Make(Node input)\n\
+     {\n\
+     Node local;\n\
+     static Payload cached;\n\
+     local(Node *);\n\
+     }"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [
+   Ast.Aggregate_forward_declaration _;
+   Ast.Aggregate_forward_declaration _;
+   Ast.Global_declaration globals;
+   Ast.Function_prototype find;
+   Ast.Function_prototype walk;
+   Ast.Function_definition make;
+  ] -> (
+      ignore (expect_named_specifier "Node" globals.type_specifier);
+      Alcotest.(check (list string))
+        "named global declarators" [ "head"; "nodes" ]
+        (List.map
+           (fun (declarator : Ast.global_declarator) ->
+             declarator.name.spelling)
+           globals.declarators);
+      ignore (expect_named_specifier "Node" find.return_type);
+      Alcotest.(check string) "named return function" "Find" find.name.spelling;
+      ignore
+        (expect_named_specifier "Node"
+           (List.nth find.parameters 0).type_specifier);
+      ignore
+        (expect_named_specifier "Payload"
+           (List.nth find.parameters 1).type_specifier);
+      let factory = List.hd walk.parameters in
+      ignore (expect_named_specifier "Node" factory.type_specifier);
+      let function_pointer = expect_function_pointer factory in
+      ignore
+        (expect_named_specifier "Payload"
+           (List.hd function_pointer.signature_parameters).type_specifier);
+      ignore (expect_named_specifier "Node" make.return_type);
+      ignore
+        (expect_named_specifier "Node" (List.hd make.parameters).type_specifier);
+      let body = expect_function_body make |> expect_block_statement in
+      let statements =
+        match body.block_statements with
+        | [ Ast.Sequence_statement sequence ] ->
+            List.map
+              (fun element -> element.Ast.sequence_statement)
+              sequence.sequence_elements
+        | statements -> statements
+      in
+      match statements with
+      | [ local_statement; static_statement; cast_statement ] ->
+          let local = expect_local_declaration local_statement in
+          let cached = expect_local_declaration static_statement in
+          ignore (expect_named_specifier "Node" local.local_type_specifier);
+          ignore (expect_named_specifier "Payload" cached.local_type_specifier);
+          let cast =
+            (expect_expression_statement cast_statement)
+              .expression_statement_expression |> expect_postfix_cast_expression
+          in
+          ignore (expect_named_specifier "Node" cast.cast_type);
+          Alcotest.(check (list int))
+            "named cast pointer depth" [ 1 ]
+            (List.map
+               (fun (pointer : Ast.pointer_layer) -> pointer.depth)
+               cast.cast_pointer_layers)
+      | statements ->
+          Alcotest.failf
+            "expected two named locals and a cast, got %d statements"
+            (List.length statements))
+  | items ->
+      Alcotest.failf "expected six named type items, got %d" (List.length items)
+
+let pinned_cexts_named_type_slice () =
+  let forward_names =
+    [
+      "CDoc";
+      "CDocEntry";
+      "CTask";
+      "CHashSrcSym";
+      "CCmpCtrl";
+      "CCodeMisc";
+      "CIntermediateCode";
+      "COptReg";
+      "CDbgInfo";
+      "CHashClass";
+      "CHashFun";
+    ]
+  in
+  let forwards =
+    List.map (fun name -> "extern class " ^ name ^ ";") forward_names
+  in
+  let extern_slice =
+    pinned "Compiler/CExts.HC" |> String.split_on_char '\n'
+    |> List.filteri (fun index _ -> index < 27)
+    |> String.concat "\n"
+  in
+  let source = String.concat "\n" (forwards @ [ extern_slice ]) in
+  let _, _, output =
+    parse_string ~path:"Compiler/CExts.named-types.HC"
+      ~compilation_mode:Preprocessor.Aot source
+  in
+  let items = (expect_ast output).items in
+  Alcotest.(check int)
+    "forward declarations plus the unfiltered extern slice" 35
+    (List.length items);
+  let prototypes =
+    List.filter_map
+      (function
+        | Ast.Function_prototype prototype -> Some prototype
+        | _ -> None)
+      items
+  in
+  Alcotest.(check int)
+    "complete declarations in the slice" 24 (List.length prototypes);
+  let find name =
+    List.find
+      (fun (prototype : Ast.function_prototype) ->
+        String.equal prototype.name.spelling name)
+      prototypes
+  in
+  let doc_new = find "DocNew" in
+  ignore (expect_named_specifier "CDoc" doc_new.return_type);
+  ignore
+    (expect_named_specifier "CTask"
+       (List.nth doc_new.parameters 1).type_specifier);
+  let prs_class = find "PrsClass" in
+  ignore (expect_named_specifier "CHashClass" prs_class.return_type);
+  ignore
+    (expect_named_specifier "CCmpCtrl"
+       (List.hd prs_class.parameters).type_specifier)
+
+let named_type_modes_and_visibility () =
+  List.iter
+    (fun mode ->
+      let session, _, output =
+        parse_string ~compilation_mode:mode
+          "extern class Node;\n\
+           extern Node *current;\n\
+           #ifdef current\n\
+           U8 selected;\n\
+           #endif"
+      in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_forward_declaration _;
+       Ast.Global_variable current;
+       Ast.Global_variable selected;
+      ] -> (
+          ignore (expect_named_specifier "Node" current.type_specifier);
+          Alcotest.(check string)
+            "conditional observes the named declaration" "selected"
+            selected.name.spelling;
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) "current"
+          with
+          | Symbol_visibility.Present entry ->
+              Alcotest.(check bool)
+                "named declaration publishes a global" true
+                (Symbol_visibility.kind entry
+                = Symbol_visibility.Global_variable)
+          | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.fail "named declaration did not publish its global")
+      | items ->
+          Alcotest.failf "expected a forward and two globals, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, import_output =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "extern union Payload;\nimport Payload *packet;"
+  in
+  match (expect_ast import_output).items with
+  | [ Ast.Aggregate_forward_declaration _; Ast.Global_variable packet ] ->
+      ignore (expect_named_specifier "Payload" packet.type_specifier)
+  | items ->
+      Alcotest.failf "expected a union forward and AOT import, got %d items"
+        (List.length items)
+
+let named_type_provenance () =
+  let session, root, output =
+    parse_string "extern class Node;\n#define TYPE Node\nTYPE *generated;"
+  in
+  let generated =
+    match (expect_ast output).items with
+    | [ Ast.Aggregate_forward_declaration _; Ast.Global_variable variable ] ->
+        variable
+    | items ->
+        Alcotest.failf "expected a forward and generated global, got %d items"
+          (List.length items)
+  in
+  let named = expect_named_specifier "Node" generated.type_specifier in
+  Alcotest.(check bool)
+    "generated named type uses another source frame" false
+    (Source_id.equal named.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated named type retains its invocation" true
+    (Option.is_some named.location.generated_from);
+  Alcotest.(check bool)
+    "generated named type retains its definition" true
+    (Option.is_some named.location.defined_at);
+  let open Yojson.Safe.Util in
+  let type_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.nth
+    |> fun get -> get 1 |> member "type"
+  in
+  Alcotest.(check string)
+    "JSON named type kind" "named"
+    (type_json |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON named type retains its definition" true
+    (type_json |> member "location" |> member "defined_at" <> `Null)
+
+let named_type_failures_and_shadowing () =
+  let session, _, missing_output = parse_string "UnknownType *value;" in
+  Alcotest.(check bool)
+    "unresolved type has no AST" true
+    (Option.is_none missing_output.ast);
+  Alcotest.(check string)
+    "unresolved type diagnostic" "HCPARSE0001"
+    (first_diagnostic missing_output).code;
+  (match
+     Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "value"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "a declaration with an unresolved type published its name");
+  let _, _, cast_output = parse_string "extern class Node;\n(Node *)value;" in
+  Alcotest.(check bool)
+    "prefix named cast has no AST" true
+    (Option.is_none cast_output.ast);
+  Alcotest.(check string)
+    "prefix named cast diagnostic" "HCPARSE0029"
+    (first_diagnostic cast_output).code;
+  let _, _, shadow_output =
+    parse_string
+      "extern class Node;\nU0 Shadow()\n{\nI64 Node;\nNode *value;\n}"
+  in
+  let definition =
+    match (expect_ast shadow_output).items with
+    | [ Ast.Aggregate_forward_declaration _; Ast.Function_definition value ] ->
+        value
+    | items ->
+        Alcotest.failf "expected a forward and shadow function, got %d items"
+          (List.length items)
+  in
+  let body = expect_function_body definition |> expect_block_statement in
+  let sequence = List.hd body.block_statements |> expect_statement_sequence in
+  match sequence.sequence_elements with
+  | [ local; expression ] ->
+      ignore (expect_local_declaration local.sequence_statement);
+      let product =
+        (expect_expression_statement expression.sequence_statement)
+          .expression_statement_expression |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        "shadowed class stays an expression" "Node"
+        (expect_identifier_expression product.binary_left).spelling;
+      Alcotest.(check string)
+        "following identifier stays the right operand" "value"
+        (expect_identifier_expression product.binary_right).spelling
+  | elements ->
+      Alcotest.failf "expected a local and shadowed expression, got %d elements"
+        (List.length elements)
+
+let deterministic_named_type_dumps () =
+  let session, _, output =
+    parse_string "extern class Node;\nextern Node *current;"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "named human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "named JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the named type" true
+    (contains human "type named spelling=\"Node\"");
+  let open Yojson.Safe.Util in
+  let named =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.nth
+    |> fun get -> get 1 |> member "type"
+  in
+  Alcotest.(check string)
+    "named JSON kind" "named"
+    (named |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "named JSON spelling" "Node"
+    (named |> member "spelling" |> to_string)
+
 let alternate_binding_source_behavior () =
   let parser_source = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -2189,7 +2540,8 @@ let intern_target_expression_registry () =
   | _ -> Alcotest.fail "expected a grouped internal target operand");
   Alcotest.(check bool)
     "the following type remains the function return type" true
-    (Primitive_type.equal Primitive_type.I64 prototype.return_type.primitive)
+    (Primitive_type.equal Primitive_type.I64
+       (expect_primitive_specifier prototype.return_type).primitive)
 
 let intern_binding_provenance () =
   let session, root, output =
@@ -4039,10 +4391,11 @@ let postfix_cast_types_and_shapes () =
       Alcotest.(check bool)
         (spelling ^ " cast primitive")
         true
-        (Primitive_type.equal primitive cast.cast_type.primitive);
+        (Primitive_type.equal primitive
+           (expect_primitive_specifier cast.cast_type).primitive);
       Alcotest.(check string)
         (spelling ^ " cast spelling")
-        spelling cast.cast_type.spelling;
+        spelling (expect_primitive_specifier cast.cast_type).spelling;
       Alcotest.(check int)
         (spelling ^ " has no pointer stars")
         0
@@ -4219,7 +4572,7 @@ let postfix_cast_provenance () =
         (Option.is_some location.defined_at))
     [
       ("opening parenthesis", cast.cast_opening_parenthesis);
-      ("target type", cast.cast_type.location);
+      ("target type", Ast.type_specifier_location cast.cast_type);
       ("pointer star", pointer.location);
       ("closing parenthesis", cast.cast_closing_parenthesis);
     ];
@@ -4755,11 +5108,11 @@ let sizeof_failures () =
         "Decremented",
         "HCPARSE0034",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern sizeof(I64)(Widget) I64 Casted();",
         "Casted",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_sizeof_dumps () =
@@ -5163,11 +5516,11 @@ let offset_failures () =
         "Decremented",
         "HCPARSE0039",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern offset(Packet.field)(Widget) I64 Casted();",
         "Casted",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_offset_dumps () =
@@ -5545,10 +5898,10 @@ let defined_failures () =
         "_intern defined(Name)-- I64 Decremented();",
         "HCPARSE0042",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern defined(Name)(Widget) I64 Casted();",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_defined_dumps () =
@@ -7444,7 +7797,7 @@ let function_definition_provenance () =
   let generated_locations =
     [
       (List.hd definition.modifiers).location;
-      definition.return_type.location;
+      Ast.type_specifier_location definition.return_type;
       definition.name.location;
       definition.opening_parenthesis;
       definition.closing_parenthesis;
@@ -8021,7 +8374,7 @@ let local_declaration_provenance () =
   let declarator = List.hd declaration.local_declarators in
   let generated_locations =
     [
-      declaration.local_type_specifier.location;
+      Ast.type_specifier_location declaration.local_type_specifier;
       (List.hd declarator.local_register_qualifiers).location;
       (Option.get
          (List.hd declarator.local_register_qualifiers).explicit_register)
@@ -8167,7 +8520,8 @@ let order_and_spans () =
   let first = List.hd variables in
   Alcotest.(check int) "declaration start" 0 first.location.span.start;
   Alcotest.(check int) "declaration stop" 10 first.location.span.stop;
-  Alcotest.(check int) "type stop" 3 first.type_specifier.location.span.stop;
+  Alcotest.(check int)
+    "type stop" 3 (Ast.type_specifier_location first.type_specifier).span.stop;
   Alcotest.(check int) "name start" 4 first.name.location.span.start;
   Alcotest.(check int) "semicolon start" 9 first.semicolon.start;
   let position =
@@ -8183,15 +8537,14 @@ let order_and_spans () =
 let definition_backed_type () =
   let _, root, output = parse_string "#define T I64\nT count;" in
   let variable = expect_ast output |> expect_one_global in
+  let type_specifier = expect_primitive_specifier variable.type_specifier in
   Alcotest.(check bool)
     "definition resolves to I64" true
-    (Primitive_type.equal Primitive_type.I64 variable.type_specifier.primitive);
-  Alcotest.(check string)
-    "replacement spelling" "I64" variable.type_specifier.spelling;
+    (Primitive_type.equal Primitive_type.I64 type_specifier.primitive);
+  Alcotest.(check string) "replacement spelling" "I64" type_specifier.spelling;
   Alcotest.(check bool)
     "type is generated from a separate frame" false
-    (Source_id.equal variable.type_specifier.location.span.source
-       (Source_file.id root))
+    (Source_id.equal type_specifier.location.span.source (Source_file.id root))
 
 let included_declaration () =
   with_temp_directory (fun root ->
@@ -12457,6 +12810,19 @@ let tests =
       aggregate_forward_failures;
     Alcotest.test_case "deterministic aggregate forward dumps" `Quick
       deterministic_aggregate_forward_dumps;
+    Alcotest.test_case "pinned named type behavior" `Quick
+      named_type_source_behavior;
+    Alcotest.test_case "direct named type declarations" `Quick
+      direct_named_type_declarations;
+    Alcotest.test_case "pinned compiler extern named type slice" `Quick
+      pinned_cexts_named_type_slice;
+    Alcotest.test_case "named type modes and visibility" `Quick
+      named_type_modes_and_visibility;
+    Alcotest.test_case "named type provenance" `Quick named_type_provenance;
+    Alcotest.test_case "named type failures and shadowing" `Quick
+      named_type_failures_and_shadowing;
+    Alcotest.test_case "deterministic named type dumps" `Quick
+      deterministic_named_type_dumps;
     Alcotest.test_case "pinned alternate-name binding behavior" `Quick
       alternate_binding_source_behavior;
     Alcotest.test_case "direct alternate-name bindings" `Quick

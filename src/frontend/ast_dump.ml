@@ -159,11 +159,28 @@ let print_register_qualifiers buffer sources ~indent ~position qualifiers =
           qualifier.explicit_register))
     qualifiers
 
-let print_type buffer sources ~indent primitive =
-  Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
-    (Sema.Primitive_type.to_string primitive.Ast.primitive)
-    primitive.spelling
-    (location_text sources primitive.location)
+let print_type buffer sources ~indent = function
+  | Ast.Primitive_type_specifier primitive ->
+      Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
+        (Sema.Primitive_type.to_string primitive.Ast.primitive)
+        primitive.spelling
+        (location_text sources primitive.location)
+  | Ast.Named_type_specifier name ->
+      Printf.bprintf buffer "%stype named spelling=%S span=%s\n" indent
+        name.Ast.spelling
+        (location_text sources name.location)
+
+let print_return_type buffer sources ~indent = function
+  | Ast.Primitive_type_specifier primitive ->
+      Printf.bprintf buffer "%sreturn_type primitive=%s spelling=%S span=%s\n"
+        indent
+        (Sema.Primitive_type.to_string primitive.Ast.primitive)
+        primitive.spelling
+        (location_text sources primitive.location)
+  | Ast.Named_type_specifier name ->
+      Printf.bprintf buffer "%sreturn_type named spelling=%S span=%s\n" indent
+        name.Ast.spelling
+        (location_text sources name.location)
 
 let print_pointer_layers buffer sources ~indent pointer_layers =
   List.iter
@@ -1069,11 +1086,7 @@ let human sources module_ =
             (Option.is_some prototype.variadic);
           print_modifiers buffer sources ~indent:"    " prototype.modifiers;
           print_binding buffer sources ~indent:"    " (Some prototype.binding);
-          Printf.bprintf buffer
-            "    return_type primitive=%s spelling=%S span=%s\n"
-            (Sema.Primitive_type.to_string prototype.return_type.primitive)
-            prototype.return_type.spelling
-            (location_text sources prototype.return_type.location);
+          print_return_type buffer sources ~indent:"    " prototype.return_type;
           print_pointer_layers buffer sources ~indent:"    "
             prototype.return_pointer_layers;
           Printf.bprintf buffer "    name spelling=%S span=%s\n"
@@ -1099,11 +1112,7 @@ let human sources module_ =
             (Option.is_some definition.variadic)
             (if Option.is_some definition.body then "present" else "absent");
           print_modifiers buffer sources ~indent:"    " definition.modifiers;
-          Printf.bprintf buffer
-            "    return_type primitive=%s spelling=%S span=%s\n"
-            (Sema.Primitive_type.to_string definition.return_type.primitive)
-            definition.return_type.spelling
-            (location_text sources definition.return_type.location);
+          print_return_type buffer sources ~indent:"    " definition.return_type;
           print_pointer_layers buffer sources ~indent:"    "
             definition.return_pointer_layers;
           Printf.bprintf buffer "    name spelling=%S span=%s\n"
@@ -1177,6 +1186,17 @@ let primitive_to_yojson sources primitive =
       ("spelling", `String primitive.spelling);
       ("location", location_to_yojson sources primitive.location);
     ]
+
+let type_to_yojson sources = function
+  | Ast.Primitive_type_specifier primitive ->
+      primitive_to_yojson sources primitive
+  | Ast.Named_type_specifier name ->
+      `Assoc
+        [
+          ("kind", `String "named");
+          ("spelling", `String name.Ast.spelling);
+          ("location", location_to_yojson sources name.location);
+        ]
 
 let identifier_to_yojson sources (identifier : Ast.identifier) =
   `Assoc
@@ -1463,7 +1483,7 @@ let rec expression_to_yojson sources = function
            ("operand", expression_to_yojson sources cast.cast_operand);
            ( "opening_parenthesis",
              location_to_yojson sources cast.cast_opening_parenthesis );
-           ("target_type", primitive_to_yojson sources cast.cast_type);
+           ("target_type", type_to_yojson sources cast.cast_type);
          ]
         @ pointer_layer_fields sources cast.cast_pointer_layers
         @ [
@@ -1813,8 +1833,7 @@ let rec statement_to_yojson sources = function
          ]
         @ modifier_fields sources declaration.local_modifiers
         @ [
-            ( "type",
-              primitive_to_yojson sources declaration.local_type_specifier );
+            ("type", type_to_yojson sources declaration.local_type_specifier);
             ( "declarators",
               `List
                 (List.map declarator_to_yojson declaration.local_declarators) );
@@ -2050,7 +2069,7 @@ let parameter_default_to_yojson sources (default : Ast.parameter_default) =
 let rec parameter_to_yojson sources (parameter : Ast.function_parameter) =
   `Assoc
     (register_qualifier_fields sources parameter.register_qualifiers
-    @ [ ("type", primitive_to_yojson sources parameter.type_specifier) ]
+    @ [ ("type", type_to_yojson sources parameter.type_specifier) ]
     @ pointer_layer_fields sources parameter.pointer_layers
     @ (match parameter.function_pointer with
       | None -> (
@@ -2139,7 +2158,7 @@ let item_to_yojson sources = function
         ([ ("kind", `String "global_variable") ]
         @ modifier_fields sources variable.modifiers
         @ binding_fields sources variable.binding
-        @ [ ("type", primitive_to_yojson sources variable.type_specifier) ]
+        @ [ ("type", type_to_yojson sources variable.type_specifier) ]
         @ pointer_layer_fields sources variable.pointer_layers
         @ [ ("name", identifier_to_yojson sources variable.name) ]
         @ array_dimension_fields sources variable.array_dimensions
@@ -2153,7 +2172,7 @@ let item_to_yojson sources = function
         @ modifier_fields sources declaration.modifiers
         @ binding_fields sources declaration.binding
         @ [
-            ("type", primitive_to_yojson sources declaration.type_specifier);
+            ("type", type_to_yojson sources declaration.type_specifier);
             ( "declarators",
               `List
                 (List.map
@@ -2166,7 +2185,7 @@ let item_to_yojson sources = function
         ([ ("kind", `String "function_prototype") ]
         @ modifier_fields sources prototype.modifiers
         @ [ ("binding", binding_to_yojson sources prototype.binding) ]
-        @ [ ("return_type", primitive_to_yojson sources prototype.return_type) ]
+        @ [ ("return_type", type_to_yojson sources prototype.return_type) ]
         @ pointer_layer_fields sources prototype.return_pointer_layers
         @ [
             ("name", identifier_to_yojson sources prototype.name);
@@ -2190,9 +2209,7 @@ let item_to_yojson sources = function
       `Assoc
         ([ ("kind", `String "function_definition") ]
         @ modifier_fields sources definition.modifiers
-        @ [
-            ("return_type", primitive_to_yojson sources definition.return_type);
-          ]
+        @ [ ("return_type", type_to_yojson sources definition.return_type) ]
         @ pointer_layer_fields sources definition.return_pointer_layers
         @ [
             ("name", identifier_to_yojson sources definition.name);

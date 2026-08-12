@@ -1,0 +1,43 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-named-types.hc:1:1..5:1 items=4
+  aggregate_forward_declaration aggregate_kind=class span=cli/parse-named-types.hc:1:1..1:19
+    binding kind=extern spelling="extern" span=cli/parse-named-types.hc:1:1..1:7
+    aggregate_keyword spelling="class" span=cli/parse-named-types.hc:1:8..1:13
+    name spelling="Node" span=cli/parse-named-types.hc:1:14..1:18
+    semicolon span=cli/parse-named-types.hc:1:18..1:19
+  aggregate_forward_declaration aggregate_kind=union span=cli/parse-named-types.hc:2:1..2:22
+    binding kind=extern spelling="extern" span=cli/parse-named-types.hc:2:1..2:7
+    aggregate_keyword spelling="union" span=cli/parse-named-types.hc:2:8..2:13
+    name spelling="Payload" span=cli/parse-named-types.hc:2:14..2:21
+    semicolon span=cli/parse-named-types.hc:2:21..2:22
+  global_declaration span=cli/parse-named-types.hc:3:1..3:21 declarators=2
+    type named spelling="Node" span=cli/parse-named-types.hc:3:1..3:5
+    declarator index=0 span=cli/parse-named-types.hc:3:6..3:12
+      pointer_layer depth=1 spelling="*" span=cli/parse-named-types.hc:3:6..3:7
+      name spelling="head" span=cli/parse-named-types.hc:3:7..3:11
+      delimiter kind=comma spelling="," span=cli/parse-named-types.hc:3:11..3:12
+    declarator index=1 span=cli/parse-named-types.hc:3:12..3:21
+      name spelling="nodes" span=cli/parse-named-types.hc:3:12..3:17
+      array_dimension index=0 sized=true span=cli/parse-named-types.hc:3:17..3:20
+        opening_bracket span=cli/parse-named-types.hc:3:17..3:18
+        expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-named-types.hc:3:18..3:19
+        closing_bracket span=cli/parse-named-types.hc:3:19..3:20
+      delimiter kind=semicolon spelling=";" span=cli/parse-named-types.hc:3:20..3:21
+  function_prototype span=cli/parse-named-types.hc:4:1..4:48 parameters=2 variadic=false
+    binding kind=extern spelling="extern" span=cli/parse-named-types.hc:4:1..4:7
+    return_type named spelling="Node" span=cli/parse-named-types.hc:4:8..4:12
+    pointer_layer depth=1 spelling="*" span=cli/parse-named-types.hc:4:13..4:14
+    name spelling="Find" span=cli/parse-named-types.hc:4:14..4:18
+    opening_parenthesis span=cli/parse-named-types.hc:4:18..4:19
+    parameter index=0 span=cli/parse-named-types.hc:4:19..4:30
+      type named spelling="Node" span=cli/parse-named-types.hc:4:19..4:23
+      pointer_layer depth=1 spelling="*" span=cli/parse-named-types.hc:4:24..4:25
+      name spelling="node" span=cli/parse-named-types.hc:4:25..4:29
+      delimiter kind=comma spelling="," span=cli/parse-named-types.hc:4:29..4:30
+    parameter index=1 span=cli/parse-named-types.hc:4:30..4:46
+      type named spelling="Payload" span=cli/parse-named-types.hc:4:30..4:37
+      pointer_layer depth=1 spelling="*" span=cli/parse-named-types.hc:4:38..4:39
+      name spelling="payload" span=cli/parse-named-types.hc:4:39..4:46
+    closing_parenthesis span=cli/parse-named-types.hc:4:46..4:47
+    semicolon span=cli/parse-named-types.hc:4:47..4:48

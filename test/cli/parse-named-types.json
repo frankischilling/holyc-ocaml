@@ -1,0 +1,1263 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-named-types.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 110
+    },
+    "items": [
+      {
+        "kind": "aggregate_forward_declaration",
+        "aggregate_kind": "class",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              }
+            ]
+          }
+        },
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 1,
+                "column": 8,
+                "source_id": 0,
+                "start": 7,
+                "stop": 12
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Node",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 17
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 1,
+                "column": 14,
+                "source_id": 0,
+                "start": 13,
+                "stop": 17
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 1,
+            "column": 18,
+            "source_id": 0,
+            "start": 17,
+            "stop": 18
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 18
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_forward_declaration",
+        "aggregate_kind": "union",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 19,
+              "stop": 25
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 19,
+                "stop": 25
+              }
+            ]
+          }
+        },
+        "aggregate_keyword": {
+          "spelling": "union",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 26,
+              "stop": 31
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 26,
+                "stop": 31
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Payload",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 14,
+              "source_id": 0,
+              "start": 32,
+              "stop": 39
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 2,
+                "column": 14,
+                "source_id": 0,
+                "start": 32,
+                "stop": 39
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 2,
+            "column": 21,
+            "source_id": 0,
+            "start": 39,
+            "stop": 40
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 21,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 19,
+            "stop": 40
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 19,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 26,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 14,
+              "source_id": 0,
+              "start": 32,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 2,
+              "column": 21,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            }
+          ]
+        }
+      },
+      {
+        "kind": "global_declaration",
+        "type": {
+          "kind": "named",
+          "spelling": "Node",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 41,
+              "stop": 45
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 41,
+                "stop": 45
+              }
+            ]
+          }
+        },
+        "declarators": [
+          {
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 46,
+                    "stop": 47
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 46,
+                      "stop": 47
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "head",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 51
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 47,
+                    "stop": 51
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 52
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 52
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-named-types.hc",
+                "line": 3,
+                "column": 6,
+                "source_id": 0,
+                "start": 46,
+                "stop": 52
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 46,
+                  "stop": 47
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 51
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 52
+                }
+              ]
+            }
+          },
+          {
+            "name": {
+              "spelling": "nodes",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 52,
+                  "stop": 57
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 52,
+                    "stop": 57
+                  }
+                ]
+              }
+            },
+            "array_dimensions": [
+              {
+                "opening_bracket": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 57,
+                    "stop": 58
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 57,
+                      "stop": 58
+                    }
+                  ]
+                },
+                "expression": {
+                  "kind": "integer_literal",
+                  "spelling": "2",
+                  "value": "0x0000000000000002",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 58,
+                      "stop": 59
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-named-types.hc",
+                        "line": 3,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 58,
+                        "stop": 59
+                      }
+                    ]
+                  }
+                },
+                "closing_bracket": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 59,
+                    "stop": 60
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 59,
+                      "stop": 60
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 57,
+                    "stop": 60
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 57,
+                      "stop": 58
+                    },
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 58,
+                      "stop": 59
+                    },
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 3,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 59,
+                      "stop": 60
+                    }
+                  ]
+                }
+              }
+            ],
+            "delimiter": {
+              "kind": "semicolon",
+              "spelling": ";",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 61
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 3,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 61
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-named-types.hc",
+                "line": 3,
+                "column": 12,
+                "source_id": 0,
+                "start": 52,
+                "stop": 61
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 52,
+                  "stop": 57
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 57,
+                  "stop": 58
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 58,
+                  "stop": 59
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 59,
+                  "stop": 60
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 3,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 61
+                }
+              ]
+            }
+          }
+        ],
+        "location": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 41,
+            "stop": 61
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 41,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 6,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 47,
+              "stop": 51
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 11,
+              "source_id": 0,
+              "start": 51,
+              "stop": 52
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 12,
+              "source_id": 0,
+              "start": 52,
+              "stop": 57
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 17,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 18,
+              "source_id": 0,
+              "start": 58,
+              "stop": 59
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 19,
+              "source_id": 0,
+              "start": 59,
+              "stop": 60
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 3,
+              "column": 20,
+              "source_id": 0,
+              "start": 60,
+              "stop": 61
+            }
+          ]
+        }
+      },
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 62,
+              "stop": 68
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 62,
+                "stop": 68
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "named",
+          "spelling": "Node",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 8,
+              "source_id": 0,
+              "start": 69,
+              "stop": 73
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 8,
+                "source_id": 0,
+                "start": 69,
+                "stop": 73
+              }
+            ]
+          }
+        },
+        "pointer_layers": [
+          {
+            "depth": 1,
+            "spelling": "*",
+            "location": {
+              "span": {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 13,
+                "source_id": 0,
+                "start": 74,
+                "stop": 75
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 75
+                }
+              ]
+            }
+          }
+        ],
+        "name": {
+          "spelling": "Find",
+          "location": {
+            "span": {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 14,
+              "source_id": 0,
+              "start": 75,
+              "stop": 79
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 14,
+                "source_id": 0,
+                "start": 75,
+                "stop": 79
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 4,
+            "column": 18,
+            "source_id": 0,
+            "start": 79,
+            "stop": 80
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 18,
+              "source_id": 0,
+              "start": 79,
+              "stop": 80
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "named",
+              "spelling": "Node",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 80,
+                  "stop": 84
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 80,
+                    "stop": 84
+                  }
+                ]
+              }
+            },
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 85,
+                    "stop": 86
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 4,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 85,
+                      "stop": 86
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "node",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 90
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 86,
+                    "stop": 90
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 90,
+                  "stop": 91
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 90,
+                    "stop": 91
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 19,
+                "source_id": 0,
+                "start": 80,
+                "stop": 91
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 80,
+                  "stop": 84
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 85,
+                  "stop": 86
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 90
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 90,
+                  "stop": 91
+                }
+              ]
+            }
+          },
+          {
+            "type": {
+              "kind": "named",
+              "spelling": "Payload",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 98
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 91,
+                    "stop": 98
+                  }
+                ]
+              }
+            },
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 38,
+                    "source_id": 0,
+                    "start": 99,
+                    "stop": 100
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-named-types.hc",
+                      "line": 4,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 99,
+                      "stop": 100
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "payload",
+              "location": {
+                "span": {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 107
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-named-types.hc",
+                    "line": 4,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 100,
+                    "stop": 107
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-named-types.hc",
+                "line": 4,
+                "column": 30,
+                "source_id": 0,
+                "start": 91,
+                "stop": 107
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 98
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 99,
+                  "stop": 100
+                },
+                {
+                  "path": "cli/parse-named-types.hc",
+                  "line": 4,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 107
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 4,
+            "column": 46,
+            "source_id": 0,
+            "start": 107,
+            "stop": 108
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 46,
+              "source_id": 0,
+              "start": 107,
+              "stop": 108
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 4,
+            "column": 47,
+            "source_id": 0,
+            "start": 108,
+            "stop": 109
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 47,
+              "source_id": 0,
+              "start": 108,
+              "stop": 109
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-named-types.hc",
+            "line": 4,
+            "column": 1,
+            "source_id": 0,
+            "start": 62,
+            "stop": 109
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 62,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 8,
+              "source_id": 0,
+              "start": 69,
+              "stop": 73
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 13,
+              "source_id": 0,
+              "start": 74,
+              "stop": 75
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 14,
+              "source_id": 0,
+              "start": 75,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 18,
+              "source_id": 0,
+              "start": 79,
+              "stop": 80
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 19,
+              "source_id": 0,
+              "start": 80,
+              "stop": 84
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 24,
+              "source_id": 0,
+              "start": 85,
+              "stop": 86
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 25,
+              "source_id": 0,
+              "start": 86,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 29,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 30,
+              "source_id": 0,
+              "start": 91,
+              "stop": 98
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 38,
+              "source_id": 0,
+              "start": 99,
+              "stop": 100
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 39,
+              "source_id": 0,
+              "start": 100,
+              "stop": 107
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 46,
+              "source_id": 0,
+              "start": 107,
+              "stop": 108
+            },
+            {
+              "path": "cli/parse-named-types.hc",
+              "line": 4,
+              "column": 47,
+              "source_id": 0,
+              "start": 108,
+              "stop": 109
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -474,13 +474,39 @@ let pointer_definition_trace pointer_items =
       append_unique_related trace item.context.definition_trace)
     [] pointer_items
 
-let type_spelling primitive_spelling pointer_layers =
-  primitive_spelling ^ String.make (List.length pointer_layers) '*'
+let type_spelling base_spelling pointer_layers =
+  base_spelling ^ String.make (List.length pointer_layers) '*'
 
 let primitive_type_of_token token =
   match token.Token.kind with
   | Token_kind.Identifier -> Sema.Primitive_type.of_spelling (token_text token)
   | _ -> None
+
+let token_is_named_type cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols
+          (token_text token)
+      with
+      | Symbol_visibility.Present entry ->
+          Symbol_visibility.kind entry = Symbol_visibility.Class
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local -> false)
+  | _ -> false
+
+let type_specifier_of_item cursor item =
+  match primitive_type_of_token item.token with
+  | Some primitive ->
+      Some
+        (Ast.Primitive_type_specifier
+           (Ast.make_primitive_type ~primitive ~spelling:item.token.raw
+              ~location:(token_location item.token)))
+  | None when token_is_named_type cursor item.token ->
+      Some
+        (Ast.Named_type_specifier
+           (Ast.make_identifier ~spelling:item.token.raw
+              ~location:(token_location item.token)))
+  | None -> None
 
 let publish_global cursor (name : Ast.identifier) =
   ignore
@@ -587,7 +613,7 @@ let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
       in
       parse_modifiers cursor ({ node; item } :: modifiers_rev)
 
-let parse_declarator_prefix cursor primitive_spelling =
+let parse_declarator_prefix cursor base_spelling =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) ->
@@ -604,7 +630,7 @@ let parse_declarator_prefix cursor primitive_spelling =
         report ~secondary:pointer_trace cursor name_item ~code:"HCPARSE0002"
           ~message:
             (Printf.sprintf "expected an identifier after type %S, but found %s"
-               (type_spelling primitive_spelling pointer_layers)
+               (type_spelling base_spelling pointer_layers)
                (token_description name_item.token));
         recover_declaration cursor;
         None)
@@ -901,7 +927,7 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
       let first = peek cursor in
-      match primitive_type_of_token first.token with
+      match type_specifier_of_item cursor first with
       | Some _ ->
           expression_failure cursor first ~code:"HCPARSE0029"
             ~message:
@@ -1474,12 +1500,8 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
   parse_arguments [] [] false
 
 and parse_postfix_cast_suffix cursor ~context (operand : parsed_expression)
-    opening primitive : parsed_expression option =
+    opening type_specifier : parsed_expression option =
   let type_item = take cursor in
-  let type_specifier =
-    Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-      ~location:(token_location type_item.token)
-  in
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) ->
@@ -1691,11 +1713,12 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
         let first = peek cursor in
         let suffix =
           match
-            (direct_function_shape, primitive_type_of_token first.token)
+            (direct_function_shape, type_specifier_of_item cursor first)
           with
           | Some _, _ -> parse_call_suffix cursor ~context ~depth left opening
-          | None, Some primitive ->
-              parse_postfix_cast_suffix cursor ~context left opening primitive
+          | None, Some type_specifier ->
+              parse_postfix_cast_suffix cursor ~context left opening
+                type_specifier
           | None, None -> (
               match restricted_term with
               | Some (term_name, code) ->
@@ -1705,8 +1728,8 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
                       ~code:"HCPARSE0020"
                       ~message:
                         (Printf.sprintf
-                           "resolved nonprimitive postfix cast target %s after \
-                            %s is not implemented"
+                           "postfix cast target %s after %s is not a visible \
+                            type"
                            (token_description first.token)
                            term_name)
                   else
@@ -1991,20 +2014,19 @@ let parse_variable_declarator_suffix cursor prefix =
           publish_global cursor prefix.name;
           Some ({ node; tokens } : parsed_declarator))
 
-let parse_declarator cursor primitive_spelling =
-  match parse_declarator_prefix cursor primitive_spelling with
+let parse_declarator cursor base_spelling =
+  match parse_declarator_prefix cursor base_spelling with
   | None -> None
   | Some prefix -> parse_variable_declarator_suffix cursor prefix
 
-let rec parse_declarators cursor primitive_spelling declarators_rev =
-  match parse_declarator cursor primitive_spelling with
+let rec parse_declarators cursor base_spelling declarators_rev =
+  match parse_declarator cursor base_spelling with
   | None -> None
   | Some declarator -> (
       let declarators_rev = declarator :: declarators_rev in
       match declarator.node.delimiter.kind with
       | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma -> parse_declarators cursor primitive_spelling declarators_rev
-      )
+      | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev)
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
@@ -2076,16 +2098,9 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
 let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
     ~function_pointer_depth =
   let type_item = peek cursor in
-  let spelling = token_text type_item.token in
-  match
-    (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
-  with
-  | Token_kind.Identifier, Some primitive -> (
+  match type_specifier_of_item cursor type_item with
+  | Some type_specifier -> (
       let type_item = take cursor in
-      let type_specifier =
-        Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-          ~location:(token_location type_item.token)
-      in
       let suffix =
         parse_register_qualifiers cursor ~position:Ast.After_type [] []
       in
@@ -2129,7 +2144,8 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
       declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:
           (Printf.sprintf
-             "expected a primitive function parameter type, but found %s"
+             "expected a primitive, class, or union parameter type, but found \
+              %s"
              (token_description type_item.token))
 
 and parse_function_pointer_declarator cursor ~function_pointer_depth =
@@ -2275,11 +2291,11 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
       declaration_failure cursor item ~code:"HCPARSE0009"
         ~message:
           (if prefix.nodes = [] then
-             "expected a primitive function parameter type after ',', but \
-              found ')'"
+             "expected a primitive, class, or union parameter type after ',', \
+              but found ')'"
            else
-             "expected a primitive function parameter type after register \
-              qualifier, but found ')'")
+             "expected a primitive, class, or union parameter type after \
+              register qualifier, but found ')'")
   | _ -> (
       match
         parse_function_parameter cursor ~prefix_qualifiers:prefix.nodes
@@ -2456,17 +2472,11 @@ let parse_global cursor ~parse_function_definition =
             | Parsed_binding binding -> (Some binding.node, binding.tokens)
             | Bad_binding -> assert false
           in
-          let type_item = take cursor in
-          let spelling = token_text type_item.token in
-          match
-            ( type_item.token.Token.kind,
-              Sema.Primitive_type.of_spelling spelling )
-          with
-          | Token_kind.Identifier, Some primitive -> (
-              let type_specifier =
-                Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-                  ~location:(token_location type_item.token)
-              in
+          let type_item = peek cursor in
+          match type_specifier_of_item cursor type_item with
+          | Some type_specifier -> (
+              let type_item = take cursor in
+              let spelling = Ast.type_specifier_spelling type_specifier in
               match parse_declarator_prefix cursor spelling with
               | None -> None
               | Some first_prefix -> (
@@ -2553,7 +2563,9 @@ let parse_global cursor ~parse_function_definition =
               in
               report cursor type_item ~code:"HCPARSE0001"
                 ~message:
-                  (Printf.sprintf "expected a primitive type %s, but found %s"
+                  (Printf.sprintf
+                     "expected a primitive, class, or union type %s, but found \
+                      %s"
                      prefix
                      (token_description type_item.token));
               recover_declaration cursor;
@@ -2751,6 +2763,7 @@ let token_starts_statement_expression cursor token =
 
 let token_starts_global_declaration cursor token =
   Option.is_some (primitive_type_of_token token)
+  || token_is_named_type cursor token
   || Option.is_some (declaration_modifier_kind token)
   || Option.is_some (declaration_binding_kind token)
   || token.kind = Token_kind.Keyword Keyword.Underscore_intern
@@ -2993,8 +3006,8 @@ let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
         (item.token :: tokens_rev)
   | _ -> (List.rev nodes_rev, List.rev tokens_rev)
 
-let parse_local_declarator cursor ~boundary ~primitive_spelling
-    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
+let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
+    ~qualifier_tokens : parsed_local_declarator option =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) -> (
@@ -3010,7 +3023,7 @@ let parse_local_declarator cursor ~boundary ~primitive_spelling
           ~message:
             (Printf.sprintf
                "expected a local variable name after type %S, but found %s"
-               (type_spelling primitive_spelling pointer_layers)
+               (type_spelling base_spelling pointer_layers)
                (token_description name_item.token))
       else
         let name_item = take cursor in
@@ -3107,16 +3120,10 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
     | _ -> (Ast.Automatic_local, [], [])
   in
   let type_item = peek cursor in
-  let spelling = token_text type_item.token in
-  match
-    (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
-  with
-  | Token_kind.Identifier, Some primitive ->
+  match type_specifier_of_item cursor type_item with
+  | Some type_specifier ->
       let type_item = take cursor in
-      let type_specifier =
-        Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-          ~location:(token_location type_item.token)
-      in
+      let spelling = Ast.type_specifier_spelling type_specifier in
       let rec parse_declarators declarators_rev =
         let qualifiers =
           match storage with
@@ -3139,7 +3146,7 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
                declarations by the pinned parser"
         else
           match
-            parse_local_declarator cursor ~boundary ~primitive_spelling:spelling
+            parse_local_declarator cursor ~boundary ~base_spelling:spelling
               ~register_qualifiers:qualifiers.nodes
               ~qualifier_tokens:qualifiers.tokens
           with
@@ -3181,8 +3188,8 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
         | _ ->
             ( "HCPARSE0098",
               Printf.sprintf
-                "expected a primitive type after local declaration modifier, \
-                 but found %s"
+                "expected a primitive, class, or union type after a local \
+                 declaration modifier, but found %s"
                 (token_description type_item.token) )
       in
       local_declaration_failure cursor ~boundary type_item ~code ~message
@@ -3214,7 +3221,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     when Option.is_some cursor.local_context ->
       local_declaration_failure cursor ~boundary item ~code:"HCPARSE0099"
         ~message:
-          "a local register qualifier must follow its primitive type in the \
+          "a local register qualifier must follow its declared type in the \
            pinned parser"
   | Token_kind.Keyword Keyword.Return -> parse_return_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Switch ->
@@ -3248,7 +3255,8 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       parse_label_statement cursor
   | Token_kind.Identifier
     when Option.is_some cursor.local_context
-         && Option.is_some (primitive_type_of_token item.token) ->
+         && (Option.is_some (primitive_type_of_token item.token)
+            || token_is_named_type cursor item.token) ->
       parse_local_declaration cursor ~boundary
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary

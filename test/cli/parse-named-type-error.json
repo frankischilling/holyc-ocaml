@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0001",
+    "severity": "error",
+    "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"UnknownType\"",
+    "primary": {
+      "path": "cli/parse-named-type-error.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 11
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
