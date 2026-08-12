@@ -2793,3 +2793,81 @@
        --format=json
        cli/parse-try-catch-error.hc))))
    (diff cli/parse-try-catch-error.json parse-try-catch-error.json.actual))))
+(rule
+ (alias runtest)
+ (targets parse-aggregate-forward.human.actual)
+ (deps cli/parse-aggregate-forward.hc cli/parse-aggregate-forward.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-forward.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-forward.hc))
+   (diff
+    cli/parse-aggregate-forward.human
+    parse-aggregate-forward.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-forward.json.actual)
+ (deps cli/parse-aggregate-forward.hc cli/parse-aggregate-forward.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-forward.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-forward.hc))
+   (diff
+    cli/parse-aggregate-forward.json
+    parse-aggregate-forward.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-forward-error.human.actual
+  parse-aggregate-forward-error.human.stdout.actual)
+ (deps
+  cli/parse-aggregate-forward-error.hc
+  cli/parse-aggregate-forward-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-forward-error.human.stdout.actual
+    (with-stderr-to
+     parse-aggregate-forward-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-forward-error.hc))))
+   (diff
+    cli/parse-aggregate-forward-error.human
+    parse-aggregate-forward-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-forward-error.json.actual
+  parse-aggregate-forward-error.json.stdout.actual)
+ (deps
+  cli/parse-aggregate-forward-error.hc
+  cli/parse-aggregate-forward-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-forward-error.json.stdout.actual
+    (with-stderr-to
+     parse-aggregate-forward-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-aggregate-forward-error.hc))))
+   (diff
+    cli/parse-aggregate-forward-error.json
+    parse-aggregate-forward-error.json.actual))))

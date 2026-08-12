@@ -488,6 +488,12 @@ let publish_global cursor (name : Ast.identifier) =
        ~kind:Symbol_visibility.Global_variable
        ~origin:(Symbol_visibility.Source_span name.location.span) ())
 
+let publish_class cursor (name : Ast.identifier) =
+  ignore
+    (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
+       ~kind:Symbol_visibility.Class
+       ~origin:(Symbol_visibility.Source_span name.location.span) ())
+
 let publish_function cursor (name : Ast.identifier) parameters variadic =
   let function_call_shape : Symbol_visibility.function_call_shape =
     {
@@ -1829,6 +1835,12 @@ let declaration_binding_kind token =
   | Token_kind.Keyword Keyword.Underscore_import -> Some (Ast.Import, true)
   | _ -> None
 
+let aggregate_kind_of_token token =
+  match token.Token.kind with
+  | Token_kind.Keyword Keyword.Class -> Some Ast.Class_aggregate
+  | Token_kind.Keyword Keyword.Union -> Some Ast.Union_aggregate
+  | _ -> None
+
 let parse_binding cursor =
   let item = peek cursor in
   match item.token.kind with
@@ -2338,121 +2350,214 @@ let parse_global cursor ~parse_function_definition =
       (fun (modifier : parsed_modifier) -> modifier.item.token)
       parsed_modifiers
   in
-  match parse_binding cursor with
-  | Bad_binding -> None
-  | Parsed_binding binding
-    when binding.node.kind = Ast.Import
-         && cursor.compilation_mode = Preprocessor.Jit ->
-      report cursor binding.keyword ~code:"HCPARSE0006"
-        ~message:
-          "import declarations require AOT mode; select AOT mode before \
-           parsing this declaration";
-      recover_declaration cursor;
-      None
-  | binding_parse -> (
-      let binding, binding_tokens =
-        match binding_parse with
-        | No_binding -> (None, [])
-        | Parsed_binding binding -> (Some binding.node, binding.tokens)
-        | Bad_binding -> assert false
+  let aggregate_forward_kind =
+    let binding_item = peek cursor in
+    match binding_item.token.kind with
+    | Token_kind.Keyword Keyword.Extern ->
+        aggregate_kind_of_token (peek_n cursor 1).token
+    | _ -> None
+  in
+  match aggregate_forward_kind with
+  | Some aggregate_kind ->
+      let binding_item = take cursor in
+      let aggregate_item = take cursor in
+      let binding =
+        Ast.make_declaration_binding ~kind:Ast.Extern
+          ~spelling:binding_item.token.raw
+          ~location:(token_location binding_item.token)
+          ~target:Ast.No_binding_target
       in
-      let type_item = take cursor in
-      let spelling = token_text type_item.token in
-      match
-        (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
-      with
-      | Token_kind.Identifier, Some primitive -> (
-          let type_specifier =
-            Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
-              ~location:(token_location type_item.token)
-          in
-          match parse_declarator_prefix cursor spelling with
-          | None -> None
-          | Some first_prefix -> (
-              let next_item = peek cursor in
-              match (next_item.token.kind, binding) with
-              | Token_kind.Punctuation '(', Some binding ->
-                  parse_function_prototype cursor ~modifier_tokens ~modifiers
-                    ~binding_tokens ~binding ~type_item
-                    ~return_type:type_specifier first_prefix
-              | Token_kind.Punctuation '(', None ->
-                  parse_function_definition cursor ~modifier_tokens ~modifiers
-                    ~type_item ~return_type:type_specifier first_prefix
-              | _ -> (
-                  match
-                    parse_variable_declarator_suffix cursor first_prefix
-                  with
-                  | None -> None
-                  | Some first_declarator -> (
-                      let parsed_declarators =
-                        match first_declarator.node.delimiter.kind with
-                        | Ast.Semicolon -> Some [ first_declarator ]
-                        | Ast.Comma ->
-                            parse_declarators cursor spelling
-                              [ first_declarator ]
-                      in
-                      match parsed_declarators with
-                      | None -> None
-                      | Some declarators -> (
-                          let declaration_tokens =
-                            modifier_tokens @ binding_tokens
-                            @ type_item.token
-                              :: List.concat_map
-                                   (fun (item : parsed_declarator) ->
-                                     item.tokens)
-                                   declarators
-                          in
-                          match declarators with
-                          | [ declarator ] ->
-                              let variable =
-                                Ast.make_global_variable ~modifiers ~binding
-                                  ~type_specifier
-                                  ~pointer_layers:declarator.node.pointer_layers
-                                  ~name:declarator.node.name
-                                  ~array_dimensions:
-                                    declarator.node.array_dimensions
-                                  ~semicolon:
-                                    declarator.node.delimiter.location.span
-                                  ~location:
-                                    (location_from_tokens declaration_tokens)
-                              in
-                              Some (Ast.Global_variable variable)
-                          | _ ->
-                              let declaration =
-                                Ast.make_global_declaration ~modifiers ~binding
-                                  ~type_specifier
-                                  ~declarators:
-                                    (List.map
-                                       (fun (item : parsed_declarator) ->
-                                         item.node)
-                                       declarators)
-                                  ~location:
-                                    (location_from_tokens declaration_tokens)
-                              in
-                              Some (Ast.Global_declaration declaration))))))
-      | _ ->
-          let prefix =
-            match binding with
-            | Some (binding : Ast.declaration_binding) ->
-                Printf.sprintf "after declaration binding %S" binding.spelling
-            | None -> (
-                match modifiers with
-                | [] -> "at the start of a global declaration"
-                | _ ->
-                    Printf.sprintf "after declaration modifier%s %S"
-                      (if List.length modifiers = 1 then "" else "s")
-                      (modifiers
-                      |> List.map (fun (modifier : Ast.declaration_modifier) ->
-                          modifier.spelling)
-                      |> String.concat " "))
-          in
-          report cursor type_item ~code:"HCPARSE0001"
+      let name_item = peek cursor in
+      if name_item.token.kind <> Token_kind.Identifier then (
+        report cursor name_item ~code:"HCPARSE0107"
+          ~message:
+            (Printf.sprintf "expected a name after %S %S, but found %s"
+               binding_item.token.raw aggregate_item.token.raw
+               (token_description name_item.token));
+        recover_declaration cursor;
+        None)
+      else
+        let name_item = take cursor in
+        let name =
+          Ast.make_identifier ~spelling:name_item.token.raw
+            ~location:(token_location name_item.token)
+        in
+        let semicolon_item = peek cursor in
+        if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
+          report cursor semicolon_item ~code:"HCPARSE0108"
             ~message:
-              (Printf.sprintf "expected a primitive type %s, but found %s"
-                 prefix
-                 (token_description type_item.token));
-          recover_declaration cursor;
+              (Printf.sprintf
+                 "expected ';' after %s forward declaration %S, but found %s"
+                 aggregate_item.token.raw name.spelling
+                 (token_description semicolon_item.token));
+          let rec recover nested_braces =
+            let item = peek cursor in
+            match item.token.kind with
+            | Token_kind.Eof -> ()
+            | Token_kind.Punctuation ';' when nested_braces = 0 ->
+                ignore (take cursor)
+            | Token_kind.Punctuation '{' ->
+                ignore (take cursor);
+                recover (nested_braces + 1)
+            | Token_kind.Punctuation '}' when nested_braces > 0 ->
+                ignore (take cursor);
+                recover (nested_braces - 1)
+            | _ ->
+                ignore (take cursor);
+                recover nested_braces
+          in
+          recover 0;
           None)
+        else
+          let semicolon_item = take cursor in
+          let declaration_tokens =
+            modifier_tokens
+            @ [
+                binding_item.token;
+                aggregate_item.token;
+                name_item.token;
+                semicolon_item.token;
+              ]
+          in
+          let base_location = location_from_tokens declaration_tokens in
+          let first_token = List.hd declaration_tokens in
+          let location =
+            Ast.make_location ?generated_from:first_token.origin.generated_from
+              ?defined_at:first_token.origin.defined_at ~span:base_location.span
+              ~source_segments:base_location.source_segments ()
+          in
+          let declaration =
+            Ast.make_aggregate_forward_declaration ~modifiers ~binding
+              ~aggregate_kind
+              ~aggregate_keyword_spelling:aggregate_item.token.raw
+              ~aggregate_keyword_location:(token_location aggregate_item.token)
+              ~name
+              ~semicolon:(token_location semicolon_item.token)
+              ~location
+          in
+          publish_class cursor name;
+          Some (Ast.Aggregate_forward_declaration declaration)
+  | None -> (
+      match parse_binding cursor with
+      | Bad_binding -> None
+      | Parsed_binding binding
+        when binding.node.kind = Ast.Import
+             && cursor.compilation_mode = Preprocessor.Jit ->
+          report cursor binding.keyword ~code:"HCPARSE0006"
+            ~message:
+              "import declarations require AOT mode; select AOT mode before \
+               parsing this declaration";
+          recover_declaration cursor;
+          None
+      | binding_parse -> (
+          let binding, binding_tokens =
+            match binding_parse with
+            | No_binding -> (None, [])
+            | Parsed_binding binding -> (Some binding.node, binding.tokens)
+            | Bad_binding -> assert false
+          in
+          let type_item = take cursor in
+          let spelling = token_text type_item.token in
+          match
+            ( type_item.token.Token.kind,
+              Sema.Primitive_type.of_spelling spelling )
+          with
+          | Token_kind.Identifier, Some primitive -> (
+              let type_specifier =
+                Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
+                  ~location:(token_location type_item.token)
+              in
+              match parse_declarator_prefix cursor spelling with
+              | None -> None
+              | Some first_prefix -> (
+                  let next_item = peek cursor in
+                  match (next_item.token.kind, binding) with
+                  | Token_kind.Punctuation '(', Some binding ->
+                      parse_function_prototype cursor ~modifier_tokens
+                        ~modifiers ~binding_tokens ~binding ~type_item
+                        ~return_type:type_specifier first_prefix
+                  | Token_kind.Punctuation '(', None ->
+                      parse_function_definition cursor ~modifier_tokens
+                        ~modifiers ~type_item ~return_type:type_specifier
+                        first_prefix
+                  | _ -> (
+                      match
+                        parse_variable_declarator_suffix cursor first_prefix
+                      with
+                      | None -> None
+                      | Some first_declarator -> (
+                          let parsed_declarators =
+                            match first_declarator.node.delimiter.kind with
+                            | Ast.Semicolon -> Some [ first_declarator ]
+                            | Ast.Comma ->
+                                parse_declarators cursor spelling
+                                  [ first_declarator ]
+                          in
+                          match parsed_declarators with
+                          | None -> None
+                          | Some declarators -> (
+                              let declaration_tokens =
+                                modifier_tokens @ binding_tokens
+                                @ type_item.token
+                                  :: List.concat_map
+                                       (fun (item : parsed_declarator) ->
+                                         item.tokens)
+                                       declarators
+                              in
+                              match declarators with
+                              | [ declarator ] ->
+                                  let variable =
+                                    Ast.make_global_variable ~modifiers ~binding
+                                      ~type_specifier
+                                      ~pointer_layers:
+                                        declarator.node.pointer_layers
+                                      ~name:declarator.node.name
+                                      ~array_dimensions:
+                                        declarator.node.array_dimensions
+                                      ~semicolon:
+                                        declarator.node.delimiter.location.span
+                                      ~location:
+                                        (location_from_tokens declaration_tokens)
+                                  in
+                                  Some (Ast.Global_variable variable)
+                              | _ ->
+                                  let declaration =
+                                    Ast.make_global_declaration ~modifiers
+                                      ~binding ~type_specifier
+                                      ~declarators:
+                                        (List.map
+                                           (fun (item : parsed_declarator) ->
+                                             item.node)
+                                           declarators)
+                                      ~location:
+                                        (location_from_tokens declaration_tokens)
+                                  in
+                                  Some (Ast.Global_declaration declaration))))))
+          | _ ->
+              let prefix =
+                match binding with
+                | Some (binding : Ast.declaration_binding) ->
+                    Printf.sprintf "after declaration binding %S"
+                      binding.spelling
+                | None -> (
+                    match modifiers with
+                    | [] -> "at the start of a global declaration"
+                    | _ ->
+                        Printf.sprintf "after declaration modifier%s %S"
+                          (if List.length modifiers = 1 then "" else "s")
+                          (modifiers
+                          |> List.map
+                               (fun (modifier : Ast.declaration_modifier) ->
+                                 modifier.spelling)
+                          |> String.concat " "))
+              in
+              report cursor type_item ~code:"HCPARSE0001"
+                ~message:
+                  (Printf.sprintf "expected a primitive type %s, but found %s"
+                     prefix
+                     (token_description type_item.token));
+              recover_declaration cursor;
+              None))
 
 let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let marker_item = peek cursor in
