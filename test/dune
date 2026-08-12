@@ -1823,3 +1823,73 @@
    (diff
     cli/parse-statement-sequence-error.json
     parse-statement-sequence-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-compound-blocks.human.actual)
+ (deps cli/parse-compound-blocks.hc cli/parse-compound-blocks.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-blocks.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-compound-blocks.hc))
+   (diff cli/parse-compound-blocks.human parse-compound-blocks.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-compound-blocks.json.actual)
+ (deps cli/parse-compound-blocks.hc cli/parse-compound-blocks.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-blocks.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-compound-blocks.hc))
+   (diff cli/parse-compound-blocks.json parse-compound-blocks.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-compound-block-error.human.actual
+  parse-compound-block-error.human.stdout.actual)
+ (deps
+  cli/parse-compound-block-error.hc
+  cli/parse-compound-block-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-block-error.human.stdout.actual
+    (with-stderr-to
+     parse-compound-block-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-compound-block-error.hc))))
+   (diff
+    cli/parse-compound-block-error.human
+    parse-compound-block-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-compound-block-error.json.actual
+  parse-compound-block-error.json.stdout.actual)
+ (deps cli/parse-compound-block-error.hc cli/parse-compound-block-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-compound-block-error.json.stdout.actual
+    (with-stderr-to
+     parse-compound-block-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-compound-block-error.hc))))
+   (diff
+    cli/parse-compound-block-error.json
+    parse-compound-block-error.json.actual))))

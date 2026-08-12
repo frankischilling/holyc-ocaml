@@ -1,0 +1,2 @@
+cli/parse-compound-block-error.hc:4:1: error[HCPARSE0049]: expected '}' to close the compound statement
+cli/parse-compound-block-error.hc:2:1: note: block starts here

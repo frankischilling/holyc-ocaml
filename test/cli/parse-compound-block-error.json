@@ -1,0 +1,31 @@
+[
+  {
+    "code": "HCPARSE0049",
+    "severity": "error",
+    "message": "expected '}' to close the compound statement",
+    "primary": {
+      "path": "cli/parse-compound-block-error.hc",
+      "line": 4,
+      "column": 1,
+      "source_id": 0,
+      "start": 24,
+      "stop": 24
+    },
+    "secondary": [
+      {
+        "message": "block starts here",
+        "span": {
+          "path": "cli/parse-compound-block-error.hc",
+          "line": 2,
+          "column": 1,
+          "source_id": 0,
+          "start": 11,
+          "stop": 12
+        }
+      }
+    ],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
