@@ -1,0 +1,107 @@
+{
+  "fixture_version": 1,
+  "id": "parser/parenthesis-free-calls-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-08-12",
+    "hypervisor": "QEMU 10.2.50 (v10.2.0-14086-g840320663e)",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none",
+    "control": "QMP on the host loopback interface"
+  },
+  "input_delivery": {
+    "qmp_command": "send-key",
+    "key_hold_milliseconds": 20,
+    "inter_key_milliseconds": 70,
+    "post_line_milliseconds": 800,
+    "preflight_command": "2+3;",
+    "preflight_output": "ans=0x00000005=5"
+  },
+  "source_references": [
+    "Compiler/PrsExp.HC:PrsUnaryTerm direct HTt_FUN branch",
+    "Compiler/PrsExp.HC:PrsFunCall",
+    "Kernel/KExcept.HC:throw",
+    "Doc/HolyC.DD:parenthesis-free call examples"
+  ],
+  "setup": [
+    "AutoComplete(OFF);",
+    "DocClear();"
+  ],
+  "definitions": [
+    "I64 OracleZero(){return 10;}",
+    "I64 OracleDefaults(I64 a=4,I64 b=6){return a*10+b;}",
+    "I64 OracleMixed(I64 a=1,I64 b,I64 c=3){return a*100+b*10+c;}",
+    "I64 OracleRequired(I64 a,I64 b){return a*10+b;}",
+    "I64 OracleVar(...){return argc;}"
+  ],
+  "checks": [
+    {
+      "id": "zero-fixed-parameters",
+      "command": "OracleZero;",
+      "observed_result": "ans=0x0000000A=10",
+      "result": "matched"
+    },
+    {
+      "id": "all-default-parameters",
+      "command": "OracleDefaults;",
+      "observed_result": "ans=0x0000002E=46",
+      "result": "matched"
+    },
+    {
+      "id": "nontrailing-default-and-required-argument",
+      "command": "OracleMixed 7;",
+      "observed_result": "ans=0x000000AD=173",
+      "result": "matched"
+    },
+    {
+      "id": "two-adjacent-required-arguments",
+      "command": "OracleRequired 2 3;",
+      "observed_result": "ans=0x00000017=23",
+      "result": "matched"
+    },
+    {
+      "id": "variadic-extras-absent",
+      "command": "OracleVar;",
+      "observed_result": "ans=0x00000000=0",
+      "result": "matched"
+    },
+    {
+      "id": "binary-continuation",
+      "command": "OracleZero+2;",
+      "observed_result": "ans=0x0000000C=12",
+      "result": "matched"
+    },
+    {
+      "id": "address-of-suppresses-call",
+      "command": "&OracleZero!=0;",
+      "observed_result": "ans=0x00000001=1",
+      "result": "matched"
+    }
+  ],
+  "observed_values": [10, 46, 173, 23, 0, 12, 1],
+  "capture_sha256": {
+    "accepted-source": "1809777cc132b12854c88c0a6f8432d3e866e1a542bfe381fd2e8999f8dd6921",
+    "observed-results": "731dcd2d64495209f8a18f2f1ea61ff3c16da900a0bfb526f8ad1cd33b69e9d8"
+  },
+  "capture_retention": "The checksums identify local validation screenshots. The screenshots and ISO are not repository artifacts.",
+  "implementation_tests": [
+    "test/test_parser.ml:parenthesis_free_call_source_behavior",
+    "test/test_parser.ml:parenthesis_free_call_oracle_fixture",
+    "test/test_parser.ml:parenthesis_free_call_shapes",
+    "test/test_parser.ml:parenthesis_free_recursive_calls_and_shadowing",
+    "test/test_parser.ml:parenthesis_free_call_provenance",
+    "test/test_parser.ml:parenthesis_free_call_failures"
+  ]
+}

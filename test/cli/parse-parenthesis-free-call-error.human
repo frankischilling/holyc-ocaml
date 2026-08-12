@@ -1,0 +1,3 @@
+cli/parse-parenthesis-free-call-error.hc:2:9: error[HCPARSE0105]: parenthesis-free call to "Required" requires argument 1 (value), but found ";"
+    2 | Required;
+      |         ^

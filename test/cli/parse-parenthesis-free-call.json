@@ -1,0 +1,572 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-parenthesis-free-call.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 46
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "extern",
+          "spelling": "extern",
+          "location": {
+            "span": {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              }
+            ]
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 10
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 1,
+                "column": 8,
+                "source_id": 0,
+                "start": 7,
+                "stop": 10
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Defaulted",
+          "location": {
+            "span": {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 1,
+                "column": 12,
+                "source_id": 0,
+                "start": 11,
+                "stop": 20
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-parenthesis-free-call.hc",
+            "line": 1,
+            "column": 21,
+            "source_id": 0,
+            "start": 20,
+            "stop": 21
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 24
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 24
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "value",
+              "location": {
+                "span": {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 30
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 30
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 31
+                  }
+                ]
+              },
+              "value": {
+                "kind": "integer_literal",
+                "spelling": "4",
+                "value": "0x0000000000000004",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 32
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-parenthesis-free-call.hc",
+                      "line": 1,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 31,
+                      "stop": 32
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 32
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 31
+                  },
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 1,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 32
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 1,
+                "column": 22,
+                "source_id": 0,
+                "start": 21,
+                "stop": 32
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 31
+                },
+                {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 1,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 32
+                }
+              ]
+            }
+          }
+        ],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-parenthesis-free-call.hc",
+            "line": 1,
+            "column": 33,
+            "source_id": 0,
+            "start": 32,
+            "stop": 33
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-parenthesis-free-call.hc",
+            "line": 1,
+            "column": 34,
+            "source_id": 0,
+            "start": 33,
+            "stop": 34
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 34,
+              "source_id": 0,
+              "start": 33,
+              "stop": 34
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-parenthesis-free-call.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 34
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 8,
+              "source_id": 0,
+              "start": 7,
+              "stop": 10
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 22,
+              "source_id": 0,
+              "start": 21,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 26,
+              "source_id": 0,
+              "start": 25,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 31,
+              "source_id": 0,
+              "start": 30,
+              "stop": 31
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 32,
+              "source_id": 0,
+              "start": 31,
+              "stop": 32
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 1,
+              "column": 34,
+              "source_id": 0,
+              "start": 33,
+              "stop": 34
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "expression_statement",
+          "expression": {
+            "kind": "call",
+            "callee": {
+              "kind": "identifier",
+              "spelling": "Defaulted",
+              "location": {
+                "span": {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 44
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 2,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 44
+                  }
+                ]
+              }
+            },
+            "opening_parenthesis": null,
+            "arguments": [
+              {
+                "kind": "omitted",
+                "comma": null,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-parenthesis-free-call.hc",
+                    "line": 2,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 44,
+                    "stop": 44
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-parenthesis-free-call.hc",
+                      "line": 2,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 44,
+                      "stop": 44
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_parenthesis": null,
+            "location": {
+              "span": {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 35,
+                "stop": 44
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-parenthesis-free-call.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 44
+                }
+              ]
+            }
+          },
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 2,
+                "column": 10,
+                "source_id": 0,
+                "start": 44,
+                "stop": 45
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 35,
+              "stop": 45
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 35,
+                "stop": 44
+              },
+              {
+                "path": "cli/parse-parenthesis-free-call.hc",
+                "line": 2,
+                "column": 10,
+                "source_id": 0,
+                "start": 44,
+                "stop": 45
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-parenthesis-free-call.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 35,
+            "stop": 45
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 35,
+              "stop": 44
+            },
+            {
+              "path": "cli/parse-parenthesis-free-call.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

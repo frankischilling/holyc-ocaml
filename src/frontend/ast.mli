@@ -203,11 +203,17 @@ and call_argument = private {
   call_argument_location : location;
 }
 
+and call_syntax =
+  | Parenthesized_call of {
+      opening_parenthesis : location;
+      closing_parenthesis : location;
+    }
+  | Parenthesis_free_call
+
 and call_expression = private {
   call_callee : expression;
-  call_opening_parenthesis : location;
+  call_syntax : call_syntax;
   call_arguments : call_argument list;
-  call_closing_parenthesis : location;
   call_location : location;
 }
 
@@ -767,9 +773,8 @@ val make_call_argument :
 
 val make_call_expression :
   callee:expression ->
-  opening_parenthesis:location ->
+  syntax:call_syntax ->
   arguments:call_argument list ->
-  closing_parenthesis:location ->
   location:location ->
   call_expression
 
