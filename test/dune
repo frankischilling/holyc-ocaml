@@ -87,6 +87,7 @@
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
   (glob_files golden/*)
+  (glob_files fixtures/*)
   (glob_files negative/*)))
 
 (rule
@@ -200,6 +201,102 @@
      --command-line-source
      cli/predefined-values.hc))
    (diff cli/predefined-values.json predefined-values.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  conditional-recovery.human.diagnostics.actual
+  conditional-recovery.strict.human.report.actual)
+ (deps
+  cli/conditional-recovery.hc
+  cli/conditional-recovery.human.diagnostics
+  cli/conditional-recovery.strict.human.report)
+ (action
+  (progn
+   (with-stdout-to
+    conditional-recovery.strict.human.report.actual
+    (with-stderr-to
+     conditional-recovery.human.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       preprocess
+       --dump-preprocessor-report
+       cli/conditional-recovery.hc))))
+   (diff
+    cli/conditional-recovery.human.diagnostics
+    conditional-recovery.human.diagnostics.actual)
+   (diff
+    cli/conditional-recovery.strict.human.report
+    conditional-recovery.strict.human.report.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  conditional-recovery.json.diagnostics.actual
+  conditional-recovery.strict.json.report.actual)
+ (deps
+  cli/conditional-recovery.hc
+  cli/conditional-recovery.json.diagnostics
+  cli/conditional-recovery.strict.json.report)
+ (action
+  (progn
+   (with-stdout-to
+    conditional-recovery.strict.json.report.actual
+    (with-stderr-to
+     conditional-recovery.json.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       preprocess
+       --dump-preprocessor-report
+       --format=json
+       cli/conditional-recovery.hc))))
+   (diff
+    cli/conditional-recovery.json.diagnostics
+    conditional-recovery.json.diagnostics.actual)
+   (diff
+    cli/conditional-recovery.strict.json.report
+    conditional-recovery.strict.json.report.actual))))
+
+(rule
+ (alias runtest)
+ (targets conditional-recovery.human.report.actual)
+ (deps cli/conditional-recovery.hc cli/conditional-recovery.human.report)
+ (action
+  (progn
+   (with-stdout-to
+    conditional-recovery.human.report.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --conditional-recovery=templeos
+     --dump-preprocessor-report
+     cli/conditional-recovery.hc))
+   (diff
+    cli/conditional-recovery.human.report
+    conditional-recovery.human.report.actual))))
+
+(rule
+ (alias runtest)
+ (targets conditional-recovery.json.report.actual)
+ (deps cli/conditional-recovery.hc cli/conditional-recovery.json.report)
+ (action
+  (progn
+   (with-stdout-to
+    conditional-recovery.json.report.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     preprocess
+     --conditional-recovery=templeos
+     --dump-preprocessor-report
+     --format=json
+     cli/conditional-recovery.hc))
+   (diff
+    cli/conditional-recovery.json.report
+    conditional-recovery.json.report.actual))))
 
 (rule
  (alias runtest)

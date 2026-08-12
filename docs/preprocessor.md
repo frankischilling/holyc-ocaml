@@ -105,7 +105,13 @@ The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` with the two mode o
 
 Conditional boundaries can cross an included file or a definition-backed frame because the state belongs to the stream rather than an individual lexer. A definition may also provide the spelling after `#`; definition recursion and generated-byte guards still apply when that happens.
 
-The hosted stream diagnoses a stray `#else`, duplicate `#else`, stray `#endif`, and EOF before `#endif`. The pinned lexer silently accepts or skips some of those malformed forms. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) tracks the compatibility rendering and oracle fixtures. Normal hosted runs keep the explicit errors so a typo cannot discard the rest of a file without explanation.
+The default `hosted-strict` policy diagnoses a stray `#else`, duplicate `#else`, stray `#endif`, and EOF before `#endif`. This remains the default because an unmatched `#else` can otherwise discard the rest of a source file without explanation.
+
+Pass `--conditional-recovery=templeos` or configure `Templeos_permissive` through the library to follow the recovery paths in the pinned `Lex` function. A stray `#endif` disappears. A stray or duplicate `#else` starts a raw scan through its matching `#endif`, with all five conditional openers counted for nesting. EOF ends the scan without a mismatch diagnostic. The existing depth and byte limits still apply; the option does not disable hosted resource checks or select broader TempleOS runtime compatibility.
+
+`--dump-preprocessor-report` replaces token output with `holyc-preprocessor-report-v1`. Both human and JSON forms record the exact TempleOS reference commit, selected recovery policy, token count, and diagnostic counts. Reports are emitted even when strict diagnostics make the command exit with status 1.
+
+The four base cases and their source positions are recorded in [`test/fixtures/conditional-recovery-cases.json`](../test/fixtures/conditional-recovery-cases.json). That file marks its native oracle state as pending. The permissive results are derived from the pinned source and covered by local tests, but they are not yet presented as a controlled native TempleOS observation. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) remains open for that validation.
 
 ## Hosted safety rules
 

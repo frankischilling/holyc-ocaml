@@ -1,0 +1,4 @@
+cli/conditional-recovery.hc:2:2: error[HCPP0017]: found #endif without an active conditional
+    2 | #endif kept
+      |  ^^^^^
+help: Remove #endif or add its opening conditional.

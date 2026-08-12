@@ -8,7 +8,7 @@ The repository has a byte-oriented source manager, structured diagnostics, a han
 
 Raw lexing handles the complete checked keyword and operator tables, numeric literals, strings, character constants up to eight bytes, nested comments, line continuations, and TempleOS files with a NUL-terminated text prefix. The pinned corpus result is 528 of 528 `.HC`, `.HH`, and `.PRJ` Git blobs tokenized without a lexer diagnostic or crash. That result applies only to raw lexing.
 
-Preprocessing currently supports bounded quoted includes, TempleOS text definitions, constant `#if` and `#assert`, `#ifdef`, `#ifndef`, `#ifjit`, `#ifaot`, `#else`, `#endif`, `#help_index`, and `#help_file`. It also expands `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__` from explicit deterministic inputs. Include, definition, and generated-value frames retain their source origins. Hosted path, depth, input-size, generated-byte, and expression-size limits reject unsafe input with diagnostics.
+Preprocessing currently supports bounded quoted includes, TempleOS text definitions, constant `#if` and `#assert`, `#ifdef`, `#ifndef`, `#ifjit`, `#ifaot`, `#else`, `#endif`, `#help_index`, and `#help_file`. It also expands `__DATE__`, `__TIME__`, `__LINE__`, `__CMD_LINE__`, `__FILE__`, and `__DIR__` from explicit deterministic inputs. Include, definition, and generated-value frames retain their source origins. Hosted path, depth, input-size, generated-byte, and expression-size limits reject unsafe input with diagnostics. Unmatched conditional boundaries use strict diagnostics by default. An opt-in `templeos` policy implements the behavior derived from the pinned lexer source while native oracle validation remains open in [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27).
 
 The parser accepts primitive globals, pointer and array declarators, comma-separated declaration groups, declaration and calling modifiers, ordinary and alternate-name bindings, `_intern` expression targets, and bound primitive function prototypes. Prototype syntax includes named and unnamed parameters, recursive function-pointer parameters, register qualifiers, terminal varargs, ordinary defaults in non-trailing positions, and a distinct `lastclass` default.
 
@@ -24,7 +24,7 @@ The current parser work is syntax only. It does not create lexical scopes for bl
 
 Executable IR, optimization, the interpreter, x86-64 emission, the hosted runtime, JIT execution, the assembler encoder, and the TempleOS `.BIN` writer are not present yet. The opcode and BIN APIs are audited specifications, not encoders or loaders. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
 
-Native TempleOS can execute nonconstant directive expressions and `#exe` code. This build accepts only its bounded constant preprocessor subset and directly implements the six audited predefined values. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) tracks execution through the compile-time VM. Hosted unmatched-conditional diagnostics are intentionally stricter than the pinned lexer under [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27).
+Native TempleOS can execute nonconstant directive expressions and `#exe` code. This build accepts only its bounded constant preprocessor subset and directly implements the six audited predefined values. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) tracks execution through the compile-time VM. The optional permissive conditional policy is source-derived and is not reported as native-confirmed until [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) has a controlled TempleOS oracle result.
 
 See [the compatibility report](docs/compatibility.md) and [the traceability registry](reference/traceability.toml) for evidence and exact boundaries.
 
@@ -61,6 +61,11 @@ dune exec holyc -- lex --format=json examples/lexer-tour.hc
 dune exec holyc -- preprocess examples/include-tour.hc
 dune exec holyc -- preprocess --mode=aot examples/mode-branches.hc
 dune exec holyc -- preprocess examples/constant-if.hc
+dune exec holyc -- preprocess examples/assertions.hc
+dune exec holyc -- preprocess --predefined-date=08/11/26 --predefined-time=05:42:17 --command-line-source test/cli/predefined-values.hc
+dune exec holyc -- preprocess --dump-help-metadata --templeos-root=third_party/TempleOS third_party/TempleOS/Kernel/KernelC.HH
+dune exec holyc -- preprocess --conditional-recovery=templeos test/negative/conditional-stray-endif.hc
+dune exec holyc -- preprocess --dump-preprocessor-report --format=json test/negative/conditional-stray-endif.hc
 dune exec holyc -- parse test/cli/parse-globals.hc
 dune exec holyc -- parse --mode=aot test/cli/parse-bindings.hc
 dune exec holyc -- parse test/cli/parse-default-parameters.hc
@@ -80,6 +85,8 @@ dune exec holyc -- corpus lex --reference-root=third_party/TempleOS
 ```
 
 `lex`, `preprocess`, `parse`, `dump-ast`, and `corpus lex` exit with status 1 when they report an error. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default; `--mode=aot` selects AOT branches. All columns and offsets are byte positions.
+
+`--conditional-recovery=templeos` selects the source-derived permissive behavior; `hosted-strict` remains the default. `--dump-help-metadata` and `--dump-preprocessor-report` replace token output with versioned human or JSON reports. The preprocessing report records the policy and the exact TempleOS reference commit.
 
 There is not yet a command that compiles or runs a HolyC program. The parser can inspect the current fixtures, but it cannot execute them. Compilation examples will be added only after semantic checking, verified IR, and an execution backend pass their own tests.
 

@@ -21,14 +21,19 @@ let write_file path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let test_data_path relative =
+  let from_repository_root = Filename.concat "test" relative in
+  if Sys.file_exists from_repository_root then from_repository_root
+  else relative
+
 let create_config ?include_roots ?templeos_root ?max_include_depth
     ?compilation_mode ?max_conditional_depth ?max_source_bytes
     ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
-    working_directory =
+    ?conditional_recovery working_directory =
   Preprocessor.Config.create ~working_directory ?include_roots ?templeos_root
     ?compilation_mode ?max_conditional_depth ?max_include_depth
     ?max_source_bytes ?max_definition_depth ?max_generated_bytes
-    ?max_expression_nodes ()
+    ?max_expression_nodes ?conditional_recovery ()
   |> function
   | Ok config -> config
   | Error message -> Alcotest.fail message
@@ -36,7 +41,7 @@ let create_config ?include_roots ?templeos_root ?max_include_depth
 let preprocess ?include_roots ?templeos_root ?max_include_depth
     ?compilation_mode ?max_conditional_depth ?max_source_bytes
     ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
-    working_directory root =
+    ?conditional_recovery working_directory root =
   let session = Session.create () in
   let source =
     Session.load_source session ~path:root |> function
@@ -47,7 +52,7 @@ let preprocess ?include_roots ?templeos_root ?max_include_depth
     create_config ?include_roots ?templeos_root ?max_include_depth
       ?compilation_mode ?max_conditional_depth ?max_source_bytes
       ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
-      working_directory
+      ?conditional_recovery working_directory
   in
   (session, source, Holyc_lib.preprocess session ~config ~source)
 
@@ -113,6 +118,14 @@ let position session token =
     |> Option.get
   in
   Source_file.position source token.span.start |> Result.get_ok
+
+let diagnostic_position session diagnostic =
+  let source =
+    Source_manager.find (Session.sources session)
+      diagnostic.Diagnostic.primary.source
+    |> Option.get
+  in
+  Source_file.position source diagnostic.primary.start |> Result.get_ok
 
 let nested_include_order () =
   with_temp_directory (fun root ->
@@ -1025,6 +1038,10 @@ let compilation_mode_configuration () =
         create_config ~compilation_mode:Preprocessor.Aot
           ~max_conditional_depth:7 root
       in
+      let templeos =
+        create_config ~conditional_recovery:Preprocessor.Templeos_permissive
+          root
+      in
       Alcotest.(check string)
         "default mode" "jit"
         (Preprocessor.Config.compilation_mode default
@@ -1038,7 +1055,15 @@ let compilation_mode_configuration () =
         (Preprocessor.Config.max_conditional_depth default);
       Alcotest.(check int)
         "selected conditional depth" 7
-        (Preprocessor.Config.max_conditional_depth aot))
+        (Preprocessor.Config.max_conditional_depth aot);
+      Alcotest.(check string)
+        "default recovery" "hosted-strict"
+        (Preprocessor.Config.conditional_recovery default
+        |> Preprocessor.conditional_recovery_name);
+      Alcotest.(check string)
+        "selected recovery" "templeos-permissive"
+        (Preprocessor.Config.conditional_recovery templeos
+        |> Preprocessor.conditional_recovery_name))
 
 let mode_condition_selection () =
   with_temp_directory (fun root ->
@@ -1244,6 +1269,154 @@ let conditional_boundary_diagnostics () =
       Alcotest.(check (list string))
         "unterminated order" [ "HCPP0018"; "HCPP0018" ]
         (List.map (fun item -> item.Diagnostic.code) diagnostics))
+
+let conditional_recovery_fixtures () =
+  let manifest =
+    Yojson.Safe.from_file
+      (test_data_path "fixtures/conditional-recovery-cases.json")
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "fixture reference" Version.reference_commit
+    (manifest |> member "reference_commit" |> to_string);
+  let check_policy fixture expected policy =
+    let session = Session.create () in
+    let source = Session.load_source session ~path:fixture |> Result.get_ok in
+    let config = create_config ~conditional_recovery:policy "." in
+    let output = Holyc_lib.preprocess_detailed session ~config ~source in
+    let expected_tokens =
+      expected |> member "tokens" |> to_list |> List.map to_string
+    in
+    Alcotest.(check (list string))
+      "fixture tokens" expected_tokens
+      (token_words output.tokens);
+    let expected_diagnostics = expected |> member "diagnostics" |> to_list in
+    Alcotest.(check int)
+      "fixture diagnostic count"
+      (List.length expected_diagnostics)
+      (List.length output.diagnostics);
+    let count severity =
+      List.filter
+        (fun diagnostic -> diagnostic.Diagnostic.severity = severity)
+        output.diagnostics
+      |> List.length
+    in
+    Alcotest.(check int)
+      "fixture error count"
+      (expected |> member "error_count" |> to_int)
+      (count Diagnostic.Error);
+    Alcotest.(check int)
+      "fixture warning count"
+      (expected |> member "warning_count" |> to_int)
+      (count Diagnostic.Warning);
+    List.iter2
+      (fun expected diagnostic ->
+        Alcotest.(check string)
+          "fixture diagnostic code"
+          (expected |> member "code" |> to_string)
+          diagnostic.Diagnostic.code;
+        let actual_position = diagnostic_position session diagnostic in
+        Alcotest.(check int)
+          "fixture diagnostic line"
+          (expected |> member "line" |> to_int)
+          actual_position.line;
+        Alcotest.(check int)
+          "fixture diagnostic column"
+          (expected |> member "column" |> to_int)
+          actual_position.column)
+      expected_diagnostics output.diagnostics
+  in
+  manifest |> member "cases" |> to_list
+  |> List.iter (fun case ->
+      let fixture = case |> member "fixture" |> to_string |> test_data_path in
+      let source =
+        Source_file.load
+          ~id:(Source_id.of_int 0 |> Result.get_ok)
+          ~path:fixture ()
+        |> Result.get_ok
+      in
+      let boundary = case |> member "boundary" in
+      let line = boundary |> member "line" |> to_int in
+      let column = boundary |> member "column" |> to_int in
+      let line_text = Source_file.line_text source ~line |> Result.get_ok in
+      Alcotest.(check char) "fixture boundary marker" '#' line_text.[column - 1];
+      check_policy fixture
+        (case |> member "hosted_strict")
+        Preprocessor.Hosted_strict;
+      check_policy fixture
+        (case |> member "templeos_permissive")
+        Preprocessor.Templeos_permissive)
+
+let templeos_recovery_nests_and_crosses_frames () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      let run expected =
+        let _, _, result =
+          preprocess ~conditional_recovery:Preprocessor.Templeos_permissive root
+            root_file
+        in
+        Alcotest.(check (list string))
+          "permissive recovery tokens" expected
+          (token_words (Result.get_ok result))
+      in
+      write_file root_file
+        "#else outer #ifjit nested_then #else nested_else #endif tail #endif \
+         kept";
+      run [ "kept" ];
+      write_file (Filename.concat root "open.HC") "#else included_dropped";
+      write_file root_file
+        "#include \"open\" caller_dropped #endif include_kept";
+      run [ "include_kept" ];
+      write_file root_file
+        "#define INNER else definition_dropped\n\
+         #define OUTER INNER\n\
+         #OUTER caller_dropped #endif definition_kept";
+      run [ "definition_kept" ])
+
+let conditional_recovery_reports () =
+  with_temp_directory (fun root ->
+      let open Yojson.Safe.Util in
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file "#endif kept";
+      let run conditional_recovery =
+        let session = Session.create () in
+        let source =
+          Session.load_source session ~path:root_file |> Result.get_ok
+        in
+        let config = create_config ~conditional_recovery root in
+        Holyc_lib.preprocess_detailed session ~config ~source
+      in
+      let strict = run Preprocessor.Hosted_strict in
+      let permissive = run Preprocessor.Templeos_permissive in
+      Alcotest.(check string)
+        "strict policy field" "hosted-strict"
+        (Preprocessor.conditional_recovery_name strict.conditional_recovery);
+      Alcotest.(check string)
+        "permissive policy field" "templeos-permissive"
+        (Preprocessor.conditional_recovery_name permissive.conditional_recovery);
+      let human =
+        Preprocessor.report_human ~reference_commit:Version.reference_commit
+          permissive
+      in
+      Alcotest.(check bool)
+        "human policy" true
+        (contains_text human "conditional-recovery templeos-permissive");
+      Alcotest.(check bool)
+        "human reference" true
+        (contains_text human ("templeos-reference " ^ Version.reference_commit));
+      let json =
+        Preprocessor.report_to_yojson ~reference_commit:Version.reference_commit
+          strict
+      in
+      Alcotest.(check string)
+        "JSON schema" "holyc-preprocessor-report-v1"
+        (json |> member "schema" |> to_string);
+      Alcotest.(check string)
+        "JSON policy" "hosted-strict"
+        (json |> member "conditional_recovery" |> to_string);
+      Alcotest.(check int)
+        "JSON errors" 1
+        (json |> member "diagnostics" |> member "errors" |> to_int))
 
 let conditional_depth_exhaustion () =
   with_temp_directory (fun root ->
@@ -1645,6 +1818,12 @@ let tests =
       conditional_lives_in_definition_frame;
     Alcotest.test_case "conditional boundary diagnostics" `Quick
       conditional_boundary_diagnostics;
+    Alcotest.test_case "conditional recovery fixtures" `Quick
+      conditional_recovery_fixtures;
+    Alcotest.test_case "conditional recovery frames" `Quick
+      templeos_recovery_nests_and_crosses_frames;
+    Alcotest.test_case "conditional recovery reports" `Quick
+      conditional_recovery_reports;
     Alcotest.test_case "conditional depth exhaustion" `Quick
       conditional_depth_exhaustion;
     Alcotest.test_case "conditional diagnostic provenance" `Quick
