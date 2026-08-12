@@ -975,7 +975,7 @@ call_time_class_name_substitution = "planned"
 
 [[feature]]
 id = "HC-PARSER-STATEMENT-OUTPUT-LITERALS"
-description = "A top-level string or character literal keeps the implicit Print or PutChars call shape required by HolyC statement parsing."
+description = "A string or character literal in a supported statement position keeps the implicit Print or PutChars call shape required by HolyC statement parsing."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt TK_STR and TK_CHAR_CONST branch",
   "Compiler/PrsExp.HC:PrsFunCall literal entry path",
@@ -999,7 +999,7 @@ tests = [
 status = "implemented"
 issue = 93
 ast_schema = "holyc-ast-v1"
-implemented_scope = "top-level statement position"
+implemented_scope = "top-level statement position and compound-block children"
 targets = ["Print", "PutChars"]
 nonempty_marker_argument = "the complete expression beginning at the marker"
 empty_marker_argument = "the complete expression following the marker"
@@ -1010,7 +1010,7 @@ compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 semicolon_shape = "required for Print; optional before a PutChars statement comma"
 malformed_form_diagnostics = ["HCPARSE0043", "HCPARSE0044", "HCPARSE0046"]
-block_statement_status = "planned"
+block_statement_status = "implemented by issue 97"
 name_resolution_status = "planned"
 type_checking_status = "planned"
 lowering_status = "planned"
@@ -1018,7 +1018,7 @@ execution_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-STATEMENT-SEQUENCES"
-description = "Top-level expression and empty statements retain HolyC comma-linked sequencing and every source separator."
+description = "Expression and empty statements retain HolyC comma-linked sequencing and every source separator at top level and inside compound blocks."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
   "Compiler/PrsStmt.HC:PrsStmt semicolon and expression branches",
@@ -1042,8 +1042,8 @@ tests = [
 status = "implemented"
 issue = 95
 ast_schema = "holyc-ast-v1"
-implemented_scope = "top-level statement position"
-statement_kinds = ["expression", "empty", "Print", "PutChars"]
+implemented_scope = "top-level statement position and compound-block children"
+statement_kinds = ["block", "expression", "empty", "Print", "PutChars"]
 leading_repeated_and_trailing_commas = "preserved"
 comma_only_sequence = "preserved with no semantic elements"
 expression_terminators = ["semicolon", "statement comma"]
@@ -1054,8 +1054,55 @@ compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 missing_terminator_diagnostic = "HCPARSE0047"
 unsupported_sequence_form_diagnostic = "HCPARSE0048"
-block_and_control_flow_status = "planned"
+block_status = "implemented by issue 97"
+control_flow_status = "planned"
 declaration_and_label_after_comma_status = "planned"
+semantic_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-COMPOUND-BLOCKS"
+description = "Compound statements retain both braces, recursively ordered child statements, and the pinned comma boundary after the closing brace."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt opening-brace branch",
+  "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
+  "Compiler/CMain.HC:LexStmt2Bin AOT statement loop"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-compound-blocks.hc",
+  "test/cli/parse-compound-blocks.human",
+  "test/cli/parse-compound-blocks.json",
+  "test/cli/parse-compound-block-error.hc",
+  "test/cli/parse-compound-block-error.human",
+  "test/cli/parse-compound-block-error.json"
+]
+status = "implemented"
+issue = 97
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive compound-block children"
+accepted_shapes = ["empty block", "nested block", "ordered child statements", "block followed by a statement comma"]
+child_statement_kinds = ["block", "expression", "empty", "Print", "PutChars", "statement sequence"]
+brace_locations = "preserved independently and as the complete block location"
+comma_after_closing_brace = "continues the enclosing statement sequence"
+comma_before_closing_brace = "rejected because the source loop expects another statement"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_closing_brace_diagnostic = "HCPARSE0049 with the opening brace as a secondary location"
+unmatched_closing_brace_diagnostic = "HCPARSE0050"
+block_recovery = "stops before the closing brace"
+hosted_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0051"
+lexical_scope_status = "planned"
+local_declaration_status = "planned"
+control_flow_and_label_status = "planned"
+function_body_status = "planned"
 semantic_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
