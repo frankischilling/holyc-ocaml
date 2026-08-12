@@ -2793,6 +2793,7 @@
        --format=json
        cli/parse-try-catch-error.hc))))
    (diff cli/parse-try-catch-error.json parse-try-catch-error.json.actual))))
+
 (rule
  (alias runtest)
  (targets parse-aggregate-forward.human.actual)
