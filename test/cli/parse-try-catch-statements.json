@@ -1,0 +1,1716 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-try-catch-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 102
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-try-catch-statements.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-try-catch-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "try_catch_statement",
+          "try_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 14
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 14
+              }
+            ]
+          },
+          "try_body": {
+            "kind": "block_statement",
+            "opening_brace": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 2,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                }
+              ]
+            },
+            "statements": [
+              {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_increment",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 24
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-try-catch-statements.hc",
+                          "line": 3,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 19,
+                          "stop": 24
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "++",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 26
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-try-catch-statements.hc",
+                          "line": 3,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 26
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 26
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 24
+                      },
+                      {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 26
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 3,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 27
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 3,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 27
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 27
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 24
+                    },
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 3,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 26
+                    },
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 3,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 27
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_brace": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 28,
+                "stop": 29
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 15,
+                "stop": 29
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 2,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 19,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 3,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 26
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 3,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 27
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                }
+              ]
+            }
+          },
+          "catch_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 30,
+              "stop": 35
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 30,
+                "stop": 35
+              }
+            ]
+          },
+          "catch_body": {
+            "kind": "block_statement",
+            "opening_brace": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 9,
+                "source_id": 0,
+                "start": 36,
+                "stop": 37
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 4,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 37
+                }
+              ]
+            },
+            "statements": [
+              {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_decrement",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 45
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-try-catch-statements.hc",
+                          "line": 5,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 40,
+                          "stop": 45
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "--",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 45,
+                        "stop": 47
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-try-catch-statements.hc",
+                          "line": 5,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 45,
+                          "stop": 47
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 5,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 47
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 45
+                      },
+                      {
+                        "path": "cli/parse-try-catch-statements.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 45,
+                        "stop": 47
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 5,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 47,
+                    "stop": 48
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 5,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 47,
+                      "stop": 48
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 48
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 5,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 45
+                    },
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 5,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 45,
+                      "stop": 47
+                    },
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 5,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 47,
+                      "stop": 48
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_brace": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 49,
+                "stop": 50
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 6,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 50
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 9,
+                "source_id": 0,
+                "start": 36,
+                "stop": 50
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 4,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 37
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 45
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 5,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 47
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 5,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 48
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 6,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 50
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 50
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 14
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 19,
+                "stop": 24
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 3,
+                "column": 8,
+                "source_id": 0,
+                "start": 24,
+                "stop": 26
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 3,
+                "column": 10,
+                "source_id": 0,
+                "start": 26,
+                "stop": 27
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 28,
+                "stop": 29
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 30,
+                "stop": 35
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 4,
+                "column": 9,
+                "source_id": 0,
+                "start": 36,
+                "stop": 37
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 40,
+                "stop": 45
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 5,
+                "column": 8,
+                "source_id": 0,
+                "start": 45,
+                "stop": 47
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 5,
+                "column": 10,
+                "source_id": 0,
+                "start": 47,
+                "stop": 48
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 49,
+                "stop": 50
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-try-catch-statements.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 50
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 2,
+              "column": 5,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 19,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 3,
+              "column": 8,
+              "source_id": 0,
+              "start": 24,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 3,
+              "column": 10,
+              "source_id": 0,
+              "start": 26,
+              "stop": 27
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 30,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 4,
+              "column": 9,
+              "source_id": 0,
+              "start": 36,
+              "stop": 37
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 40,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 5,
+              "column": 8,
+              "source_id": 0,
+              "start": 45,
+              "stop": 47
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 5,
+              "column": 10,
+              "source_id": 0,
+              "start": 47,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 49,
+              "stop": 50
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "try_catch_statement",
+          "try_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 51,
+              "stop": 54
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 1,
+                "source_id": 0,
+                "start": 51,
+                "stop": 54
+              }
+            ]
+          },
+          "try_body": {
+            "kind": "expression_statement",
+            "expression": {
+              "kind": "postfix",
+              "operator_kind": "post_increment",
+              "operand": {
+                "kind": "identifier",
+                "spelling": "value",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 60
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 7,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 55,
+                      "stop": 60
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "++",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 62
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 7,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 60,
+                      "stop": 62
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 55,
+                  "stop": 62
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 60
+                  },
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 62
+                  }
+                ]
+              }
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 12,
+                "source_id": 0,
+                "start": 62,
+                "stop": 63
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 62,
+                  "stop": 63
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 5,
+                "source_id": 0,
+                "start": 55,
+                "stop": 63
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 55,
+                  "stop": 60
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 62
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 62,
+                  "stop": 63
+                }
+              ]
+            }
+          },
+          "catch_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 14,
+              "source_id": 0,
+              "start": 64,
+              "stop": 69
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 14,
+                "source_id": 0,
+                "start": 64,
+                "stop": 69
+              }
+            ]
+          },
+          "catch_body": {
+            "kind": "expression_statement",
+            "expression": {
+              "kind": "postfix",
+              "operator_kind": "post_decrement",
+              "operand": {
+                "kind": "identifier",
+                "spelling": "value",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 70,
+                    "stop": 75
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 7,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 70,
+                      "stop": 75
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "--",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 75,
+                    "stop": 77
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-try-catch-statements.hc",
+                      "line": 7,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 75,
+                      "stop": 77
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 70,
+                  "stop": 77
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 70,
+                    "stop": 75
+                  },
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 7,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 75,
+                    "stop": 77
+                  }
+                ]
+              }
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 27,
+                "source_id": 0,
+                "start": 77,
+                "stop": 78
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 77,
+                  "stop": 78
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 20,
+                "source_id": 0,
+                "start": 70,
+                "stop": 78
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 70,
+                  "stop": 75
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 75,
+                  "stop": 77
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 7,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 77,
+                  "stop": 78
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 51,
+              "stop": 78
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 1,
+                "source_id": 0,
+                "start": 51,
+                "stop": 54
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 5,
+                "source_id": 0,
+                "start": 55,
+                "stop": 60
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 10,
+                "source_id": 0,
+                "start": 60,
+                "stop": 62
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 12,
+                "source_id": 0,
+                "start": 62,
+                "stop": 63
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 14,
+                "source_id": 0,
+                "start": 64,
+                "stop": 69
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 20,
+                "source_id": 0,
+                "start": 70,
+                "stop": 75
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 25,
+                "source_id": 0,
+                "start": 75,
+                "stop": 77
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 7,
+                "column": 27,
+                "source_id": 0,
+                "start": 77,
+                "stop": 78
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-try-catch-statements.hc",
+            "line": 7,
+            "column": 1,
+            "source_id": 0,
+            "start": 51,
+            "stop": 78
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 51,
+              "stop": 54
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 5,
+              "source_id": 0,
+              "start": 55,
+              "stop": 60
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 10,
+              "source_id": 0,
+              "start": 60,
+              "stop": 62
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 12,
+              "source_id": 0,
+              "start": 62,
+              "stop": 63
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 14,
+              "source_id": 0,
+              "start": 64,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 20,
+              "source_id": 0,
+              "start": 70,
+              "stop": 75
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 25,
+              "source_id": 0,
+              "start": 75,
+              "stop": 77
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 7,
+              "column": 27,
+              "source_id": 0,
+              "start": 77,
+              "stop": 78
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "try_catch_statement",
+          "try_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 79,
+              "stop": 82
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 1,
+                "source_id": 0,
+                "start": 79,
+                "stop": 82
+              }
+            ]
+          },
+          "try_body": {
+            "kind": "try_catch_statement",
+            "try_keyword": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 5,
+                "source_id": 0,
+                "start": 83,
+                "stop": 86
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 83,
+                  "stop": 86
+                }
+              ]
+            },
+            "try_body": {
+              "kind": "empty_statement",
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 87
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 8,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 86,
+                    "stop": 87
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 87
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 8,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 86,
+                    "stop": 87
+                  }
+                ]
+              }
+            },
+            "catch_keyword": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 10,
+                "source_id": 0,
+                "start": 88,
+                "stop": 93
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 93
+                }
+              ]
+            },
+            "catch_body": {
+              "kind": "empty_statement",
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 94
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 8,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 93,
+                    "stop": 94
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 94
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-try-catch-statements.hc",
+                    "line": 8,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 93,
+                    "stop": 94
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 5,
+                "source_id": 0,
+                "start": 83,
+                "stop": 94
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 83,
+                  "stop": 86
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 86,
+                  "stop": 87
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 93
+                },
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 94
+                }
+              ]
+            }
+          },
+          "catch_keyword": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 17,
+              "source_id": 0,
+              "start": 95,
+              "stop": 100
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 17,
+                "source_id": 0,
+                "start": 95,
+                "stop": 100
+              }
+            ]
+          },
+          "catch_body": {
+            "kind": "empty_statement",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 22,
+                "source_id": 0,
+                "start": 100,
+                "stop": 101
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 101
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 22,
+                "source_id": 0,
+                "start": 100,
+                "stop": 101
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-try-catch-statements.hc",
+                  "line": 8,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 101
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 79,
+              "stop": 101
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 1,
+                "source_id": 0,
+                "start": 79,
+                "stop": 82
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 5,
+                "source_id": 0,
+                "start": 83,
+                "stop": 86
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 8,
+                "source_id": 0,
+                "start": 86,
+                "stop": 87
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 10,
+                "source_id": 0,
+                "start": 88,
+                "stop": 93
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 15,
+                "source_id": 0,
+                "start": 93,
+                "stop": 94
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 17,
+                "source_id": 0,
+                "start": 95,
+                "stop": 100
+              },
+              {
+                "path": "cli/parse-try-catch-statements.hc",
+                "line": 8,
+                "column": 22,
+                "source_id": 0,
+                "start": 100,
+                "stop": 101
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-try-catch-statements.hc",
+            "line": 8,
+            "column": 1,
+            "source_id": 0,
+            "start": 79,
+            "stop": 101
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 79,
+              "stop": 82
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 5,
+              "source_id": 0,
+              "start": 83,
+              "stop": 86
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 8,
+              "source_id": 0,
+              "start": 86,
+              "stop": 87
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 10,
+              "source_id": 0,
+              "start": 88,
+              "stop": 93
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 15,
+              "source_id": 0,
+              "start": 93,
+              "stop": 94
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 17,
+              "source_id": 0,
+              "start": 95,
+              "stop": 100
+            },
+            {
+              "path": "cli/parse-try-catch-statements.hc",
+              "line": 8,
+              "column": 22,
+              "source_id": 0,
+              "start": 100,
+              "stop": 101
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

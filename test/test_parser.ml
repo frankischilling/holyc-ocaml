@@ -256,6 +256,10 @@ let expect_lock_statement = function
   | Ast.Lock_statement statement -> statement
   | _ -> Alcotest.fail "expected a lock statement"
 
+let expect_try_catch_statement = function
+  | Ast.Try_catch_statement statement -> statement
+  | _ -> Alcotest.fail "expected a try/catch statement"
+
 let expect_break_statement = function
   | Ast.Break_statement statement -> statement
   | _ -> Alcotest.fail "expected a break statement"
@@ -9273,6 +9277,305 @@ let deterministic_lock_dumps () =
     "JSON keeps the nested lock kind" "lock_statement"
     (inner |> member "kind" |> to_string)
 
+let try_catch_statement_source_behavior () =
+  let normalized path =
+    pinned path |> String.split_on_char '\r' |> String.concat ""
+  in
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches try", "case KW_TRY:");
+      ("try uses its dedicated parser", "PrsTryBlk(cc,try_cnt);");
+      ("try disables register optimization", "cc->flags|=CCF_NO_REG_OPT;");
+      ("try parses an ordinary body", "PrsStmt(cc,try_cnt+1);");
+      ("try requires catch", "if (PrsKeyWord(cc)!=KW_CATCH)");
+      ("try reports a missing handler", "LexExcept(cc,\"Missing 'catch' at\")");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "catch keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_CATCH\t3");
+  Alcotest.(check bool)
+    "try keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_TRY\t\t5");
+  let opcode_source = pinned "Compiler/OpCodes.DD" in
+  Alcotest.(check bool)
+    "the generated keyword source keeps catch ID 3" true
+    (contains opcode_source "KEYWORD catch\t\t3;");
+  Alcotest.(check bool)
+    "the generated keyword source keeps try ID 5" true
+    (contains opcode_source "KEYWORD try\t\t5;");
+  Alcotest.(check bool)
+    "the language guide distinguishes exception syntax from throw" true
+    (contains (pinned "Doc/HolyC.DD")
+       "$FG,2$try{} catch{}$FG$ and $FG,2$throw$FG$ are different from C++");
+  Alcotest.(check bool)
+    "the expression parser uses an unbraced try body" true
+    (contains
+       (normalized "Compiler/PrsExp.HC")
+       "try\n//try catch causes noreg vars in function");
+  Alcotest.(check bool)
+    "the kernel uses unbraced try and catch bodies" true
+    (contains
+       (normalized "Kernel/Job.HC")
+       "try\n\t      tmpc->res=(*tmpc->addr)(tmpc->fun_arg);\n      catch");
+  let demo = normalized "Demo/Exceptions.HC" in
+  Alcotest.(check bool)
+    "the exception demo uses braced try and catch bodies" true
+    (contains demo "try {\n    D1;");
+  Alcotest.(check bool)
+    "throw remains a function call in the demo" true
+    (contains demo "throw('Point1')")
+
+let try_catch_statement_shapes () =
+  let source =
+    "I64 value;try {value++;}catch {value--;}try value++;catch \
+     value--;try;catch;try try value++;catch value--;catch value++;"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable _;
+       Ast.Top_level_statement braced;
+       Ast.Top_level_statement unbraced;
+       Ast.Top_level_statement empty;
+       Ast.Top_level_statement nested;
+      ] ->
+          let braced = expect_try_catch_statement braced in
+          Alcotest.(check int)
+            "try keyword is three bytes" 3
+            (Span.length braced.try_keyword.span);
+          Alcotest.(check int)
+            "catch keyword is five bytes" 5
+            (Span.length braced.catch_keyword.span);
+          ignore (expect_block_statement braced.try_body);
+          let catch_block = expect_block_statement braced.catch_body in
+          Alcotest.(check bool)
+            "the complete span ends with the handler" true
+            (braced.try_catch_location.span.stop
+           = catch_block.block_location.span.stop);
+          let unbraced = expect_try_catch_statement unbraced in
+          ignore (expect_expression_statement unbraced.try_body);
+          ignore (expect_expression_statement unbraced.catch_body);
+          let empty = expect_try_catch_statement empty in
+          ignore (expect_empty_statement empty.try_body);
+          ignore (expect_empty_statement empty.catch_body);
+          let outer = expect_try_catch_statement nested in
+          ignore (expect_try_catch_statement outer.try_body);
+          ignore (expect_expression_statement outer.catch_body)
+      | items ->
+          Alcotest.failf
+            "expected a declaration and four try/catch statements, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let try_catch_boundaries_and_nesting () =
+  let source =
+    "I64 value;try value++,value--;catch value++,value--;if(value)try \
+     value++;catch value--;else try;catch;while(value)try {value--;}catch lock \
+     value++;for(;value;try value--;catch value++;)try value++;catch \
+     value--;lock try value++;catch value--;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement sequences;
+   Ast.Top_level_statement conditional;
+   Ast.Top_level_statement while_loop;
+   Ast.Top_level_statement for_loop;
+   Ast.Top_level_statement locked;
+  ] ->
+      let sequences = expect_try_catch_statement sequences in
+      let try_sequence = expect_statement_sequence sequences.try_body in
+      let catch_sequence = expect_statement_sequence sequences.catch_body in
+      Alcotest.(check int)
+        "try retains both comma-linked statements" 2
+        (List.length try_sequence.sequence_elements);
+      Alcotest.(check int)
+        "catch retains both comma-linked statements" 2
+        (List.length catch_sequence.sequence_elements);
+      let conditional = expect_if_statement conditional in
+      ignore (expect_try_catch_statement conditional.if_then_branch);
+      (match conditional.if_else_clause with
+      | Some clause -> ignore (expect_try_catch_statement clause.else_branch)
+      | None -> Alcotest.fail "expected else to bind outside the handler");
+      let while_try =
+        expect_while_statement while_loop |> fun statement ->
+        expect_try_catch_statement statement.while_body
+      in
+      ignore (expect_block_statement while_try.try_body);
+      ignore (expect_lock_statement while_try.catch_body);
+      let for_loop = expect_for_statement for_loop in
+      (match for_loop.for_update with
+      | Some update -> ignore (expect_try_catch_statement update)
+      | None -> Alcotest.fail "expected try/catch in the for update");
+      ignore (expect_try_catch_statement for_loop.for_body);
+      let lock = expect_lock_statement locked in
+      ignore (expect_try_catch_statement lock.lock_body)
+  | items ->
+      Alcotest.failf
+        "expected a declaration and five structured statements, got %d items"
+        (List.length items)
+
+let try_catch_statement_provenance () =
+  let source =
+    "#define ATTEMPT try\n\
+     #define HANDLE catch\n\
+     #define END ;\n\
+     ATTEMPT END HANDLE END"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Top_level_statement statement ] ->
+        expect_try_catch_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed try/catch statement"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("try keyword", statement.try_keyword);
+      ("catch keyword", statement.catch_keyword);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated try provenance" true
+    (statement_json |> member "try_keyword" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON keeps generated catch provenance" true
+    (statement_json |> member "catch_keyword" |> member "defined_at" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let handler_file = Filename.concat directory "handler.HC" in
+      write_file root_file "I64 value;\n#include \"handler\"";
+      write_file handler_file "try value++;catch value--;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_try_catch_statement statement
+        | _ -> Alcotest.fail "expected one included try/catch statement"
+      in
+      List.iter
+        (fun (location : Ast.location) ->
+          let source =
+            Source_manager.find
+              (Session.sources include_session)
+              location.Ast.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included keyword keeps its canonical path"
+            (Unix.realpath handler_file)
+            (Source_file.path source))
+        [ included.try_keyword; included.catch_keyword ])
+
+let try_catch_statement_failures () =
+  List.iter
+    (fun (name, source, code, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the failure")
+        true
+        (contains diagnostic.message found))
+    [
+      ("try at end of input", "try", "HCPARSE0079", "end of input");
+      ("try before a block close", "{try}", "HCPARSE0079", "found \"}\"");
+      ("try before catch", "try catch;", "HCPARSE0079", "catch");
+      ("comma-only try body", "try,,,", "HCPARSE0079", "only statement commas");
+      ("missing catch", "try;", "HCPARSE0080", "end of input");
+      ("wrong catch token", "try;else", "HCPARSE0080", "else");
+      ("catch at end of input", "try;catch", "HCPARSE0081", "end of input");
+      ("catch before a block close", "{try;catch}", "HCPARSE0081", "found \"}\"");
+      ("repeated catch", "try;catch catch;", "HCPARSE0081", "catch");
+      ("standalone catch", "catch;", "HCPARSE0082", "without a matching 'try'");
+    ];
+  let _, _, malformed_try = parse_string "try )" in
+  Alcotest.(check string)
+    "malformed try child keeps its ordinary diagnostic" "HCPARSE0048"
+    (first_diagnostic malformed_try).code;
+  let _, _, malformed_catch = parse_string "try;catch )" in
+  Alcotest.(check string)
+    "malformed catch child keeps its ordinary diagnostic" "HCPARSE0048"
+    (first_diagnostic malformed_catch).code;
+  let excessive =
+    String.concat "" (List.init (Parser.max_try_depth + 1) (fun _ -> "try "))
+    ^ ";"
+  in
+  let _, _, nested = parse_string excessive in
+  let diagnostic = first_diagnostic nested in
+  Alcotest.(check string) "try nesting diagnostic" "HCPARSE0083" diagnostic.code;
+  Alcotest.(check bool)
+    "try nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_try_depth))
+
+let deterministic_try_catch_dumps () =
+  let session, _, output =
+    parse_string "I64 value;try {try value++;catch value--;}catch {value++;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human try/catch dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON try/catch dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies try/catch statements" true
+    (contains human "try_catch_statement");
+  let open Yojson.Safe.Util in
+  let outer =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON keeps the outer try/catch kind" "try_catch_statement"
+    (outer |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON keeps the braced handler" "block_statement"
+    (outer |> member "catch_body" |> member "kind" |> to_string);
+  let inner =
+    outer |> member "try_body" |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON keeps the nested try/catch kind" "try_catch_statement"
+    (inner |> member "kind" |> to_string)
+
 let break_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -10191,6 +10494,18 @@ let tests =
     Alcotest.test_case "lock statement failures" `Quick lock_statement_failures;
     Alcotest.test_case "deterministic lock statement dumps" `Quick
       deterministic_lock_dumps;
+    Alcotest.test_case "pinned try/catch behavior" `Quick
+      try_catch_statement_source_behavior;
+    Alcotest.test_case "try/catch statement shapes" `Quick
+      try_catch_statement_shapes;
+    Alcotest.test_case "try/catch boundaries and nesting" `Quick
+      try_catch_boundaries_and_nesting;
+    Alcotest.test_case "try/catch statement provenance" `Quick
+      try_catch_statement_provenance;
+    Alcotest.test_case "try/catch statement failures" `Quick
+      try_catch_statement_failures;
+    Alcotest.test_case "deterministic try/catch dumps" `Quick
+      deterministic_try_catch_dumps;
     Alcotest.test_case "pinned break behavior" `Quick
       break_statement_source_behavior;
     Alcotest.test_case "break statement shapes" `Quick break_statement_shapes;

@@ -1,0 +1,1 @@
+cli/parse-try-catch-error.hc:5:1: error[HCPARSE0080]: expected 'catch' after the try body, but found end of input

@@ -83,6 +83,8 @@ statement          := ";" | statement-expression statement-terminator
                     | print-statement | put-chars-statement
                     | compound-statement | if-statement | while-statement
                     | do-while-statement | for-statement
+                    | goto-statement | label-statement | lock-statement
+                    | try-catch-statement | break-statement | return-statement
 compound-statement := "{" statement-sequence* "}"
 if-statement       := "if" "(" core-expression ")" required-statement-sequence
                       ("else" required-statement-sequence)?
@@ -92,6 +94,13 @@ do-while-statement := "do" required-statement-sequence "while"
 for-statement      := "for" "(" required-statement-sequence
                       core-expression ";" required-statement-sequence?
                       ")" required-statement-sequence
+goto-statement     := "goto" identifier statement-terminator
+label-statement    := unresolved-identifier ":"
+lock-statement     := "lock" required-statement-sequence
+try-catch-statement := "try" required-statement-sequence
+                       "catch" required-statement-sequence
+break-statement    := "break" statement-terminator
+return-statement   := "return" (";" | core-expression statement-terminator)
 required-statement-sequence := statement-sequence containing at least one statement
 statement-expression := core-expression not beginning with a string or character literal
 statement-terminator := ";" | comma-boundary
@@ -258,6 +267,14 @@ The AST retains the `lock` keyword, its recursively parsed body, and their compl
 
 `HCPARSE0077` reports a missing or comma-only body. An independent 256-level `HCPARSE0078` hosted guard prevents unbounded recursion through repeated unbraced locks; no corresponding TempleOS language limit was found. This parser slice does not mark IR instructions with `ICF_LOCK`, determine whether an operation accepts an x86 `LOCK` prefix, select machine instructions, or execute multicore code.
 
+## Try and catch statements
+
+`Compiler/PrsStmt.HC:PrsTryBlk` compiles a required statement after `try`, requires `catch`, and then compiles another required statement. Both calls use the ordinary statement parser with an incremented active-try count, so braces are optional and either side may contain another pair or a comma-linked sequence. The compiler surrounds the first body with calls to `SysTry` and `SysUntry`, installs handler labels, and uses the active count when a `return` must leave nested try regions. `Compiler/PrsExp.HC` and `Kernel/Job.HC` contain unbraced forms, while `Demo/Exceptions.HC` contains braced and nested forms. `Doc/HolyC.DD` also notes that lowercase `throw` is an ordinary function call, not a separate statement keyword.
+
+The AST retains the `try` keyword, recursively parsed body, `catch` keyword, recursively parsed handler, and complete paired location. It accepts the syntax in JIT and AOT modes, at top level for tooling, and in every implemented recursive statement context. Definition and include frames keep their usual provenance. The parser does not invent an optional handler or flatten either side.
+
+`HCPARSE0079`, `HCPARSE0080`, and `HCPARSE0081` report a missing body, missing `catch`, or missing handler. A standalone `catch` reaches the pinned compiler's generic `Missing expression` path; the hosted parser preserves rejection but uses the more useful `HCPARSE0082` message. An independent 256-level `HCPARSE0083` guard bounds recursive unbraced pairs, with no matching source-language limit identified. This slice does not emit `SysTry` or `SysUntry`, allocate handler labels, transfer exceptions, unwind returns, lower `throw` calls, or execute exception code.
+
 ## Statement-position output literals
 
 `PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items and recursively inside compound blocks, conditional branches, and loop bodies. HolyC permits executable top-level statements without a conventional `main`.
@@ -324,4 +341,4 @@ HolyC's `Option(bit, state)` changes the current compile controller and returns 
 
 ## Current boundary
 
-The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for primitive globals, bound prototypes, recursive compound blocks, `if` and `else`, all three loop forms, `goto`, function labels, `break`, `return`, and `Print` and `PutChars` shorthand statements. It covers ordered declaration prefixes, ordinary, alternate-name, and `_intern` bindings, pointers through depth four, primitive global array suffixes, parameter qualifiers, recursive function-pointer parameters, varargs, and core expressions in `_intern` targets, dimensions, parameter defaults, conditions, and output arguments. It enforces the source parser's AOT gate for both import spellings and accepts `_intern` plus every implemented statement form in JIT and AOT modes. It does not resolve bindings, create block scopes, evaluate `_intern` addresses, apply internal-function or other linkage and storage effects, build semantic pointer or function types, evaluate expressions, calculate array layout, fill ordinary call arguments, resolve or lower implicit output calls, bind goto targets, validate labels or break targets, execute top-level code, or support initializers, non-global arrays, function bodies, remaining control flow, classes, unions, promotions, conversions, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for primitive globals, bound prototypes, recursive compound blocks, `if` and `else`, all three loop forms, `goto`, function labels, `lock`, paired `try`/`catch`, `break`, `return`, and `Print` and `PutChars` shorthand statements. It covers ordered declaration prefixes, ordinary, alternate-name, and `_intern` bindings, pointers through depth four, primitive global array suffixes, parameter qualifiers, recursive function-pointer parameters, varargs, and core expressions in `_intern` targets, dimensions, parameter defaults, conditions, and output arguments. It enforces the source parser's AOT gate for both import spellings and accepts `_intern` plus every implemented statement form in JIT and AOT modes. It does not resolve bindings, create block scopes, evaluate `_intern` addresses, apply internal-function or other linkage and storage effects, build semantic pointer or function types, evaluate expressions, calculate array layout, fill ordinary call arguments, resolve or lower implicit output calls, bind goto targets, validate labels or break targets, implement exception transfer, execute top-level code, or support initializers, non-global arrays, function bodies, remaining control flow, classes, unions, promotions, conversions, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.

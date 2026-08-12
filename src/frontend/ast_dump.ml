@@ -602,6 +602,20 @@ let rec print_statement buffer sources ~indent = function
       Printf.bprintf buffer "%sbody\n" child_indent;
       print_statement buffer sources ~indent:(child_indent ^ "  ")
         statement.lock_body
+  | Ast.Try_catch_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%stry_catch_statement span=%s\n" indent
+        (location_text sources statement.try_catch_location);
+      Printf.bprintf buffer "%stry_keyword span=%s\n" child_indent
+        (location_text sources statement.try_keyword);
+      Printf.bprintf buffer "%stry_body\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.try_body;
+      Printf.bprintf buffer "%scatch_keyword span=%s\n" child_indent
+        (location_text sources statement.catch_keyword);
+      Printf.bprintf buffer "%scatch_body\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.catch_body
   | Ast.Return_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sreturn_statement span=%s value=%b semicolon=%b\n"
@@ -1513,6 +1527,16 @@ let rec statement_to_yojson sources = function
           ("keyword", location_to_yojson sources statement.lock_keyword);
           ("body", statement_to_yojson sources statement.lock_body);
           ("location", location_to_yojson sources statement.lock_location);
+        ]
+  | Ast.Try_catch_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "try_catch_statement");
+          ("try_keyword", location_to_yojson sources statement.try_keyword);
+          ("try_body", statement_to_yojson sources statement.try_body);
+          ("catch_keyword", location_to_yojson sources statement.catch_keyword);
+          ("catch_body", statement_to_yojson sources statement.catch_body);
+          ("location", location_to_yojson sources statement.try_catch_location);
         ]
   | Ast.Return_statement statement ->
       `Assoc
