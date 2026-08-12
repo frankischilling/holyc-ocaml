@@ -302,7 +302,7 @@ let parser_term =
 
 let parse_command =
   let documentation =
-    "Parse direct primitive global declarations and print the versioned AST."
+    "Parse the currently supported HolyC grammar and print the versioned AST."
   in
   Cmd.v (Cmd.info "parse" ~doc:documentation) parser_term
 
