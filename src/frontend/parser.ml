@@ -2393,6 +2393,13 @@ let parse_return_statement cursor ~boundary : parsed_statement option =
       build None []
         (Some (token_location semicolon_item.token))
         [ semicolon_item.token ]
+  | _, (Token_kind.Punctuation (',' | ')' | ']' | '}') | Token_kind.Eof) ->
+      report cursor first_item ~code:"HCPARSE0074"
+        ~message:
+          (Printf.sprintf "expected a return expression or ';', but found %s"
+             (token_description first_item.token));
+      recover_statement cursor ~boundary;
+      None
   | _ -> (
       match
         parse_expression cursor ~context:Return_expression ~depth:0

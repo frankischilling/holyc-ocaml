@@ -1,0 +1,387 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-return-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 20
+    },
+    "items": [
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "return_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              }
+            ]
+          },
+          "value": null,
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 7
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 6
+              },
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 7
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-return-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 7
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 6
+            },
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 7
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "return_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 8,
+              "stop": 14
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 8,
+                "stop": 14
+              }
+            ]
+          },
+          "value": {
+            "kind": "binary",
+            "left": {
+              "kind": "integer_literal",
+              "spelling": "1",
+              "value": "0x0000000000000001",
+              "location": {
+                "span": {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-return-statements.hc",
+                    "line": 2,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-return-statements.hc",
+                    "line": 2,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "integer_literal",
+              "spelling": "2",
+              "value": "0x0000000000000002",
+              "location": {
+                "span": {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 18
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-return-statements.hc",
+                    "line": 2,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 18
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 15,
+                "stop": 18
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-return-statements.hc",
+                  "line": 2,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 18
+                }
+              ]
+            }
+          },
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 8,
+              "stop": 19
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 8,
+                "stop": 14
+              },
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 9,
+                "source_id": 0,
+                "start": 16,
+                "stop": 17
+              },
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 10,
+                "source_id": 0,
+                "start": 17,
+                "stop": 18
+              },
+              {
+                "path": "cli/parse-return-statements.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-return-statements.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 8,
+            "stop": 19
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 8,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 9,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-return-statements.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
