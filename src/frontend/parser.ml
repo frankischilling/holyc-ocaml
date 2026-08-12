@@ -287,14 +287,22 @@ let rec recover_statement cursor ~boundary =
       ignore (take cursor);
       recover_statement cursor ~boundary
 
-let rec recover_for_header cursor =
-  let item = peek cursor in
-  match item.token.Token.kind with
-  | Token_kind.Eof -> ()
-  | Token_kind.Punctuation ')' -> ignore (take cursor)
-  | _ ->
-      ignore (take cursor);
-      recover_for_header cursor
+let recover_for_header cursor =
+  let rec skip nested_parentheses =
+    let item = peek cursor in
+    match item.token.Token.kind with
+    | Token_kind.Eof -> ()
+    | Token_kind.Punctuation '(' ->
+        ignore (take cursor);
+        skip (nested_parentheses + 1)
+    | Token_kind.Punctuation ')' ->
+        ignore (take cursor);
+        if nested_parentheses > 0 then skip (nested_parentheses - 1)
+    | _ ->
+        ignore (take cursor);
+        skip nested_parentheses
+  in
+  skip 0
 
 let rec statement_body_boundary = function
   | For_update_boundary boundary -> statement_body_boundary boundary
