@@ -93,6 +93,10 @@ let defined_operand_kind_name = function
   | Ast.Defined_name -> "name"
   | Ast.Defined_non_name -> "non_name"
 
+let implicit_output_target_name = function
+  | Ast.Print_target -> "print"
+  | Ast.Put_chars_target -> "put_chars"
+
 let association_name = function
   | Operator.Unspecified -> "unspecified"
   | Operator.Left -> "left"
@@ -427,6 +431,44 @@ and print_expression_operator buffer sources ~indent
     operator.operator_spelling
     (location_text sources operator.operator_location)
 
+let print_implicit_output_statement buffer sources ~indent
+    (statement : Ast.implicit_output_statement) =
+  let child_indent = indent ^ "  " in
+  let marker_kind =
+    match statement.target with
+    | Ast.Print_target -> "string_literal"
+    | Ast.Put_chars_target -> "character_literal"
+  in
+  Printf.bprintf buffer "%simplicit_output target=%s span=%s arguments=%d\n"
+    indent
+    (implicit_output_target_name statement.target)
+    (location_text sources statement.location)
+    (List.length statement.arguments);
+  Printf.bprintf buffer "%smarker kind=%s spelling=%S value=%S span=%s\n"
+    child_indent marker_kind statement.marker.literal_spelling
+    (literal_value_text statement.marker.literal_value)
+    (location_text sources statement.marker.literal_location);
+  (match statement.fixed_argument with
+  | Ast.Marker_fixed_argument expression ->
+      Printf.bprintf buffer "%sfixed_argument kind=marker_expression\n"
+        child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ") expression
+  | Ast.Expression_fixed_argument expression ->
+      Printf.bprintf buffer "%sfixed_argument kind=following_expression\n"
+        child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ") expression);
+  List.iteri
+    (fun index (argument : Ast.implicit_output_argument) ->
+      Printf.bprintf buffer "%sargument index=%d span=%s\n" child_indent index
+        (location_text sources argument.location);
+      Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+        (location_text sources argument.leading_comma);
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        argument.value)
+    statement.arguments;
+  Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+    (location_text sources statement.semicolon)
+
 let print_binding buffer sources ~indent = function
   | None -> ()
   | Some (binding : Ast.declaration_binding) -> (
@@ -618,7 +660,14 @@ let human sources module_ =
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
             (location_text sources prototype.closing_parenthesis);
           Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources prototype.semicolon))
+            (location_text sources prototype.semicolon)
+      | Ast.Top_level_statement statement -> (
+          Printf.bprintf buffer "  top_level_statement span=%s\n"
+            (location_text sources (Ast.statement_location statement));
+          match statement with
+          | Ast.Implicit_output_statement statement ->
+              print_implicit_output_statement buffer sources ~indent:"    "
+                statement))
     module_.items;
   Buffer.contents buffer
 
@@ -1039,6 +1088,52 @@ and call_argument_to_yojson sources (argument : Ast.call_argument) =
         ("location", location_to_yojson sources argument.call_argument_location);
       ])
 
+let implicit_output_argument_to_yojson sources
+    (argument : Ast.implicit_output_argument) =
+  `Assoc
+    [
+      ("comma", location_to_yojson sources argument.leading_comma);
+      ("expression", expression_to_yojson sources argument.value);
+      ("location", location_to_yojson sources argument.location);
+    ]
+
+let implicit_output_statement_to_yojson sources
+    (statement : Ast.implicit_output_statement) =
+  let marker_kind =
+    match statement.target with
+    | Ast.Print_target -> "string_literal"
+    | Ast.Put_chars_target -> "character_literal"
+  in
+  let fixed_argument =
+    match statement.fixed_argument with
+    | Ast.Marker_fixed_argument expression ->
+        `Assoc
+          [
+            ("kind", `String "marker_expression");
+            ("expression", expression_to_yojson sources expression);
+          ]
+    | Ast.Expression_fixed_argument expression ->
+        `Assoc
+          [
+            ("kind", `String "following_expression");
+            ("expression", expression_to_yojson sources expression);
+          ]
+  in
+  `Assoc
+    [
+      ("kind", `String "implicit_output_statement");
+      ("target", `String (implicit_output_target_name statement.target));
+      ("marker", literal_to_yojson sources ~kind:marker_kind statement.marker);
+      ("fixed_argument", fixed_argument);
+      ( "arguments",
+        `List
+          (List.map
+             (implicit_output_argument_to_yojson sources)
+             statement.arguments) );
+      ("semicolon", location_to_yojson sources statement.semicolon);
+      ("location", location_to_yojson sources statement.location);
+    ]
+
 let binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc
     ([
@@ -1226,6 +1321,17 @@ let item_to_yojson sources = function
             ("semicolon", location_to_yojson sources prototype.semicolon);
             ("location", location_to_yojson sources prototype.location);
           ])
+  | Ast.Top_level_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "top_level_statement");
+          ( "statement",
+            match statement with
+            | Ast.Implicit_output_statement statement ->
+                implicit_output_statement_to_yojson sources statement );
+          ( "location",
+            location_to_yojson sources (Ast.statement_location statement) );
+        ]
 
 let to_yojson sources module_ =
   `Assoc

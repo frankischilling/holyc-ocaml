@@ -204,6 +204,51 @@ let expect_omitted_call_argument (argument : Ast.call_argument) =
   | Ast.Provided_call_argument _ ->
       Alcotest.fail "expected an omitted call argument"
 
+let expect_one_implicit_output ast =
+  match ast.Ast.items with
+  | [ Ast.Top_level_statement (Ast.Implicit_output_statement statement) ] ->
+      statement
+  | items ->
+      Alcotest.failf "expected one implicit output statement, got %d items"
+        (List.length items)
+
+let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
+  match statement.fixed_argument with
+  | Ast.Marker_fixed_argument expression -> expression
+  | Ast.Expression_fixed_argument _ ->
+      Alcotest.fail "expected the marker to supply the fixed argument"
+
+let expect_following_fixed_argument (statement : Ast.implicit_output_statement)
+    =
+  match statement.fixed_argument with
+  | Ast.Expression_fixed_argument expression -> expression
+  | Ast.Marker_fixed_argument _ ->
+      Alcotest.fail "expected an expression after the empty marker"
+
+let expect_identifier_expression = function
+  | Ast.Identifier_expression identifier -> identifier
+  | _ -> Alcotest.fail "expected an identifier expression"
+
+let expect_string_literal = function
+  | Ast.String_literal literal -> literal
+  | _ -> Alcotest.fail "expected a string literal"
+
+let expect_character_literal = function
+  | Ast.Character_literal literal -> literal
+  | _ -> Alcotest.fail "expected a character literal"
+
+let expect_bytes_value (literal : Ast.expression_literal) =
+  match literal.literal_value with
+  | Ast.Bytes_value value -> value
+  | Ast.Integer_value _ | Ast.Float_value _ ->
+      Alcotest.fail "expected a byte-string literal value"
+
+let expect_character_value (literal : Ast.expression_literal) =
+  match literal.literal_value with
+  | Ast.Integer_value value -> value
+  | Ast.Bytes_value _ | Ast.Float_value _ ->
+      Alcotest.fail "expected an integer character value"
+
 let globals ast =
   List.map
     (function
@@ -211,7 +256,9 @@ let globals ast =
       | Ast.Global_declaration _ ->
           Alcotest.fail "expected singleton globals, got a declaration group"
       | Ast.Function_prototype _ ->
-          Alcotest.fail "expected singleton globals, got a function prototype")
+          Alcotest.fail "expected singleton globals, got a function prototype"
+      | Ast.Top_level_statement _ ->
+          Alcotest.fail "expected singleton globals, got a top-level statement")
     ast.Ast.items
 
 let prototypes ast =
@@ -221,7 +268,10 @@ let prototypes ast =
       | Ast.Global_variable _ ->
           Alcotest.fail "expected function prototypes, got a singleton global"
       | Ast.Global_declaration _ ->
-          Alcotest.fail "expected function prototypes, got a declaration group")
+          Alcotest.fail "expected function prototypes, got a declaration group"
+      | Ast.Top_level_statement _ ->
+          Alcotest.fail
+            "expected function prototypes, got a top-level statement")
     ast.Ast.items
 
 let first_diagnostic output =
@@ -254,7 +304,9 @@ let supported_primitives () =
       | Ast.Global_declaration _ ->
           Alcotest.fail "primitive fixture unexpectedly formed a group"
       | Ast.Function_prototype _ ->
-          Alcotest.fail "primitive fixture unexpectedly formed a prototype")
+          Alcotest.fail "primitive fixture unexpectedly formed a prototype"
+      | Ast.Top_level_statement _ ->
+          Alcotest.fail "primitive fixture unexpectedly formed a statement")
     Primitive_type.all ast.items
 
 let pointer_depth_source_limit () =
@@ -6457,7 +6509,10 @@ let order_and_spans () =
             Alcotest.fail "independent declarations unexpectedly formed a group"
         | Ast.Function_prototype _ ->
             Alcotest.fail
-              "independent declarations unexpectedly formed a prototype")
+              "independent declarations unexpectedly formed a prototype"
+        | Ast.Top_level_statement _ ->
+            Alcotest.fail
+              "independent declarations unexpectedly formed a statement")
       ast.items
   in
   Alcotest.(check (list string))
@@ -6583,8 +6638,311 @@ let declarations_update_symbol_conditionals () =
          | Ast.Global_declaration _ ->
              Alcotest.fail "conditional fixture unexpectedly formed a group"
          | Ast.Function_prototype _ ->
-             Alcotest.fail "conditional fixture unexpectedly formed a prototype")
+             Alcotest.fail "conditional fixture unexpectedly formed a prototype"
+         | Ast.Top_level_statement _ ->
+             Alcotest.fail "conditional fixture unexpectedly formed a statement")
        ast.items)
+
+let implicit_output_source_behavior () =
+  let statement_parser =
+    pinned "Compiler/PrsStmt.HC"
+    |> String.split_on_char '\r' |> String.concat ""
+  in
+  Alcotest.(check bool)
+    "statement parser selects both literal token kinds" true
+    (contains statement_parser "cc->token==TK_STR||cc->token==TK_CHAR_CONST");
+  Alcotest.(check bool)
+    "statement parser delegates to the implicit call path" true
+    (contains statement_parser "PrsFunCall(cc,NULL,FALSE,NULL);");
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "character literal selects PutChars" true
+    (contains expression_parser "HashFind(\"PutChars\"");
+  Alcotest.(check bool)
+    "string literal selects Print" true
+    (contains expression_parser "HashFind(\"Print\"");
+  Alcotest.(check bool)
+    "empty character marker advances to a variable" true
+    (contains expression_parser "empty char signals PutChars with variable");
+  Alcotest.(check bool)
+    "empty string marker advances to a variable format" true
+    (contains expression_parser
+       "empty string signals Print with variable fmt_str");
+  let language = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "documentation states the implicit output rule" true
+    (contains language "A char const all alone is sent to $LK,\"PutChars\"");
+  List.iter
+    (fun example ->
+      Alcotest.(check bool)
+        ("documentation includes " ^ example)
+        true
+        (contains language example))
+    [
+      "\"Hello World!\\n\";";
+      "\"%s age %d\\n\",name,age;";
+      "\"\" fmt,name,age;";
+      "'' drv;";
+      "'*';";
+    ];
+  let headers = pinned "Kernel/KExts.HC" in
+  Alcotest.(check bool)
+    "Print prototype is pinned" true
+    (contains headers "extern U0 Print(U8 *fmt,...);");
+  Alcotest.(check bool)
+    "PutChars prototype is pinned" true
+    (contains headers "extern U0 PutChars(U64 ch);")
+
+let implicit_output_shapes () =
+  let source =
+    "\"Hello\\n\";\n\
+     \"%s %d\\n\",name,age;\n\
+     \"\" fmt,name,age;\n\
+     '*';\n\
+     'ABC';\n\
+     '' drv;\n\
+     \"\\0tail\" nul_fmt;"
+  in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  let statements =
+    List.map
+      (function
+        | Ast.Top_level_statement (Ast.Implicit_output_statement statement) ->
+            statement
+        | Ast.Global_variable _
+        | Ast.Global_declaration _
+        | Ast.Function_prototype _ ->
+            Alcotest.fail "output fixture unexpectedly parsed a declaration")
+      ast.items
+  in
+  Alcotest.(check int) "seven statements" 7 (List.length statements);
+  let hello = List.nth statements 0 in
+  Alcotest.(check bool)
+    "ordinary string targets Print" true
+    (hello.target = Ast.Print_target);
+  Alcotest.(check string)
+    "decoded marker bytes" "Hello\n"
+    (expect_bytes_value hello.marker);
+  Alcotest.(check string)
+    "marker expression supplies the fixed argument" "Hello\n"
+    (expect_marker_fixed_argument hello
+    |> expect_string_literal |> expect_bytes_value);
+  Alcotest.(check int)
+    "ordinary string has no varargs" 0
+    (List.length hello.arguments);
+  let formatted = List.nth statements 1 in
+  Alcotest.(check int)
+    "formatted string has two varargs" 2
+    (List.length formatted.arguments);
+  Alcotest.(check (list string))
+    "formatted arguments retain order" [ "name"; "age" ]
+    (List.map
+       (fun (argument : Ast.implicit_output_argument) ->
+         (expect_identifier_expression argument.value).spelling)
+       formatted.arguments);
+  let variable_format = List.nth statements 2 in
+  Alcotest.(check string)
+    "empty marker stays empty" ""
+    (expect_bytes_value variable_format.marker);
+  let variable_format_identifier =
+    expect_following_fixed_argument variable_format
+    |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "following expression supplies the format" "fmt"
+    variable_format_identifier.spelling;
+  Alcotest.(check (list string))
+    "variable format arguments retain order" [ "name"; "age" ]
+    (List.map
+       (fun (argument : Ast.implicit_output_argument) ->
+         (expect_identifier_expression argument.value).spelling)
+       variable_format.arguments);
+  let star = List.nth statements 3 in
+  Alcotest.(check bool)
+    "character targets PutChars" true
+    (star.target = Ast.Put_chars_target);
+  Alcotest.(check int64) "star value" 42L (expect_character_value star.marker);
+  let multi = List.nth statements 4 in
+  Alcotest.(check int64)
+    "multi-character marker value" 0x434241L
+    (expect_character_value multi.marker);
+  let variable_character = List.nth statements 5 in
+  Alcotest.(check int64)
+    "empty character marker is zero" 0L
+    (expect_character_value variable_character.marker);
+  let variable_character_identifier =
+    expect_following_fixed_argument variable_character
+    |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "following expression supplies the character" "drv"
+    variable_character_identifier.spelling;
+  let nul_format = List.nth statements 6 in
+  Alcotest.(check string)
+    "a leading decoded NUL selects the variable format" "\000tail"
+    (expect_bytes_value nul_format.marker);
+  let nul_format_identifier =
+    expect_following_fixed_argument nul_format |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "NUL-prefixed marker uses the following expression" "nul_fmt"
+    nul_format_identifier.spelling
+
+let implicit_output_fixed_expressions () =
+  let source = "\"prefix\"+suffix;\n'A'+1;\n\"\" BuildFmt();\n'' value(U8);" in
+  let _, _, output = parse_string source in
+  let ast = expect_ast output in
+  let statements =
+    List.map
+      (function
+        | Ast.Top_level_statement (Ast.Implicit_output_statement statement) ->
+            statement
+        | _ -> Alcotest.fail "expected an implicit output statement")
+      ast.items
+  in
+  List.iteri
+    (fun index statement ->
+      let expression =
+        if index < 2 then expect_marker_fixed_argument statement
+        else expect_following_fixed_argument statement
+      in
+      match (index, expression) with
+      | (0 | 1), Ast.Binary_expression _ -> ()
+      | 2, Ast.Call_expression _ -> ()
+      | 3, Ast.Postfix_cast_expression _ -> ()
+      | _ ->
+          Alcotest.failf "unexpected fixed expression shape at index %d" index)
+    statements
+
+let implicit_output_order_and_modes () =
+  let source = "I64 before;\n\"ready\";\nextern U0 Hook();\n'' before;" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable before;
+       Ast.Top_level_statement (Ast.Implicit_output_statement print);
+       Ast.Function_prototype hook;
+       Ast.Top_level_statement (Ast.Implicit_output_statement put_chars);
+      ] ->
+          Alcotest.(check string) "first item" "before" before.name.spelling;
+          Alcotest.(check bool)
+            "second item is Print" true
+            (print.target = Ast.Print_target);
+          Alcotest.(check string) "third item" "Hook" hook.name.spelling;
+          Alcotest.(check bool)
+            "fourth item is PutChars" true
+            (put_chars.target = Ast.Put_chars_target)
+      | items ->
+          Alcotest.failf "expected four ordered module items, got %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let implicit_output_provenance () =
+  let source =
+    "#define OUTPUT \"%s\"\nOUTPUT,value;\n#define EMPTY \"\"\nEMPTY fmt;"
+  in
+  let session, root, output = parse_string source in
+  let statements =
+    (expect_ast output).Ast.items
+    |> List.map (function
+      | Ast.Top_level_statement (Ast.Implicit_output_statement statement) ->
+          statement
+      | _ -> Alcotest.fail "expected definition-backed output statements")
+  in
+  List.iter
+    (fun (statement : Ast.implicit_output_statement) ->
+      let location = statement.marker.literal_location in
+      Alcotest.(check bool)
+        "definition marker uses generated source" false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        "invocation provenance" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "definition provenance" true
+        (Option.is_some location.defined_at))
+    statements;
+  ignore session;
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let statement_file = Filename.concat directory "statement.HC" in
+      write_file root_file "#include \"statement\"";
+      write_file statement_file "\"included\";";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:include_source
+      in
+      let statement = expect_ast include_output |> expect_one_implicit_output in
+      let marker_source =
+        Source_manager.find
+          (Session.sources include_session)
+          statement.marker.literal_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included marker keeps its canonical path"
+        (Unix.realpath statement_file)
+        (Source_file.path marker_source))
+
+let implicit_output_failures () =
+  let cases =
+    [
+      ("empty string without format", "\"\";", "HCPARSE0043");
+      ("empty character without value", "'';", "HCPARSE0043");
+      ("empty Print vararg", "\"x\",;", "HCPARSE0044");
+      ("repeated Print comma", "\"x\",,value;", "HCPARSE0044");
+      ("PutChars statement separator", "'x',value;", "HCPARSE0045");
+      ("missing Print semicolon", "\"x\"", "HCPARSE0046");
+      ("missing PutChars semicolon", "'' value", "HCPARSE0046");
+    ]
+  in
+  List.iter
+    (fun (name, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " diagnostic") code (first_diagnostic output).code)
+    cases
+
+let deterministic_implicit_output_dumps () =
+  let session, _, output = parse_string "\"value=%d\",value;" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human output is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON output is deterministic" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let item =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "top-level item kind" "top_level_statement"
+    (item |> member "kind" |> to_string);
+  let statement = item |> member "statement" in
+  Alcotest.(check string)
+    "statement kind" "implicit_output_statement"
+    (statement |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "statement target" "print"
+    (statement |> member "target" |> to_string);
+  Alcotest.(check int)
+    "one Print vararg" 1
+    (statement |> member "arguments" |> to_list |> List.length)
 
 let unsupported_forms () =
   let cases =
@@ -6840,6 +7198,19 @@ let tests =
       lastclass_default_failures;
     Alcotest.test_case "deterministic lastclass dumps" `Quick
       deterministic_lastclass_dumps;
+    Alcotest.test_case "pinned implicit output behavior" `Quick
+      implicit_output_source_behavior;
+    Alcotest.test_case "implicit output shapes" `Quick implicit_output_shapes;
+    Alcotest.test_case "implicit output fixed expressions" `Quick
+      implicit_output_fixed_expressions;
+    Alcotest.test_case "implicit output order and modes" `Quick
+      implicit_output_order_and_modes;
+    Alcotest.test_case "implicit output provenance" `Quick
+      implicit_output_provenance;
+    Alcotest.test_case "implicit output failures" `Quick
+      implicit_output_failures;
+    Alcotest.test_case "deterministic implicit output dumps" `Quick
+      deterministic_implicit_output_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

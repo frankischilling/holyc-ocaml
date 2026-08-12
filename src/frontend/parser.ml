@@ -39,6 +39,7 @@ type expression_context =
   | Intern_binding_expression
   | Call_argument_expression
   | Index_expression
+  | Implicit_output_argument_expression
 
 type parsed_parameter_default = {
   node : Ast.parameter_default;
@@ -520,6 +521,7 @@ let expression_context_name = function
   | Intern_binding_expression -> "_intern target expression"
   | Call_argument_expression -> "call argument expression"
   | Index_expression -> "index expression"
+  | Implicit_output_argument_expression -> "implicit output argument"
 
 let expression_operand_name = function
   | Default_expression -> "a default expression operand"
@@ -527,6 +529,7 @@ let expression_operand_name = function
   | Intern_binding_expression -> "an _intern target expression operand"
   | Call_argument_expression -> "a call argument expression operand"
   | Index_expression -> "an index expression operand"
+  | Implicit_output_argument_expression -> "an implicit output argument"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
     parsed_expression option =
@@ -2036,6 +2039,139 @@ let parse_global cursor =
           recover_declaration cursor;
           None)
 
+let parse_implicit_output_statement cursor =
+  let marker_item = peek cursor in
+  let target, marker_value, empty_marker =
+    match (marker_item.token.Token.kind, marker_item.token.value) with
+    | Token_kind.String, Token.Bytes value ->
+        ( Ast.Print_target,
+          Ast.Bytes_value value,
+          String.length value = 0 || Char.equal value.[0] '\000' )
+    | Token_kind.Character, Token.Int64 value ->
+        (Ast.Put_chars_target, Ast.Integer_value value, Int64.equal value 0L)
+    | _ -> invalid_arg "an implicit output statement needs a literal marker"
+  in
+  let marker =
+    Ast.make_expression_literal ~spelling:marker_item.token.raw
+      ~value:marker_value
+      ~location:(token_location marker_item.token)
+  in
+  let fixed_argument =
+    if empty_marker then (
+      ignore (take cursor);
+      let next_item = peek cursor in
+      match next_item.token.kind with
+      | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
+          let target_name =
+            match target with
+            | Ast.Print_target -> "format"
+            | Ast.Put_chars_target -> "character"
+          in
+          report cursor next_item ~code:"HCPARSE0043"
+            ~message:
+              (Printf.sprintf
+                 "empty %s output marker must be followed by a %s expression"
+                 (if target = Ast.Print_target then "string" else "character")
+                 target_name);
+          None
+      | _ ->
+          parse_expression cursor ~context:Implicit_output_argument_expression
+            ~depth:0 ~minimum_binding_power:0
+          |> Option.map (fun (expression : parsed_expression) ->
+              ( Ast.Expression_fixed_argument expression.node,
+                marker_item.token :: expression.tokens )))
+    else
+      parse_expression cursor ~context:Implicit_output_argument_expression
+        ~depth:0 ~minimum_binding_power:0
+      |> Option.map (fun (expression : parsed_expression) ->
+          (Ast.Marker_fixed_argument expression.node, expression.tokens))
+  in
+  match fixed_argument with
+  | None ->
+      recover_declaration cursor;
+      None
+  | Some (fixed_argument, fixed_tokens) -> (
+      let rec parse_print_arguments arguments_rev tokens_rev =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Punctuation ',' -> (
+            let comma_item = take cursor in
+            let argument_item = peek cursor in
+            match argument_item.token.kind with
+            | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
+                report cursor argument_item ~code:"HCPARSE0044"
+                  ~message:
+                    "expected a Print argument expression after ',', but found \
+                     an empty argument";
+                None
+            | _ -> (
+                match
+                  parse_expression cursor
+                    ~context:Implicit_output_argument_expression ~depth:0
+                    ~minimum_binding_power:0
+                with
+                | None -> None
+                | Some (expression : parsed_expression) ->
+                    let argument_tokens =
+                      comma_item.token :: expression.tokens
+                    in
+                    let argument =
+                      Ast.make_implicit_output_argument
+                        ~leading_comma:(token_location comma_item.token)
+                        ~value:expression.node
+                        ~location:
+                          (location_from_expression_tokens argument_tokens)
+                    in
+                    parse_print_arguments
+                      (argument :: arguments_rev)
+                      (List.rev_append argument_tokens tokens_rev)))
+        | _ -> Some (List.rev arguments_rev, List.rev tokens_rev)
+      in
+      let parsed_arguments =
+        match target with
+        | Ast.Print_target -> parse_print_arguments [] []
+        | Ast.Put_chars_target ->
+            let next_item = peek cursor in
+            if next_item.token.kind = Token_kind.Punctuation ',' then (
+              report cursor next_item ~code:"HCPARSE0045"
+                ~message:
+                  "a comma after an implicit PutChars argument begins another \
+                   statement; that statement separator is not implemented";
+              None)
+            else Some ([], [])
+      in
+      match parsed_arguments with
+      | None ->
+          recover_declaration cursor;
+          None
+      | Some (arguments, argument_tokens) ->
+          let semicolon_item = peek cursor in
+          if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
+            report cursor semicolon_item ~code:"HCPARSE0046"
+              ~message:
+                (Printf.sprintf
+                   "expected ';' after implicit %s statement, but found %s"
+                   (match target with
+                   | Ast.Print_target -> "Print"
+                   | Ast.Put_chars_target -> "PutChars")
+                   (token_description semicolon_item.token));
+            recover_declaration cursor;
+            None)
+          else
+            let semicolon_item = take cursor in
+            let tokens =
+              fixed_tokens @ argument_tokens @ [ semicolon_item.token ]
+            in
+            let statement =
+              Ast.make_implicit_output_statement ~target ~marker ~fixed_argument
+                ~arguments
+                ~semicolon:(token_location semicolon_item.token)
+                ~location:(location_from_expression_tokens tokens)
+            in
+            Some
+              (Ast.Top_level_statement (Ast.Implicit_output_statement statement))
+      )
+
 let parse ~sources ~definitions ~symbols ~config source =
   let stream =
     Preprocessor.create ~sources ~definitions ~symbols ~config source
@@ -2057,6 +2193,10 @@ let parse ~sources ~definitions ~symbols ~config source =
     | Token_kind.Eof ->
         ignore (take cursor);
         finished := true
+    | Token_kind.String | Token_kind.Character -> (
+        match parse_implicit_output_statement cursor with
+        | Some item -> items_rev := item :: !items_rev
+        | None -> ())
     | _ -> (
         match parse_global cursor with
         | Some item -> items_rev := item :: !items_rev

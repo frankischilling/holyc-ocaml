@@ -326,10 +326,34 @@ type function_prototype = private {
   location : location;
 }
 
+type implicit_output_target = Print_target | Put_chars_target
+
+type implicit_output_fixed_argument =
+  | Marker_fixed_argument of expression
+  | Expression_fixed_argument of expression
+
+type implicit_output_argument = private {
+  leading_comma : location;
+  value : expression;
+  location : location;
+}
+
+type implicit_output_statement = private {
+  target : implicit_output_target;
+  marker : expression_literal;
+  fixed_argument : implicit_output_fixed_argument;
+  arguments : implicit_output_argument list;
+  semicolon : location;
+  location : location;
+}
+
+type statement = Implicit_output_statement of implicit_output_statement
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
+  | Top_level_statement of statement
 
 type module_ = private {
   source : Common.Source_id.t;
@@ -588,6 +612,23 @@ val make_function_prototype :
   semicolon:location ->
   location:location ->
   function_prototype
+
+val make_implicit_output_argument :
+  leading_comma:location ->
+  value:expression ->
+  location:location ->
+  implicit_output_argument
+
+val make_implicit_output_statement :
+  target:implicit_output_target ->
+  marker:expression_literal ->
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  semicolon:location ->
+  location:location ->
+  implicit_output_statement
+
+val statement_location : statement -> location
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_

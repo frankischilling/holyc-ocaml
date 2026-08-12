@@ -59,6 +59,7 @@
   ../third_party/TempleOS/Kernel/KernelA.HH
   ../third_party/TempleOS/Kernel/KernelB.HH
   ../third_party/TempleOS/Kernel/KernelC.HH
+  ../third_party/TempleOS/Kernel/KExts.HC
   ../third_party/TempleOS/Compiler/PrsLib.HC
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
@@ -1671,3 +1672,75 @@
        --format=json
        cli/parse-lastclass-error.hc))))
    (diff cli/parse-lastclass-error.json parse-lastclass-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-implicit-output.human.actual)
+ (deps cli/parse-implicit-output.hc cli/parse-implicit-output.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-implicit-output.hc))
+   (diff cli/parse-implicit-output.human parse-implicit-output.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-implicit-output.json.actual)
+ (deps cli/parse-implicit-output.hc cli/parse-implicit-output.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-implicit-output.hc))
+   (diff cli/parse-implicit-output.json parse-implicit-output.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-implicit-output-error.human.actual
+  parse-implicit-output-error.human.stdout.actual)
+ (deps
+  cli/parse-implicit-output-error.hc
+  cli/parse-implicit-output-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output-error.human.stdout.actual
+    (with-stderr-to
+     parse-implicit-output-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-implicit-output-error.hc))))
+   (diff
+    cli/parse-implicit-output-error.human
+    parse-implicit-output-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-implicit-output-error.json.actual
+  parse-implicit-output-error.json.stdout.actual)
+ (deps
+  cli/parse-implicit-output-error.hc
+  cli/parse-implicit-output-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-implicit-output-error.json.stdout.actual
+    (with-stderr-to
+     parse-implicit-output-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-implicit-output-error.hc))))
+   (diff
+    cli/parse-implicit-output-error.json
+    parse-implicit-output-error.json.actual))))

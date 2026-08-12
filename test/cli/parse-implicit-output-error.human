@@ -1,0 +1,3 @@
+cli/parse-implicit-output-error.hc:1:3: error[HCPARSE0043]: empty string output marker must be followed by a format expression
+    1 | "";
+      |   ^
