@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0090",
+    "severity": "error",
+    "message": "expected an expression after the case range ellipsis, but found \":\"",
+    "primary": {
+      "path": "cli/parse-switch-error.hc",
+      "line": 3,
+      "column": 12,
+      "source_id": 0,
+      "start": 39,
+      "stop": 40
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

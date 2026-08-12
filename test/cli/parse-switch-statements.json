@@ -1,0 +1,2656 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-switch-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 203
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-switch-statements.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-switch-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "switch_statement",
+          "mode": "bounded",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 12,
+              "stop": 18
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 12,
+                "stop": 18
+              }
+            ]
+          },
+          "opening_delimiter": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 8,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 8,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              }
+            ]
+          },
+          "expression": {
+            "kind": "identifier",
+            "spelling": "value",
+            "location": {
+              "span": {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 9,
+                "source_id": 0,
+                "start": 20,
+                "stop": 25
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 3,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 25
+                }
+              ]
+            }
+          },
+          "closing_delimiter": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 14,
+                "source_id": 0,
+                "start": 25,
+                "stop": 26
+              }
+            ]
+          },
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 16,
+              "source_id": 0,
+              "start": 27,
+              "stop": 28
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 16,
+                "source_id": 0,
+                "start": 27,
+                "stop": 28
+              }
+            ]
+          },
+          "elements": [
+            {
+              "kind": "case_label",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 35
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 35
+                  }
+                ]
+              },
+              "pattern": { "kind": "implicit" },
+              "colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 4,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 36
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 36
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 36
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 35
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 36
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "empty_statement",
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 5,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 42
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 5,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 41,
+                      "stop": 42
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 5,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 42
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 5,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 41,
+                      "stop": 42
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "case_label",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 49
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 49
+                  }
+                ]
+              },
+              "pattern": {
+                "kind": "single",
+                "value": {
+                  "kind": "integer_literal",
+                  "spelling": "1",
+                  "value": "0x0000000000000001",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 6,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 50,
+                      "stop": 51
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 6,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 50,
+                        "stop": 51
+                      }
+                    ]
+                  }
+                }
+              },
+              "colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 6,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 52
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 6,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 52
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 52
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 49
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 6,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 50,
+                    "stop": 51
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 6,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 52
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_increment",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 7,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 57,
+                        "stop": 62
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 7,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 57,
+                          "stop": 62
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "++",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 7,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 64
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 7,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 62,
+                          "stop": 64
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 7,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 57,
+                      "stop": 64
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 7,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 57,
+                        "stop": 62
+                      },
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 7,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 64
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 7,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 64,
+                    "stop": 65
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 7,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 64,
+                      "stop": 65
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 7,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 57,
+                    "stop": 65
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 7,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 57,
+                      "stop": 62
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 7,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 62,
+                      "stop": 64
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 7,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 64,
+                      "stop": 65
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "case_label",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 8,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 72
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 68,
+                    "stop": 72
+                  }
+                ]
+              },
+              "pattern": {
+                "kind": "range",
+                "start": {
+                  "kind": "integer_literal",
+                  "spelling": "4",
+                  "value": "0x0000000000000004",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 73,
+                      "stop": 74
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 8,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 73,
+                        "stop": 74
+                      }
+                    ]
+                  }
+                },
+                "ellipsis": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 74,
+                    "stop": 77
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 74,
+                      "stop": 77
+                    }
+                  ]
+                },
+                "end": {
+                  "kind": "integer_literal",
+                  "spelling": "7",
+                  "value": "0x0000000000000007",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 77,
+                      "stop": 78
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 8,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 77,
+                        "stop": 78
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 73,
+                    "stop": 78
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 73,
+                      "stop": 74
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 74,
+                      "stop": 77
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 8,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 77,
+                      "stop": 78
+                    }
+                  ]
+                }
+              },
+              "colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 8,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 78,
+                  "stop": 79
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 78,
+                    "stop": 79
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 8,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 79
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 68,
+                    "stop": 72
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 73,
+                    "stop": 74
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 74,
+                    "stop": 77
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 77,
+                    "stop": 78
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 8,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 78,
+                    "stop": 79
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_decrement",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 9,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 84,
+                        "stop": 89
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 9,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 84,
+                          "stop": 89
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "--",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 9,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 89,
+                        "stop": 91
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 9,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 89,
+                          "stop": 91
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 9,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 84,
+                      "stop": 91
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 9,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 84,
+                        "stop": 89
+                      },
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 9,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 89,
+                        "stop": 91
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 9,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 91,
+                    "stop": 92
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 9,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 91,
+                      "stop": 92
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 9,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 84,
+                    "stop": 92
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 9,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 84,
+                      "stop": 89
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 9,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 89,
+                      "stop": 91
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 9,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 91,
+                      "stop": 92
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "sub_switch",
+              "start_keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 10,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 95,
+                  "stop": 100
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 10,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 95,
+                    "stop": 100
+                  }
+                ]
+              },
+              "start_colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 10,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 100,
+                  "stop": 101
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 10,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 100,
+                    "stop": 101
+                  }
+                ]
+              },
+              "elements": [
+                {
+                  "kind": "statement",
+                  "statement": {
+                    "kind": "implicit_output_statement",
+                    "target": "print",
+                    "marker": {
+                      "kind": "string_literal",
+                      "spelling": "\"[\"",
+                      "value": "[",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 11,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 106,
+                          "stop": 109
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-switch-statements.hc",
+                            "line": 11,
+                            "column": 5,
+                            "source_id": 0,
+                            "start": 106,
+                            "stop": 109
+                          }
+                        ]
+                      }
+                    },
+                    "fixed_argument": {
+                      "kind": "marker_expression",
+                      "expression": {
+                        "kind": "string_literal",
+                        "spelling": "\"[\"",
+                        "value": "[",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-switch-statements.hc",
+                            "line": 11,
+                            "column": 5,
+                            "source_id": 0,
+                            "start": 106,
+                            "stop": 109
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-switch-statements.hc",
+                              "line": 11,
+                              "column": 5,
+                              "source_id": 0,
+                              "start": 106,
+                              "stop": 109
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "arguments": [],
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 11,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 109,
+                        "stop": 110
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 11,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 109,
+                          "stop": 110
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 11,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 106,
+                        "stop": 110
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 11,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 106,
+                          "stop": 109
+                        },
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 11,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 109,
+                          "stop": 110
+                        }
+                      ]
+                    }
+                  }
+                },
+                {
+                  "kind": "default_label",
+                  "keyword": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 12,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 115,
+                      "stop": 122
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 12,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 122
+                      }
+                    ]
+                  },
+                  "colon": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 12,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 122,
+                      "stop": 123
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 12,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 122,
+                        "stop": 123
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 12,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 115,
+                      "stop": 123
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 12,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 122
+                      },
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 12,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 122,
+                        "stop": 123
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "statement",
+                  "statement": {
+                    "kind": "break_statement",
+                    "keyword": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 13,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 130,
+                        "stop": 135
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 13,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 130,
+                          "stop": 135
+                        }
+                      ]
+                    },
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 13,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 135,
+                        "stop": 136
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 13,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 135,
+                          "stop": 136
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 13,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 130,
+                        "stop": 136
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 13,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 130,
+                          "stop": 135
+                        },
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 13,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 135,
+                          "stop": 136
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "end_keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 14,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 142
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 14,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 142
+                  }
+                ]
+              },
+              "end_colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 14,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 142,
+                  "stop": 143
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 14,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 142,
+                    "stop": 143
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 10,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 95,
+                  "stop": 143
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 10,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 95,
+                    "stop": 100
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 10,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 100,
+                    "stop": 101
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 11,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 106,
+                    "stop": 109
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 11,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 109,
+                    "stop": 110
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 12,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 115,
+                    "stop": 122
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 12,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 122,
+                    "stop": 123
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 13,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 130,
+                    "stop": 135
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 13,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 135,
+                    "stop": 136
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 14,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 142
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 14,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 142,
+                    "stop": 143
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "implicit_output_statement",
+                "target": "print",
+                "marker": {
+                  "kind": "string_literal",
+                  "spelling": "\"] \"",
+                  "value": "] ",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 15,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 148,
+                      "stop": 152
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 15,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 148,
+                        "stop": 152
+                      }
+                    ]
+                  }
+                },
+                "fixed_argument": {
+                  "kind": "marker_expression",
+                  "expression": {
+                    "kind": "string_literal",
+                    "spelling": "\"] \"",
+                    "value": "] ",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 15,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 148,
+                        "stop": 152
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-switch-statements.hc",
+                          "line": 15,
+                          "column": 5,
+                          "source_id": 0,
+                          "start": 148,
+                          "stop": 152
+                        }
+                      ]
+                    }
+                  }
+                },
+                "arguments": [],
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 15,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 152,
+                    "stop": 153
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 15,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 152,
+                      "stop": 153
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 15,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 148,
+                    "stop": 153
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 15,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 148,
+                      "stop": 152
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 15,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 152,
+                      "stop": 153
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "break_statement",
+                "keyword": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 16,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 163
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 16,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 158,
+                      "stop": 163
+                    }
+                  ]
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 16,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 163,
+                    "stop": 164
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 16,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 163,
+                      "stop": 164
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 16,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 164
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 16,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 158,
+                      "stop": 163
+                    },
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 16,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 163,
+                      "stop": 164
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 17,
+              "column": 1,
+              "source_id": 0,
+              "start": 165,
+              "stop": 166
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 17,
+                "column": 1,
+                "source_id": 0,
+                "start": 165,
+                "stop": 166
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 12,
+              "stop": 166
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 12,
+                "stop": 18
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 8,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 9,
+                "source_id": 0,
+                "start": 20,
+                "stop": 25
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 14,
+                "source_id": 0,
+                "start": 25,
+                "stop": 26
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 3,
+                "column": 16,
+                "source_id": 0,
+                "start": 27,
+                "stop": 28
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 31,
+                "stop": 35
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 4,
+                "column": 7,
+                "source_id": 0,
+                "start": 35,
+                "stop": 36
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 5,
+                "column": 5,
+                "source_id": 0,
+                "start": 41,
+                "stop": 42
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 45,
+                "stop": 49
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 6,
+                "column": 8,
+                "source_id": 0,
+                "start": 50,
+                "stop": 51
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 6,
+                "column": 9,
+                "source_id": 0,
+                "start": 51,
+                "stop": 52
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 7,
+                "column": 5,
+                "source_id": 0,
+                "start": 57,
+                "stop": 62
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 7,
+                "column": 10,
+                "source_id": 0,
+                "start": 62,
+                "stop": 64
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 7,
+                "column": 12,
+                "source_id": 0,
+                "start": 64,
+                "stop": 65
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 8,
+                "column": 3,
+                "source_id": 0,
+                "start": 68,
+                "stop": 72
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 8,
+                "column": 8,
+                "source_id": 0,
+                "start": 73,
+                "stop": 74
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 8,
+                "column": 9,
+                "source_id": 0,
+                "start": 74,
+                "stop": 77
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 8,
+                "column": 12,
+                "source_id": 0,
+                "start": 77,
+                "stop": 78
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 8,
+                "column": 13,
+                "source_id": 0,
+                "start": 78,
+                "stop": 79
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 9,
+                "column": 5,
+                "source_id": 0,
+                "start": 84,
+                "stop": 89
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 9,
+                "column": 10,
+                "source_id": 0,
+                "start": 89,
+                "stop": 91
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 9,
+                "column": 12,
+                "source_id": 0,
+                "start": 91,
+                "stop": 92
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 10,
+                "column": 3,
+                "source_id": 0,
+                "start": 95,
+                "stop": 100
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 10,
+                "column": 8,
+                "source_id": 0,
+                "start": 100,
+                "stop": 101
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 11,
+                "column": 5,
+                "source_id": 0,
+                "start": 106,
+                "stop": 109
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 11,
+                "column": 8,
+                "source_id": 0,
+                "start": 109,
+                "stop": 110
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 12,
+                "column": 5,
+                "source_id": 0,
+                "start": 115,
+                "stop": 122
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 12,
+                "column": 12,
+                "source_id": 0,
+                "start": 122,
+                "stop": 123
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 13,
+                "column": 7,
+                "source_id": 0,
+                "start": 130,
+                "stop": 135
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 13,
+                "column": 12,
+                "source_id": 0,
+                "start": 135,
+                "stop": 136
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 14,
+                "column": 3,
+                "source_id": 0,
+                "start": 139,
+                "stop": 142
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 14,
+                "column": 6,
+                "source_id": 0,
+                "start": 142,
+                "stop": 143
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 15,
+                "column": 5,
+                "source_id": 0,
+                "start": 148,
+                "stop": 152
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 15,
+                "column": 9,
+                "source_id": 0,
+                "start": 152,
+                "stop": 153
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 16,
+                "column": 5,
+                "source_id": 0,
+                "start": 158,
+                "stop": 163
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 16,
+                "column": 10,
+                "source_id": 0,
+                "start": 163,
+                "stop": 164
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 17,
+                "column": 1,
+                "source_id": 0,
+                "start": 165,
+                "stop": 166
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-switch-statements.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 12,
+            "stop": 166
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 12,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 8,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 9,
+              "source_id": 0,
+              "start": 20,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 3,
+              "column": 16,
+              "source_id": 0,
+              "start": 27,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 31,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 4,
+              "column": 7,
+              "source_id": 0,
+              "start": 35,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 5,
+              "column": 5,
+              "source_id": 0,
+              "start": 41,
+              "stop": 42
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 45,
+              "stop": 49
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 6,
+              "column": 8,
+              "source_id": 0,
+              "start": 50,
+              "stop": 51
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 6,
+              "column": 9,
+              "source_id": 0,
+              "start": 51,
+              "stop": 52
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 7,
+              "column": 5,
+              "source_id": 0,
+              "start": 57,
+              "stop": 62
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 7,
+              "column": 10,
+              "source_id": 0,
+              "start": 62,
+              "stop": 64
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 7,
+              "column": 12,
+              "source_id": 0,
+              "start": 64,
+              "stop": 65
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 8,
+              "column": 3,
+              "source_id": 0,
+              "start": 68,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 8,
+              "column": 8,
+              "source_id": 0,
+              "start": 73,
+              "stop": 74
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 8,
+              "column": 9,
+              "source_id": 0,
+              "start": 74,
+              "stop": 77
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 8,
+              "column": 12,
+              "source_id": 0,
+              "start": 77,
+              "stop": 78
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 8,
+              "column": 13,
+              "source_id": 0,
+              "start": 78,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 9,
+              "column": 5,
+              "source_id": 0,
+              "start": 84,
+              "stop": 89
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 9,
+              "column": 10,
+              "source_id": 0,
+              "start": 89,
+              "stop": 91
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 9,
+              "column": 12,
+              "source_id": 0,
+              "start": 91,
+              "stop": 92
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 10,
+              "column": 3,
+              "source_id": 0,
+              "start": 95,
+              "stop": 100
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 10,
+              "column": 8,
+              "source_id": 0,
+              "start": 100,
+              "stop": 101
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 11,
+              "column": 5,
+              "source_id": 0,
+              "start": 106,
+              "stop": 109
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 11,
+              "column": 8,
+              "source_id": 0,
+              "start": 109,
+              "stop": 110
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 12,
+              "column": 5,
+              "source_id": 0,
+              "start": 115,
+              "stop": 122
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 12,
+              "column": 12,
+              "source_id": 0,
+              "start": 122,
+              "stop": 123
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 13,
+              "column": 7,
+              "source_id": 0,
+              "start": 130,
+              "stop": 135
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 13,
+              "column": 12,
+              "source_id": 0,
+              "start": 135,
+              "stop": 136
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 14,
+              "column": 3,
+              "source_id": 0,
+              "start": 139,
+              "stop": 142
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 14,
+              "column": 6,
+              "source_id": 0,
+              "start": 142,
+              "stop": 143
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 15,
+              "column": 5,
+              "source_id": 0,
+              "start": 148,
+              "stop": 152
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 15,
+              "column": 9,
+              "source_id": 0,
+              "start": 152,
+              "stop": 153
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 16,
+              "column": 5,
+              "source_id": 0,
+              "start": 158,
+              "stop": 163
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 16,
+              "column": 10,
+              "source_id": 0,
+              "start": 163,
+              "stop": 164
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 17,
+              "column": 1,
+              "source_id": 0,
+              "start": 165,
+              "stop": 166
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "switch_statement",
+          "mode": "no_bound",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 1,
+              "source_id": 0,
+              "start": 168,
+              "stop": 174
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 1,
+                "source_id": 0,
+                "start": 168,
+                "stop": 174
+              }
+            ]
+          },
+          "opening_delimiter": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 8,
+              "source_id": 0,
+              "start": 175,
+              "stop": 176
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 8,
+                "source_id": 0,
+                "start": 175,
+                "stop": 176
+              }
+            ]
+          },
+          "expression": {
+            "kind": "identifier",
+            "spelling": "value",
+            "location": {
+              "span": {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 9,
+                "source_id": 0,
+                "start": 176,
+                "stop": 181
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 19,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 176,
+                  "stop": 181
+                }
+              ]
+            }
+          },
+          "closing_delimiter": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 14,
+              "source_id": 0,
+              "start": 181,
+              "stop": 182
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 14,
+                "source_id": 0,
+                "start": 181,
+                "stop": 182
+              }
+            ]
+          },
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 16,
+              "source_id": 0,
+              "start": 183,
+              "stop": 184
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 16,
+                "source_id": 0,
+                "start": 183,
+                "stop": 184
+              }
+            ]
+          },
+          "elements": [
+            {
+              "kind": "case_label",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 20,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 187,
+                  "stop": 191
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 20,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 187,
+                    "stop": 191
+                  }
+                ]
+              },
+              "pattern": {
+                "kind": "single",
+                "value": {
+                  "kind": "integer_literal",
+                  "spelling": "0",
+                  "value": "0x0000000000000000",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 20,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 192,
+                      "stop": 193
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-switch-statements.hc",
+                        "line": 20,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 192,
+                        "stop": 193
+                      }
+                    ]
+                  }
+                }
+              },
+              "colon": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 20,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 193,
+                  "stop": 194
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 20,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 193,
+                    "stop": 194
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-switch-statements.hc",
+                  "line": 20,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 187,
+                  "stop": 194
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 20,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 187,
+                    "stop": 191
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 20,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 192,
+                    "stop": 193
+                  },
+                  {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 20,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 193,
+                    "stop": 194
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement",
+              "statement": {
+                "kind": "empty_statement",
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 21,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 199,
+                    "stop": 200
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 21,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 199,
+                      "stop": 200
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-switch-statements.hc",
+                    "line": 21,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 199,
+                    "stop": 200
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-switch-statements.hc",
+                      "line": 21,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 199,
+                      "stop": 200
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 22,
+              "column": 1,
+              "source_id": 0,
+              "start": 201,
+              "stop": 202
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 22,
+                "column": 1,
+                "source_id": 0,
+                "start": 201,
+                "stop": 202
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 1,
+              "source_id": 0,
+              "start": 168,
+              "stop": 202
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 1,
+                "source_id": 0,
+                "start": 168,
+                "stop": 174
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 8,
+                "source_id": 0,
+                "start": 175,
+                "stop": 176
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 9,
+                "source_id": 0,
+                "start": 176,
+                "stop": 181
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 14,
+                "source_id": 0,
+                "start": 181,
+                "stop": 182
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 19,
+                "column": 16,
+                "source_id": 0,
+                "start": 183,
+                "stop": 184
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 20,
+                "column": 3,
+                "source_id": 0,
+                "start": 187,
+                "stop": 191
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 20,
+                "column": 8,
+                "source_id": 0,
+                "start": 192,
+                "stop": 193
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 20,
+                "column": 9,
+                "source_id": 0,
+                "start": 193,
+                "stop": 194
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 21,
+                "column": 5,
+                "source_id": 0,
+                "start": 199,
+                "stop": 200
+              },
+              {
+                "path": "cli/parse-switch-statements.hc",
+                "line": 22,
+                "column": 1,
+                "source_id": 0,
+                "start": 201,
+                "stop": 202
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-switch-statements.hc",
+            "line": 19,
+            "column": 1,
+            "source_id": 0,
+            "start": 168,
+            "stop": 202
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 1,
+              "source_id": 0,
+              "start": 168,
+              "stop": 174
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 8,
+              "source_id": 0,
+              "start": 175,
+              "stop": 176
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 9,
+              "source_id": 0,
+              "start": 176,
+              "stop": 181
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 14,
+              "source_id": 0,
+              "start": 181,
+              "stop": 182
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 19,
+              "column": 16,
+              "source_id": 0,
+              "start": 183,
+              "stop": 184
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 20,
+              "column": 3,
+              "source_id": 0,
+              "start": 187,
+              "stop": 191
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 20,
+              "column": 8,
+              "source_id": 0,
+              "start": 192,
+              "stop": 193
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 20,
+              "column": 9,
+              "source_id": 0,
+              "start": 193,
+              "stop": 194
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 21,
+              "column": 5,
+              "source_id": 0,
+              "start": 199,
+              "stop": 200
+            },
+            {
+              "path": "cli/parse-switch-statements.hc",
+              "line": 22,
+              "column": 1,
+              "source_id": 0,
+              "start": 201,
+              "stop": 202
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

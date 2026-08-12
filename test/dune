@@ -2402,6 +2402,74 @@
 
 (rule
  (alias runtest)
+ (targets parse-switch-statements.human.actual)
+ (deps cli/parse-switch-statements.hc cli/parse-switch-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-switch-statements.hc))
+   (diff
+    cli/parse-switch-statements.human
+    parse-switch-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-switch-statements.json.actual)
+ (deps cli/parse-switch-statements.hc cli/parse-switch-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-switch-statements.hc))
+   (diff
+    cli/parse-switch-statements.json
+    parse-switch-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-switch-error.human.actual
+  parse-switch-error.human.stdout.actual)
+ (deps cli/parse-switch-error.hc cli/parse-switch-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-error.human.stdout.actual
+    (with-stderr-to
+     parse-switch-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-switch-error.hc))))
+   (diff cli/parse-switch-error.human parse-switch-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-switch-error.json.actual
+  parse-switch-error.json.stdout.actual)
+ (deps cli/parse-switch-error.hc cli/parse-switch-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-switch-error.json.stdout.actual
+    (with-stderr-to
+     parse-switch-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-switch-error.hc))))
+   (diff cli/parse-switch-error.json parse-switch-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-try-catch-statements.human.actual)
  (deps
   cli/parse-try-catch-statements.hc
