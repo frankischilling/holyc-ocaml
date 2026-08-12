@@ -236,6 +236,10 @@ let expect_while_statement = function
   | Ast.While_statement statement -> statement
   | _ -> Alcotest.fail "expected a while statement"
 
+let expect_do_while_statement = function
+  | Ast.Do_while_statement statement -> statement
+  | _ -> Alcotest.fail "expected a do-while statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -8059,6 +8063,289 @@ let deterministic_while_dumps () =
     "JSON loop block keeps its conditional" "if_statement"
     (nested |> member "kind" |> to_string)
 
+let do_while_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsDoWhile parses its body first", "PrsStmt(cc,try_cnt,lb_done);");
+      ("PrsDoWhile requires while", "if (PrsKeyWord(cc)!=KW_WHILE)");
+      ("PrsDoWhile requires an opening parenthesis", "if (Lex(cc)!='(')");
+      ("PrsDoWhile parses the condition", "if (!PrsExpression(cc,NULL,FALSE))");
+      ("PrsDoWhile requires a closing parenthesis", "if (cc->token!=')')");
+      ( "PrsDoWhile branches on a nonzero condition",
+        "ICAdd(cc,IC_BR_NOT_ZERO,lb,0);" );
+      ("PrsDoWhile requires a semicolon", "if (Lex(cc)!=';')");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "do keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_DO\t\t15");
+  Alcotest.(check bool)
+    "while keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_WHILE\t9");
+  let kernel_job = pinned "Kernel/Job.HC" in
+  Alcotest.(check bool)
+    "the kernel corpus has a compound do body" true
+    (contains kernel_job "do {");
+  Alcotest.(check bool)
+    "the kernel corpus closes the post-test loop" true
+    (contains kernel_job "} while (task=task->popup_task);")
+
+let do_while_statement_shapes () =
+  let source = "I64 value;do value--;while(value);" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_do_while_statement statement
+        | items ->
+            Alcotest.failf "expected one declaration and one do-while, got %d"
+              (List.length items)
+      in
+      Alcotest.(check int)
+        "do keyword is two bytes" 2
+        (Span.length statement.do_keyword.span);
+      Alcotest.(check int)
+        "while keyword is five bytes" 5
+        (Span.length statement.do_while_keyword.span);
+      Alcotest.(check int)
+        "opening parenthesis is one byte" 1
+        (Span.length statement.do_while_opening_parenthesis.span);
+      Alcotest.(check int)
+        "closing parenthesis is one byte" 1
+        (Span.length statement.do_while_closing_parenthesis.span);
+      Alcotest.(check int)
+        "trailing semicolon is one byte" 1
+        (Span.length statement.do_while_semicolon.span);
+      ignore (expect_expression_statement statement.do_body);
+      Alcotest.(check string)
+        "condition identifier" "value"
+        (expect_identifier_expression statement.do_while_condition).spelling;
+      Alcotest.(check bool)
+        "do-while span covers its semicolon" true
+        (statement.do_while_location.span.start
+         = statement.do_keyword.span.start
+        && statement.do_while_location.span.stop
+           = statement.do_while_semicolon.span.stop))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let do_while_body_shapes_and_else_binding () =
+  let source =
+    "I64 a;I64 b;do{do,b--,b++;while(b);}while(a);if(a)do;while(b);else;do \
+     if(a);else;while(b);"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Top_level_statement block_loop;
+   Ast.Top_level_statement outer_if;
+   Ast.Top_level_statement outer_do;
+  ] ->
+      let block =
+        expect_do_while_statement block_loop |> fun loop ->
+        loop.do_body |> expect_block_statement
+      in
+      let nested_loop =
+        match block.block_statements with
+        | [ statement ] -> expect_do_while_statement statement
+        | statements ->
+            Alcotest.failf "expected one nested do-while, got %d statements"
+              (List.length statements)
+      in
+      let sequence = expect_statement_sequence nested_loop.do_body in
+      Alcotest.(check int)
+        "post-test body keeps its leading comma" 1
+        (List.length sequence.sequence_leading_commas);
+      Alcotest.(check int)
+        "post-test body keeps two expressions" 2
+        (List.length sequence.sequence_elements);
+      let outer_if = expect_if_statement outer_if in
+      ignore (expect_do_while_statement outer_if.if_then_branch);
+      Alcotest.(check bool)
+        "else after a do-while body belongs to the outer if" true
+        (Option.is_some outer_if.if_else_clause);
+      let outer_do = expect_do_while_statement outer_do in
+      let inner_if = expect_if_statement outer_do.do_body in
+      Alcotest.(check bool)
+        "else inside a do-while body belongs to the inner if" true
+        (Option.is_some inner_if.if_else_clause)
+  | items ->
+      Alcotest.failf
+        "expected two declarations and three control-flow statements, got %d"
+        (List.length items)
+
+let do_while_statement_provenance () =
+  let source =
+    "#define BEGIN do\n\
+     #define LOOP while\n\
+     #define OPEN (\n\
+     #define CLOSE )\n\
+     #define END ;\n\
+     I64 value;\n\
+     BEGIN value-- END LOOP OPEN value CLOSE END"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_do_while_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed do-while statement"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("do keyword", statement.do_keyword);
+      ("while keyword", statement.do_while_keyword);
+      ("opening parenthesis", statement.do_while_opening_parenthesis);
+      ("closing parenthesis", statement.do_while_closing_parenthesis);
+      ("trailing semicolon", statement.do_while_semicolon);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated trailing-clause provenance" true
+    (statement_json |> member "while_keyword" |> member "generated_from"
+   <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let loop_file = Filename.concat directory "loop.HC" in
+      write_file root_file "I64 value;\n#include \"loop\"";
+      write_file loop_file "do{value--;}while(value);";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_loop =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_do_while_statement statement
+        | _ -> Alcotest.fail "expected one included do-while statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_loop.do_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included do-while keeps its canonical path" (Unix.realpath loop_file)
+        (Source_file.path included_source))
+
+let do_while_statement_failures () =
+  List.iter
+    (fun (name, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ("missing body", "I64 value;do", "HCPARSE0062", "statement after 'do'");
+      ( "comma-only body",
+        "I64 value;do,,,,",
+        "HCPARSE0062",
+        "found only statement commas" );
+      ( "missing while keyword",
+        "I64 value;do;",
+        "HCPARSE0063",
+        "expected 'while' after the do-while body" );
+      ( "missing opening parenthesis",
+        "I64 value;do;while value);",
+        "HCPARSE0064",
+        "expected '(' after the do-while keyword" );
+      ( "missing condition",
+        "I64 value;do;while();",
+        "HCPARSE0018",
+        "do-while condition expression operand" );
+      ( "missing closing parenthesis",
+        "I64 value;do;while(value;",
+        "HCPARSE0065",
+        "expected ')' after the do-while condition" );
+      ( "missing trailing semicolon",
+        "I64 value;do;while(value)",
+        "HCPARSE0066",
+        "expected ';' after the do-while condition" );
+    ];
+  let mixed_source =
+    "I64 value;"
+    ^ String.concat ""
+        (List.init Parser.max_loop_depth (fun _ -> "while(value)"))
+    ^ "do;while(value);"
+  in
+  let _, _, mixed = parse_string mixed_source in
+  let diagnostic = first_diagnostic mixed in
+  Alcotest.(check string)
+    "mixed loop nesting diagnostic" "HCPARSE0061" diagnostic.code;
+  Alcotest.(check (list string))
+    "mixed loop recovery reports one depth error" [ "HCPARSE0061" ]
+    (List.map (fun item -> item.Diagnostic.code) mixed.diagnostics);
+  Alcotest.(check bool)
+    "mixed loop nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_loop_depth))
+
+let deterministic_do_while_dumps () =
+  let session, _, output =
+    parse_string "I64 value;do{if(value)value--;else;}while(value);"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human do-while dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON do-while dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the trailing clause" true
+    (contains human "while_keyword");
+  let open Yojson.Safe.Util in
+  let loop =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON post-test loop kind" "do_while_statement"
+    (loop |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON post-test body keeps its block" "block_statement"
+    (loop |> member "body" |> member "kind" |> to_string);
+  let nested =
+    loop |> member "body" |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON post-test block keeps its conditional" "if_statement"
+    (nested |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -8373,6 +8660,18 @@ let tests =
       while_statement_failures;
     Alcotest.test_case "deterministic while statement dumps" `Quick
       deterministic_while_dumps;
+    Alcotest.test_case "pinned do-while behavior" `Quick
+      do_while_statement_source_behavior;
+    Alcotest.test_case "do-while statement shapes" `Quick
+      do_while_statement_shapes;
+    Alcotest.test_case "do-while bodies and else binding" `Quick
+      do_while_body_shapes_and_else_binding;
+    Alcotest.test_case "do-while statement provenance" `Quick
+      do_while_statement_provenance;
+    Alcotest.test_case "do-while statement failures" `Quick
+      do_while_statement_failures;
+    Alcotest.test_case "deterministic do-while statement dumps" `Quick
+      deterministic_do_while_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

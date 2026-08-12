@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0066",
+    "severity": "error",
+    "message": "expected ';' after the do-while condition, but found end of input",
+    "primary": {
+      "path": "cli/parse-do-while-error.hc",
+      "line": 3,
+      "column": 1,
+      "source_id": 0,
+      "start": 13,
+      "stop": 13
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
