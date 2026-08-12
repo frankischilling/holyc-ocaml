@@ -1004,14 +1004,59 @@ targets = ["Print", "PutChars"]
 nonempty_marker_argument = "the complete expression beginning at the marker"
 empty_marker_argument = "the complete expression following the marker"
 print_varargs = "ordered expressions with source-positioned leading commas"
-putchars_varargs = "not applicable"
+putchars_varargs = "not applicable; a following comma belongs to the statement sequence"
 top_level_source_order = "preserved with declarations and prototypes"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
-malformed_form_diagnostics = ["HCPARSE0043", "HCPARSE0044", "HCPARSE0045", "HCPARSE0046"]
+semicolon_shape = "required for Print; optional before a PutChars statement comma"
+malformed_form_diagnostics = ["HCPARSE0043", "HCPARSE0044", "HCPARSE0046"]
 block_statement_status = "planned"
 name_resolution_status = "planned"
 type_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-STATEMENT-SEQUENCES"
+description = "Top-level expression and empty statements retain HolyC comma-linked sequencing and every source separator."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
+  "Compiler/PrsStmt.HC:PrsStmt semicolon and expression branches",
+  "Compiler/PrsExp.HC:PrsFunCall literal entry path",
+  "Compiler/CMain.HC:LexStmt2Bin and CmpJoin"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-statement-sequences.hc",
+  "test/cli/parse-statement-sequences.human",
+  "test/cli/parse-statement-sequences.json",
+  "test/cli/parse-statement-sequence-error.hc",
+  "test/cli/parse-statement-sequence-error.human",
+  "test/cli/parse-statement-sequence-error.json"
+]
+status = "implemented"
+issue = 95
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position"
+statement_kinds = ["expression", "empty", "Print", "PutChars"]
+leading_repeated_and_trailing_commas = "preserved"
+comma_only_sequence = "preserved with no semantic elements"
+expression_terminators = ["semicolon", "statement comma"]
+putchars_comma_boundary = "implemented"
+print_comma_boundary = "a Print comma remains a call argument until the required semicolon"
+top_level_source_order = "preserved with declarations and prototypes"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_terminator_diagnostic = "HCPARSE0047"
+unsupported_sequence_form_diagnostic = "HCPARSE0048"
+block_and_control_flow_status = "planned"
+declaration_and_label_after_comma_status = "planned"
+semantic_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
 
