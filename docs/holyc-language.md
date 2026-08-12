@@ -250,6 +250,14 @@ The AST uses separate `goto_statement` and `label_statement` nodes. A goto keeps
 
 Top-level label syntax is accepted only as a tooling representation until function definitions exist. Native HolyC rejects a language label without a current function. Semantic work must assign stable function-scoped label IDs, resolve forward and backward references, diagnose duplicate, unresolved, unused, and colliding names, and lower `IC_LABEL` and `IC_JMP`. No binding, control-flow construction, lowering, or execution is claimed by this parser slice.
 
+## Lock statements
+
+`Compiler/PrsStmt.HC:PrsStmt` consumes `lock`, increments `CCmpCtrl.lock_cnt`, parses one ordinary statement, and then restores the count. This accepts a compound statement such as `lock {value++;}` and the unbraced `lock value++;` form used by `Demo/MultiCore/Lock.HC`. Because the nested call is the normal statement parser, a lock may contain another lock or a comma-linked statement sequence. `Compiler/PrsLib.HC:ICAdd` adds `ICF_LOCK` to instructions created while the count is nonzero.
+
+The AST retains the `lock` keyword, its recursively parsed body, and their complete combined location. It does not flatten the body because later IR lowering needs the lexical region. The syntax is available in JIT and AOT parser modes, at top level for tooling, and inside every implemented recursive statement context. Include and definition expansions retain their ordinary provenance in human and JSON dumps.
+
+`HCPARSE0077` reports a missing or comma-only body. An independent 256-level `HCPARSE0078` hosted guard prevents unbounded recursion through repeated unbraced locks; no corresponding TempleOS language limit was found. This parser slice does not mark IR instructions with `ICF_LOCK`, determine whether an operation accepts an x86 `LOCK` prefix, select machine instructions, or execute multicore code.
+
 ## Statement-position output literals
 
 `PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items and recursively inside compound blocks, conditional branches, and loop bodies. HolyC permits executable top-level statements without a conventional `main`.

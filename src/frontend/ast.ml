@@ -364,6 +364,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Label_statement of label_statement
+  | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
@@ -431,6 +432,12 @@ and label_statement = {
   label_name : identifier;
   label_colon : location;
   label_location : location;
+}
+
+and lock_statement = {
+  lock_keyword : location;
+  lock_body : statement;
+  lock_location : location;
 }
 
 and return_statement = {
@@ -837,6 +844,9 @@ let make_if_statement ~keyword ~opening_parenthesis ~condition
 let make_label_statement ~name ~colon ~location =
   { label_name = name; label_colon = colon; label_location = location }
 
+let make_lock_statement ~keyword ~body ~location =
+  { lock_keyword = keyword; lock_body = body; lock_location = location }
+
 let make_return_statement ~keyword ~value ~semicolon ~location =
   {
     return_keyword = keyword;
@@ -881,6 +891,7 @@ let statement_location = function
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
   | Label_statement statement -> statement.label_location
+  | Lock_statement statement -> statement.lock_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
   | While_statement statement -> statement.while_location
