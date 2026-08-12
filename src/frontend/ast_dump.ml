@@ -431,7 +431,57 @@ and print_expression_operator buffer sources ~indent
     operator.operator_spelling
     (location_text sources operator.operator_location)
 
-let print_implicit_output_statement buffer sources ~indent
+let rec print_statement buffer sources ~indent = function
+  | Ast.Empty_statement statement ->
+      Printf.bprintf buffer "%sempty_statement span=%s\n" indent
+        (location_text sources statement.empty_statement_location);
+      Printf.bprintf buffer "%s  semicolon span=%s\n" indent
+        (location_text sources statement.empty_statement_semicolon)
+  | Ast.Expression_statement statement ->
+      Printf.bprintf buffer "%sexpression_statement span=%s semicolon=%b\n"
+        indent
+        (location_text sources statement.expression_statement_location)
+        (Option.is_some statement.expression_statement_semicolon);
+      print_expression buffer sources ~indent:(indent ^ "  ")
+        statement.expression_statement_expression;
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%s  semicolon span=%s\n" indent
+            (location_text sources semicolon))
+        statement.expression_statement_semicolon
+  | Ast.Implicit_output_statement statement ->
+      print_implicit_output_statement buffer sources ~indent statement
+  | Ast.Sequence_statement sequence ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer
+        "%sstatement_sequence span=%s leading_commas=%d elements=%d\n" indent
+        (location_text sources sequence.sequence_location)
+        (List.length sequence.sequence_leading_commas)
+        (List.length sequence.sequence_elements);
+      List.iteri
+        (fun index comma ->
+          Printf.bprintf buffer "%sleading_comma index=%d span=%s\n"
+            child_indent index
+            (location_text sources comma))
+        sequence.sequence_leading_commas;
+      List.iteri
+        (fun index (element : Ast.statement_sequence_element) ->
+          Printf.bprintf buffer
+            "%selement index=%d span=%s following_commas=%d\n" child_indent
+            index
+            (location_text sources element.sequence_element_location)
+            (List.length element.sequence_following_commas);
+          print_statement buffer sources ~indent:(child_indent ^ "  ")
+            element.sequence_statement;
+          List.iteri
+            (fun comma_index comma ->
+              Printf.bprintf buffer "%s  following_comma index=%d span=%s\n"
+                child_indent comma_index
+                (location_text sources comma))
+            element.sequence_following_commas)
+        sequence.sequence_elements
+
+and print_implicit_output_statement buffer sources ~indent
     (statement : Ast.implicit_output_statement) =
   let child_indent = indent ^ "  " in
   let marker_kind =
@@ -466,8 +516,11 @@ let print_implicit_output_statement buffer sources ~indent
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         argument.value)
     statement.arguments;
-  Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
-    (location_text sources statement.semicolon)
+  match statement.semicolon with
+  | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
+  | Some semicolon ->
+      Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+        (location_text sources semicolon)
 
 let print_binding buffer sources ~indent = function
   | None -> ()
@@ -661,13 +714,10 @@ let human sources module_ =
             (location_text sources prototype.closing_parenthesis);
           Printf.bprintf buffer "    semicolon span=%s\n"
             (location_text sources prototype.semicolon)
-      | Ast.Top_level_statement statement -> (
+      | Ast.Top_level_statement statement ->
           Printf.bprintf buffer "  top_level_statement span=%s\n"
             (location_text sources (Ast.statement_location statement));
-          match statement with
-          | Ast.Implicit_output_statement statement ->
-              print_implicit_output_statement buffer sources ~indent:"    "
-                statement))
+          print_statement buffer sources ~indent:"    " statement)
     module_.items;
   Buffer.contents buffer
 
@@ -1130,9 +1180,66 @@ let implicit_output_statement_to_yojson sources
           (List.map
              (implicit_output_argument_to_yojson sources)
              statement.arguments) );
-      ("semicolon", location_to_yojson sources statement.semicolon);
+      ( "semicolon",
+        match statement.semicolon with
+        | None -> `Null
+        | Some semicolon -> location_to_yojson sources semicolon );
       ("location", location_to_yojson sources statement.location);
     ]
+
+let rec statement_to_yojson sources = function
+  | Ast.Empty_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "empty_statement");
+          ( "semicolon",
+            location_to_yojson sources statement.empty_statement_semicolon );
+          ( "location",
+            location_to_yojson sources statement.empty_statement_location );
+        ]
+  | Ast.Expression_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "expression_statement");
+          ( "expression",
+            expression_to_yojson sources
+              statement.expression_statement_expression );
+          ( "semicolon",
+            match statement.expression_statement_semicolon with
+            | None -> `Null
+            | Some semicolon -> location_to_yojson sources semicolon );
+          ( "location",
+            location_to_yojson sources statement.expression_statement_location
+          );
+        ]
+  | Ast.Implicit_output_statement statement ->
+      implicit_output_statement_to_yojson sources statement
+  | Ast.Sequence_statement sequence ->
+      let element_to_yojson (element : Ast.statement_sequence_element) =
+        `Assoc
+          [
+            ("statement", statement_to_yojson sources element.sequence_statement);
+            ( "following_commas",
+              `List
+                (List.map
+                   (location_to_yojson sources)
+                   element.sequence_following_commas) );
+            ( "location",
+              location_to_yojson sources element.sequence_element_location );
+          ]
+      in
+      `Assoc
+        [
+          ("kind", `String "statement_sequence");
+          ( "leading_commas",
+            `List
+              (List.map
+                 (location_to_yojson sources)
+                 sequence.sequence_leading_commas) );
+          ( "elements",
+            `List (List.map element_to_yojson sequence.sequence_elements) );
+          ("location", location_to_yojson sources sequence.sequence_location);
+        ]
 
 let binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc
@@ -1325,10 +1432,7 @@ let item_to_yojson sources = function
       `Assoc
         [
           ("kind", `String "top_level_statement");
-          ( "statement",
-            match statement with
-            | Ast.Implicit_output_statement statement ->
-                implicit_output_statement_to_yojson sources statement );
+          ("statement", statement_to_yojson sources statement);
           ( "location",
             location_to_yojson sources (Ast.statement_location statement) );
         ]

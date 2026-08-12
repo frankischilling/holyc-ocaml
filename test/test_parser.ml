@@ -212,6 +212,18 @@ let expect_one_implicit_output ast =
       Alcotest.failf "expected one implicit output statement, got %d items"
         (List.length items)
 
+let expect_expression_statement = function
+  | Ast.Expression_statement statement -> statement
+  | _ -> Alcotest.fail "expected an expression statement"
+
+let expect_empty_statement = function
+  | Ast.Empty_statement statement -> statement
+  | _ -> Alcotest.fail "expected an empty statement"
+
+let expect_statement_sequence = function
+  | Ast.Sequence_statement sequence -> sequence
+  | _ -> Alcotest.fail "expected a comma-linked statement sequence"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -6712,7 +6724,8 @@ let implicit_output_shapes () =
             statement
         | Ast.Global_variable _
         | Ast.Global_declaration _
-        | Ast.Function_prototype _ ->
+        | Ast.Function_prototype _
+        | Ast.Top_level_statement _ ->
             Alcotest.fail "output fixture unexpectedly parsed a declaration")
       ast.items
   in
@@ -6898,7 +6911,6 @@ let implicit_output_failures () =
       ("empty character without value", "'';", "HCPARSE0043");
       ("empty Print vararg", "\"x\",;", "HCPARSE0044");
       ("repeated Print comma", "\"x\",,value;", "HCPARSE0044");
-      ("PutChars statement separator", "'x',value;", "HCPARSE0045");
       ("missing Print semicolon", "\"x\"", "HCPARSE0046");
       ("missing PutChars semicolon", "'' value", "HCPARSE0046");
     ]
@@ -6944,6 +6956,279 @@ let deterministic_implicit_output_dumps () =
     "one Print vararg" 1
     (statement |> member "arguments" |> to_list |> List.length)
 
+let statement_sequence_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt skips leading commas", "while (cc->token==',')");
+      ("PrsStmt accepts an empty semicolon", "} else if (cc->token==';') {");
+      ( "PrsStmt delegates ordinary expressions",
+        "if (!PrsExpression(cc,NULL,TRUE))" );
+      ( "PrsStmt accepts comma in place of a semicolon",
+        "else if (cc->token!=',')" );
+      ("PrsStmt continues after a comma", "if (cc->token!=',') goto sm_done;");
+    ];
+  let driver = pinned "Compiler/CMain.HC" in
+  Alcotest.(check bool)
+    "AOT compilation reads statements in source order" true
+    (contains driver "while (cc->token!=TK_EOF)");
+  Alcotest.(check bool)
+    "JIT compilation delegates to PrsStmt" true
+    (contains driver "PrsStmt(cc,,,cmp_flags);")
+
+let statement_expression_and_empty_shapes () =
+  let source = "I64 value;\nvalue=1;\n;\nvalue++;" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable value;
+       Ast.Top_level_statement (Ast.Expression_statement assignment);
+       Ast.Top_level_statement (Ast.Empty_statement empty);
+       Ast.Top_level_statement (Ast.Expression_statement update);
+      ] ->
+          Alcotest.(check string) "declared name" "value" value.name.spelling;
+          Alcotest.(check bool)
+            "assignment keeps its semicolon" true
+            (Option.is_some assignment.expression_statement_semicolon);
+          let binary =
+            expect_binary_expression assignment.expression_statement_expression
+          in
+          Alcotest.(check string)
+            "assignment operator" "=" binary.binary_operator.operator_spelling;
+          Alcotest.(check int)
+            "empty semicolon is one byte" 1
+            (Span.length empty.empty_statement_semicolon.span);
+          let postfix =
+            expect_postfix_expression update.expression_statement_expression
+          in
+          Alcotest.(check bool)
+            "postfix update kind" true
+            (postfix.postfix_operator_kind = Ast.Post_increment);
+          Alcotest.(check bool)
+            "top-level statements keep source order" true
+            (assignment.expression_statement_location.span.start
+             < empty.empty_statement_location.span.start
+            && empty.empty_statement_location.span.start
+               < update.expression_statement_location.span.start)
+      | items ->
+          Alcotest.failf "expected one declaration and three statements, got %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let statement_comma_sequence_shapes () =
+  let source = "I64 first;I64 second;,,first=1,second=first+1;," in
+  let _, _, output = parse_string source in
+  let sequence =
+    match (expect_ast output).Ast.items with
+    | [
+     Ast.Global_variable _;
+     Ast.Global_variable _;
+     Ast.Top_level_statement (Ast.Sequence_statement sequence);
+    ] -> sequence
+    | items ->
+        Alcotest.failf "expected two declarations and one sequence, got %d"
+          (List.length items)
+  in
+  Alcotest.(check int)
+    "two leading commas" 2
+    (List.length sequence.sequence_leading_commas);
+  Alcotest.(check int)
+    "two expression elements" 2
+    (List.length sequence.sequence_elements);
+  Alcotest.(check (list int))
+    "each expression has a following comma" [ 1; 1 ]
+    (List.map
+       (fun (element : Ast.statement_sequence_element) ->
+         List.length element.sequence_following_commas)
+       sequence.sequence_elements);
+  let first =
+    List.nth sequence.sequence_elements 0 |> fun element ->
+    expect_expression_statement element.sequence_statement
+  in
+  let second =
+    List.nth sequence.sequence_elements 1 |> fun element ->
+    expect_expression_statement element.sequence_statement
+  in
+  Alcotest.(check bool)
+    "comma terminates the first expression" true
+    (Option.is_none first.expression_statement_semicolon);
+  Alcotest.(check bool)
+    "the second expression retains its semicolon" true
+    (Option.is_some second.expression_statement_semicolon);
+  let _, _, semicolon_before_comma =
+    parse_string "I64 first;I64 second;first=1;,second=2;"
+  in
+  let semicolon_sequence =
+    match (expect_ast semicolon_before_comma).Ast.items with
+    | [ _; _; Ast.Top_level_statement statement ] ->
+        expect_statement_sequence statement
+    | _ -> Alcotest.fail "expected a semicolon-before-comma sequence"
+  in
+  let first_with_semicolon =
+    List.hd semicolon_sequence.sequence_elements |> fun element ->
+    expect_expression_statement element.sequence_statement
+  in
+  Alcotest.(check bool)
+    "semicolon before comma remains visible" true
+    (Option.is_some first_with_semicolon.expression_statement_semicolon);
+  let _, _, comma_only = parse_string "," in
+  let comma_only_sequence =
+    match (expect_ast comma_only).Ast.items with
+    | [ Ast.Top_level_statement statement ] ->
+        expect_statement_sequence statement
+    | _ -> Alcotest.fail "expected a comma-only statement sequence"
+  in
+  Alcotest.(check int)
+    "comma-only sequence keeps its leading comma" 1
+    (List.length comma_only_sequence.sequence_leading_commas);
+  Alcotest.(check int)
+    "comma-only sequence has no semantic element" 0
+    (List.length comma_only_sequence.sequence_elements)
+
+let statement_output_comma_boundaries () =
+  let source = "I64 value;\n'A',value++;\n\"x\";,value--;\n\"%d\",value;" in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement (Ast.Sequence_statement put_sequence);
+   Ast.Top_level_statement (Ast.Sequence_statement print_sequence);
+   Ast.Top_level_statement (Ast.Implicit_output_statement formatted);
+  ] ->
+      let put_element = List.hd put_sequence.sequence_elements in
+      let put =
+        match put_element.sequence_statement with
+        | Ast.Implicit_output_statement statement -> statement
+        | _ -> Alcotest.fail "expected PutChars before its statement comma"
+      in
+      Alcotest.(check bool)
+        "PutChars targets character output" true
+        (put.target = Ast.Put_chars_target);
+      Alcotest.(check bool)
+        "PutChars may end at a comma" true
+        (Option.is_none put.semicolon);
+      let print_element = List.hd print_sequence.sequence_elements in
+      let print =
+        match print_element.sequence_statement with
+        | Ast.Implicit_output_statement statement -> statement
+        | _ -> Alcotest.fail "expected Print before its statement comma"
+      in
+      Alcotest.(check bool)
+        "Print targets formatted output" true
+        (print.target = Ast.Print_target);
+      Alcotest.(check bool)
+        "Print retains its semicolon before a statement comma" true
+        (Option.is_some print.semicolon);
+      Alcotest.(check int)
+        "the Print statement comma is not a vararg" 0
+        (List.length print.arguments);
+      Alcotest.(check int)
+        "a comma before Print's semicolon remains a vararg" 1
+        (List.length formatted.arguments)
+  | items ->
+      Alcotest.failf "expected one declaration and three output groups, got %d"
+        (List.length items)
+
+let statement_sequence_provenance () =
+  let source = "I64 value;\n#define SET value=1\n,,SET,SET;" in
+  let _, _, output = parse_string source in
+  let sequence =
+    match (expect_ast output).Ast.items with
+    | [ _; Ast.Top_level_statement statement ] ->
+        expect_statement_sequence statement
+    | _ -> Alcotest.fail "expected a definition-backed statement sequence"
+  in
+  List.iter
+    (fun (element : Ast.statement_sequence_element) ->
+      let expression = expect_expression_statement element.sequence_statement in
+      Alcotest.(check bool)
+        "expanded statement retains its invocation" true
+        (Option.is_some expression.expression_statement_location.generated_from);
+      Alcotest.(check bool)
+        "expanded statement retains its definition" true
+        (Option.is_some expression.expression_statement_location.defined_at))
+    sequence.sequence_elements;
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let statement_file = Filename.concat directory "statement.HC" in
+      write_file root_file "I64 value;\n#include \"statement\"";
+      write_file statement_file "value=1;";
+      let session = Session.create () in
+      let root = Session.load_source session ~path:root_file |> Result.get_ok in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config directory) ~source:root
+      in
+      let expression =
+        match (expect_ast output).Ast.items with
+        | [ _; Ast.Top_level_statement statement ] ->
+            expect_expression_statement statement
+        | _ -> Alcotest.fail "expected one included expression statement"
+      in
+      let included_source =
+        Source_manager.find (Session.sources session)
+          expression.expression_statement_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included statement keeps its canonical path"
+        (Unix.realpath statement_file)
+        (Source_file.path included_source))
+
+let statement_sequence_failures () =
+  List.iter
+    (fun (name, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " diagnostic") code (first_diagnostic output).code)
+    [
+      ("missing expression terminator", "I64 value;value=1", "HCPARSE0047");
+      ("unsupported return", "return;", "HCPARSE0048");
+      ("declaration after comma", "I64 value;value=1,I64 other;", "HCPARSE0048");
+      ("unresolved comma target", "'A',missing;", "HCPARSE0048");
+      ("missing assignment operand", "I64 value;value=;", "HCPARSE0018");
+    ]
+
+let deterministic_statement_sequence_dumps () =
+  let session, _, output = parse_string "I64 value;,,value=1,value++;" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human statement dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON statement dump is deterministic" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let sequence =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth_opt items 1 |> Option.get |> member "statement"
+  in
+  Alcotest.(check string)
+    "sequence JSON kind" "statement_sequence"
+    (sequence |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "two JSON leading commas" 2
+    (sequence |> member "leading_commas" |> to_list |> List.length);
+  let elements = sequence |> member "elements" |> to_list in
+  Alcotest.(check int) "two JSON elements" 2 (List.length elements);
+  let first_statement = List.hd elements |> member "statement" in
+  Alcotest.(check bool)
+    "comma-terminated expression has JSON null semicolon" true
+    (match first_statement |> member "semicolon" with
+    | `Null -> true
+    | _ -> false)
+
 let unsupported_forms () =
   let cases =
     [
@@ -6952,7 +7237,7 @@ let unsupported_forms () =
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
       ("function", "I64 Function();", "HCPARSE0008");
-      ("statement", "return;", "HCPARSE0001");
+      ("statement", "return;", "HCPARSE0048");
     ]
   in
   List.iter
@@ -7211,6 +7496,20 @@ let tests =
       implicit_output_failures;
     Alcotest.test_case "deterministic implicit output dumps" `Quick
       deterministic_implicit_output_dumps;
+    Alcotest.test_case "pinned statement sequence behavior" `Quick
+      statement_sequence_source_behavior;
+    Alcotest.test_case "expression and empty statement shapes" `Quick
+      statement_expression_and_empty_shapes;
+    Alcotest.test_case "comma-linked statement shapes" `Quick
+      statement_comma_sequence_shapes;
+    Alcotest.test_case "output statement comma boundaries" `Quick
+      statement_output_comma_boundaries;
+    Alcotest.test_case "statement sequence provenance" `Quick
+      statement_sequence_provenance;
+    Alcotest.test_case "statement sequence failures" `Quick
+      statement_sequence_failures;
+    Alcotest.test_case "deterministic statement sequence dumps" `Quick
+      deterministic_statement_sequence_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick
