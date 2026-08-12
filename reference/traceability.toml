@@ -1139,7 +1139,7 @@ condition_expression_grammar = "shared audited core expression parser"
 then_branch = "required and parsed through the common statement path"
 else_branch = "optional and parsed through the common statement path"
 dangling_else = "owned by the nearest unmatched if"
-branch_statement_kinds = ["block", "conditional", "expression", "empty", "Print", "PutChars", "statement sequence"]
+branch_statement_kinds = ["block", "conditional", "while", "do-while", "for", "expression", "empty", "Print", "PutChars", "statement sequence"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0052", "HCPARSE0053", "HCPARSE0054", "HCPARSE0055", "HCPARSE0056"]
@@ -1181,7 +1181,7 @@ implemented_scope = "top-level statement position and recursive supported statem
 condition_parentheses = "required and preserved independently"
 condition_expression_grammar = "shared audited core expression parser"
 body = "required and parsed through the common statement path"
-body_statement_kinds = ["block", "conditional", "while", "do-while", "expression", "empty", "Print", "PutChars", "statement sequence"]
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "expression", "empty", "Print", "PutChars", "statement sequence"]
 dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
@@ -1227,11 +1227,60 @@ trailing_while_keyword = "required and preserved independently"
 condition_parentheses = "required and preserved independently"
 condition_expression_grammar = "shared audited core expression parser"
 final_semicolon = "required and preserved independently"
-body_statement_kinds = ["block", "conditional", "while", "do-while", "expression", "empty", "Print", "PutChars", "statement sequence"]
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "expression", "empty", "Print", "PutChars", "statement sequence"]
 dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0062", "HCPARSE0063", "HCPARSE0064", "HCPARSE0065", "HCPARSE0066"]
+shared_loop_nesting_limit = 256
+nesting_limit_diagnostic = "HCPARSE0061"
+break_status = "planned"
+truth_conversion_status = "planned"
+semantic_checking_status = "planned"
+control_flow_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FOR-STATEMENTS"
+description = "For statements retain their statement initializer, required condition, optional update statement, and recursive body."
+sources = [
+  "Compiler/PrsStmt.HC:PrsFor",
+  "Compiler/PrsStmt.HC:PrsStmt CMPF_PRS_SEMICOLON handling",
+  "Compiler/CompilerA.HH:KW_FOR",
+  "Kernel/StrPrint.HC:empty initializer forms",
+  "Adam/Opt/Utils/StrUtils.HC:empty and comma-linked update forms",
+  "Doc/HolyC.DD:AddNums"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-for-statements.hc",
+  "test/cli/parse-for-statements.human",
+  "test/cli/parse-for-statements.json",
+  "test/cli/parse-for-error.hc",
+  "test/cli/parse-for-error.human",
+  "test/cli/parse-for-error.json"
+]
+status = "implemented"
+issue = 105
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position and recursive supported statement contexts"
+opening_parenthesis = "required and preserved"
+initializer = "required statement; a semicolon represents the empty initializer"
+condition = "required shared core expression followed by a preserved semicolon"
+update = "optional statement parsed without a required semicolon; comma-linked updates retain their sequence"
+body = "required and parsed through the common statement path"
+body_statement_kinds = ["block", "conditional", "while", "do-while", "for", "expression", "empty", "Print", "PutChars", "statement sequence"]
+local_declaration_initializer_status = "planned"
+dangling_else = "preserved across loop boundaries and owned by the nearest unmatched if"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0067", "HCPARSE0068", "HCPARSE0069", "HCPARSE0070", "HCPARSE0071"]
 shared_loop_nesting_limit = 256
 nesting_limit_diagnostic = "HCPARSE0061"
 break_status = "planned"

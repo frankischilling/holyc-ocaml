@@ -82,13 +82,16 @@ statement-sequence := comma* (statement (comma+ statement)* comma*)?
 statement          := ";" | statement-expression statement-terminator
                     | print-statement | put-chars-statement
                     | compound-statement | if-statement | while-statement
-                    | do-while-statement
+                    | do-while-statement | for-statement
 compound-statement := "{" statement-sequence* "}"
 if-statement       := "if" "(" core-expression ")" required-statement-sequence
                       ("else" required-statement-sequence)?
 while-statement    := "while" "(" core-expression ")" required-statement-sequence
 do-while-statement := "do" required-statement-sequence "while"
                       "(" core-expression ")" ";"
+for-statement      := "for" "(" required-statement-sequence
+                      core-expression ";" required-statement-sequence?
+                      ")" required-statement-sequence
 required-statement-sequence := statement-sequence containing at least one statement
 statement-expression := core-expression not beginning with a string or character literal
 statement-terminator := ";" | comma-boundary
@@ -216,6 +219,14 @@ The AST records the `while` keyword, both parentheses, the condition, and the co
 The AST records the `do` and `while` keywords separately, the complete body, both condition parentheses, the condition, and the required final semicolon. The body uses the common statement path and therefore accepts blocks, comma-linked sequences, pre-test or post-test loops, conditionals, output statements, ordinary expressions, and empty statements. Nearest-`if` else association remains unchanged across the loop boundary. JIT and AOT modes use the same syntax, and every token retains include or definition provenance.
 
 `HCPARSE0062` reports a missing or comma-only body. `HCPARSE0063` through `HCPARSE0066` cover a missing `while`, opening parenthesis, closing parenthesis, or final semicolon. An empty condition uses the shared `HCPARSE0018` expression diagnostic. Mixed `while` and `do ... while` nesting shares the 256-level `HCPARSE0061` guard. Condition truth conversion, `break`, label creation, `IC_BR_NOT_ZERO`, semantic checks, IR lowering, and execution remain unimplemented.
+
+## For statements
+
+`Compiler/PrsStmt.HC:PrsFor` requires `(`, then delegates the initializer to the ordinary statement parser. This makes a lone semicolon a valid empty initializer. The condition is a required expression followed by a required semicolon. The update is optional; when present, `PrsFor` calls `PrsStmt` with semicolon checking disabled, so the update stops at `)` and may retain comma-linked statements. The loop body returns to the normal statement path.
+
+The AST keeps the keyword, both parentheses, initializer statement, condition, condition semicolon, optional update statement, and body as separate fields with source provenance. An absent update remains `None` rather than an invented empty statement. Bodies and header statements use the common recursive representation, so existing blocks, conditionals, loops, output statements, expressions, empty statements, and comma-linked sequences keep their usual shapes. Initializer declarations remain unavailable until local declaration parsing is implemented.
+
+`HCPARSE0067` reports a missing opening parenthesis. `HCPARSE0068` reports a missing initializer statement, while an empty condition uses `HCPARSE0018`. `HCPARSE0069` reports the missing condition semicolon, `HCPARSE0070` reports an invalid update boundary or missing closing parenthesis, and `HCPARSE0071` reports a missing or comma-only body. All three loop forms share the 256-level `HCPARSE0061` hosted guard. Condition truth conversion, `break`, label creation, deferred update control flow, semantic checks, IR lowering, and execution remain unimplemented.
 
 ## Statement-position output literals
 

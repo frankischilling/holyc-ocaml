@@ -65,6 +65,7 @@
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
+  ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
@@ -2081,3 +2082,63 @@
        --format=json
        cli/parse-do-while-error.hc))))
    (diff cli/parse-do-while-error.json parse-do-while-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-statements.human.actual)
+ (deps cli/parse-for-statements.hc cli/parse-for-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-for-statements.hc))
+   (diff cli/parse-for-statements.human parse-for-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-statements.json.actual)
+ (deps cli/parse-for-statements.hc cli/parse-for-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-for-statements.hc))
+   (diff cli/parse-for-statements.json parse-for-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-error.human.actual parse-for-error.human.stdout.actual)
+ (deps cli/parse-for-error.hc cli/parse-for-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-error.human.stdout.actual
+    (with-stderr-to
+     parse-for-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-for-error.hc))))
+   (diff cli/parse-for-error.human parse-for-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-for-error.json.actual parse-for-error.json.stdout.actual)
+ (deps cli/parse-for-error.hc cli/parse-for-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-for-error.json.stdout.actual
+    (with-stderr-to
+     parse-for-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-for-error.hc))))
+   (diff cli/parse-for-error.json parse-for-error.json.actual))))

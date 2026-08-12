@@ -43,3 +43,4 @@
 - Added source-shaped `if` and `else` statements with required parenthesized conditions, nearest-`if` association, recursive statement branches, deterministic dumps, provenance tracking, and bounded malformed-input recovery.
 - Added source-shaped `while` statements with required parenthesized conditions, recursive statement bodies, nearest-`if` association across loops, deterministic dumps, provenance tracking, and bounded malformed-input recovery.
 - Added source-shaped `do ... while` statements with a body parsed before the required trailing condition, an explicit final semicolon, deterministic dumps, provenance tracking, and bounded malformed-input recovery.
+- Added source-shaped `for` statements with statement initializers, mandatory conditions, optional semicolon-free updates, comma-linked update sequences, deterministic dumps, provenance tracking, and the shared loop-depth guard.
