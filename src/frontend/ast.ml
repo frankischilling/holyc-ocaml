@@ -358,6 +358,7 @@ type statement =
   | Do_while_statement of do_while_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
+  | For_statement of for_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
@@ -385,6 +386,18 @@ and else_clause = {
   else_keyword : location;
   else_branch : statement;
   else_location : location;
+}
+
+and for_statement = {
+  for_keyword : location;
+  for_opening_parenthesis : location;
+  for_initializer : statement;
+  for_condition : expression;
+  for_condition_semicolon : location;
+  for_update : statement option;
+  for_closing_parenthesis : location;
+  for_body : statement;
+  for_location : location;
 }
 
 and if_statement = {
@@ -750,6 +763,20 @@ let make_do_while_statement ~do_keyword ~body ~while_keyword
 let make_else_clause ~keyword ~branch ~location =
   { else_keyword = keyword; else_branch = branch; else_location = location }
 
+let make_for_statement ~keyword ~opening_parenthesis ~initialization ~condition
+    ~condition_semicolon ~update ~closing_parenthesis ~body ~location =
+  {
+    for_keyword = keyword;
+    for_opening_parenthesis = opening_parenthesis;
+    for_initializer = initialization;
+    for_condition = condition;
+    for_condition_semicolon = condition_semicolon;
+    for_update = update;
+    for_closing_parenthesis = closing_parenthesis;
+    for_body = body;
+    for_location = location;
+  }
+
 let make_if_statement ~keyword ~opening_parenthesis ~condition
     ~closing_parenthesis ~then_branch ~else_clause ~location =
   {
@@ -792,6 +819,7 @@ let statement_location = function
   | Do_while_statement statement -> statement.do_while_location
   | Empty_statement statement -> statement.empty_statement_location
   | Expression_statement statement -> statement.expression_statement_location
+  | For_statement statement -> statement.for_location
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
   | Sequence_statement sequence -> sequence.sequence_location

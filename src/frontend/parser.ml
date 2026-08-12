@@ -28,7 +28,11 @@ type parsed_declarator_prefix = {
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
 type parsed_statement = { node : Ast.statement; tokens : Token.t list }
-type statement_boundary = Top_level_boundary | Block_boundary
+
+type statement_boundary =
+  | Top_level_boundary
+  | Block_boundary
+  | For_update_boundary of statement_boundary
 
 type parsed_array_dimension = {
   node : Ast.array_dimension;
@@ -43,6 +47,7 @@ type expression_context =
   | Index_expression
   | Implicit_output_argument_expression
   | Do_while_condition_expression
+  | For_condition_expression
   | If_condition_expression
   | While_condition_expression
   | Statement_expression
@@ -264,11 +269,40 @@ let rec recover_statement cursor ~boundary =
   let item = peek cursor in
   match item.token.Token.kind with
   | Token_kind.Eof -> ()
-  | Token_kind.Punctuation '}' when boundary = Block_boundary -> ()
+  | Token_kind.Punctuation '}'
+    when let rec in_block = function
+           | Block_boundary -> true
+           | For_update_boundary boundary -> in_block boundary
+           | Top_level_boundary -> false
+         in
+         in_block boundary -> ()
+  | Token_kind.Punctuation ')' -> (
+      match boundary with
+      | For_update_boundary _ -> ()
+      | Top_level_boundary | Block_boundary ->
+          ignore (take cursor);
+          recover_statement cursor ~boundary)
   | Token_kind.Punctuation ';' -> ignore (take cursor)
   | _ ->
       ignore (take cursor);
       recover_statement cursor ~boundary
+
+let rec recover_for_header cursor =
+  let item = peek cursor in
+  match item.token.Token.kind with
+  | Token_kind.Eof -> ()
+  | Token_kind.Punctuation ')' -> ignore (take cursor)
+  | _ ->
+      ignore (take cursor);
+      recover_for_header cursor
+
+let rec statement_body_boundary = function
+  | For_update_boundary boundary -> statement_body_boundary boundary
+  | boundary -> boundary
+
+let is_for_update_boundary = function
+  | For_update_boundary _ -> true
+  | Top_level_boundary | Block_boundary -> false
 
 let recover_compound_statement cursor =
   let rec skip depth =
@@ -559,6 +593,7 @@ let expression_context_name = function
   | Index_expression -> "index expression"
   | Implicit_output_argument_expression -> "implicit output argument"
   | Do_while_condition_expression -> "do-while condition expression"
+  | For_condition_expression -> "for condition expression"
   | If_condition_expression -> "if condition expression"
   | While_condition_expression -> "while condition expression"
   | Statement_expression -> "statement expression"
@@ -571,6 +606,7 @@ let expression_operand_name = function
   | Index_expression -> "an index expression operand"
   | Implicit_output_argument_expression -> "an implicit output argument"
   | Do_while_condition_expression -> "a do-while condition expression operand"
+  | For_condition_expression -> "a for condition expression operand"
   | If_condition_expression -> "an if condition expression operand"
   | While_condition_expression -> "a while condition expression operand"
   | Statement_expression -> "a statement expression operand"
@@ -2183,14 +2219,15 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
       | Some (arguments, argument_tokens) -> (
           let terminator_item = peek cursor in
           let terminator =
-            match terminator_item.token.kind with
-            | Token_kind.Punctuation ';' ->
+            match (boundary, terminator_item.token.kind) with
+            | For_update_boundary _, _ -> Some (None, [])
+            | _, Token_kind.Punctuation ';' ->
                 let semicolon_item = take cursor in
                 Some
                   ( Some (token_location semicolon_item.token),
                     [ semicolon_item.token ] )
-            | Token_kind.Punctuation ',' when target = Ast.Put_chars_target ->
-                Some (None, [])
+            | _, Token_kind.Punctuation ',' when target = Ast.Put_chars_target
+              -> Some (None, [])
             | _ ->
                 report cursor terminator_item ~code:"HCPARSE0046"
                   ~message:
@@ -2289,13 +2326,14 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
   | Some (expression : parsed_expression) -> (
       let terminator_item = peek cursor in
       let terminator =
-        match terminator_item.token.kind with
-        | Token_kind.Punctuation ';' ->
+        match (boundary, terminator_item.token.kind) with
+        | For_update_boundary _, _ -> Some (None, [])
+        | _, Token_kind.Punctuation ';' ->
             let semicolon_item = take cursor in
             Some
               ( Some (token_location semicolon_item.token),
                 [ semicolon_item.token ] )
-        | Token_kind.Punctuation ',' -> Some (None, [])
+        | _, Token_kind.Punctuation ',' -> Some (None, [])
         | _ ->
             report cursor terminator_item ~code:"HCPARSE0047"
               ~message:
@@ -2326,6 +2364,9 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Keyword Keyword.Do ->
       parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
+  | Token_kind.Keyword Keyword.For ->
+      parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
+        ~loop_depth
   | Token_kind.Keyword Keyword.If ->
       parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
@@ -2339,6 +2380,11 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       None
   | Token_kind.String | Token_kind.Character ->
       parse_implicit_output_statement cursor ~boundary
+  | Token_kind.Punctuation ';' when is_for_update_boundary boundary ->
+      report cursor item ~code:"HCPARSE0070"
+        ~message:"expected ')' after the for update, but found ';'";
+      recover_statement cursor ~boundary;
+      None
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary
@@ -2385,9 +2431,10 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
   else
     let do_item = take cursor in
     match
-      parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth:(loop_depth + 1) ~code:"HCPARSE0062"
-        ~description:"a statement after 'do'"
+      parse_required_statement cursor
+        ~boundary:(statement_body_boundary boundary)
+        ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
+        ~code:"HCPARSE0062" ~description:"a statement after 'do'"
     with
     | None -> None
     | Some body -> (
@@ -2465,6 +2512,144 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
                     in
                     Some { node = Ast.Do_while_statement statement; tokens })
 
+and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
+    ~loop_depth : parsed_statement option =
+  let keyword_item = peek cursor in
+  if loop_depth >= max_loop_depth then (
+    report cursor keyword_item ~code:"HCPARSE0061"
+      ~message:
+        (Printf.sprintf "loop-statement nesting exceeds the hosted limit of %d"
+           max_loop_depth);
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let keyword_item = take cursor in
+    let statement_boundary = statement_body_boundary boundary in
+    let opening_item = peek cursor in
+    if opening_item.token.kind <> Token_kind.Punctuation '(' then (
+      report cursor opening_item ~code:"HCPARSE0067"
+        ~message:
+          (Printf.sprintf "expected '(' after 'for', but found %s"
+             (token_description opening_item.token));
+      recover_statement cursor ~boundary;
+      None)
+    else
+      let opening_item = take cursor in
+      let initialization_item = peek cursor in
+      if initialization_item.token.kind = Token_kind.Punctuation ')' then (
+        report cursor initialization_item ~code:"HCPARSE0068"
+          ~message:
+            "expected an initializer statement in the for header, but found ')'";
+        recover_for_header cursor;
+        None)
+      else
+        match
+          parse_required_statement cursor ~boundary:statement_boundary
+            ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
+            ~code:"HCPARSE0068"
+            ~description:"an initializer statement in the for header"
+        with
+        | None ->
+            recover_for_header cursor;
+            None
+        | Some initialization -> (
+            match
+              parse_expression cursor ~context:For_condition_expression ~depth:0
+                ~minimum_binding_power:0
+            with
+            | None ->
+                recover_for_header cursor;
+                None
+            | Some (condition : parsed_expression) -> (
+                let condition_semicolon_item = peek cursor in
+                if
+                  condition_semicolon_item.token.kind
+                  <> Token_kind.Punctuation ';'
+                then (
+                  report cursor condition_semicolon_item ~code:"HCPARSE0069"
+                    ~message:
+                      (Printf.sprintf
+                         "expected ';' after the for condition, but found %s"
+                         (token_description condition_semicolon_item.token));
+                  recover_for_header cursor;
+                  None)
+                else
+                  let condition_semicolon_item = take cursor in
+                  let update_item = peek cursor in
+                  let parsed_update =
+                    if update_item.token.kind = Token_kind.Punctuation ')' then
+                      Some None
+                    else
+                      Option.map
+                        (fun update -> Some update)
+                        (parse_required_statement cursor
+                           ~boundary:(For_update_boundary statement_boundary)
+                           ~block_depth ~conditional_depth
+                           ~loop_depth:(loop_depth + 1) ~code:"HCPARSE0070"
+                           ~description:"a for update statement")
+                  in
+                  match parsed_update with
+                  | None ->
+                      recover_for_header cursor;
+                      None
+                  | Some update -> (
+                      let closing_item = peek cursor in
+                      if closing_item.token.kind <> Token_kind.Punctuation ')'
+                      then (
+                        report cursor closing_item ~code:"HCPARSE0070"
+                          ~message:
+                            (Printf.sprintf
+                               "expected ')' after the for update, but found %s"
+                               (token_description closing_item.token));
+                        recover_for_header cursor;
+                        None)
+                      else
+                        let closing_item = take cursor in
+                        match
+                          parse_required_statement cursor
+                            ~boundary:statement_boundary ~block_depth
+                            ~conditional_depth ~loop_depth:(loop_depth + 1)
+                            ~code:"HCPARSE0071"
+                            ~description:"a statement after the for header"
+                        with
+                        | None -> None
+                        | Some body ->
+                            let update_tokens =
+                              match update with
+                              | None -> []
+                              | Some (update : parsed_statement) ->
+                                  update.tokens
+                            in
+                            let tokens =
+                              keyword_item.token :: opening_item.token
+                              :: initialization.tokens
+                              @ condition.tokens
+                              @ (condition_semicolon_item.token :: update_tokens)
+                              @ (closing_item.token :: body.tokens)
+                            in
+                            let statement =
+                              Ast.make_for_statement
+                                ~keyword:(token_location keyword_item.token)
+                                ~opening_parenthesis:
+                                  (token_location opening_item.token)
+                                ~initialization:initialization.node
+                                ~condition:condition.node
+                                ~condition_semicolon:
+                                  (token_location condition_semicolon_item.token)
+                                ~update:
+                                  (Option.map
+                                     (fun (update : parsed_statement) ->
+                                       update.node)
+                                     update)
+                                ~closing_parenthesis:
+                                  (token_location closing_item.token)
+                                ~body:body.node
+                                ~location:
+                                  (location_from_expression_tokens tokens)
+                            in
+                            Some { node = Ast.For_statement statement; tokens })
+                ))
+
 and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth : parsed_statement option =
   let keyword_item = peek cursor in
@@ -2508,8 +2693,10 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
             let closing_item = take cursor in
             let branch_depth = conditional_depth + 1 in
             match
-              parse_required_statement cursor ~boundary ~block_depth
-                ~conditional_depth:branch_depth ~loop_depth ~code:"HCPARSE0054"
+              parse_required_statement cursor
+                ~boundary:(statement_body_boundary boundary)
+                ~block_depth ~conditional_depth:branch_depth ~loop_depth
+                ~code:"HCPARSE0054"
                 ~description:"a statement after the if condition"
             with
             | None -> None
@@ -2529,9 +2716,10 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
                               ~location:(location_from_expression_tokens tokens)
                           in
                           (Some node, tokens))
-                        (parse_required_statement cursor ~boundary ~block_depth
-                           ~conditional_depth:branch_depth ~loop_depth
-                           ~code:"HCPARSE0056"
+                        (parse_required_statement cursor
+                           ~boundary:(statement_body_boundary boundary)
+                           ~block_depth ~conditional_depth:branch_depth
+                           ~loop_depth ~code:"HCPARSE0056"
                            ~description:"a statement after 'else'")
                   | _ -> Some (None, [])
                 in
@@ -2597,8 +2785,9 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
           else
             let closing_item = take cursor in
             match
-              parse_required_statement cursor ~boundary ~block_depth
-                ~conditional_depth ~loop_depth:(loop_depth + 1)
+              parse_required_statement cursor
+                ~boundary:(statement_body_boundary boundary)
+                ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
                 ~code:"HCPARSE0060"
                 ~description:"a statement after the while condition"
             with

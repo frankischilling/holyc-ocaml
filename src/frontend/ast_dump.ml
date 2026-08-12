@@ -483,6 +483,33 @@ let rec print_statement buffer sources ~indent = function
           Printf.bprintf buffer "%s  semicolon span=%s\n" indent
             (location_text sources semicolon))
         statement.expression_statement_semicolon
+  | Ast.For_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sfor_statement span=%s update=%b\n" indent
+        (location_text sources statement.for_location)
+        (Option.is_some statement.for_update);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.for_keyword);
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources statement.for_opening_parenthesis);
+      Printf.bprintf buffer "%sinitializer\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.for_initializer;
+      Printf.bprintf buffer "%scondition\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        statement.for_condition;
+      Printf.bprintf buffer "%scondition_semicolon span=%s\n" child_indent
+        (location_text sources statement.for_condition_semicolon);
+      Option.iter
+        (fun update ->
+          Printf.bprintf buffer "%supdate\n" child_indent;
+          print_statement buffer sources ~indent:(child_indent ^ "  ") update)
+        statement.for_update;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources statement.for_closing_parenthesis);
+      Printf.bprintf buffer "%sbody\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.for_body
   | Ast.If_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sif_statement span=%s else=%b\n" indent
@@ -1320,6 +1347,26 @@ let rec statement_to_yojson sources = function
           ( "location",
             location_to_yojson sources statement.expression_statement_location
           );
+        ]
+  | Ast.For_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "for_statement");
+          ("keyword", location_to_yojson sources statement.for_keyword);
+          ( "opening_parenthesis",
+            location_to_yojson sources statement.for_opening_parenthesis );
+          ("initializer", statement_to_yojson sources statement.for_initializer);
+          ("condition", expression_to_yojson sources statement.for_condition);
+          ( "condition_semicolon",
+            location_to_yojson sources statement.for_condition_semicolon );
+          ( "update",
+            match statement.for_update with
+            | None -> `Null
+            | Some update -> statement_to_yojson sources update );
+          ( "closing_parenthesis",
+            location_to_yojson sources statement.for_closing_parenthesis );
+          ("body", statement_to_yojson sources statement.for_body);
+          ("location", location_to_yojson sources statement.for_location);
         ]
   | Ast.If_statement statement ->
       `Assoc

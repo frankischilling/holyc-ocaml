@@ -363,6 +363,7 @@ type statement =
   | Do_while_statement of do_while_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
+  | For_statement of for_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
@@ -390,6 +391,18 @@ and else_clause = private {
   else_keyword : location;
   else_branch : statement;
   else_location : location;
+}
+
+and for_statement = private {
+  for_keyword : location;
+  for_opening_parenthesis : location;
+  for_initializer : statement;
+  for_condition : expression;
+  for_condition_semicolon : location;
+  for_update : statement option;
+  for_closing_parenthesis : location;
+  for_body : statement;
+  for_location : location;
 }
 
 and if_statement = private {
@@ -731,6 +744,18 @@ val make_do_while_statement :
 
 val make_else_clause :
   keyword:location -> branch:statement -> location:location -> else_clause
+
+val make_for_statement :
+  keyword:location ->
+  opening_parenthesis:location ->
+  initialization:statement ->
+  condition:expression ->
+  condition_semicolon:location ->
+  update:statement option ->
+  closing_parenthesis:location ->
+  body:statement ->
+  location:location ->
+  for_statement
 
 val make_if_statement :
   keyword:location ->
