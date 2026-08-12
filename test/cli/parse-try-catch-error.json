@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0080",
+    "severity": "error",
+    "message": "expected 'catch' after the try body, but found end of input",
+    "primary": {
+      "path": "cli/parse-try-catch-error.hc",
+      "line": 5,
+      "column": 1,
+      "source_id": 0,
+      "start": 30,
+      "stop": 30
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

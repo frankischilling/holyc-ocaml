@@ -2399,3 +2399,73 @@
        --format=json
        cli/parse-lock-error.hc))))
    (diff cli/parse-lock-error.json parse-lock-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-try-catch-statements.human.actual)
+ (deps
+  cli/parse-try-catch-statements.hc
+  cli/parse-try-catch-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-try-catch-statements.hc))
+   (diff
+    cli/parse-try-catch-statements.human
+    parse-try-catch-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-try-catch-statements.json.actual)
+ (deps cli/parse-try-catch-statements.hc cli/parse-try-catch-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-try-catch-statements.hc))
+   (diff
+    cli/parse-try-catch-statements.json
+    parse-try-catch-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-try-catch-error.human.actual
+  parse-try-catch-error.human.stdout.actual)
+ (deps cli/parse-try-catch-error.hc cli/parse-try-catch-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-error.human.stdout.actual
+    (with-stderr-to
+     parse-try-catch-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-try-catch-error.hc))))
+   (diff cli/parse-try-catch-error.human parse-try-catch-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-try-catch-error.json.actual
+  parse-try-catch-error.json.stdout.actual)
+ (deps cli/parse-try-catch-error.hc cli/parse-try-catch-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-try-catch-error.json.stdout.actual
+    (with-stderr-to
+     parse-try-catch-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-try-catch-error.hc))))
+   (diff cli/parse-try-catch-error.json parse-try-catch-error.json.actual))))

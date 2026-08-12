@@ -1470,6 +1470,54 @@ lowering_status = "planned"
 execution_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-TRY-CATCH-STATEMENTS"
+description = "A try statement retains its ordinary body and the required ordinary handler after catch as one source-positioned pair."
+sources = [
+  "Compiler/PrsStmt.HC:PrsTryBlk setup, body, catch requirement, handler, and try_cnt",
+  "Compiler/PrsStmt.HC:PrsStmt invalid-keyword expression route",
+  "Compiler/PrsExp.HC:PrsUnaryTerm unsupported keyword failure",
+  "Compiler/CompilerA.HH:KW_TRY and KW_CATCH",
+  "Compiler/OpCodes.DD:KEYWORD try and catch",
+  "Compiler/PrsExp.HC:unbraced try body",
+  "Kernel/Job.HC:unbraced body and handler",
+  "Demo/Exceptions.HC:braced and nested pairs",
+  "Doc/HolyC.DD:try/catch and throw notes"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-try-catch-statements.hc",
+  "test/cli/parse-try-catch-statements.human",
+  "test/cli/parse-try-catch-statements.json",
+  "test/cli/parse-try-catch-error.hc",
+  "test/cli/parse-try-catch-error.human",
+  "test/cli/parse-try-catch-error.json"
+]
+status = "implemented"
+issue = 115
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+try_keyword = "required and preserved"
+try_body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+catch_keyword = "required and preserved"
+catch_body = "exactly one ordinary recursively parsed statement; may be braced, unbraced, nested, empty, or comma-linked"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0079", "HCPARSE0080", "HCPARSE0081", "HCPARSE0082", "HCPARSE0083"]
+standalone_catch_diagnostic = "hosted HCPARSE0082 preserves rejection but is more specific than the pinned generic Missing expression diagnostic"
+hosted_nesting_limit = 256
+source_nesting_limit = "none identified"
+sys_try_and_untry_status = "planned"
+handler_control_flow_status = "planned"
+return_unwinding_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
 sources = [
