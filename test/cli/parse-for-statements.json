@@ -1,0 +1,587 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-for-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 20
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "i",
+          "location": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 5
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 5
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-for-statements.hc",
+          "line": 1,
+          "column": 6,
+          "source_id": 0,
+          "start": 5,
+          "stop": 6
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-for-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 6
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 1,
+              "column": 6,
+              "source_id": 0,
+              "start": 5,
+              "stop": 6
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "for_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 7,
+              "stop": 10
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 7,
+                "stop": 10
+              }
+            ]
+          },
+          "opening_parenthesis": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 10,
+              "stop": 11
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 10,
+                "stop": 11
+              }
+            ]
+          },
+          "initializer": {
+            "kind": "empty_statement",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 11,
+                  "stop": 12
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 11,
+                  "stop": 12
+                }
+              ]
+            }
+          },
+          "condition": {
+            "kind": "identifier",
+            "spelling": "i",
+            "location": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 12,
+                "stop": 13
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 12,
+                  "stop": 13
+                }
+              ]
+            }
+          },
+          "condition_semicolon": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 7,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 7,
+                "source_id": 0,
+                "start": 13,
+                "stop": 14
+              }
+            ]
+          },
+          "update": {
+            "kind": "expression_statement",
+            "expression": {
+              "kind": "postfix",
+              "operator_kind": "post_increment",
+              "operand": {
+                "kind": "identifier",
+                "spelling": "i",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-for-statements.hc",
+                    "line": 2,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 15
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-for-statements.hc",
+                      "line": 2,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 15
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "++",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-for-statements.hc",
+                    "line": 2,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 17
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-for-statements.hc",
+                      "line": 2,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 17
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 17
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-for-statements.hc",
+                    "line": 2,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 15
+                  },
+                  {
+                    "path": "cli/parse-for-statements.hc",
+                    "line": 2,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 17
+                  }
+                ]
+              }
+            },
+            "semicolon": null,
+            "location": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 14,
+                "stop": 17
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 15
+                },
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 17
+                }
+              ]
+            }
+          },
+          "closing_parenthesis": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 17,
+                "stop": 18
+              }
+            ]
+          },
+          "body": {
+            "kind": "empty_statement",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 12,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 19
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 12,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-for-statements.hc",
+                  "line": 2,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 19
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 7,
+              "stop": 19
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 7,
+                "stop": 10
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 10,
+                "stop": 11
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 5,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 12,
+                "stop": 13
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 7,
+                "source_id": 0,
+                "start": 13,
+                "stop": 14
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 14,
+                "stop": 15
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 9,
+                "source_id": 0,
+                "start": 15,
+                "stop": 17
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 17,
+                "stop": 18
+              },
+              {
+                "path": "cli/parse-for-statements.hc",
+                "line": 2,
+                "column": 12,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-for-statements.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 7,
+            "stop": 19
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 7,
+              "stop": 10
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 10,
+              "stop": 11
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 5,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 6,
+              "source_id": 0,
+              "start": 12,
+              "stop": 13
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 7,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 14,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 9,
+              "source_id": 0,
+              "start": 15,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-for-statements.hc",
+              "line": 2,
+              "column": 12,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

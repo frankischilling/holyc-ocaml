@@ -240,6 +240,10 @@ let expect_do_while_statement = function
   | Ast.Do_while_statement statement -> statement
   | _ -> Alcotest.fail "expected a do-while statement"
 
+let expect_for_statement = function
+  | Ast.For_statement statement -> statement
+  | _ -> Alcotest.fail "expected a for statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -8349,6 +8353,295 @@ let deterministic_do_while_dumps () =
     "JSON post-test block keeps its conditional" "if_statement"
     (nested |> member "kind" |> to_string)
 
+let for_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsFor requires an opening parenthesis", "if (cc->token!='(')");
+      ("PrsFor parses its initializer as a statement", "PrsStmt(cc,try_cnt);");
+      ("PrsFor requires a condition", "if (!PrsExpression(cc,NULL,FALSE))");
+      ("PrsFor requires a condition semicolon", "if (cc->token!=';')");
+      ("PrsFor makes its update optional", "if (cc->token!=')')");
+      ("PrsFor disables update semicolon parsing", "PrsStmt(cc,try_cnt,NULL,0);");
+      ( "PrsFor parses its body with a break label",
+        "PrsStmt(cc,try_cnt,lb_done);" );
+      ("PrsFor appends the deferred update", "COCAppend(cc,tmpcbh);");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "for keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_FOR\t\t8");
+  Alcotest.(check bool)
+    "the kernel corpus uses an empty initializer" true
+    (contains (pinned "Kernel/StrPrint.HC") "for (;i<len-k;i++) {");
+  let string_utils = pinned "Adam/Opt/Utils/StrUtils.HC" in
+  Alcotest.(check bool)
+    "the Adam corpus uses an empty update" true
+    (contains string_utils "for (i=0;i<cnt;) {");
+  Alcotest.(check bool)
+    "the Adam corpus uses comma-linked updates" true
+    (contains string_utils "j++,i++) {");
+  Alcotest.(check bool)
+    "the language guide shows a conventional for loop" true
+    (contains (pinned "Doc/HolyC.DD") "for (i=0;i<argc;i++)")
+
+let for_statement_shapes () =
+  let source = "I64 i;for(i=0;i<3;i++);" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_for_statement statement
+        | items ->
+            Alcotest.failf "expected one declaration and one for, got %d"
+              (List.length items)
+      in
+      Alcotest.(check int)
+        "for keyword is three bytes" 3
+        (Span.length statement.for_keyword.span);
+      ignore (expect_expression_statement statement.for_initializer);
+      let condition = expect_binary_expression statement.for_condition in
+      Alcotest.(check string)
+        "condition uses the pinned comparison operator" "IC_LESS"
+        condition.binary_operator_spec.ic_name;
+      let update =
+        match statement.for_update with
+        | Some update -> expect_expression_statement update
+        | None -> Alcotest.fail "expected a for update"
+      in
+      Alcotest.(check bool)
+        "for update has no semicolon" true
+        (Option.is_none update.expression_statement_semicolon);
+      ignore (expect_empty_statement statement.for_body);
+      Alcotest.(check bool)
+        "for span covers its body" true
+        (statement.for_location.span.start = statement.for_keyword.span.start
+        && statement.for_location.span.stop
+           = (Ast.statement_location statement.for_body).span.stop))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let for_header_variants_and_else_binding () =
+  let source =
+    "I64 i;I64 j;I64 a;I64 \
+     b;for(;i<3;);for(i=0;i<3;j++,i++);if(a)for(;b;);else;for(;a;)if(b);else;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Top_level_statement empty_header;
+   Ast.Top_level_statement comma_update;
+   Ast.Top_level_statement outer_if;
+   Ast.Top_level_statement outer_for;
+  ] ->
+      let empty_header = expect_for_statement empty_header in
+      ignore (expect_empty_statement empty_header.for_initializer);
+      Alcotest.(check bool)
+        "empty update is represented as absent" true
+        (Option.is_none empty_header.for_update);
+      let comma_update = expect_for_statement comma_update in
+      let update =
+        match comma_update.for_update with
+        | Some update -> expect_statement_sequence update
+        | None -> Alcotest.fail "expected a comma-linked for update"
+      in
+      Alcotest.(check int)
+        "comma-linked update retains both expressions" 2
+        (List.length update.sequence_elements);
+      let outer_if = expect_if_statement outer_if in
+      ignore (expect_for_statement outer_if.if_then_branch);
+      Alcotest.(check bool)
+        "else after a for body belongs to the outer if" true
+        (Option.is_some outer_if.if_else_clause);
+      let outer_for = expect_for_statement outer_for in
+      let inner_if = expect_if_statement outer_for.for_body in
+      Alcotest.(check bool)
+        "else inside a for body belongs to the inner if" true
+        (Option.is_some inner_if.if_else_clause)
+  | items ->
+      Alcotest.failf
+        "expected four declarations and four control-flow statements, got %d"
+        (List.length items)
+
+let for_statement_provenance () =
+  let source =
+    "#define LOOP for\n\
+     #define OPEN (\n\
+     #define SEP ;\n\
+     #define CLOSE )\n\
+     I64 value;\n\
+     LOOP OPEN SEP value SEP value-- CLOSE SEP"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_for_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed for statement"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("for keyword", statement.for_keyword);
+      ("opening parenthesis", statement.for_opening_parenthesis);
+      ("condition semicolon", statement.for_condition_semicolon);
+      ("closing parenthesis", statement.for_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated condition-delimiter provenance" true
+    (statement_json
+    |> member "condition_semicolon"
+    |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let loop_file = Filename.concat directory "loop.HC" in
+      write_file root_file "I64 value;\n#include \"loop\"";
+      write_file loop_file "for(;value;value--);";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_loop =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_for_statement statement
+        | _ -> Alcotest.fail "expected one included for statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_loop.for_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included for keeps its canonical path" (Unix.realpath loop_file)
+        (Source_file.path included_source))
+
+let for_statement_failures () =
+  List.iter
+    (fun (name, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ( "missing opening parenthesis",
+        "I64 i;for;i;",
+        "HCPARSE0067",
+        "expected '(' after 'for'" );
+      ( "missing initializer statement",
+        "I64 i;for()i++;",
+        "HCPARSE0068",
+        "initializer statement in the for header" );
+      ( "missing condition",
+        "I64 i;for(;;);",
+        "HCPARSE0018",
+        "for condition expression operand" );
+      ( "missing condition semicolon",
+        "I64 i;for(;i)i++;",
+        "HCPARSE0069",
+        "expected ';' after the for condition" );
+      ( "update has a semicolon",
+        "I64 i;for(;i;i++;);",
+        "HCPARSE0070",
+        "expected ')' after the for update" );
+      ( "missing closing parenthesis",
+        "I64 i;for(;i;i++;",
+        "HCPARSE0070",
+        "expected ')' after the for update" );
+      ( "missing body",
+        "I64 i;for(;i;i++)",
+        "HCPARSE0071",
+        "statement after the for header" );
+      ( "comma-only body",
+        "I64 i;for(;i;i++),,,",
+        "HCPARSE0071",
+        "found only statement commas" );
+    ];
+  let _, _, nested_recovery = parse_string "I64 i;for(;i if(i););" in
+  Alcotest.(check (list string))
+    "header recovery skips a nested parenthesis pair" [ "HCPARSE0069" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       nested_recovery.diagnostics);
+  let mixed_source =
+    "I64 value;"
+    ^ String.concat ""
+        (List.init Parser.max_loop_depth (fun _ -> "while(value)"))
+    ^ "for(;value;);"
+  in
+  let _, _, mixed = parse_string mixed_source in
+  let diagnostic = first_diagnostic mixed in
+  Alcotest.(check string)
+    "mixed loop nesting diagnostic" "HCPARSE0061" diagnostic.code;
+  Alcotest.(check bool)
+    "mixed loop nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_loop_depth))
+
+let deterministic_for_dumps () =
+  let session, _, output =
+    parse_string "I64 i;for(i=0;i<3;i++){if(i)i--;else;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human for dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON for dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the for update" true
+    (contains human "for_statement");
+  let open Yojson.Safe.Util in
+  let loop =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON for kind" "for_statement"
+    (loop |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON for initializer keeps a statement" "expression_statement"
+    (loop |> member "initializer" |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON for body keeps its block" "block_statement"
+    (loop |> member "body" |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -8675,6 +8968,16 @@ let tests =
       do_while_statement_failures;
     Alcotest.test_case "deterministic do-while statement dumps" `Quick
       deterministic_do_while_dumps;
+    Alcotest.test_case "pinned for behavior" `Quick
+      for_statement_source_behavior;
+    Alcotest.test_case "for statement shapes" `Quick for_statement_shapes;
+    Alcotest.test_case "for header variants and else binding" `Quick
+      for_header_variants_and_else_binding;
+    Alcotest.test_case "for statement provenance" `Quick
+      for_statement_provenance;
+    Alcotest.test_case "for statement failures" `Quick for_statement_failures;
+    Alcotest.test_case "deterministic for statement dumps" `Quick
+      deterministic_for_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick
