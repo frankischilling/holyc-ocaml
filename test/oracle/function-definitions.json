@@ -1,0 +1,117 @@
+{
+  "fixture_version": 1,
+  "id": "parser/function-definitions-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-08-12",
+    "hypervisor": "QEMU 10.2.50 (v10.2.0-14086-g840320663e)",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none",
+    "control": "QMP on the host loopback interface"
+  },
+  "input_delivery": {
+    "qmp_command": "send-key",
+    "key_hold_milliseconds": 20,
+    "inter_key_milliseconds": 70,
+    "post_line_milliseconds": 800,
+    "preflight_command": "\"ORACLE_KEY=%d\\n\",5;",
+    "preflight_output": "ORACLE_KEY=5"
+  },
+  "source_references": [
+    "Compiler/PrsStmt.HC:PrsGlblVarLst",
+    "Compiler/PrsStmt.HC:PrsFun",
+    "Compiler/PrsStmt.HC:PrsFunJoin",
+    "Compiler/PrsStmt.HC:PrsStmt",
+    "Compiler/PrsVar.HC:PrsVarLst",
+    "Doc/HolyC.DD:no mandatory main function"
+  ],
+  "setup": [
+    "AutoComplete(OFF);"
+  ],
+  "compile_command": "ExePrint(\"U0 OracleEmpty();\\nI64 OracleBlock(){return 11;}\\nI64 OracleBare() return 12;\\nI64 OracleRecursive(I64 n=3){if(n)return OracleRecursive(n-1);return 13;}\\nU0 OracleVisible()\\n#ifdef OracleVisible\\n;\\n#else\\nBad broken;\\n#endif\\nU0 OracleAbsent()\");",
+  "source": [
+    "U0 OracleEmpty();",
+    "I64 OracleBlock(){return 11;}",
+    "I64 OracleBare() return 12;",
+    "I64 OracleRecursive(I64 n=3){if(n)return OracleRecursive(n-1);return 13;}",
+    "U0 OracleVisible()",
+    "#ifdef OracleVisible",
+    ";",
+    "#else",
+    "Bad broken;",
+    "#endif",
+    "U0 OracleAbsent()"
+  ],
+  "checks": [
+    {
+      "id": "explicit-empty-body",
+      "command": "OracleEmpty(); \"ORACLE_EMPTY=1\\n\";",
+      "observed_output": "ORACLE_EMPTY=1",
+      "result": "matched"
+    },
+    {
+      "id": "compound-body",
+      "command": "\"ORACLE_BLOCK=%d\\n\",OracleBlock();",
+      "observed_output": "ORACLE_BLOCK=11",
+      "result": "matched"
+    },
+    {
+      "id": "unbraced-body",
+      "command": "\"ORACLE_BARE=%d\\n\",OracleBare();",
+      "observed_output": "ORACLE_BARE=12",
+      "result": "matched"
+    },
+    {
+      "id": "recursive-publication-and-default",
+      "command": "\"ORACLE_RECURSIVE=%d\\n\",OracleRecursive();",
+      "observed_output": "ORACLE_RECURSIVE=13",
+      "result": "matched"
+    },
+    {
+      "id": "preprocessor-visibility-before-body",
+      "command": "OracleVisible(); \"ORACLE_VISIBLE=1\\n\";",
+      "observed_output": "ORACLE_VISIBLE=1",
+      "result": "matched"
+    },
+    {
+      "id": "absent-body-at-eof",
+      "command": "\"ORACLE_ABSENT=%d\\n\",HashFind(\"OracleAbsent\",Fs->hash_table,HTT_FUN)!=NULL;",
+      "observed_output": "ORACLE_ABSENT=1",
+      "result": "matched"
+    }
+  ],
+  "observed_output": [
+    "ORACLE_EMPTY=1",
+    "ORACLE_BLOCK=11",
+    "ORACLE_BARE=12",
+    "ORACLE_RECURSIVE=13",
+    "ORACLE_VISIBLE=1",
+    "ORACLE_ABSENT=1"
+  ],
+  "capture_sha256": {
+    "accepted-source": "2db6c1329bb2cf5757d4c9d5c9e030460a34b5754937ab1b89412df77f8f6f85",
+    "observed-results": "0fcc33821a6aa8947cc1bc3dcfd5ffd80e8733f2339ece161ecb3985fd8d5456"
+  },
+  "capture_retention": "The checksums identify local validation screenshots. The screenshots and ISO are not repository artifacts.",
+  "implementation_tests": [
+    "test/test_parser.ml:function_definition_source_behavior",
+    "test/test_parser.ml:function_definition_oracle_fixture",
+    "test/test_parser.ml:function_definition_shapes",
+    "test/test_parser.ml:function_definition_streaming_visibility",
+    "test/test_parser.ml:function_definition_provenance",
+    "test/test_parser.ml:function_definition_failures",
+    "test/test_parser.ml:deterministic_function_definition_dumps"
+  ]
+}

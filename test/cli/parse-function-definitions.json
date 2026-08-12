@@ -1,0 +1,1540 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-function-definitions.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 180
+    },
+    "items": [
+      {
+        "kind": "function_definition",
+        "modifiers": [
+          {
+            "kind": "public",
+            "spelling": "public",
+            "location": {
+              "span": {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 68,
+                "stop": 74
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 74
+                }
+              ]
+            }
+          }
+        ],
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 75,
+              "stop": 77
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 75,
+                "stop": 77
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Empty",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 78,
+              "stop": 83
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 78,
+                "stop": 83
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 2,
+            "column": 16,
+            "source_id": 0,
+            "start": 83,
+            "stop": 84
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 16,
+              "source_id": 0,
+              "start": 83,
+              "stop": 84
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 2,
+            "column": 17,
+            "source_id": 0,
+            "start": 84,
+            "stop": 85
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 17,
+              "source_id": 0,
+              "start": 84,
+              "stop": 85
+            }
+          ]
+        },
+        "body": {
+          "kind": "empty_statement",
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 85,
+              "stop": 86
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 2,
+                "column": 18,
+                "source_id": 0,
+                "start": 85,
+                "stop": 86
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 85,
+              "stop": 86
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 2,
+                "column": 18,
+                "source_id": 0,
+                "start": 85,
+                "stop": 86
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 68,
+            "stop": 86
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 68,
+              "stop": 74
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 75,
+              "stop": 77
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 78,
+              "stop": 83
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 16,
+              "source_id": 0,
+              "start": 83,
+              "stop": 84
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 17,
+              "source_id": 0,
+              "start": 84,
+              "stop": 85
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 85,
+              "stop": 86
+            }
+          ]
+        }
+      },
+      {
+        "kind": "function_definition",
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 87,
+              "stop": 90
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 87,
+                "stop": 90
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Recursive",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 5,
+              "source_id": 0,
+              "start": 91,
+              "stop": 100
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 3,
+                "column": 5,
+                "source_id": 0,
+                "start": 91,
+                "stop": 100
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 3,
+            "column": 14,
+            "source_id": 0,
+            "start": 100,
+            "stop": 101
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 100,
+              "stop": 101
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 101,
+                  "stop": 104
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 101,
+                    "stop": 104
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "value",
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 105,
+                  "stop": 110
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 105,
+                    "stop": 110
+                  }
+                ]
+              }
+            },
+            "default": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 110,
+                  "stop": 111
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 110,
+                    "stop": 111
+                  }
+                ]
+              },
+              "value": {
+                "kind": "integer_literal",
+                "spelling": "1",
+                "value": "0x0000000000000001",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 111,
+                    "stop": 112
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 3,
+                      "column": 25,
+                      "source_id": 0,
+                      "start": 111,
+                      "stop": 112
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 110,
+                  "stop": 112
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 110,
+                    "stop": 111
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 111,
+                    "stop": 112
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 112,
+                  "stop": 113
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 3,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 112,
+                    "stop": 113
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 3,
+                "column": 15,
+                "source_id": 0,
+                "start": 101,
+                "stop": 113
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 101,
+                  "stop": 104
+                },
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 105,
+                  "stop": 110
+                },
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 110,
+                  "stop": 111
+                },
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 111,
+                  "stop": 112
+                },
+                {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 3,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 112,
+                  "stop": 113
+                }
+              ]
+            }
+          }
+        ],
+        "variadic": {
+          "spelling": "...",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 27,
+              "source_id": 0,
+              "start": 113,
+              "stop": 116
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 3,
+                "column": 27,
+                "source_id": 0,
+                "start": 113,
+                "stop": 116
+              }
+            ]
+          }
+        },
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 3,
+            "column": 30,
+            "source_id": 0,
+            "start": 116,
+            "stop": 117
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 30,
+              "source_id": 0,
+              "start": 116,
+              "stop": 117
+            }
+          ]
+        },
+        "body": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 118,
+              "stop": 119
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 118,
+                "stop": 119
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "if_statement",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 122,
+                  "stop": 124
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 122,
+                    "stop": 124
+                  }
+                ]
+              },
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 5,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 125,
+                  "stop": 126
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 125,
+                    "stop": 126
+                  }
+                ]
+              },
+              "condition": {
+                "kind": "identifier",
+                "spelling": "value",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 126,
+                    "stop": 131
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 126,
+                      "stop": 131
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 5,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 131,
+                  "stop": 132
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 131,
+                    "stop": 132
+                  }
+                ]
+              },
+              "then_branch": {
+                "kind": "return_statement",
+                "keyword": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 137,
+                    "stop": 143
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 137,
+                      "stop": 143
+                    }
+                  ]
+                },
+                "value": {
+                  "kind": "call",
+                  "callee": {
+                    "kind": "identifier",
+                    "spelling": "Recursive",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 144,
+                        "stop": 153
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-function-definitions.hc",
+                          "line": 6,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 144,
+                          "stop": 153
+                        }
+                      ]
+                    }
+                  },
+                  "opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 153,
+                      "stop": 154
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 153,
+                        "stop": 154
+                      }
+                    ]
+                  },
+                  "arguments": [],
+                  "closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 154,
+                      "stop": 155
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 154,
+                        "stop": 155
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 144,
+                      "stop": 155
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 144,
+                        "stop": 153
+                      },
+                      {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 153,
+                        "stop": 154
+                      },
+                      {
+                        "path": "cli/parse-function-definitions.hc",
+                        "line": 6,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 154,
+                        "stop": 155
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 155,
+                    "stop": 156
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 155,
+                      "stop": 156
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 137,
+                    "stop": 156
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 137,
+                      "stop": 143
+                    },
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 144,
+                      "stop": 153
+                    },
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 153,
+                      "stop": 154
+                    },
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 154,
+                      "stop": 155
+                    },
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 6,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 155,
+                      "stop": 156
+                    }
+                  ]
+                }
+              },
+              "else_clause": null,
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 122,
+                  "stop": 156
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 122,
+                    "stop": 124
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 125,
+                    "stop": 126
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 126,
+                    "stop": 131
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 5,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 131,
+                    "stop": 132
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 137,
+                    "stop": 143
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 144,
+                    "stop": 153
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 153,
+                    "stop": 154
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 154,
+                    "stop": 155
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 6,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 155,
+                    "stop": 156
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "return_statement",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 159,
+                  "stop": 165
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 159,
+                    "stop": 165
+                  }
+                ]
+              },
+              "value": {
+                "kind": "integer_literal",
+                "spelling": "0",
+                "value": "0x0000000000000000",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 166,
+                    "stop": 167
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-definitions.hc",
+                      "line": 7,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 166,
+                      "stop": 167
+                    }
+                  ]
+                }
+              },
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 7,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 167,
+                  "stop": 168
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 167,
+                    "stop": 168
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-definitions.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 159,
+                  "stop": 168
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 159,
+                    "stop": 165
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 166,
+                    "stop": 167
+                  },
+                  {
+                    "path": "cli/parse-function-definitions.hc",
+                    "line": 7,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 167,
+                    "stop": 168
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 169,
+              "stop": 170
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 8,
+                "column": 1,
+                "source_id": 0,
+                "start": 169,
+                "stop": 170
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 118,
+              "stop": 170
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 118,
+                "stop": 119
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 122,
+                "stop": 124
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 5,
+                "column": 6,
+                "source_id": 0,
+                "start": 125,
+                "stop": 126
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 5,
+                "column": 7,
+                "source_id": 0,
+                "start": 126,
+                "stop": 131
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 5,
+                "column": 12,
+                "source_id": 0,
+                "start": 131,
+                "stop": 132
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 6,
+                "column": 5,
+                "source_id": 0,
+                "start": 137,
+                "stop": 143
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 6,
+                "column": 12,
+                "source_id": 0,
+                "start": 144,
+                "stop": 153
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 6,
+                "column": 21,
+                "source_id": 0,
+                "start": 153,
+                "stop": 154
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 6,
+                "column": 22,
+                "source_id": 0,
+                "start": 154,
+                "stop": 155
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 6,
+                "column": 23,
+                "source_id": 0,
+                "start": 155,
+                "stop": 156
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 159,
+                "stop": 165
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 7,
+                "column": 10,
+                "source_id": 0,
+                "start": 166,
+                "stop": 167
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 7,
+                "column": 11,
+                "source_id": 0,
+                "start": 167,
+                "stop": 168
+              },
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 8,
+                "column": 1,
+                "source_id": 0,
+                "start": 169,
+                "stop": 170
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 87,
+            "stop": 170
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 87,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 5,
+              "source_id": 0,
+              "start": 91,
+              "stop": 100
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 100,
+              "stop": 101
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 15,
+              "source_id": 0,
+              "start": 101,
+              "stop": 104
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 19,
+              "source_id": 0,
+              "start": 105,
+              "stop": 110
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 24,
+              "source_id": 0,
+              "start": 110,
+              "stop": 111
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 25,
+              "source_id": 0,
+              "start": 111,
+              "stop": 112
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 26,
+              "source_id": 0,
+              "start": 112,
+              "stop": 113
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 27,
+              "source_id": 0,
+              "start": 113,
+              "stop": 116
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 3,
+              "column": 30,
+              "source_id": 0,
+              "start": 116,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 118,
+              "stop": 119
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 122,
+              "stop": 124
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 5,
+              "column": 6,
+              "source_id": 0,
+              "start": 125,
+              "stop": 126
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 5,
+              "column": 7,
+              "source_id": 0,
+              "start": 126,
+              "stop": 131
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 5,
+              "column": 12,
+              "source_id": 0,
+              "start": 131,
+              "stop": 132
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 6,
+              "column": 5,
+              "source_id": 0,
+              "start": 137,
+              "stop": 143
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 6,
+              "column": 12,
+              "source_id": 0,
+              "start": 144,
+              "stop": 153
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 6,
+              "column": 21,
+              "source_id": 0,
+              "start": 153,
+              "stop": 154
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 6,
+              "column": 22,
+              "source_id": 0,
+              "start": 154,
+              "stop": 155
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 6,
+              "column": 23,
+              "source_id": 0,
+              "start": 155,
+              "stop": 156
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 159,
+              "stop": 165
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 7,
+              "column": 10,
+              "source_id": 0,
+              "start": 166,
+              "stop": 167
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 7,
+              "column": 11,
+              "source_id": 0,
+              "start": 167,
+              "stop": 168
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 169,
+              "stop": 170
+            }
+          ]
+        }
+      },
+      {
+        "kind": "function_definition",
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 171,
+              "stop": 173
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 9,
+                "column": 1,
+                "source_id": 0,
+                "start": 171,
+                "stop": 173
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "End",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 4,
+              "source_id": 0,
+              "start": 174,
+              "stop": 177
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-definitions.hc",
+                "line": 9,
+                "column": 4,
+                "source_id": 0,
+                "start": 174,
+                "stop": 177
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 9,
+            "column": 7,
+            "source_id": 0,
+            "start": 177,
+            "stop": 178
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 7,
+              "source_id": 0,
+              "start": 177,
+              "stop": 178
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 9,
+            "column": 8,
+            "source_id": 0,
+            "start": 178,
+            "stop": 179
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 8,
+              "source_id": 0,
+              "start": 178,
+              "stop": 179
+            }
+          ]
+        },
+        "body": null,
+        "location": {
+          "span": {
+            "path": "cli/parse-function-definitions.hc",
+            "line": 9,
+            "column": 1,
+            "source_id": 0,
+            "start": 171,
+            "stop": 179
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 171,
+              "stop": 173
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 4,
+              "source_id": 0,
+              "start": 174,
+              "stop": 177
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 7,
+              "source_id": 0,
+              "start": 177,
+              "stop": 178
+            },
+            {
+              "path": "cli/parse-function-definitions.hc",
+              "line": 9,
+              "column": 8,
+              "source_id": 0,
+              "start": 178,
+              "stop": 179
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

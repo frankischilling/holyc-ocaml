@@ -24,6 +24,7 @@
 - Added source-linked `extern` and AOT-only `import` bindings on primitive globals, with a stable JIT rejection that does not publish the rejected name.
 - Added source-linked target identifiers for `_extern` and AOT-only `_import` primitive globals, with a stable missing-target diagnostic and no symbol publication after a JIT rejection.
 - Added bound primitive function prototypes for ordinary and alternate-name externs and AOT imports, including return pointers, empty or variadic parameter lists, optional parameter names, punctuation provenance, function symbol publication, deterministic dumps, and explicit diagnostics for deferred parameter forms.
+- Added unbound primitive function definitions through the common statement parser, including recursive symbol visibility, explicit empty and absent-at-EOF body states, split header and body provenance, deterministic dumps, bounded recovery, and a matching native TempleOS oracle fixture.
 - Added ordered `interrupt`, `haserrcode`, `argpop`, and `noargpop` syntax on bound prototypes, with source provenance and tests against the checked TempleOS staging transitions.
 - Added `reg` and `noreg` qualifiers on fixed and variadic function parameters, including explicit U64 register names, source-positioned AST nodes, generated-source provenance, and stable diagnostics for misplaced qualifiers.
 - Added recursive function-pointer parameters with distinct return and declarator depths, empty, fixed, variadic, and nested signatures, exact punctuation provenance, deterministic dumps, and a checked hosted nesting limit.

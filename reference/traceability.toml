@@ -873,9 +873,60 @@ register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFI
 function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 array_parameter_status = "rejected to match PrsArrayDims"
 calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
-function_body_status = "planned"
+function_body_status = "implemented for unbound primitive forms in HC-PARSER-FUNCTION-DEFINITIONS"
 linkage_resolution_status = "planned"
 abi_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-DEFINITIONS"
+description = "Unbound primitive function declarators retain their complete signature and the one statement parsed as their body, including the source distinction between an explicit empty statement and no body token at EOF."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/CMisc.HC:Option",
+  "Kernel/FunSeg.HC:HasLower",
+  "Adam/AMem.HC:TaskMemAlloced",
+  "Demo/Exceptions.HC:D1",
+  "Doc/HolyC.DD:no mandatory main function"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-definitions.hc",
+  "test/cli/parse-function-definitions.human",
+  "test/cli/parse-function-definitions.json",
+  "test/cli/parse-function-definition-error.hc",
+  "test/cli/parse-function-definition-error.human",
+  "test/cli/parse-function-definition-error.json",
+  "test/oracle/function-definitions.json"
+]
+status = "implemented"
+issue = 119
+ast_schema = "holyc-ast-v1"
+accepted_form = "unbound primitive return type with the shared parameter grammar"
+bound_forms = "remain prototypes and require a semicolon"
+body_parser = "the common recursive statement parser"
+explicit_empty_body = "retained as an empty statement"
+absent_body_at_eof = "retained as an absent optional body"
+function_symbol_publication = "after the complete header and before the first body token"
+body_error_symbol_publication = "retained because publication precedes body parsing"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved independently for the header and body"
+local_declaration_status = "planned"
+function_scope_status = "planned"
+type_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+native_oracle_status = "matched the pinned TempleOS compiler"
+native_oracle_fixture = "test/oracle/function-definitions.json"
 
 [[feature]]
 id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
@@ -999,13 +1050,13 @@ tests = [
 status = "implemented"
 issue = 93
 ast_schema = "holyc-ast-v1"
-implemented_scope = "top-level statement position and compound-block children"
+implemented_scope = "top-level, compound-block, and function-definition statement position"
 targets = ["Print", "PutChars"]
 nonempty_marker_argument = "the complete expression beginning at the marker"
 empty_marker_argument = "the complete expression following the marker"
 print_varargs = "ordered expressions with source-positioned leading commas"
 putchars_varargs = "not applicable; a following comma belongs to the statement sequence"
-top_level_source_order = "preserved with declarations and prototypes"
+top_level_source_order = "preserved with declarations, prototypes, and definitions"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 semicolon_shape = "required for Print; optional before a PutChars statement comma"
@@ -1018,7 +1069,7 @@ execution_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-STATEMENT-SEQUENCES"
-description = "Expression and empty statements retain HolyC comma-linked sequencing and every source separator at top level and inside compound blocks."
+description = "Expression and empty statements retain HolyC comma-linked sequencing and every source separator at top level, inside compound blocks, and in function definitions."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt leading-comma and statement loop",
   "Compiler/PrsStmt.HC:PrsStmt semicolon and expression branches",
@@ -1042,14 +1093,14 @@ tests = [
 status = "implemented"
 issue = 95
 ast_schema = "holyc-ast-v1"
-implemented_scope = "top-level statement position and compound-block children"
+implemented_scope = "top-level, compound-block, and function-definition statement position"
 statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars"]
 leading_repeated_and_trailing_commas = "preserved"
 comma_only_sequence = "preserved with no semantic elements"
 expression_terminators = ["semicolon", "statement comma"]
 putchars_comma_boundary = "implemented"
 print_comma_boundary = "a Print comma remains a call argument until the required semicolon"
-top_level_source_order = "preserved with declarations and prototypes"
+top_level_source_order = "preserved with declarations, prototypes, and definitions"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 missing_terminator_diagnostic = "HCPARSE0047"
@@ -1087,7 +1138,7 @@ tests = [
 status = "implemented"
 issue = 97
 ast_schema = "holyc-ast-v1"
-implemented_scope = "top-level statement position and recursive compound-block children"
+implemented_scope = "top-level statement position, function-definition bodies, and recursive compound-block children"
 accepted_shapes = ["empty block", "nested block", "ordered child statements", "block followed by a statement comma"]
 child_statement_kinds = ["block", "expression", "empty", "goto", "label", "break", "return", "Print", "PutChars", "statement sequence"]
 brace_locations = "preserved independently and as the complete block location"
@@ -1104,7 +1155,7 @@ lexical_scope_status = "planned"
 local_declaration_status = "planned"
 goto_and_label_syntax_status = "implemented by issue 111"
 control_flow_and_label_binding_status = "planned"
-function_body_status = "planned"
+function_body_status = "implemented in HC-PARSER-FUNCTION-DEFINITIONS"
 semantic_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
@@ -1668,7 +1719,7 @@ function_symbol_publication = "after the complete semicolon"
 stored_flag_application = "planned"
 semantic_validation = "planned"
 abi_status = "planned"
-function_body_status = "planned"
+function_body_status = "implemented for unbound primitive forms in HC-PARSER-FUNCTION-DEFINITIONS"
 
 [[feature]]
 id = "HC-PARSER-PARAMETER-REGISTER-QUALIFIERS"

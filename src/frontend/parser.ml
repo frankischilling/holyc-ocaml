@@ -2087,7 +2087,7 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
         publish_function cursor prefix.name;
         Some (Ast.Function_prototype prototype)
 
-let parse_global cursor =
+let parse_global cursor ~parse_function_definition =
   let parsed_modifiers = parse_modifiers cursor [] in
   let modifiers =
     List.map
@@ -2137,15 +2137,8 @@ let parse_global cursor =
                     ~binding_tokens ~binding ~type_item
                     ~return_type:type_specifier first_prefix
               | Token_kind.Punctuation '(', None ->
-                  report ~secondary:first_prefix.definition_trace cursor
-                    next_item ~code:"HCPARSE0008"
-                    ~message:
-                      (Printf.sprintf
-                         "function %S has no declaration binding; function \
-                          bodies are not implemented"
-                         first_prefix.name.spelling);
-                  recover_declaration cursor;
-                  None
+                  parse_function_definition cursor ~modifier_tokens ~modifiers
+                    ~type_item ~return_type:type_specifier first_prefix
               | _ -> (
                   match
                     parse_variable_declarator_suffix cursor first_prefix
@@ -3754,6 +3747,47 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
                 tokens;
               })
 
+let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
+    ~return_type (prefix : parsed_declarator_prefix) =
+  let opening = take cursor in
+  match
+    parse_function_parameters cursor [] [] ~after_comma:false
+      ~function_pointer_depth:0
+  with
+  | None -> None
+  | Some parsed_parameters ->
+      let header_tokens =
+        modifier_tokens
+        @ (type_item.token :: prefix.tokens)
+        @ (opening.token :: parsed_parameters.tokens)
+      in
+      publish_function cursor prefix.name;
+      let body_item = peek cursor in
+      let parsed_body =
+        match body_item.token.kind with
+        | Token_kind.Eof -> Some (None, [])
+        | _ ->
+            parse_statement_sequence cursor ~boundary:Top_level_boundary
+              ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
+              ~try_depth:0 ~switch_depth:0
+            |> Option.map (fun (body : parsed_statement) ->
+                (Some body.node, body.tokens))
+      in
+      Option.map
+        (fun (body, body_tokens) ->
+          let definition_tokens = header_tokens @ body_tokens in
+          let definition =
+            Ast.make_function_definition ~modifiers ~return_type
+              ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
+              ~opening_parenthesis:(token_location opening.token)
+              ~parameters:parsed_parameters.parameters
+              ~variadic:parsed_parameters.variadic
+              ~closing_parenthesis:parsed_parameters.closing_parenthesis ~body
+              ~location:(location_from_expression_tokens definition_tokens)
+          in
+          Ast.Function_definition definition)
+        parsed_body
+
 let parse ~sources ~definitions ~symbols ~config source =
   let stream =
     Preprocessor.create ~sources ~definitions ~symbols ~config source
@@ -3786,7 +3820,7 @@ let parse ~sources ~definitions ~symbols ~config source =
             items_rev := Ast.Top_level_statement statement.node :: !items_rev
         | None -> ())
     | _ when token_starts_global_declaration cursor item.token -> (
-        match parse_global cursor with
+        match parse_global cursor ~parse_function_definition with
         | Some item -> items_rev := item :: !items_rev
         | None -> ())
     | _ -> (

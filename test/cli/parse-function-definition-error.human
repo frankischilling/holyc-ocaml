@@ -1,0 +1,3 @@
+cli/parse-function-definition-error.hc:4:3: error[HCPARSE0055]: found 'else' without a matching 'if'
+    4 |   else;
+      |   ^^^^

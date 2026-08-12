@@ -537,10 +537,24 @@ and statement_sequence = private {
   sequence_location : location;
 }
 
+type function_definition = private {
+  modifiers : declaration_modifier list;
+  return_type : primitive_type;
+  return_pointer_layers : pointer_layer list;
+  name : identifier;
+  opening_parenthesis : location;
+  parameters : function_parameter list;
+  variadic : variadic_marker option;
+  closing_parenthesis : location;
+  body : statement option;
+  location : location;
+}
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
+  | Function_definition of function_definition
   | Top_level_statement of statement
 
 type module_ = private {
@@ -963,6 +977,19 @@ val make_statement_sequence :
   elements:statement_sequence_element list ->
   location:location ->
   statement_sequence
+
+val make_function_definition :
+  modifiers:declaration_modifier list ->
+  return_type:primitive_type ->
+  return_pointer_layers:pointer_layer list ->
+  name:identifier ->
+  opening_parenthesis:location ->
+  parameters:function_parameter list ->
+  variadic:variadic_marker option ->
+  closing_parenthesis:location ->
+  body:statement option ->
+  location:location ->
+  function_definition
 
 val statement_location : statement -> location
 

@@ -1,15 +1,15 @@
 [
   {
-    "code": "HCPARSE0008",
+    "code": "HCPARSE0006",
     "severity": "error",
-    "message": "function \"MissingBinding\" has no declaration binding; function bodies are not implemented",
+    "message": "import declarations require AOT mode; select AOT mode before parsing this declaration",
     "primary": {
       "path": "cli/parse-function-modifier-error.hc",
       "line": 2,
-      "column": 28,
+      "column": 10,
       "source_id": 0,
-      "start": 115,
-      "stop": 116
+      "start": 73,
+      "stop": 79
     },
     "secondary": [],
     "include_stack": [],

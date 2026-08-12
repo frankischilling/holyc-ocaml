@@ -86,6 +86,7 @@
   ../third_party/TempleOS/Doc/HolyC.DD
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
+  oracle/function-definitions.json
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -916,6 +917,88 @@
    (diff
     cli/parse-function-modifier-error.json
     parse-function-modifier-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-definitions.human.actual)
+ (deps
+  cli/parse-function-definitions.hc
+  cli/parse-function-definitions.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-definitions.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-definitions.hc))
+   (diff
+    cli/parse-function-definitions.human
+    parse-function-definitions.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-definitions.json.actual)
+ (deps cli/parse-function-definitions.hc cli/parse-function-definitions.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-definitions.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-definitions.hc))
+   (diff
+    cli/parse-function-definitions.json
+    parse-function-definitions.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-definition-error.human.actual
+  parse-function-definition-error.human.stdout.actual)
+ (deps
+  cli/parse-function-definition-error.hc
+  cli/parse-function-definition-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-definition-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-definition-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=human
+       cli/parse-function-definition-error.hc))))
+   (diff
+    cli/parse-function-definition-error.human
+    parse-function-definition-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-definition-error.json.actual
+  parse-function-definition-error.json.stdout.actual)
+ (deps
+  cli/parse-function-definition-error.hc
+  cli/parse-function-definition-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-definition-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-definition-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-definition-error.hc))))
+   (diff
+    cli/parse-function-definition-error.json
+    parse-function-definition-error.json.actual))))
 
 (rule
  (alias runtest)
