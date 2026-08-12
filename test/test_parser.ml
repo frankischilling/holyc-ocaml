@@ -6656,9 +6656,12 @@ let function_definition_shapes () =
             recursive_return.return_value |> Option.get
             |> expect_call_expression
           in
+          let recursive_callee =
+            expect_identifier_expression recursive_call.call_callee
+          in
           Alcotest.(check string)
             "recursive call keeps the function name" "Recursive"
-            (recursive_call.call_callee |> expect_identifier_expression).spelling;
+            recursive_callee.spelling;
           ignore (expect_function_body empty |> expect_empty_statement);
           ignore (expect_function_body bare |> expect_return_statement);
           let sequence =

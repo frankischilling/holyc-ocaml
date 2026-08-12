@@ -965,7 +965,11 @@
      parse-function-definition-error.human.actual
      (with-accepted-exit-codes
       1
-      (run %{exe:../bin/holyc.exe} parse cli/parse-function-definition-error.hc))))
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=human
+       cli/parse-function-definition-error.hc))))
    (diff
     cli/parse-function-definition-error.human
     parse-function-definition-error.human.actual))))
