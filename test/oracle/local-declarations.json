@@ -1,0 +1,175 @@
+{
+  "fixture_version": 1,
+  "id": "parser/local-declarations-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-08-12",
+    "hypervisor": "QEMU 10.2.50 (v10.2.0-14086-g840320663e)",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none",
+    "control": "QMP on the host loopback interface"
+  },
+  "input_delivery": {
+    "qmp_command": "send-key",
+    "key_hold_milliseconds": 20,
+    "inter_key_milliseconds": 70,
+    "post_line_milliseconds": 800,
+    "preflight_command": "\"ORACLE_KEY=%d\\n\",5;",
+    "preflight_output": "ORACLE_KEY=5"
+  },
+  "source_references": [
+    "Compiler/PrsStmt.HC:PrsStmt local declaration dispatch",
+    "Compiler/PrsStmt.HC:PrsFor",
+    "Compiler/PrsVar.HC:PrsVarLst",
+    "Compiler/PrsVar.HC:PrsType",
+    "Compiler/PrsVar.HC:PrsArrayDims"
+  ],
+  "setup": [
+    "AutoComplete(OFF);"
+  ],
+  "compile_commands": [
+    {
+      "id": "core-local-forms-and-for-rejection",
+      "command": "ExePrint(\"I64 OracleAuto(I64 arg){I64 reg R15 value=arg,noreg count=2;U8 bytes[2][3];I64 *ptr=&value;return *ptr+count;}\\nI64 OracleStatic(){static I64 count=40,other=1;return ++count+other;}\\nI64 OracleVar(I64 arg,...){I64 count=argc;I64 *args=argv;return arg;}\\nI64 OracleNested(){{I64 inner=9;}return inner;}\\nI64 OracleSelf(){I64 value=defined(value);return value;}\\nI64 OracleFor(){I64 total=0;for(I64 i=0;i<3;i++)total+=i;return total;}\\n\");",
+      "outcome": "The first five definitions compiled. OracleFor was rejected with Missing )."
+    },
+    {
+      "id": "statement-continuation-forms",
+      "command": "ExePrint(\"I64 OracleComma(){I64 x=1;,I64 y=2;return x+y;}\\nI64 OracleIfFalse(){I64 out=0;if(0) I64 branch=1;out=7;return out;}\\nI64 OracleIfBlock(){I64 out=0;if(0){I64 branch=1;}out=7;return out;}\\nI64 OracleLock(){I64 out=0;lock I64 guarded=1;out=8;return out;}\\n\");",
+      "outcome": "All four definitions compiled. The compiler reported only unused-local warnings."
+    }
+  ],
+  "checks": [
+    {
+      "id": "automatic-register-array-pointer-locals",
+      "command": "\"ORACLE_AUTO=%d\\n\",OracleAuto(7);",
+      "observed_output": "ORACLE_AUTO=9",
+      "result": "matched"
+    },
+    {
+      "id": "static-local-first-call",
+      "command": "\"ORACLE_STATIC1=%d\\n\",OracleStatic();",
+      "observed_output": "ORACLE_STATIC1=42",
+      "result": "matched"
+    },
+    {
+      "id": "static-local-second-call",
+      "command": "\"ORACLE_STATIC2=%d\\n\",OracleStatic();",
+      "observed_output": "ORACLE_STATIC2=43",
+      "result": "matched"
+    },
+    {
+      "id": "variadic-argc-and-argv-locals",
+      "command": "\"ORACLE_VAR=%d\\n\",OracleVar(7,8,9);",
+      "observed_output": "ORACLE_VAR=7",
+      "result": "matched"
+    },
+    {
+      "id": "function-wide-local-lookup",
+      "command": "\"ORACLE_NESTED=%d\\n\",OracleNested();",
+      "observed_output": "ORACLE_NESTED=9",
+      "result": "matched"
+    },
+    {
+      "id": "local-publication-before-initializer",
+      "command": "\"ORACLE_SELF=%d\\n\",OracleSelf();",
+      "observed_output": "ORACLE_SELF=1",
+      "result": "matched"
+    },
+    {
+      "id": "declaration-after-statement-comma",
+      "command": "\"ORACLE_COMMA=%d\\n\",OracleComma();",
+      "observed_output": "ORACLE_COMMA=3",
+      "result": "matched"
+    },
+    {
+      "id": "unbraced-if-local-continues-through-next-statement",
+      "command": "\"ORACLE_IF_LOCAL=%d\\n\",OracleIfFalse();",
+      "observed_output": "ORACLE_IF_LOCAL=0",
+      "result": "matched"
+    },
+    {
+      "id": "braced-if-local-stops-at-block-close",
+      "command": "\"ORACLE_IF_BLOCK=%d\\n\",OracleIfBlock();",
+      "observed_output": "ORACLE_IF_BLOCK=7",
+      "result": "matched"
+    },
+    {
+      "id": "unbraced-lock-local-continues-through-next-statement",
+      "command": "\"ORACLE_LOCK=%d\\n\",OracleLock();",
+      "observed_output": "ORACLE_LOCK=8",
+      "result": "matched"
+    }
+  ],
+  "rejected_checks": [
+    {
+      "id": "local-declaration-for-initializer",
+      "command": "ExePrint(\"U0 OracleBadFor(){for(I64 i=0;i<1;i++);}\\n\");",
+      "observed_diagnostic_summary": "Missing )",
+      "result": "matched rejection"
+    },
+    {
+      "id": "register-qualified-static-local",
+      "command": "ExePrint(\"U0 OracleBadStatic(){static I64 reg value;}\\n\");",
+      "observed_diagnostic_summary": "Invalid value for reg",
+      "result": "matched rejection"
+    },
+    {
+      "id": "register-qualifier-before-local-type",
+      "command": "ExePrint(\"U0 OracleBadPre(){reg I64 value;}\\n\");",
+      "observed_diagnostic_summary": "Missing expression at reg",
+      "result": "matched rejection"
+    },
+    {
+      "id": "unbraced-try-local-continues-into-catch",
+      "command": "ExePrint(\"U0 OracleBadTry(){try I64 attempted=0; catch ;}\\n\");",
+      "observed_diagnostic_summary": "Missing expression at catch, followed by the expected catch and parse errors",
+      "result": "matched rejection"
+    }
+  ],
+  "observed_output": [
+    "ORACLE_AUTO=9",
+    "ORACLE_STATIC1=42",
+    "ORACLE_STATIC2=43",
+    "ORACLE_VAR=7",
+    "ORACLE_NESTED=9",
+    "ORACLE_SELF=1",
+    "ORACLE_COMMA=3",
+    "ORACLE_IF_LOCAL=0",
+    "ORACLE_IF_BLOCK=7",
+    "ORACLE_LOCK=8"
+  ],
+  "capture_sha256": {
+    "accepted-source": "728dfeb41e81ce0498eea51ce07757fd6f317dd1c84587eb0c90bafd6d520ea7",
+    "accepted-results": "62b9442374d607373452bbbd8502d6deb2ec65e467165c1a0297804a749837cb",
+    "continuation-results": "57793ca42068e6b124dcf755f6ae4dfbeba4445785b6ff73d7c540905a4e1de6",
+    "bad-for": "ddafd515aaf0ad85c15d37ad6102d5ddd48a948b9e43a9e71c8d0c6a875122ae",
+    "bad-static-reg": "63e587acd0addeaca4465c20c873e2536b2269c078146aab9abbd47ee240f6ba",
+    "bad-pretype-reg": "181e80b2df06d7a327e47fec8687b24b911be4a79561099d88fb7585d876e5d9",
+    "bad-try-local": "3e6c6d8e37250438ef856579965d955aa63204db12cd25a5a65086d8c441093c"
+  },
+  "capture_retention": "The checksums identify local validation screenshots. The screenshots and ISO are not repository artifacts.",
+  "compatibility_scope": "The fixture compares accepted syntax, rejection, observable integer output, static storage, and statement grouping. Hosted diagnostic wording is intentionally not claimed as identical.",
+  "implementation_tests": [
+    "test/test_parser.ml:local_declaration_source_behavior",
+    "test/test_parser.ml:local_declaration_oracle_fixture",
+    "test/test_parser.ml:local_declaration_shapes",
+    "test/test_parser.ml:local_declaration_visibility",
+    "test/test_parser.ml:local_declaration_statement_contexts",
+    "test/test_parser.ml:local_declaration_provenance",
+    "test/test_parser.ml:local_declaration_failures",
+    "test/test_parser.ml:deterministic_local_declaration_dumps"
+  ]
+}

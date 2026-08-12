@@ -14,6 +14,7 @@ type cursor = {
   compilation_mode : Preprocessor.compilation_mode;
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
+  mutable local_context : Symbol_visibility.Environment.local_context option;
 }
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
@@ -28,6 +29,11 @@ type parsed_declarator_prefix = {
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
 type parsed_statement = { node : Ast.statement; tokens : Token.t list }
+
+type parsed_local_declarator = {
+  node : Ast.local_declarator;
+  tokens : Token.t list;
+}
 
 type parsed_switch_element = {
   node : Ast.switch_element;
@@ -70,6 +76,7 @@ type expression_context =
   | Switch_expression
   | Switch_case_expression
   | While_condition_expression
+  | Local_initializer_expression
   | Statement_expression
 
 type parsed_parameter_default = {
@@ -468,6 +475,49 @@ let publish_function cursor (name : Ast.identifier) =
        ~kind:Symbol_visibility.Function
        ~origin:(Symbol_visibility.Source_span name.location.span) ())
 
+let publish_local cursor (name : Ast.identifier) =
+  match cursor.local_context with
+  | None -> invalid_arg "local declaration parsed outside a function context"
+  | Some context -> (
+      match
+        Symbol_visibility.Environment.add_local cursor.symbols context
+          ~name:name.spelling
+      with
+      | Ok () -> ()
+      | Error message -> invalid_arg message)
+
+let with_function_local_context cursor parameters variadic run =
+  if Option.is_some cursor.local_context then
+    invalid_arg "function local contexts cannot be nested";
+  let context =
+    Symbol_visibility.Environment.begin_local_context cursor.symbols
+  in
+  cursor.local_context <- Some context;
+  List.iter
+    (fun (parameter : Ast.function_parameter) ->
+      Option.iter (publish_local cursor) parameter.name)
+    parameters;
+  Option.iter
+    (fun _ ->
+      let add_generated_name spelling =
+        match
+          Symbol_visibility.Environment.add_local cursor.symbols context
+            ~name:spelling
+        with
+        | Ok () -> ()
+        | Error message -> invalid_arg message
+      in
+      add_generated_name "argc";
+      add_generated_name "argv")
+    variadic;
+  Fun.protect run ~finally:(fun () ->
+      cursor.local_context <- None;
+      match
+        Symbol_visibility.Environment.end_local_context cursor.symbols context
+      with
+      | Ok () -> ()
+      | Error message -> invalid_arg message)
+
 let delimiter_kind token =
   match token.Token.kind with
   | Token_kind.Punctuation ',' -> Some Ast.Comma
@@ -696,6 +746,7 @@ let expression_context_name = function
   | Switch_expression -> "switch expression"
   | Switch_case_expression -> "switch case expression"
   | While_condition_expression -> "while condition expression"
+  | Local_initializer_expression -> "local initializer expression"
   | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
@@ -712,6 +763,7 @@ let expression_operand_name = function
   | Switch_expression -> "a switch expression operand"
   | Switch_case_expression -> "a switch case expression operand"
   | While_condition_expression -> "a while condition expression operand"
+  | Local_initializer_expression -> "a local initializer expression operand"
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
@@ -2631,6 +2683,218 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           in
           Some { node = Ast.Expression_statement statement; tokens })
 
+let local_declaration_failure cursor ~boundary item ~code ~message =
+  report cursor item ~code ~message;
+  recover_statement cursor ~boundary;
+  None
+
+let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.Keyword Keyword.Static ->
+      let item = take cursor in
+      let node =
+        Ast.make_declaration_modifier ~kind:Ast.Static ~spelling:item.token.raw
+          ~location:(token_location item.token)
+      in
+      take_static_local_modifiers cursor (node :: nodes_rev)
+        (item.token :: tokens_rev)
+  | _ -> (List.rev nodes_rev, List.rev tokens_rev)
+
+let parse_local_declarator cursor ~boundary ~primitive_spelling
+    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
+  match parse_pointer_layers cursor 0 [] [] with
+  | None -> None
+  | Some (pointer_layers, pointer_items) -> (
+      let pointer_tokens = List.map (fun item -> item.token) pointer_items in
+      let name_item = peek cursor in
+      if name_item.token.kind = Token_kind.Punctuation '(' then
+        local_declaration_failure cursor ~boundary name_item ~code:"HCPARSE0103"
+          ~message:
+            "local function-pointer declarators are not implemented in this \
+             parser slice"
+      else if name_item.token.kind <> Token_kind.Identifier then
+        local_declaration_failure cursor ~boundary name_item ~code:"HCPARSE0100"
+          ~message:
+            (Printf.sprintf
+               "expected a local variable name after type %S, but found %s"
+               (type_spelling primitive_spelling pointer_layers)
+               (token_description name_item.token))
+      else
+        let name_item = take cursor in
+        let name =
+          Ast.make_identifier ~spelling:name_item.token.raw
+            ~location:(token_location name_item.token)
+        in
+        match parse_array_dimensions cursor 0 [] [] with
+        | None -> None
+        | Some (array_dimensions, array_tokens) ->
+            publish_local cursor name;
+            let equals_item = peek cursor in
+            let parsed_initializer =
+              if equals_item.token.kind <> Token_kind.Punctuation '=' then
+                Some (None, [])
+              else
+                let equals_item = take cursor in
+                let value_item = peek cursor in
+                match value_item.token.kind with
+                | Token_kind.Punctuation (';' | ',')
+                | Token_kind.Punctuation '}'
+                | Token_kind.Eof ->
+                    local_declaration_failure cursor ~boundary value_item
+                      ~code:"HCPARSE0101"
+                      ~message:
+                        (Printf.sprintf
+                           "expected a scalar initializer for local variable \
+                            %S, but found %s"
+                           name.spelling
+                           (token_description value_item.token))
+                | Token_kind.Punctuation '{' ->
+                    local_declaration_failure cursor ~boundary value_item
+                      ~code:"HCPARSE0104"
+                      ~message:
+                        "aggregate local initializers are not implemented in \
+                         this parser slice"
+                | _ -> (
+                    match
+                      parse_expression cursor
+                        ~context:Local_initializer_expression ~depth:0
+                        ~minimum_binding_power:0
+                    with
+                    | None -> None
+                    | Some (value : parsed_expression) ->
+                        let tokens = equals_item.token :: value.tokens in
+                        let initial_value =
+                          Ast.make_local_initializer
+                            ~equals:(token_location equals_item.token)
+                            ~value:value.node
+                            ~location:(location_from_expression_tokens tokens)
+                        in
+                        Some (Some initial_value, tokens))
+            in
+            Option.bind parsed_initializer
+              (fun (initial_value, initializer_tokens) ->
+                let delimiter_item = peek cursor in
+                match delimiter_kind delimiter_item.token with
+                | None ->
+                    local_declaration_failure cursor ~boundary delimiter_item
+                      ~code:"HCPARSE0102"
+                      ~message:
+                        (Printf.sprintf
+                           "expected ',' or ';' after local variable %S, but \
+                            found %s"
+                           name.spelling
+                           (token_description delimiter_item.token))
+                | Some kind ->
+                    let delimiter_item = take cursor in
+                    let delimiter =
+                      Ast.make_declaration_delimiter ~kind
+                        ~spelling:delimiter_item.token.raw
+                        ~location:(token_location delimiter_item.token)
+                    in
+                    let tokens =
+                      qualifier_tokens @ pointer_tokens @ [ name_item.token ]
+                      @ array_tokens @ initializer_tokens
+                      @ [ delimiter_item.token ]
+                    in
+                    let node =
+                      Ast.make_local_declarator ~register_qualifiers
+                        ~pointer_layers ~name ~array_dimensions ~initial_value
+                        ~delimiter
+                        ~location:(location_from_expression_tokens tokens)
+                    in
+                    Some ({ node; tokens } : parsed_local_declarator)))
+
+let parse_local_declaration cursor ~boundary : parsed_statement option =
+  let first_item = peek cursor in
+  let storage, modifiers, modifier_tokens =
+    match first_item.token.kind with
+    | Token_kind.Keyword Keyword.Static ->
+        let modifiers, tokens = take_static_local_modifiers cursor [] [] in
+        (Ast.Static_local, modifiers, tokens)
+    | _ -> (Ast.Automatic_local, [], [])
+  in
+  let type_item = peek cursor in
+  let spelling = token_text type_item.token in
+  match
+    (type_item.token.Token.kind, Sema.Primitive_type.of_spelling spelling)
+  with
+  | Token_kind.Identifier, Some primitive ->
+      let type_item = take cursor in
+      let type_specifier =
+        Ast.make_primitive_type ~primitive ~spelling:type_item.token.raw
+          ~location:(token_location type_item.token)
+      in
+      let rec parse_declarators declarators_rev =
+        let qualifiers =
+          match storage with
+          | Ast.Automatic_local ->
+              parse_register_qualifiers cursor ~position:Ast.After_type [] []
+          | Ast.Static_local -> { nodes = []; tokens = [] }
+        in
+        let qualifier_item = peek cursor in
+        if
+          storage = Ast.Static_local
+          &&
+          match qualifier_item.token.kind with
+          | Token_kind.Keyword (Keyword.Reg | Keyword.Noreg) -> true
+          | _ -> false
+        then
+          local_declaration_failure cursor ~boundary qualifier_item
+            ~code:"HCPARSE0099"
+            ~message:
+              "register qualifiers are not accepted on static local \
+               declarations by the pinned parser"
+        else
+          match
+            parse_local_declarator cursor ~boundary ~primitive_spelling:spelling
+              ~register_qualifiers:qualifiers.nodes
+              ~qualifier_tokens:qualifiers.tokens
+          with
+          | None -> None
+          | Some declarator -> (
+              let declarators_rev = declarator :: declarators_rev in
+              match declarator.node.local_delimiter.kind with
+              | Ast.Semicolon -> Some (List.rev declarators_rev)
+              | Ast.Comma -> parse_declarators declarators_rev)
+      in
+      Option.map
+        (fun declarators ->
+          let tokens =
+            modifier_tokens @ [ type_item.token ]
+            @ List.concat_map
+                (fun (declarator : parsed_local_declarator) ->
+                  declarator.tokens)
+                declarators
+          in
+          let declaration =
+            Ast.make_local_declaration ~storage ~modifiers ~type_specifier
+              ~declarators:
+                (List.map
+                   (fun (declarator : parsed_local_declarator) ->
+                     declarator.node)
+                   declarators)
+              ~location:(location_from_expression_tokens tokens)
+          in
+          ({ node = Ast.Local_declaration_statement declaration; tokens }
+            : parsed_statement))
+        (parse_declarators [])
+  | _ ->
+      let code, message =
+        match (storage, type_item.token.kind) with
+        | Ast.Static_local, Token_kind.Keyword (Keyword.Reg | Keyword.Noreg) ->
+            ( "HCPARSE0099",
+              "register qualifiers are not accepted before a static local's \
+               type by the pinned parser" )
+        | _ ->
+            ( "HCPARSE0098",
+              Printf.sprintf
+                "expected a primitive type after local declaration modifier, \
+                 but found %s"
+                (token_description type_item.token) )
+      in
+      local_declaration_failure cursor ~boundary type_item ~code ~message
+
 let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
@@ -2652,6 +2916,14 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Keyword Keyword.Lock ->
       parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth ~lock_depth ~try_depth ~switch_depth
+  | Token_kind.Keyword Keyword.Static when Option.is_some cursor.local_context
+    -> parse_local_declaration cursor ~boundary
+  | Token_kind.Keyword (Keyword.Reg | Keyword.Noreg)
+    when Option.is_some cursor.local_context ->
+      local_declaration_failure cursor ~boundary item ~code:"HCPARSE0099"
+        ~message:
+          "a local register qualifier must follow its primitive type in the \
+           pinned parser"
   | Token_kind.Keyword Keyword.Return -> parse_return_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Switch ->
       parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
@@ -2682,6 +2954,10 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
   | Token_kind.Identifier when token_starts_function_label cursor item.token ->
       parse_label_statement cursor
+  | Token_kind.Identifier
+    when Option.is_some cursor.local_context
+         && Option.is_some (primitive_type_of_token item.token) ->
+      parse_local_declaration cursor ~boundary
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary
   | _ ->
@@ -3709,8 +3985,18 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
           in
           let elements_rev = element :: elements_rev in
           let tokens_rev = List.rev_append element_tokens tokens_rev in
-          if comma_items = [] then
-            Some (List.rev elements_rev, List.rev tokens_rev)
+          let local_continues =
+            match statement.node with
+            | Ast.Local_declaration_statement _ -> true
+            | _ -> false
+          in
+          let reaches_block_close =
+            match (peek cursor).token.kind with
+            | Token_kind.Punctuation '}' -> true
+            | _ -> false
+          in
+          if comma_items = [] && ((not local_continues) || reaches_block_close)
+          then Some (List.rev elements_rev, List.rev tokens_rev)
           else collect elements_rev tokens_rev
   in
   let next_item = peek cursor in
@@ -3762,16 +4048,18 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
         @ (opening.token :: parsed_parameters.tokens)
       in
       publish_function cursor prefix.name;
-      let body_item = peek cursor in
       let parsed_body =
-        match body_item.token.kind with
-        | Token_kind.Eof -> Some (None, [])
-        | _ ->
-            parse_statement_sequence cursor ~boundary:Top_level_boundary
-              ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-              ~try_depth:0 ~switch_depth:0
-            |> Option.map (fun (body : parsed_statement) ->
-                (Some body.node, body.tokens))
+        with_function_local_context cursor parsed_parameters.parameters
+          parsed_parameters.variadic (fun () ->
+            let body_item = peek cursor in
+            match body_item.token.kind with
+            | Token_kind.Eof -> Some (None, [])
+            | _ ->
+                parse_statement_sequence cursor ~boundary:Top_level_boundary
+                  ~block_depth:0 ~conditional_depth:0 ~loop_depth:0
+                  ~lock_depth:0 ~try_depth:0 ~switch_depth:0
+                |> Option.map (fun (body : parsed_statement) ->
+                    (Some body.node, body.tokens)))
       in
       Option.map
         (fun (body, body_tokens) ->
@@ -3799,6 +4087,7 @@ let parse ~sources ~definitions ~symbols ~config source =
       compilation_mode = Preprocessor.Config.compilation_mode config;
       lookahead = [];
       diagnostics_rev = [];
+      local_context = None;
     }
   in
   let items_rev = ref [] in

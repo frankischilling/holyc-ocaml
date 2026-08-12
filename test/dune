@@ -68,6 +68,9 @@
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
+  ../third_party/TempleOS/Adam/Snd/SndMath.HC
+  ../third_party/TempleOS/Demo/Asm/AsmAndC1.HC
+  ../third_party/TempleOS/Demo/Asm/AsmAndC2.HC
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
   ../third_party/TempleOS/Demo/MultiCore/Lock.HC
   ../third_party/TempleOS/Demo/Exceptions.HC
@@ -78,6 +81,7 @@
   ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
+  ../third_party/TempleOS/Kernel/KMisc.HC
   ../third_party/TempleOS/Kernel/KStart16.HC
   ../third_party/TempleOS/Kernel/KStart32.HC
   ../third_party/TempleOS/Kernel/StrPrint.HC
@@ -87,6 +91,7 @@
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
   oracle/function-definitions.json
+  oracle/local-declarations.json
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -999,6 +1004,86 @@
    (diff
     cli/parse-function-definition-error.json
     parse-function-definition-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-local-declarations.human.actual)
+ (deps cli/parse-local-declarations.hc cli/parse-local-declarations.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declarations.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-local-declarations.hc))
+   (diff
+    cli/parse-local-declarations.human
+    parse-local-declarations.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-local-declarations.json.actual)
+ (deps cli/parse-local-declarations.hc cli/parse-local-declarations.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declarations.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-local-declarations.hc))
+   (diff
+    cli/parse-local-declarations.json
+    parse-local-declarations.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-local-declaration-error.human.actual
+  parse-local-declaration-error.human.stdout.actual)
+ (deps
+  cli/parse-local-declaration-error.hc
+  cli/parse-local-declaration-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declaration-error.human.stdout.actual
+    (with-stderr-to
+     parse-local-declaration-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=human
+       cli/parse-local-declaration-error.hc))))
+   (diff
+    cli/parse-local-declaration-error.human
+    parse-local-declaration-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-local-declaration-error.json.actual
+  parse-local-declaration-error.json.stdout.actual)
+ (deps
+  cli/parse-local-declaration-error.hc
+  cli/parse-local-declaration-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-local-declaration-error.json.stdout.actual
+    (with-stderr-to
+     parse-local-declaration-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-local-declaration-error.hc))))
+   (diff
+    cli/parse-local-declaration-error.json
+    parse-local-declaration-error.json.actual))))
 
 (rule
  (alias runtest)

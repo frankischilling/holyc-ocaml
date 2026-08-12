@@ -1,0 +1,2123 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-local-declarations.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 174
+    },
+    "items": [
+      {
+        "kind": "function_definition",
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 74,
+              "stop": 76
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 74,
+                "stop": 76
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Locals",
+          "location": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 77,
+              "stop": 83
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 77,
+                "stop": 83
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-local-declarations.hc",
+            "line": 2,
+            "column": 10,
+            "source_id": 0,
+            "start": 83,
+            "stop": 84
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 83,
+              "stop": 84
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 84,
+                  "stop": 87
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 2,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 84,
+                    "stop": 87
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "arg",
+              "location": {
+                "span": {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 91
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 2,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 88,
+                    "stop": 91
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 92
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 2,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 91,
+                    "stop": 92
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 84,
+                "stop": 92
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 84,
+                  "stop": 87
+                },
+                {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 91
+                },
+                {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 2,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 92
+                }
+              ]
+            }
+          }
+        ],
+        "variadic": {
+          "spelling": "...",
+          "location": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 19,
+              "source_id": 0,
+              "start": 92,
+              "stop": 95
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 2,
+                "column": 19,
+                "source_id": 0,
+                "start": 92,
+                "stop": 95
+              }
+            ]
+          }
+        },
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-local-declarations.hc",
+            "line": 2,
+            "column": 22,
+            "source_id": 0,
+            "start": 95,
+            "stop": 96
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 22,
+              "source_id": 0,
+              "start": 95,
+              "stop": 96
+            }
+          ]
+        },
+        "body": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 97,
+              "stop": 98
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 97,
+                "stop": 98
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "statement_sequence",
+              "leading_commas": [],
+              "elements": [
+                {
+                  "statement": {
+                    "kind": "local_declaration_statement",
+                    "storage": "automatic",
+                    "type": {
+                      "kind": "primitive",
+                      "primitive": "I64",
+                      "spelling": "I64",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 101,
+                          "stop": 104
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 4,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 101,
+                            "stop": 104
+                          }
+                        ]
+                      }
+                    },
+                    "declarators": [
+                      {
+                        "register_qualifiers": [
+                          {
+                            "kind": "reg",
+                            "position": "after_type",
+                            "spelling": "reg",
+                            "explicit_register": {
+                              "spelling": "R15",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 4,
+                                  "column": 11,
+                                  "source_id": 0,
+                                  "start": 109,
+                                  "stop": 112
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-local-declarations.hc",
+                                    "line": 4,
+                                    "column": 11,
+                                    "source_id": 0,
+                                    "start": 109,
+                                    "stop": 112
+                                  }
+                                ]
+                              }
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 7,
+                                "source_id": 0,
+                                "start": 105,
+                                "stop": 108
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 4,
+                                  "column": 7,
+                                  "source_id": 0,
+                                  "start": 105,
+                                  "stop": 108
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "name": {
+                          "spelling": "value",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 15,
+                              "source_id": 0,
+                              "start": 113,
+                              "stop": 118
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 15,
+                                "source_id": 0,
+                                "start": 113,
+                                "stop": 118
+                              }
+                            ]
+                          }
+                        },
+                        "initializer": {
+                          "equals": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 118,
+                              "stop": 119
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 118,
+                                "stop": 119
+                              }
+                            ]
+                          },
+                          "value": {
+                            "kind": "identifier",
+                            "spelling": "arg",
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 119,
+                                "stop": 122
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 4,
+                                  "column": 21,
+                                  "source_id": 0,
+                                  "start": 119,
+                                  "stop": 122
+                                }
+                              ]
+                            }
+                          },
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 118,
+                              "stop": 122
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 118,
+                                "stop": 119
+                              },
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 119,
+                                "stop": 122
+                              }
+                            ]
+                          }
+                        },
+                        "delimiter": {
+                          "kind": "comma",
+                          "spelling": ",",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 24,
+                              "source_id": 0,
+                              "start": 122,
+                              "stop": 123
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 24,
+                                "source_id": 0,
+                                "start": 122,
+                                "stop": 123
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 4,
+                            "column": 7,
+                            "source_id": 0,
+                            "start": 105,
+                            "stop": 123
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 7,
+                              "source_id": 0,
+                              "start": 105,
+                              "stop": 108
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 109,
+                              "stop": 112
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 15,
+                              "source_id": 0,
+                              "start": 113,
+                              "stop": 118
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 118,
+                              "stop": 119
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 119,
+                              "stop": 122
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 24,
+                              "source_id": 0,
+                              "start": 122,
+                              "stop": 123
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "register_qualifiers": [
+                          {
+                            "kind": "noreg",
+                            "position": "after_type",
+                            "spelling": "noreg",
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 25,
+                                "source_id": 0,
+                                "start": 123,
+                                "stop": 128
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 4,
+                                  "column": 25,
+                                  "source_id": 0,
+                                  "start": 123,
+                                  "stop": 128
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "name": {
+                          "spelling": "count",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 31,
+                              "source_id": 0,
+                              "start": 129,
+                              "stop": 134
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 31,
+                                "source_id": 0,
+                                "start": 129,
+                                "stop": 134
+                              }
+                            ]
+                          }
+                        },
+                        "initializer": {
+                          "equals": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 36,
+                              "source_id": 0,
+                              "start": 134,
+                              "stop": 135
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 36,
+                                "source_id": 0,
+                                "start": 134,
+                                "stop": 135
+                              }
+                            ]
+                          },
+                          "value": {
+                            "kind": "identifier",
+                            "spelling": "argc",
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 37,
+                                "source_id": 0,
+                                "start": 135,
+                                "stop": 139
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 4,
+                                  "column": 37,
+                                  "source_id": 0,
+                                  "start": 135,
+                                  "stop": 139
+                                }
+                              ]
+                            }
+                          },
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 36,
+                              "source_id": 0,
+                              "start": 134,
+                              "stop": 139
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 36,
+                                "source_id": 0,
+                                "start": 134,
+                                "stop": 135
+                              },
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 37,
+                                "source_id": 0,
+                                "start": 135,
+                                "stop": 139
+                              }
+                            ]
+                          }
+                        },
+                        "delimiter": {
+                          "kind": "semicolon",
+                          "spelling": ";",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 41,
+                              "source_id": 0,
+                              "start": 139,
+                              "stop": 140
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 4,
+                                "column": 41,
+                                "source_id": 0,
+                                "start": 139,
+                                "stop": 140
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 4,
+                            "column": 25,
+                            "source_id": 0,
+                            "start": 123,
+                            "stop": 140
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 25,
+                              "source_id": 0,
+                              "start": 123,
+                              "stop": 128
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 31,
+                              "source_id": 0,
+                              "start": 129,
+                              "stop": 134
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 36,
+                              "source_id": 0,
+                              "start": 134,
+                              "stop": 135
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 37,
+                              "source_id": 0,
+                              "start": 135,
+                              "stop": 139
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 4,
+                              "column": 41,
+                              "source_id": 0,
+                              "start": 139,
+                              "stop": 140
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 101,
+                        "stop": 140
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 101,
+                          "stop": 104
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 105,
+                          "stop": 108
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 109,
+                          "stop": 112
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 113,
+                          "stop": 118
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 118,
+                          "stop": 119
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 119,
+                          "stop": 122
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 24,
+                          "source_id": 0,
+                          "start": 122,
+                          "stop": 123
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 123,
+                          "stop": 128
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 129,
+                          "stop": 134
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 36,
+                          "source_id": 0,
+                          "start": 134,
+                          "stop": 135
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 37,
+                          "source_id": 0,
+                          "start": 135,
+                          "stop": 139
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 4,
+                          "column": 41,
+                          "source_id": 0,
+                          "start": 139,
+                          "stop": 140
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-local-declarations.hc",
+                      "line": 4,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 101,
+                      "stop": 140
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 101,
+                        "stop": 104
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 105,
+                        "stop": 108
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 109,
+                        "stop": 112
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 113,
+                        "stop": 118
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 118,
+                        "stop": 119
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 119,
+                        "stop": 122
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 122,
+                        "stop": 123
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 123,
+                        "stop": 128
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 129,
+                        "stop": 134
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 36,
+                        "source_id": 0,
+                        "start": 134,
+                        "stop": 135
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 37,
+                        "source_id": 0,
+                        "start": 135,
+                        "stop": 139
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 4,
+                        "column": 41,
+                        "source_id": 0,
+                        "start": 139,
+                        "stop": 140
+                      }
+                    ]
+                  }
+                },
+                {
+                  "statement": {
+                    "kind": "local_declaration_statement",
+                    "storage": "static",
+                    "modifiers": [
+                      {
+                        "kind": "static",
+                        "spelling": "static",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 5,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 143,
+                            "stop": 149
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 3,
+                              "source_id": 0,
+                              "start": 143,
+                              "stop": 149
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "type": {
+                      "kind": "primitive",
+                      "primitive": "U8",
+                      "spelling": "U8",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 150,
+                          "stop": 152
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 5,
+                            "column": 10,
+                            "source_id": 0,
+                            "start": 150,
+                            "stop": 152
+                          }
+                        ]
+                      }
+                    },
+                    "declarators": [
+                      {
+                        "name": {
+                          "spelling": "bytes",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 13,
+                              "source_id": 0,
+                              "start": 153,
+                              "stop": 158
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 5,
+                                "column": 13,
+                                "source_id": 0,
+                                "start": 153,
+                                "stop": 158
+                              }
+                            ]
+                          }
+                        },
+                        "array_dimensions": [
+                          {
+                            "opening_bracket": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 5,
+                                "column": 18,
+                                "source_id": 0,
+                                "start": 158,
+                                "stop": 159
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 18,
+                                  "source_id": 0,
+                                  "start": 158,
+                                  "stop": 159
+                                }
+                              ]
+                            },
+                            "expression": {
+                              "kind": "integer_literal",
+                              "spelling": "2",
+                              "value": "0x0000000000000002",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 19,
+                                  "source_id": 0,
+                                  "start": 159,
+                                  "stop": 160
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-local-declarations.hc",
+                                    "line": 5,
+                                    "column": 19,
+                                    "source_id": 0,
+                                    "start": 159,
+                                    "stop": 160
+                                  }
+                                ]
+                              }
+                            },
+                            "closing_bracket": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 5,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 160,
+                                "stop": 161
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 160,
+                                  "stop": 161
+                                }
+                              ]
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 5,
+                                "column": 18,
+                                "source_id": 0,
+                                "start": 158,
+                                "stop": 161
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 18,
+                                  "source_id": 0,
+                                  "start": 158,
+                                  "stop": 159
+                                },
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 19,
+                                  "source_id": 0,
+                                  "start": 159,
+                                  "stop": 160
+                                },
+                                {
+                                  "path": "cli/parse-local-declarations.hc",
+                                  "line": 5,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 160,
+                                  "stop": 161
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "delimiter": {
+                          "kind": "semicolon",
+                          "spelling": ";",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 161,
+                              "stop": 162
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-local-declarations.hc",
+                                "line": 5,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 161,
+                                "stop": 162
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 5,
+                            "column": 13,
+                            "source_id": 0,
+                            "start": 153,
+                            "stop": 162
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 13,
+                              "source_id": 0,
+                              "start": 153,
+                              "stop": 158
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 18,
+                              "source_id": 0,
+                              "start": 158,
+                              "stop": 159
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 19,
+                              "source_id": 0,
+                              "start": 159,
+                              "stop": 160
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 160,
+                              "stop": 161
+                            },
+                            {
+                              "path": "cli/parse-local-declarations.hc",
+                              "line": 5,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 161,
+                              "stop": 162
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 143,
+                        "stop": 162
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 143,
+                          "stop": 149
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 150,
+                          "stop": 152
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 153,
+                          "stop": 158
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 158,
+                          "stop": 159
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 159,
+                          "stop": 160
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 160,
+                          "stop": 161
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 5,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 161,
+                          "stop": 162
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-local-declarations.hc",
+                      "line": 5,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 143,
+                      "stop": 162
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 143,
+                        "stop": 149
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 150,
+                        "stop": 152
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 153,
+                        "stop": 158
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 158,
+                        "stop": 159
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 159,
+                        "stop": 160
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 160,
+                        "stop": 161
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 5,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 161,
+                        "stop": 162
+                      }
+                    ]
+                  }
+                },
+                {
+                  "statement": {
+                    "kind": "expression_statement",
+                    "expression": {
+                      "kind": "identifier",
+                      "spelling": "value",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 6,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 170
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-local-declarations.hc",
+                            "line": 6,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 165,
+                            "stop": 170
+                          }
+                        ]
+                      }
+                    },
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 6,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 170,
+                        "stop": 171
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 6,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 170,
+                          "stop": 171
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 6,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 165,
+                        "stop": 171
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 6,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 170
+                        },
+                        {
+                          "path": "cli/parse-local-declarations.hc",
+                          "line": 6,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 170,
+                          "stop": 171
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-local-declarations.hc",
+                      "line": 6,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 165,
+                      "stop": 171
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 6,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 165,
+                        "stop": 170
+                      },
+                      {
+                        "path": "cli/parse-local-declarations.hc",
+                        "line": 6,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 170,
+                        "stop": 171
+                      }
+                    ]
+                  }
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-local-declarations.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 101,
+                  "stop": 171
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 101,
+                    "stop": 104
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 105,
+                    "stop": 108
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 109,
+                    "stop": 112
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 113,
+                    "stop": 118
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 118,
+                    "stop": 119
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 119,
+                    "stop": 122
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 122,
+                    "stop": 123
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 123,
+                    "stop": 128
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 129,
+                    "stop": 134
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 134,
+                    "stop": 135
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 135,
+                    "stop": 139
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 4,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 140
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 143,
+                    "stop": 149
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 150,
+                    "stop": 152
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 153,
+                    "stop": 158
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 159
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 159,
+                    "stop": 160
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 160,
+                    "stop": 161
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 5,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 161,
+                    "stop": 162
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 165,
+                    "stop": 170
+                  },
+                  {
+                    "path": "cli/parse-local-declarations.hc",
+                    "line": 6,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 170,
+                    "stop": 171
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 172,
+              "stop": 173
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 7,
+                "column": 1,
+                "source_id": 0,
+                "start": 172,
+                "stop": 173
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 97,
+              "stop": 173
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 97,
+                "stop": 98
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 101,
+                "stop": 104
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 7,
+                "source_id": 0,
+                "start": 105,
+                "stop": 108
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 11,
+                "source_id": 0,
+                "start": 109,
+                "stop": 112
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 15,
+                "source_id": 0,
+                "start": 113,
+                "stop": 118
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 20,
+                "source_id": 0,
+                "start": 118,
+                "stop": 119
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 21,
+                "source_id": 0,
+                "start": 119,
+                "stop": 122
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 24,
+                "source_id": 0,
+                "start": 122,
+                "stop": 123
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 25,
+                "source_id": 0,
+                "start": 123,
+                "stop": 128
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 31,
+                "source_id": 0,
+                "start": 129,
+                "stop": 134
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 36,
+                "source_id": 0,
+                "start": 134,
+                "stop": 135
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 37,
+                "source_id": 0,
+                "start": 135,
+                "stop": 139
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 4,
+                "column": 41,
+                "source_id": 0,
+                "start": 139,
+                "stop": 140
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 143,
+                "stop": 149
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 10,
+                "source_id": 0,
+                "start": 150,
+                "stop": 152
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 13,
+                "source_id": 0,
+                "start": 153,
+                "stop": 158
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 18,
+                "source_id": 0,
+                "start": 158,
+                "stop": 159
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 19,
+                "source_id": 0,
+                "start": 159,
+                "stop": 160
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 20,
+                "source_id": 0,
+                "start": 160,
+                "stop": 161
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 5,
+                "column": 21,
+                "source_id": 0,
+                "start": 161,
+                "stop": 162
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 165,
+                "stop": 170
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 6,
+                "column": 8,
+                "source_id": 0,
+                "start": 170,
+                "stop": 171
+              },
+              {
+                "path": "cli/parse-local-declarations.hc",
+                "line": 7,
+                "column": 1,
+                "source_id": 0,
+                "start": 172,
+                "stop": 173
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-local-declarations.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 74,
+            "stop": 173
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 74,
+              "stop": 76
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 77,
+              "stop": 83
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 83,
+              "stop": 84
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 84,
+              "stop": 87
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 15,
+              "source_id": 0,
+              "start": 88,
+              "stop": 91
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 91,
+              "stop": 92
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 19,
+              "source_id": 0,
+              "start": 92,
+              "stop": 95
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 2,
+              "column": 22,
+              "source_id": 0,
+              "start": 95,
+              "stop": 96
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 97,
+              "stop": 98
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 101,
+              "stop": 104
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 7,
+              "source_id": 0,
+              "start": 105,
+              "stop": 108
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 11,
+              "source_id": 0,
+              "start": 109,
+              "stop": 112
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 15,
+              "source_id": 0,
+              "start": 113,
+              "stop": 118
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 20,
+              "source_id": 0,
+              "start": 118,
+              "stop": 119
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 21,
+              "source_id": 0,
+              "start": 119,
+              "stop": 122
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 24,
+              "source_id": 0,
+              "start": 122,
+              "stop": 123
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 25,
+              "source_id": 0,
+              "start": 123,
+              "stop": 128
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 31,
+              "source_id": 0,
+              "start": 129,
+              "stop": 134
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 36,
+              "source_id": 0,
+              "start": 134,
+              "stop": 135
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 37,
+              "source_id": 0,
+              "start": 135,
+              "stop": 139
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 4,
+              "column": 41,
+              "source_id": 0,
+              "start": 139,
+              "stop": 140
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 143,
+              "stop": 149
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 10,
+              "source_id": 0,
+              "start": 150,
+              "stop": 152
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 13,
+              "source_id": 0,
+              "start": 153,
+              "stop": 158
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 18,
+              "source_id": 0,
+              "start": 158,
+              "stop": 159
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 19,
+              "source_id": 0,
+              "start": 159,
+              "stop": 160
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 20,
+              "source_id": 0,
+              "start": 160,
+              "stop": 161
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 5,
+              "column": 21,
+              "source_id": 0,
+              "start": 161,
+              "stop": 162
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 165,
+              "stop": 170
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 6,
+              "column": 8,
+              "source_id": 0,
+              "start": 170,
+              "stop": 171
+            },
+            {
+              "path": "cli/parse-local-declarations.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 172,
+              "stop": 173
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

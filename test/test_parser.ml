@@ -242,7 +242,7 @@ let expect_empty_statement = function
 
 let expect_statement_sequence = function
   | Ast.Sequence_statement sequence -> sequence
-  | _ -> Alcotest.fail "expected a comma-linked statement sequence"
+  | _ -> Alcotest.fail "expected a statement sequence"
 
 let expect_block_statement = function
   | Ast.Block_statement statement -> statement
@@ -271,6 +271,10 @@ let expect_goto_statement = function
 let expect_label_statement = function
   | Ast.Label_statement statement -> statement
   | _ -> Alcotest.fail "expected a function label"
+
+let expect_local_declaration = function
+  | Ast.Local_declaration_statement declaration -> declaration
+  | _ -> Alcotest.fail "expected a local declaration"
 
 let expect_lock_statement = function
   | Ast.Lock_statement statement -> statement
@@ -6915,6 +6919,539 @@ let deterministic_function_definition_dumps () =
     "JSON uses null for an absent body" true
     (List.nth items 1 |> member "body" = `Null)
 
+let local_declaration_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, source, fragment) ->
+      Alcotest.(check bool) description true (contains source fragment))
+    [
+      ( "function statements select automatic locals",
+        statement_parser,
+        "PrsVarLst(cc,cc->htc.fun,PRS0_NULL|PRS1_LOCAL_VAR);" );
+      ( "static locals use a distinct parser mode",
+        statement_parser,
+        "PrsVarLst(cc,cc->htc.fun,PRS0_NULL|PRS1_STATIC_LOCAL_VAR);" );
+      ( "automatic locals have their own layout path",
+        variable_parser,
+        "case PRS1B_LOCAL_VAR:" );
+      ( "static locals have their own initialization path",
+        variable_parser,
+        "case PRS1B_STATIC_LOCAL_VAR:" );
+      ( "register qualifiers are limited to arguments and automatic locals",
+        variable_parser,
+        "mode.u8[1]==PRS1B_FUN_ARG || mode.u8[1]==PRS1B_LOCAL_VAR" );
+      ( "members are published before initialization",
+        variable_parser,
+        "MemberAdd(cc,tmpm,tmpc,mode.u8[1]);" );
+      ( "automatic initializers use the expression parser",
+        variable_parser,
+        "if (!PrsExpression(cc,NULL,TRUE))" );
+      ( "commas restart the current declaration type",
+        variable_parser,
+        "goto pvl_restart2;" );
+      ( "a local returns only at a closing brace",
+        statement_parser,
+        "if (cc->token=='}') goto sm_done;" );
+      ( "for initializers use the ordinary statement parser",
+        statement_parser,
+        "PrsStmt(cc,try_cnt);" );
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool)
+        (path ^ " contains the audited local form")
+        true
+        (contains (pinned path) fragment))
+    [
+      ("Demo/Asm/AsmAndC2.HC", "I64 reg R15 i;");
+      ("Demo/Asm/AsmAndC1.HC", "I64 noreg i;");
+      ("Adam/Snd/SndMath.HC", "I64 reg i,reg j,reg k;");
+      ( "Kernel/KMisc.HC",
+        "static I64 time_stamp_start=0,timer_start=0,HPET_start=0;" );
+    ]
+
+let local_declaration_oracle_fixture () =
+  let open Yojson.Safe.Util in
+  let fixture_path =
+    [
+      "oracle/local-declarations.json";
+      "test/oracle/local-declarations.json";
+      "../test/oracle/local-declarations.json";
+    ]
+    |> List.find_opt Sys.file_exists
+    |> function
+    | Some path -> path
+    | None -> Alcotest.fail "the local-declaration oracle fixture is missing"
+  in
+  let fixture = Yojson.Safe.from_file fixture_path in
+  Alcotest.(check string)
+    "fixture ID" "parser/local-declarations-001"
+    (fixture |> member "id" |> to_string);
+  Alcotest.(check string)
+    "fixture uses the compiler reference commit" Version.reference_commit
+    (fixture |> member "reference" |> member "commit" |> to_string);
+  Alcotest.(check string)
+    "fixture records the verified final ISO SHA-1"
+    "1a1ec79990e21fa3d66ac680009da63d3ac512b0"
+    (fixture |> member "reference" |> member "published_sha1" |> to_string);
+  Alcotest.(check string)
+    "keyboard preflight passed" "ORACLE_KEY=5"
+    (fixture |> member "input_delivery" |> member "preflight_output"
+   |> to_string);
+  let checks = fixture |> member "checks" |> to_list in
+  Alcotest.(check int)
+    "ten accepted checks are recorded" 10 (List.length checks);
+  List.iter
+    (fun check ->
+      let id = check |> member "id" |> to_string in
+      Alcotest.(check string)
+        (id ^ " matched") "matched"
+        (check |> member "result" |> to_string))
+    checks;
+  let rejected = fixture |> member "rejected_checks" |> to_list in
+  Alcotest.(check int)
+    "four rejection checks are recorded" 4 (List.length rejected);
+  List.iter
+    (fun check ->
+      let id = check |> member "id" |> to_string in
+      Alcotest.(check string)
+        (id ^ " matched") "matched rejection"
+        (check |> member "result" |> to_string))
+    rejected;
+  Alcotest.(check (list string))
+    "native output remains exact"
+    [
+      "ORACLE_AUTO=9";
+      "ORACLE_STATIC1=42";
+      "ORACLE_STATIC2=43";
+      "ORACLE_VAR=7";
+      "ORACLE_NESTED=9";
+      "ORACLE_SELF=1";
+      "ORACLE_COMMA=3";
+      "ORACLE_IF_LOCAL=0";
+      "ORACLE_IF_BLOCK=7";
+      "ORACLE_LOCK=8";
+    ]
+    (fixture |> member "observed_output" |> to_list |> List.map to_string);
+  Alcotest.(check string)
+    "for initializer records the native diagnostic" "Missing )"
+    (List.hd rejected |> member "observed_diagnostic_summary" |> to_string);
+  Alcotest.(check string)
+    "accepted source capture is fixed"
+    "728dfeb41e81ce0498eea51ce07757fd6f317dd1c84587eb0c90bafd6d520ea7"
+    (fixture |> member "capture_sha256" |> member "accepted-source" |> to_string)
+
+let local_initializer_value (declarator : Ast.local_declarator) =
+  match declarator.local_initializer with
+  | Some initial_value -> initial_value.local_initializer_value
+  | None ->
+      Alcotest.failf "expected an initializer for %s"
+        declarator.local_name.spelling
+
+let local_declaration_shapes () =
+  let source =
+    "U0 Locals(I64 arg,...){\n\
+     I64 value=arg;\n\
+     U8 *ptr;\n\
+     I64 matrix[2][3];\n\
+     I64 reg R15 pinned=argc,noreg spilled=argv;\n\
+     static I64 first=0,second=1;\n\
+     value;\n\
+     }"
+  in
+  let _, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let body = expect_function_body definition |> expect_block_statement in
+  let statements =
+    match body.block_statements with
+    | [ statement ] ->
+        expect_statement_sequence statement |> fun sequence ->
+        List.map
+          (fun element -> element.Ast.sequence_statement)
+          sequence.sequence_elements
+    | statements ->
+        Alcotest.failf
+          "expected one source-shaped local continuation, got %d block \
+           statements"
+          (List.length statements)
+  in
+  match statements with
+  | [
+   value_statement;
+   pointer_statement;
+   matrix_statement;
+   register_statement;
+   static_statement;
+   expression_statement;
+  ] ->
+      let value = expect_local_declaration value_statement in
+      Alcotest.(check bool)
+        "ordinary storage is automatic" true
+        (value.local_storage = Ast.Automatic_local);
+      let value_declarator = List.hd value.local_declarators in
+      Alcotest.(check string)
+        "automatic name" "value" value_declarator.local_name.spelling;
+      Alcotest.(check string)
+        "parameter initializer" "arg"
+        (local_initializer_value value_declarator
+        |> expect_identifier_expression)
+          .spelling;
+      let pointer = expect_local_declaration pointer_statement in
+      let pointer_declarator = List.hd pointer.local_declarators in
+      Alcotest.(check int)
+        "pointer depth" 1
+        (List.length pointer_declarator.local_pointer_layers);
+      Alcotest.(check bool)
+        "uninitialized pointer" true
+        (Option.is_none pointer_declarator.local_initializer);
+      let matrix = expect_local_declaration matrix_statement in
+      let matrix_declarator = List.hd matrix.local_declarators in
+      Alcotest.(check (list int64))
+        "array dimensions" [ 2L; 3L ]
+        (List.map
+           (fun dimension ->
+             expect_dimension_expression dimension |> expect_integer_expression)
+           matrix_declarator.local_array_dimensions);
+      let register_declaration = expect_local_declaration register_statement in
+      (match register_declaration.local_declarators with
+      | [ pinned; spilled ] ->
+          let pinned_qualifier = List.hd pinned.local_register_qualifiers in
+          Alcotest.(check bool)
+            "first declarator requests a register" true
+            (pinned_qualifier.kind = Ast.Reg);
+          Alcotest.(check bool)
+            "local qualifier follows the type" true
+            (pinned_qualifier.position = Ast.After_type);
+          Alcotest.(check string)
+            "explicit local register" "R15"
+            (Option.get pinned_qualifier.explicit_register).spelling;
+          Alcotest.(check string)
+            "varargs argc initializer" "argc"
+            (local_initializer_value pinned |> expect_identifier_expression)
+              .spelling;
+          let spilled_qualifier = List.hd spilled.local_register_qualifiers in
+          Alcotest.(check bool)
+            "second declarator rejects allocation" true
+            (spilled_qualifier.kind = Ast.Noreg);
+          Alcotest.(check bool)
+            "noreg has no explicit register" true
+            (Option.is_none spilled_qualifier.explicit_register);
+          Alcotest.(check string)
+            "varargs argv initializer" "argv"
+            (local_initializer_value spilled |> expect_identifier_expression)
+              .spelling;
+          Alcotest.(check bool)
+            "the first declarator ends with a comma" true
+            (pinned.local_delimiter.kind = Ast.Comma);
+          Alcotest.(check bool)
+            "the final declarator ends with a semicolon" true
+            (spilled.local_delimiter.kind = Ast.Semicolon)
+      | declarators ->
+          Alcotest.failf "expected two register declarators, got %d"
+            (List.length declarators));
+      let static_declaration = expect_local_declaration static_statement in
+      Alcotest.(check bool)
+        "static storage is retained" true
+        (static_declaration.local_storage = Ast.Static_local);
+      Alcotest.(check (list string))
+        "static modifier spelling" [ "static" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           static_declaration.local_modifiers);
+      Alcotest.(check (list string))
+        "static comma group" [ "first"; "second" ]
+        (List.map
+           (fun declarator -> declarator.Ast.local_name.spelling)
+           static_declaration.local_declarators);
+      let following_expression =
+        (expect_expression_statement expression_statement)
+          .expression_statement_expression |> expect_identifier_expression
+      in
+      Alcotest.(check string)
+        "following expression sees the local" "value"
+        following_expression.spelling
+  | statements ->
+      Alcotest.failf "expected six statements in the local continuation, got %d"
+        (List.length statements)
+
+let local_declaration_visibility () =
+  let source =
+    "I64 Shared;\n\
+     U0 Visible(I64 parameter,...){\n\
+     I64 Shared=parameter;\n\
+     #ifdef Shared\n\
+     Widget wrong;\n\
+     #else\n\
+     Shared; argc; argv;\n\
+     #endif\n\
+     }\n\
+     U8 selected;"
+  in
+  let session, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable shared;
+   Ast.Function_definition definition;
+   Ast.Global_variable selected;
+  ] -> (
+      Alcotest.(check string) "global spelling" "Shared" shared.name.spelling;
+      Alcotest.(check string)
+        "parsing resumes after the function" "selected" selected.name.spelling;
+      let body = expect_function_body definition |> expect_block_statement in
+      Alcotest.(check int)
+        "the body retains one local continuation and two later expressions" 3
+        (List.length body.block_statements);
+      let continuation =
+        List.hd body.block_statements |> expect_statement_sequence
+      in
+      Alcotest.(check int)
+        "the local continues through the first following statement" 2
+        (List.length continuation.sequence_elements);
+      ignore
+        ( List.hd continuation.sequence_elements |> fun element ->
+          expect_local_declaration element.Ast.sequence_statement );
+      let visible_statements =
+        (List.nth continuation.sequence_elements 1).Ast.sequence_statement
+        :: List.tl body.block_statements
+      in
+      List.iter2
+        (fun expected statement ->
+          let identifier =
+            (expect_expression_statement statement)
+              .expression_statement_expression |> expect_identifier_expression
+          in
+          Alcotest.(check string)
+            (expected ^ " is an expression")
+            expected identifier.spelling)
+        [ "Shared"; "argc"; "argv" ]
+        visible_statements;
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "Shared"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            "the local context is gone after the function" true
+            (Symbol_visibility.kind entry = Symbol_visibility.Global_variable)
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.fail "the global did not reappear after the function")
+  | items ->
+      Alcotest.failf "expected global, function, and selected global, got %d"
+        (List.length items)
+
+let local_declaration_statement_contexts () =
+  let source =
+    "U0 Contexts(I64 marker){\n\
+     for(;marker<1;marker++){I64 inside=0;break;}\n\
+     if(0) I64 branch=0; marker=1;\n\
+     1,I64 tail=2,other=tail;tail;\n\
+     lock {I64 guarded=tail;}\n\
+     try {I64 attempted=guarded;} catch {I64 recovered=attempted;}\n\
+     }"
+  in
+  let _, _, output = parse_string source in
+  let body =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  match body.block_statements with
+  | [
+   for_statement;
+   if_statement;
+   sequence_statement;
+   lock_statement;
+   try_statement;
+  ] -> (
+      let for_statement = expect_for_statement for_statement in
+      ignore (expect_empty_statement for_statement.for_initializer);
+      let for_body = expect_block_statement for_statement.for_body in
+      (match for_body.block_statements with
+      | [ continuation ] ->
+          let continuation = expect_statement_sequence continuation in
+          Alcotest.(check int)
+            "the loop block groups its local with break" 2
+            (List.length continuation.sequence_elements);
+          ignore
+            ( List.hd continuation.sequence_elements |> fun element ->
+              expect_local_declaration element.Ast.sequence_statement );
+          ignore
+            ( List.nth continuation.sequence_elements 1 |> fun element ->
+              expect_break_statement element.Ast.sequence_statement )
+      | statements ->
+          Alcotest.failf "expected one loop-body continuation, got %d"
+            (List.length statements));
+      let if_statement = expect_if_statement if_statement in
+      let if_continuation =
+        expect_statement_sequence if_statement.if_then_branch
+      in
+      Alcotest.(check int)
+        "an unbraced local absorbs the following assignment" 2
+        (List.length if_continuation.sequence_elements);
+      ignore
+        ( List.hd if_continuation.sequence_elements |> fun element ->
+          expect_local_declaration element.Ast.sequence_statement );
+      ignore
+        ( List.nth if_continuation.sequence_elements 1 |> fun element ->
+          expect_expression_statement element.Ast.sequence_statement );
+      let sequence = expect_statement_sequence sequence_statement in
+      Alcotest.(check int)
+        "a declaration may follow a comma and continue without one" 3
+        (List.length sequence.sequence_elements);
+      let tail =
+        List.nth sequence.sequence_elements 1 |> fun element ->
+        element.Ast.sequence_statement |> expect_local_declaration
+      in
+      Alcotest.(check (list string))
+        "declaration commas stay inside one statement" [ "tail"; "other" ]
+        (List.map
+           (fun declarator -> declarator.Ast.local_name.spelling)
+           tail.local_declarators);
+      let lock_body =
+        expect_lock_statement lock_statement |> fun statement ->
+        expect_block_statement statement.lock_body
+      in
+      (match lock_body.block_statements with
+      | [ statement ] -> ignore (expect_local_declaration statement)
+      | statements ->
+          Alcotest.failf "expected one guarded local, got %d statements"
+            (List.length statements));
+      let try_statement = expect_try_catch_statement try_statement in
+      let try_body = expect_block_statement try_statement.try_body in
+      let catch_body = expect_block_statement try_statement.catch_body in
+      (match try_body.block_statements with
+      | [ statement ] -> ignore (expect_local_declaration statement)
+      | statements ->
+          Alcotest.failf "expected one try local, got %d statements"
+            (List.length statements));
+      match catch_body.block_statements with
+      | [ statement ] -> ignore (expect_local_declaration statement)
+      | statements ->
+          Alcotest.failf "expected one catch local, got %d statements"
+            (List.length statements))
+  | statements ->
+      Alcotest.failf "expected five declaration contexts, got %d"
+        (List.length statements)
+
+let local_declaration_provenance () =
+  let source =
+    "#define DECL I64 reg R15 generated=1;\nU0 Provenance(){DECL generated;}"
+  in
+  let session, root, output = parse_string source in
+  let body =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  let declaration =
+    List.hd body.block_statements |> expect_statement_sequence
+    |> fun sequence ->
+    List.hd sequence.sequence_elements |> fun element ->
+    expect_local_declaration element.Ast.sequence_statement
+  in
+  let declarator = List.hd declaration.local_declarators in
+  let generated_locations =
+    [
+      declaration.local_type_specifier.location;
+      (List.hd declarator.local_register_qualifiers).location;
+      (Option.get
+         (List.hd declarator.local_register_qualifiers).explicit_register)
+        .location;
+      declarator.local_name.location;
+      (Option.get declarator.local_initializer).local_initializer_equals;
+      declarator.local_delimiter.location;
+    ]
+  in
+  List.iter
+    (fun (location : Ast.location) ->
+      Alcotest.(check bool)
+        "generated declaration leaves the root frame" false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        "generated declaration retains its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated declaration retains its definition" true
+        (Option.is_some location.defined_at))
+    generated_locations;
+  let open Yojson.Safe.Util in
+  let declaration_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd |> member "body"
+    |> member "statements" |> to_list |> List.hd |> member "elements" |> to_list
+    |> List.hd |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON retains generated local provenance" true
+    (declaration_json |> member "type" |> member "location"
+   |> member "generated_from" <> `Null)
+
+let local_declaration_failures () =
+  List.iter
+    (fun (source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (code ^ " rejects the module")
+        true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (code ^ " is stable") code (first_diagnostic output).code)
+    [
+      ("U0 Bad(){reg I64 value;}", "HCPARSE0099");
+      ("U0 Bad(){static reg I64 value;}", "HCPARSE0099");
+      ("U0 Bad(){static I64 reg value;}", "HCPARSE0099");
+      ("U0 Bad(){static ;}", "HCPARSE0098");
+      ("U0 Bad(){I64 ;}", "HCPARSE0100");
+      ("U0 Bad(){I64 value=;}", "HCPARSE0101");
+      ("U0 Bad(){I64 value 1;}", "HCPARSE0102");
+      ("U0 Bad(){I64 (*callback)(I64);}", "HCPARSE0103");
+      ("U0 Bad(){I64 values={1};}", "HCPARSE0104");
+      ("U0 Bad(){for(I64 index=0;index<2;index++);}", "HCPARSE0069");
+      ("U0 Bad(){try I64 attempted=0; catch ;}", "HCPARSE0082");
+    ]
+
+let deterministic_local_declaration_dumps () =
+  let session, _, output =
+    parse_string
+      "U0 Stable(I64 arg,...){I64 reg R15 value=arg,noreg count=argc; static \
+       U8 bytes[2];}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human local dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON local dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names automatic storage" true
+    (contains human "storage=automatic");
+  Alcotest.(check bool)
+    "human dump names static storage" true
+    (contains human "storage=static");
+  let open Yojson.Safe.Util in
+  let statements =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd |> member "body"
+    |> member "statements" |> to_list
+  in
+  Alcotest.(check (list string))
+    "JSON records one source-shaped statement sequence" [ "statement_sequence" ]
+    (List.map
+       (fun statement -> statement |> member "kind" |> to_string)
+       statements);
+  let local_kinds =
+    List.hd statements |> member "elements" |> to_list
+    |> List.map (fun element ->
+        element |> member "statement" |> member "kind" |> to_string)
+  in
+  Alcotest.(check (list string))
+    "JSON retains both local declarations inside the sequence"
+    [ "local_declaration_statement"; "local_declaration_statement" ]
+    local_kinds
+
 let empty_and_comment_only () =
   List.iter
     (fun contents ->
@@ -11589,6 +12126,22 @@ let tests =
       function_definition_failures;
     Alcotest.test_case "deterministic function definition dumps" `Quick
       deterministic_function_definition_dumps;
+    Alcotest.test_case "pinned local declaration behavior" `Quick
+      local_declaration_source_behavior;
+    Alcotest.test_case "local declaration native oracle fixture" `Quick
+      local_declaration_oracle_fixture;
+    Alcotest.test_case "local declaration shapes" `Quick
+      local_declaration_shapes;
+    Alcotest.test_case "local declaration visibility" `Quick
+      local_declaration_visibility;
+    Alcotest.test_case "local declaration statement contexts" `Quick
+      local_declaration_statement_contexts;
+    Alcotest.test_case "local declaration provenance" `Quick
+      local_declaration_provenance;
+    Alcotest.test_case "local declaration failures" `Quick
+      local_declaration_failures;
+    Alcotest.test_case "deterministic local declaration dumps" `Quick
+      deterministic_local_declaration_dumps;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;
