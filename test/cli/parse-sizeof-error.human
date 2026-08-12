@@ -1,0 +1,3 @@
+cli/parse-sizeof-error.hc:1:29: error[HCPARSE0033]: expected ')' to close sizeof target in _intern target expression; one wrapper parenthesis remains, but found identifier "I64"
+    1 | _intern sizeof(Packet.field I64 MissingClose();
+      |                             ^^^

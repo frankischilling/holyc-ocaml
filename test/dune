@@ -1396,3 +1396,71 @@
    (diff
     cli/parse-postfix-cast-error.json
     parse-postfix-cast-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-sizeof-expression.human.actual)
+ (deps cli/parse-sizeof-expression.hc cli/parse-sizeof-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-expression.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-sizeof-expression.hc))
+   (diff
+    cli/parse-sizeof-expression.human
+    parse-sizeof-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-sizeof-expression.json.actual)
+ (deps cli/parse-sizeof-expression.hc cli/parse-sizeof-expression.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-expression.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-sizeof-expression.hc))
+   (diff
+    cli/parse-sizeof-expression.json
+    parse-sizeof-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-sizeof-error.human.actual
+  parse-sizeof-error.human.stdout.actual)
+ (deps cli/parse-sizeof-error.hc cli/parse-sizeof-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-error.human.stdout.actual
+    (with-stderr-to
+     parse-sizeof-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-sizeof-error.hc))))
+   (diff cli/parse-sizeof-error.human parse-sizeof-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-sizeof-error.json.actual
+  parse-sizeof-error.json.stdout.actual)
+ (deps cli/parse-sizeof-error.hc cli/parse-sizeof-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-sizeof-error.json.stdout.actual
+    (with-stderr-to
+     parse-sizeof-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-sizeof-error.hc))))
+   (diff cli/parse-sizeof-error.json parse-sizeof-error.json.actual))))

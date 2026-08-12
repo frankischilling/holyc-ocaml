@@ -1,0 +1,35 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-sizeof-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-sizeof-expression.hc:1:1..1:71 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-sizeof-expression.hc:1:1..1:8
+      target_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-sizeof-expression.hc:1:9..1:55
+          left
+            expression kind=sizeof wrappers=3 members=1 pointer_layers=5 span=cli/parse-sizeof-expression.hc:1:9..1:40
+              keyword spelling="sizeof" span=cli/parse-sizeof-expression.hc:1:9..1:15
+              opening_parenthesis depth=1 span=cli/parse-sizeof-expression.hc:1:15..1:16
+              opening_parenthesis depth=2 span=cli/parse-sizeof-expression.hc:1:16..1:17
+              opening_parenthesis depth=3 span=cli/parse-sizeof-expression.hc:1:17..1:18
+              target spelling="Packet" span=cli/parse-sizeof-expression.hc:1:18..1:24
+              member span=cli/parse-sizeof-expression.hc:1:24..1:31
+                dot span=cli/parse-sizeof-expression.hc:1:24..1:25
+                name spelling="header" span=cli/parse-sizeof-expression.hc:1:25..1:31
+              pointer_layer depth=1 spelling="*" span=cli/parse-sizeof-expression.hc:1:32..1:33
+              pointer_layer depth=2 spelling="*" span=cli/parse-sizeof-expression.hc:1:33..1:34
+              pointer_layer depth=3 spelling="*" span=cli/parse-sizeof-expression.hc:1:34..1:35
+              pointer_layer depth=4 spelling="*" span=cli/parse-sizeof-expression.hc:1:35..1:36
+              pointer_layer depth=5 spelling="*" span=cli/parse-sizeof-expression.hc:1:36..1:37
+              closing_parenthesis depth=3 span=cli/parse-sizeof-expression.hc:1:37..1:38
+              closing_parenthesis depth=2 span=cli/parse-sizeof-expression.hc:1:38..1:39
+              closing_parenthesis depth=1 span=cli/parse-sizeof-expression.hc:1:39..1:40
+          operator spelling="+" span=cli/parse-sizeof-expression.hc:1:41..1:42
+          right
+            expression kind=sizeof wrappers=0 members=0 pointer_layers=0 span=cli/parse-sizeof-expression.hc:1:43..1:55
+              keyword spelling="sizeof" span=cli/parse-sizeof-expression.hc:1:43..1:49
+              target spelling="table" span=cli/parse-sizeof-expression.hc:1:50..1:55
+    return_type primitive=I64 spelling="I64" span=cli/parse-sizeof-expression.hc:1:56..1:59
+    name spelling="Measured" span=cli/parse-sizeof-expression.hc:1:60..1:68
+    opening_parenthesis span=cli/parse-sizeof-expression.hc:1:68..1:69
+    closing_parenthesis span=cli/parse-sizeof-expression.hc:1:69..1:70
+    semicolon span=cli/parse-sizeof-expression.hc:1:70..1:71

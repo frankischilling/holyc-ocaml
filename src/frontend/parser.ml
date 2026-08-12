@@ -599,6 +599,8 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
         Ast.Current_position_expression (make_expression_operator item.token)
       in
       Some { node; tokens = [ item.token ] }
+  | Token_kind.Keyword Keyword.Sizeof, _ ->
+      parse_sizeof_expression cursor ~context
   | Token_kind.Punctuation '(', _ -> (
       let opening = take cursor in
       let first = peek cursor in
@@ -652,6 +654,137 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
           (Printf.sprintf "%s form starting with %s is not implemented"
              (expression_context_name context)
              (token_description item.token))
+
+and parse_sizeof_expression cursor ~context : parsed_expression option =
+  let keyword_item = take cursor in
+  let rec take_opening_parentheses items_rev =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Punctuation '(' ->
+        take_opening_parentheses (take cursor :: items_rev)
+    | _ -> List.rev items_rev
+  in
+  let opening_items = take_opening_parentheses [] in
+  let target_item = peek cursor in
+  if target_item.token.kind <> Token_kind.Identifier then
+    expression_failure cursor target_item ~code:"HCPARSE0031"
+      ~message:
+        (Printf.sprintf "expected a named sizeof target in %s, but found %s"
+           (expression_context_name context)
+           (token_description target_item.token))
+  else
+    let target_item = take cursor in
+    let target =
+      Ast.make_identifier ~spelling:target_item.token.raw
+        ~location:(token_location target_item.token)
+    in
+    let rec take_members members_rev items_rev =
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Punctuation '.' ->
+          let dot_item = take cursor in
+          let name_item = peek cursor in
+          if name_item.token.kind <> Token_kind.Identifier then
+            expression_failure ~secondary:dot_item.context.definition_trace
+              cursor name_item ~code:"HCPARSE0032"
+              ~message:
+                (Printf.sprintf
+                   "expected a member name after '.' in sizeof target, but \
+                    found %s"
+                   (token_description name_item.token))
+          else
+            let name_item = take cursor in
+            let name =
+              Ast.make_identifier ~spelling:name_item.token.raw
+                ~location:(token_location name_item.token)
+            in
+            let member =
+              Ast.make_sizeof_member
+                ~dot:(token_location dot_item.token)
+                ~name
+                ~location:
+                  (location_from_expression_tokens
+                     [ dot_item.token; name_item.token ])
+            in
+            take_members (member :: members_rev)
+              (name_item :: dot_item :: items_rev)
+      | _ -> Some (List.rev members_rev, List.rev items_rev)
+    in
+    match take_members [] [] with
+    | None -> None
+    | Some (members, member_items) -> (
+        let rec take_pointer_layers depth layers_rev items_rev =
+          let item = peek cursor in
+          match item.token.kind with
+          | Token_kind.Punctuation '*' ->
+              let item = take cursor in
+              let depth = depth + 1 in
+              let layer =
+                Ast.make_pointer_layer ~depth ~spelling:item.token.raw
+                  ~location:(token_location item.token)
+              in
+              take_pointer_layers depth (layer :: layers_rev) (item :: items_rev)
+          | _ -> (List.rev layers_rev, List.rev items_rev)
+        in
+        let pointer_layers, pointer_items = take_pointer_layers 0 [] [] in
+        let items_before_closing =
+          (keyword_item :: (opening_items @ (target_item :: member_items)))
+          @ pointer_items
+        in
+        let definition_trace =
+          List.fold_left
+            (fun trace item ->
+              append_unique_related trace item.context.definition_trace)
+            [] items_before_closing
+        in
+        let rec take_closing_parentheses remaining items_rev =
+          if remaining = 0 then Some (List.rev items_rev)
+          else
+            let item = peek cursor in
+            match item.token.kind with
+            | Token_kind.Punctuation ')' ->
+                take_closing_parentheses (remaining - 1)
+                  (take cursor :: items_rev)
+            | _ ->
+                let remaining_text =
+                  if remaining = 1 then "one wrapper parenthesis remains"
+                  else Printf.sprintf "%d wrapper parentheses remain" remaining
+                in
+                expression_failure ~secondary:definition_trace cursor item
+                  ~code:"HCPARSE0033"
+                  ~message:
+                    (Printf.sprintf
+                       "expected ')' to close sizeof target in %s; %s, but \
+                        found %s"
+                       (expression_context_name context)
+                       remaining_text
+                       (token_description item.token))
+        in
+        match take_closing_parentheses (List.length opening_items) [] with
+        | None -> None
+        | Some closing_items ->
+            let tokens =
+              List.map
+                (fun item -> item.token)
+                (items_before_closing @ closing_items)
+            in
+            let node =
+              Ast.Sizeof_expression
+                (Ast.make_sizeof_expression
+                   ~keyword_spelling:keyword_item.token.raw
+                   ~keyword_location:(token_location keyword_item.token)
+                   ~opening_parentheses:
+                     (List.map
+                        (fun item -> token_location item.token)
+                        opening_items)
+                   ~target ~members ~pointer_layers
+                   ~closing_parentheses:
+                     (List.map
+                        (fun item -> token_location item.token)
+                        closing_items)
+                   ~location:(location_from_expression_tokens tokens))
+            in
+            Some { node; tokens })
 
 and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
     opening : parsed_expression option =
@@ -874,53 +1007,93 @@ and parse_postfix_update_suffix cursor ~context (operand : parsed_expression)
 and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =
   let item = peek cursor in
-  match item.token.kind with
-  | Token_kind.Punctuation '(' -> (
-      let opening = take cursor in
-      let first = peek cursor in
-      let suffix =
-        match primitive_type_of_token first.token with
-        | Some primitive ->
-            parse_postfix_cast_suffix cursor ~context left opening primitive
-        | None -> parse_call_suffix cursor ~context ~depth left opening
-      in
-      match suffix with
-      | None -> None
-      | Some expression ->
-          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-            expression)
-  | Token_kind.Punctuation '[' -> (
-      match parse_index_suffix cursor ~context ~depth left with
-      | None -> None
-      | Some index ->
-          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-            index)
-  | Token_kind.Punctuation '.' -> (
-      match parse_member_suffix cursor ~context left Ast.Direct_member with
-      | None -> None
-      | Some member ->
-          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-            member)
-  | Token_kind.Operator Operator.Arrow -> (
-      match parse_member_suffix cursor ~context left Ast.Pointer_member with
-      | None -> None
-      | Some member ->
-          parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-            member)
-  | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> (
-      match postfix_operator_kind item.token with
-      | None -> assert false
-      | Some operator_kind -> (
-          match
-            parse_postfix_update_suffix cursor ~context left operator_kind
-          with
-          | None -> None
-          | Some postfix ->
-              parse_expression_binary_tail cursor ~context ~depth
-                ~minimum_binding_power postfix))
-  | _ ->
-      parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
-        left
+  let invalid_direct_sizeof_suffix =
+    match (left.node, item.token.kind) with
+    | ( Ast.Sizeof_expression _,
+        ( Token_kind.Punctuation ('[' | '.')
+        | Token_kind.Operator
+            (Operator.Arrow | Operator.Increment | Operator.Decrement) ) ) ->
+        true
+    | _ -> false
+  in
+  if invalid_direct_sizeof_suffix then
+    expression_failure cursor item ~code:"HCPARSE0034"
+      ~message:
+        (Printf.sprintf
+           "sizeof result cannot be followed directly by %s in %s; apply a \
+            postfix cast before this suffix"
+           (token_description item.token)
+           (expression_context_name context))
+  else
+    match item.token.kind with
+    | Token_kind.Punctuation '(' -> (
+        let opening = take cursor in
+        let first = peek cursor in
+        let suffix =
+          match primitive_type_of_token first.token with
+          | Some primitive ->
+              parse_postfix_cast_suffix cursor ~context left opening primitive
+          | None -> (
+              match left.node with
+              | Ast.Sizeof_expression _ ->
+                  if first.token.kind = Token_kind.Identifier then
+                    expression_failure
+                      ~secondary:opening.context.definition_trace cursor first
+                      ~code:"HCPARSE0020"
+                      ~message:
+                        (Printf.sprintf
+                           "resolved nonprimitive postfix cast target %s after \
+                            sizeof is not implemented"
+                           (token_description first.token))
+                  else
+                    expression_failure
+                      ~secondary:opening.context.definition_trace cursor first
+                      ~code:"HCPARSE0034"
+                      ~message:
+                        (Printf.sprintf
+                           "expected a postfix cast target after sizeof in %s, \
+                            but found %s"
+                           (expression_context_name context)
+                           (token_description first.token))
+              | _ -> parse_call_suffix cursor ~context ~depth left opening)
+        in
+        match suffix with
+        | None -> None
+        | Some expression ->
+            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+              expression)
+    | Token_kind.Punctuation '[' -> (
+        match parse_index_suffix cursor ~context ~depth left with
+        | None -> None
+        | Some index ->
+            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+              index)
+    | Token_kind.Punctuation '.' -> (
+        match parse_member_suffix cursor ~context left Ast.Direct_member with
+        | None -> None
+        | Some member ->
+            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+              member)
+    | Token_kind.Operator Operator.Arrow -> (
+        match parse_member_suffix cursor ~context left Ast.Pointer_member with
+        | None -> None
+        | Some member ->
+            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+              member)
+    | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> (
+        match postfix_operator_kind item.token with
+        | None -> assert false
+        | Some operator_kind -> (
+            match
+              parse_postfix_update_suffix cursor ~context left operator_kind
+            with
+            | None -> None
+            | Some postfix ->
+                parse_expression_binary_tail cursor ~context ~depth
+                  ~minimum_binding_power postfix))
+    | _ ->
+        parse_expression_binary_tail cursor ~context ~depth
+          ~minimum_binding_power left
 
 and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
     (left : parsed_expression) : parsed_expression option =

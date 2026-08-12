@@ -183,6 +183,47 @@ let rec print_expression buffer sources ~indent expression =
         "%sexpression kind=current_position spelling=%S span=%s\n" indent
         operator.operator_spelling
         (location_text sources operator.operator_location)
+  | Ast.Sizeof_expression sizeof_expression ->
+      let wrapper_count =
+        List.length sizeof_expression.sizeof_opening_parentheses
+      in
+      Printf.bprintf buffer
+        "%sexpression kind=sizeof wrappers=%d members=%d pointer_layers=%d \
+         span=%s\n"
+        indent wrapper_count
+        (List.length sizeof_expression.sizeof_members)
+        (List.length sizeof_expression.sizeof_pointer_layers)
+        (location_text sources sizeof_expression.sizeof_location);
+      Printf.bprintf buffer "%skeyword spelling=%S span=%s\n" child_indent
+        sizeof_expression.sizeof_keyword_spelling
+        (location_text sources sizeof_expression.sizeof_keyword_location);
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sopening_parenthesis depth=%d span=%s\n"
+            child_indent (index + 1)
+            (location_text sources location))
+        sizeof_expression.sizeof_opening_parentheses;
+      Printf.bprintf buffer "%starget spelling=%S span=%s\n" child_indent
+        sizeof_expression.sizeof_target.spelling
+        (location_text sources sizeof_expression.sizeof_target.location);
+      List.iter
+        (fun (member : Ast.sizeof_member) ->
+          Printf.bprintf buffer "%smember span=%s\n" child_indent
+            (location_text sources member.sizeof_member_location);
+          Printf.bprintf buffer "%s  dot span=%s\n" child_indent
+            (location_text sources member.sizeof_member_dot);
+          Printf.bprintf buffer "%s  name spelling=%S span=%s\n" child_indent
+            member.sizeof_member_name.spelling
+            (location_text sources member.sizeof_member_name.location))
+        sizeof_expression.sizeof_members;
+      print_pointer_layers buffer sources ~indent:child_indent
+        sizeof_expression.sizeof_pointer_layers;
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sclosing_parenthesis depth=%d span=%s\n"
+            child_indent (wrapper_count - index)
+            (location_text sources location))
+        sizeof_expression.sizeof_closing_parentheses
   | Ast.Parenthesized_expression grouped ->
       Printf.bprintf buffer "%sexpression kind=parenthesized span=%s\n" indent
         (location_text sources grouped.parenthesized_location);
@@ -647,6 +688,14 @@ let expression_operator_to_yojson sources (operator : Ast.expression_operator) =
       ("location", location_to_yojson sources operator.operator_location);
     ]
 
+let sizeof_member_to_yojson sources (member : Ast.sizeof_member) =
+  `Assoc
+    [
+      ("dot", location_to_yojson sources member.sizeof_member_dot);
+      ("name", identifier_to_yojson sources member.sizeof_member_name);
+      ("location", location_to_yojson sources member.sizeof_member_location);
+    ]
+
 let rec expression_to_yojson sources = function
   | Ast.Integer_literal literal ->
       literal_to_yojson sources ~kind:"integer_literal" literal
@@ -670,6 +719,41 @@ let rec expression_to_yojson sources = function
           ("spelling", `String operator.operator_spelling);
           ("location", location_to_yojson sources operator.operator_location);
         ]
+  | Ast.Sizeof_expression sizeof_expression ->
+      `Assoc
+        ([
+           ("kind", `String "sizeof");
+           ( "keyword",
+             `Assoc
+               [
+                 ("spelling", `String sizeof_expression.sizeof_keyword_spelling);
+                 ( "location",
+                   location_to_yojson sources
+                     sizeof_expression.sizeof_keyword_location );
+               ] );
+           ( "opening_parentheses",
+             `List
+               (List.map
+                  (location_to_yojson sources)
+                  sizeof_expression.sizeof_opening_parentheses) );
+           ( "target",
+             identifier_to_yojson sources sizeof_expression.sizeof_target );
+           ( "members",
+             `List
+               (List.map
+                  (sizeof_member_to_yojson sources)
+                  sizeof_expression.sizeof_members) );
+         ]
+        @ pointer_layer_fields sources sizeof_expression.sizeof_pointer_layers
+        @ [
+            ( "closing_parentheses",
+              `List
+                (List.map
+                   (location_to_yojson sources)
+                   sizeof_expression.sizeof_closing_parentheses) );
+            ( "location",
+              location_to_yojson sources sizeof_expression.sizeof_location );
+          ])
   | Ast.Parenthesized_expression grouped ->
       `Assoc
         [
