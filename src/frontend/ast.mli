@@ -367,6 +367,7 @@ type statement =
   | For_statement of for_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
+  | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
 
@@ -420,6 +421,13 @@ and if_statement = private {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and return_statement = private {
+  return_keyword : location;
+  return_value : expression option;
+  return_semicolon : location option;
+  return_location : location;
 }
 
 and while_statement = private {
@@ -779,6 +787,13 @@ val make_if_statement :
   else_clause:else_clause option ->
   location:location ->
   if_statement
+
+val make_return_statement :
+  keyword:location ->
+  value:expression option ->
+  semicolon:location option ->
+  location:location ->
+  return_statement
 
 val make_while_statement :
   keyword:location ->

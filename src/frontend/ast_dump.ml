@@ -566,6 +566,25 @@ let rec print_statement buffer sources ~indent = function
         statement.while_body
   | Ast.Implicit_output_statement statement ->
       print_implicit_output_statement buffer sources ~indent statement
+  | Ast.Return_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sreturn_statement span=%s value=%b semicolon=%b\n"
+        indent
+        (location_text sources statement.return_location)
+        (Option.is_some statement.return_value)
+        (Option.is_some statement.return_semicolon);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.return_keyword);
+      Option.iter
+        (fun value ->
+          Printf.bprintf buffer "%svalue\n" child_indent;
+          print_expression buffer sources ~indent:(child_indent ^ "  ") value)
+        statement.return_value;
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+            (location_text sources semicolon))
+        statement.return_semicolon
   | Ast.Sequence_statement sequence ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer
@@ -1431,6 +1450,21 @@ let rec statement_to_yojson sources = function
         ]
   | Ast.Implicit_output_statement statement ->
       implicit_output_statement_to_yojson sources statement
+  | Ast.Return_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "return_statement");
+          ("keyword", location_to_yojson sources statement.return_keyword);
+          ( "value",
+            match statement.return_value with
+            | None -> `Null
+            | Some value -> expression_to_yojson sources value );
+          ( "semicolon",
+            match statement.return_semicolon with
+            | None -> `Null
+            | Some semicolon -> location_to_yojson sources semicolon );
+          ("location", location_to_yojson sources statement.return_location);
+        ]
   | Ast.Sequence_statement sequence ->
       let element_to_yojson (element : Ast.statement_sequence_element) =
         `Assoc
