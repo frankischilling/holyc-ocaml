@@ -1,0 +1,1 @@
+cli/parse-while-error.hc:3:1: error[HCPARSE0060]: expected a statement after the while condition, but found end of input

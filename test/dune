@@ -1949,3 +1949,67 @@
       1
       (run %{exe:../bin/holyc.exe} parse --format=json cli/parse-if-error.hc))))
    (diff cli/parse-if-error.json parse-if-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-statements.human.actual)
+ (deps cli/parse-while-statements.hc cli/parse-while-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-while-statements.hc))
+   (diff
+    cli/parse-while-statements.human
+    parse-while-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-statements.json.actual)
+ (deps cli/parse-while-statements.hc cli/parse-while-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-while-statements.hc))
+   (diff cli/parse-while-statements.json parse-while-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-while-error.human.actual
+  parse-while-error.human.stdout.actual)
+ (deps cli/parse-while-error.hc cli/parse-while-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-error.human.stdout.actual
+    (with-stderr-to
+     parse-while-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-while-error.hc))))
+   (diff cli/parse-while-error.human parse-while-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-while-error.json.actual parse-while-error.json.stdout.actual)
+ (deps cli/parse-while-error.hc cli/parse-while-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-while-error.json.stdout.actual
+    (with-stderr-to
+     parse-while-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-while-error.hc))))
+   (diff cli/parse-while-error.json parse-while-error.json.actual))))
