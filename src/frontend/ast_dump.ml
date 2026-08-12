@@ -224,6 +224,43 @@ let rec print_expression buffer sources ~indent expression =
             child_indent (wrapper_count - index)
             (location_text sources location))
         sizeof_expression.sizeof_closing_parentheses
+  | Ast.Offset_expression offset_expression ->
+      let wrapper_count =
+        List.length offset_expression.offset_opening_parentheses
+      in
+      Printf.bprintf buffer
+        "%sexpression kind=offset wrappers=%d members=%d span=%s\n" indent
+        wrapper_count
+        (List.length offset_expression.offset_members)
+        (location_text sources offset_expression.offset_location);
+      Printf.bprintf buffer "%skeyword spelling=%S span=%s\n" child_indent
+        offset_expression.offset_keyword_spelling
+        (location_text sources offset_expression.offset_keyword_location);
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sopening_parenthesis depth=%d span=%s\n"
+            child_indent (index + 1)
+            (location_text sources location))
+        offset_expression.offset_opening_parentheses;
+      Printf.bprintf buffer "%starget spelling=%S span=%s\n" child_indent
+        offset_expression.offset_target.spelling
+        (location_text sources offset_expression.offset_target.location);
+      List.iter
+        (fun (member : Ast.offset_member) ->
+          Printf.bprintf buffer "%smember span=%s\n" child_indent
+            (location_text sources member.offset_member_location);
+          Printf.bprintf buffer "%s  dot span=%s\n" child_indent
+            (location_text sources member.offset_member_dot);
+          Printf.bprintf buffer "%s  name spelling=%S span=%s\n" child_indent
+            member.offset_member_name.spelling
+            (location_text sources member.offset_member_name.location))
+        offset_expression.offset_members;
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sclosing_parenthesis depth=%d span=%s\n"
+            child_indent (wrapper_count - index)
+            (location_text sources location))
+        offset_expression.offset_closing_parentheses
   | Ast.Parenthesized_expression grouped ->
       Printf.bprintf buffer "%sexpression kind=parenthesized span=%s\n" indent
         (location_text sources grouped.parenthesized_location);
@@ -696,6 +733,14 @@ let sizeof_member_to_yojson sources (member : Ast.sizeof_member) =
       ("location", location_to_yojson sources member.sizeof_member_location);
     ]
 
+let offset_member_to_yojson sources (member : Ast.offset_member) =
+  `Assoc
+    [
+      ("dot", location_to_yojson sources member.offset_member_dot);
+      ("name", identifier_to_yojson sources member.offset_member_name);
+      ("location", location_to_yojson sources member.offset_member_location);
+    ]
+
 let rec expression_to_yojson sources = function
   | Ast.Integer_literal literal ->
       literal_to_yojson sources ~kind:"integer_literal" literal
@@ -754,6 +799,38 @@ let rec expression_to_yojson sources = function
             ( "location",
               location_to_yojson sources sizeof_expression.sizeof_location );
           ])
+  | Ast.Offset_expression offset_expression ->
+      `Assoc
+        [
+          ("kind", `String "offset");
+          ( "keyword",
+            `Assoc
+              [
+                ("spelling", `String offset_expression.offset_keyword_spelling);
+                ( "location",
+                  location_to_yojson sources
+                    offset_expression.offset_keyword_location );
+              ] );
+          ( "opening_parentheses",
+            `List
+              (List.map
+                 (location_to_yojson sources)
+                 offset_expression.offset_opening_parentheses) );
+          ( "target",
+            identifier_to_yojson sources offset_expression.offset_target );
+          ( "members",
+            `List
+              (List.map
+                 (offset_member_to_yojson sources)
+                 offset_expression.offset_members) );
+          ( "closing_parentheses",
+            `List
+              (List.map
+                 (location_to_yojson sources)
+                 offset_expression.offset_closing_parentheses) );
+          ( "location",
+            location_to_yojson sources offset_expression.offset_location );
+        ]
   | Ast.Parenthesized_expression grouped ->
       `Assoc
         [

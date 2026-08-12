@@ -79,6 +79,7 @@ type expression =
   | Identifier_expression of identifier
   | Current_position_expression of expression_operator
   | Sizeof_expression of sizeof_expression
+  | Offset_expression of offset_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -114,6 +115,22 @@ and sizeof_expression = {
   sizeof_pointer_layers : pointer_layer list;
   sizeof_closing_parentheses : location list;
   sizeof_location : location;
+}
+
+and offset_member = {
+  offset_member_dot : location;
+  offset_member_name : identifier;
+  offset_member_location : location;
+}
+
+and offset_expression = {
+  offset_keyword_spelling : string;
+  offset_keyword_location : location;
+  offset_opening_parentheses : location list;
+  offset_target : identifier;
+  offset_members : offset_member list;
+  offset_closing_parentheses : location list;
+  offset_location : location;
 }
 
 and parenthesized_expression = {
@@ -376,6 +393,25 @@ let make_sizeof_expression ~keyword_spelling ~keyword_location
     sizeof_location = location;
   }
 
+let make_offset_member ~dot ~name ~location =
+  {
+    offset_member_dot = dot;
+    offset_member_name = name;
+    offset_member_location = location;
+  }
+
+let make_offset_expression ~keyword_spelling ~keyword_location
+    ~opening_parentheses ~target ~members ~closing_parentheses ~location =
+  {
+    offset_keyword_spelling = keyword_spelling;
+    offset_keyword_location = keyword_location;
+    offset_opening_parentheses = opening_parentheses;
+    offset_target = target;
+    offset_members = members;
+    offset_closing_parentheses = closing_parentheses;
+    offset_location = location;
+  }
+
 let make_parenthesized_expression ~opening_parenthesis ~expression
     ~closing_parenthesis ~location =
   {
@@ -465,6 +501,7 @@ let expression_location = function
   | Identifier_expression identifier -> identifier.location
   | Current_position_expression operator -> operator.operator_location
   | Sizeof_expression expression -> expression.sizeof_location
+  | Offset_expression expression -> expression.offset_location
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
   | Postfix_expression expression -> expression.postfix_location

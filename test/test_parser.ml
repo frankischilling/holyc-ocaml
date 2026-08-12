@@ -153,6 +153,10 @@ let expect_sizeof_expression = function
   | Ast.Sizeof_expression sizeof_expression -> sizeof_expression
   | _ -> Alcotest.fail "expected a sizeof expression"
 
+let expect_offset_expression = function
+  | Ast.Offset_expression offset_expression -> offset_expression
+  | _ -> Alcotest.fail "expected an offset expression"
+
 let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
@@ -3960,6 +3964,413 @@ let deterministic_sizeof_dumps () =
     (binary_json |> member "right" |> member "base" |> member "operand"
    |> member "kind" |> to_string)
 
+let offset_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("offset parser is a distinct routine", "U0 PrsOffsetOf(CCmpCtrl *cc)");
+      ("offset target must be an identifier", "if (cc->token!=TK_IDENT)");
+      ("offset accepts a local variable", "if (tmpm=cc->local_var_entry)");
+      ( "offset accepts classes and globals",
+        "tmpc->type & (HTT_CLASS|HTT_GLBL_VAR)" );
+      ("offset requires a member dot", "if (Lex(cc)!='.')");
+      ("offset starts at zero", "i=0;");
+      ("offset adds each member offset", "i+=tmpm->offset;");
+      ("offset follows the member class", "tmpc=tmpm->member_class;");
+      ("offset follows repeated members", "} while (Lex(cc)=='.');");
+      ( "offset emits an immediate result",
+        "ICAdd(cc,IC_IMM_I64,i,cmp.internal_types[RT_I64]);" );
+      ("offset keyword dispatch", "case KW_OFFSET:");
+      ("offset accepts wrapper parentheses", "while (Lex(cc)=='(')");
+      ("offset delegates its named target", "PrsOffsetOf(cc);");
+      ( "offset returns the restricted modifier state",
+        "return PE_MAYBE_MODIFIERS;" );
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "offset keyword identity" true
+    (contains compiler_header "#define KW_OFFSET\t26");
+  Alcotest.(check bool)
+    "language guide documents the one-member claim" true
+    (contains (pinned "Doc/HolyC.DD") "only accept one level of member vars");
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Compiler/PrsVar.HC", "offset(CVI2.base)");
+      ("Kernel/MultiProc.HC", "offset(CGDT.tr)");
+      ("Adam/AMem.HC", "offset(CMemUsed.next)");
+    ]
+
+let offset_shapes () =
+  let offset_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_offset_expression
+  in
+  let bare = offset_from "_intern offset Packet.header I64 Bare();" in
+  Alcotest.(check string)
+    "bare keyword spelling" "offset" bare.offset_keyword_spelling;
+  Alcotest.(check string) "bare target" "Packet" bare.offset_target.spelling;
+  Alcotest.(check int)
+    "bare form has no wrapper" 0
+    (List.length bare.offset_opening_parentheses);
+  Alcotest.(check (list string))
+    "bare form retains its required member" [ "header" ]
+    (List.map
+       (fun (member : Ast.offset_member) -> member.offset_member_name.spelling)
+       bare.offset_members);
+  let wrapped =
+    offset_from "_intern offset(((Packet.header))) I64 Wrapped();"
+  in
+  Alcotest.(check int)
+    "three opening wrappers" 3
+    (List.length wrapped.offset_opening_parentheses);
+  Alcotest.(check int)
+    "three closing wrappers" 3
+    (List.length wrapped.offset_closing_parentheses);
+  let members =
+    offset_from "_intern offset(Root.first.second.third) I64 Members();"
+  in
+  Alcotest.(check (list string))
+    "executable source loop retains repeated members"
+    [ "first"; "second"; "third" ]
+    (List.map
+       (fun (member : Ast.offset_member) -> member.offset_member_name.spelling)
+       members.offset_members)
+
+let offset_postfix_and_precedence () =
+  let expression_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+  in
+  let cast =
+    expression_from "_intern offset(Packet.field)(U64) I64 Casted();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_offset_expression cast.cast_operand);
+  let called =
+    expression_from "_intern offset(Packet.field)(U0 *)() I64 Called();"
+    |> expect_call_expression
+  in
+  ignore
+    ( called.call_callee |> expect_postfix_cast_expression |> fun cast ->
+      expect_offset_expression cast.cast_operand );
+  let indexed =
+    expression_from "_intern offset(Packet.field)(U8 *)[0] I64 Indexed();"
+    |> expect_index_expression
+  in
+  ignore
+    ( indexed.index_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_offset_expression cast.cast_operand );
+  let member =
+    expression_from "_intern offset(Packet.field)(U8 *).value I64 Member();"
+    |> expect_member_expression
+  in
+  ignore
+    ( member.member_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_offset_expression cast.cast_operand );
+  let update =
+    expression_from "_intern offset(Packet.field)(I64)++ I64 Updated();"
+    |> expect_postfix_expression
+  in
+  ignore
+    ( update.postfix_operand |> expect_postfix_cast_expression |> fun cast ->
+      expect_offset_expression cast.cast_operand );
+  let prefix =
+    expression_from "_intern -offset(Packet.field) I64 Negated();"
+    |> expect_prefix_expression
+  in
+  ignore (expect_offset_expression prefix.prefix_operand);
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let root =
+        expression_from
+          (Printf.sprintf "_intern offset(Packet.field) %s 2 I64 Binary%d();"
+             operator.spelling index)
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_offset_expression root.binary_left))
+    Operator.binary_operators;
+  let multiplication =
+    expression_from "_intern offset(Packet.field) * 2 I64 Multiplied();"
+    |> expect_binary_expression
+  in
+  Alcotest.(check string)
+    "a star after offset is multiplication" "*"
+    multiplication.binary_operator.operator_spelling;
+  ignore (expect_offset_expression multiplication.binary_left)
+
+let offset_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=offset(Packet.field));"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_offset_expression default.value );
+  let _, _, dimension_output =
+    parse_string "I64 values[offset(Packet.field)];"
+  in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_offset_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(offset(Packet.field)) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_offset_expression );
+  let _, _, index_output =
+    parse_string "_intern table[offset(Packet.field)] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_offset_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "_intern offset(Packet.header) I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_offset_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let offset_provenance () =
+  let source =
+    "#define OFFSET offset\n\
+     #define OPEN (\n\
+     #define ROOT Packet\n\
+     #define DOT .\n\
+     #define FIRST header\n\
+     #define SECOND payload\n\
+     #define CLOSE )\n\
+     _intern OFFSET OPEN ROOT DOT FIRST DOT SECOND CLOSE I64 Generated();"
+  in
+  let session, root, output = parse_string source in
+  let offset_expression =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_offset_expression
+  in
+  let first_member = List.hd offset_expression.offset_members in
+  let second_member = List.nth offset_expression.offset_members 1 in
+  let opening = List.hd offset_expression.offset_opening_parentheses in
+  let closing = List.hd offset_expression.offset_closing_parentheses in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("keyword", offset_expression.offset_keyword_location);
+      ("opening parenthesis", opening);
+      ("target", offset_expression.offset_target.location);
+      ("first member dot", first_member.offset_member_dot);
+      ("first member name", first_member.offset_member_name.location);
+      ("second member name", second_member.offset_member_name.location);
+      ("closing parenthesis", closing);
+    ];
+  Alcotest.(check bool)
+    "combined offset location retains generated segments" true
+    (List.length offset_expression.offset_location.source_segments > 1);
+  let open Yojson.Safe.Util in
+  let offset_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated keyword provenance" true
+    (offset_json |> member "keyword" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "offset.HC" in
+      write_file root_file "#include \"offset\"";
+      write_file declaration_file
+        "_intern offset(Packet.header) I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_offset =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_offset_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_offset.offset_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included offset keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let offset_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) rejected_name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected offset declaration %s became visible"
+            rejected_name)
+    [
+      ( "empty target",
+        "_intern offset() I64 Empty();",
+        "Empty",
+        "HCPARSE0035",
+        "expected a named offset target" );
+      ( "literal target",
+        "_intern offset(1) I64 Literal();",
+        "Literal",
+        "HCPARSE0035",
+        "found \"1\"" );
+      ( "missing required member",
+        "_intern offset(Packet) I64 MissingMember();",
+        "MissingMember",
+        "HCPARSE0036",
+        "expected '.' after named offset target" );
+      ( "missing member name",
+        "_intern offset(Packet.) I64 MissingName();",
+        "MissingName",
+        "HCPARSE0037",
+        "expected a member name after '.'" );
+      ( "unclosed target",
+        "_intern offset(Packet.field I64 Unclosed();",
+        "Unclosed",
+        "HCPARSE0038",
+        "one wrapper parenthesis remains" );
+      ( "pointer target",
+        "_intern offset(Packet.field*) I64 Pointer();",
+        "Pointer",
+        "HCPARSE0038",
+        "found \"*\"" );
+      ( "direct call suffix",
+        "_intern offset(Packet.field)() I64 Called();",
+        "Called",
+        "HCPARSE0039",
+        "expected a postfix cast target after offset" );
+      ( "direct index suffix",
+        "_intern offset(Packet.field)[0] I64 Indexed();",
+        "Indexed",
+        "HCPARSE0039",
+        "cannot be followed directly by \"[\"" );
+      ( "direct member suffix",
+        "_intern offset(Packet.field).value I64 Member();",
+        "Member",
+        "HCPARSE0039",
+        "cannot be followed directly by \".\"" );
+      ( "direct pointer-member suffix",
+        "_intern offset(Packet.field)->value I64 PointerMember();",
+        "PointerMember",
+        "HCPARSE0039",
+        "cannot be followed directly by \"->\"" );
+      ( "direct increment suffix",
+        "_intern offset(Packet.field)++ I64 Incremented();",
+        "Incremented",
+        "HCPARSE0039",
+        "cannot be followed directly by \"++\"" );
+      ( "direct decrement suffix",
+        "_intern offset(Packet.field)-- I64 Decremented();",
+        "Decremented",
+        "HCPARSE0039",
+        "cannot be followed directly by \"--\"" );
+      ( "nonprimitive cast target",
+        "_intern offset(Packet.field)(Widget) I64 Casted();",
+        "Casted",
+        "HCPARSE0020",
+        "nonprimitive postfix cast target" );
+    ]
+
+let deterministic_offset_dumps () =
+  let session, _, output =
+    parse_string
+      "_intern offset(((Packet.header.entry)))(U64) + offset table.item(U8 \
+       *)[0] I64 Measured();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human offset dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON offset dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names wrapper and member counts" true
+    (contains human "expression kind=offset wrappers=3 members=2");
+  let open Yojson.Safe.Util in
+  let binary_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  let left_offset = binary_json |> member "left" |> member "operand" in
+  Alcotest.(check string)
+    "JSON left cast wraps offset" "offset"
+    (left_offset |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "JSON keeps three opening wrappers" 3
+    (left_offset |> member "opening_parentheses" |> to_list |> List.length);
+  Alcotest.(check int)
+    "JSON keeps two member segments" 2
+    (left_offset |> member "members" |> to_list |> List.length);
+  Alcotest.(check string)
+    "JSON right index base wraps offset in a cast" "offset"
+    (binary_json |> member "right" |> member "base" |> member "operand"
+   |> member "kind" |> to_string)
+
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -5721,6 +6132,16 @@ let tests =
     Alcotest.test_case "sizeof failures" `Quick sizeof_failures;
     Alcotest.test_case "deterministic sizeof dumps" `Quick
       deterministic_sizeof_dumps;
+    Alcotest.test_case "pinned offset behavior" `Quick offset_source_behavior;
+    Alcotest.test_case "offset shapes" `Quick offset_shapes;
+    Alcotest.test_case "offset postfix and precedence" `Quick
+      offset_postfix_and_precedence;
+    Alcotest.test_case "offset contexts and modes" `Quick
+      offset_contexts_and_modes;
+    Alcotest.test_case "offset provenance" `Quick offset_provenance;
+    Alcotest.test_case "offset failures" `Quick offset_failures;
+    Alcotest.test_case "deterministic offset dumps" `Quick
+      deterministic_offset_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick
