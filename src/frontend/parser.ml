@@ -2026,8 +2026,7 @@ let rec parse_declarators cursor base_spelling declarators_rev =
       let declarators_rev = declarator :: declarators_rev in
       match declarator.node.delimiter.kind with
       | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev
-      )
+      | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev)
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
@@ -3007,8 +3006,8 @@ let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
         (item.token :: tokens_rev)
   | _ -> (List.rev nodes_rev, List.rev tokens_rev)
 
-let parse_local_declarator cursor ~boundary ~base_spelling
-    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
+let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
+    ~qualifier_tokens : parsed_local_declarator option =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) -> (
