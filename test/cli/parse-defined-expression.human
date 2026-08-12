@@ -1,0 +1,35 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-defined-expression.hc:1:1..2:1 items=1
+  function_prototype span=cli/parse-defined-expression.hc:1:1..1:59 parameters=0 variadic=false
+    binding kind=intern spelling="_intern" span=cli/parse-defined-expression.hc:1:1..1:8
+      target_expression
+        expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-defined-expression.hc:1:9..1:44
+          left
+            expression kind=postfix_cast span=cli/parse-defined-expression.hc:1:9..1:30
+              operand
+                expression kind=defined wrappers=3 span=cli/parse-defined-expression.hc:1:9..1:25
+                  keyword spelling="defined" span=cli/parse-defined-expression.hc:1:9..1:16
+                  opening_parenthesis depth=1 span=cli/parse-defined-expression.hc:1:16..1:17
+                  opening_parenthesis depth=2 span=cli/parse-defined-expression.hc:1:17..1:18
+                  opening_parenthesis depth=3 span=cli/parse-defined-expression.hc:1:18..1:19
+                  operand kind=name spelling="I64" span=cli/parse-defined-expression.hc:1:19..1:22
+                  closing_parenthesis depth=3 span=cli/parse-defined-expression.hc:1:22..1:23
+                  closing_parenthesis depth=2 span=cli/parse-defined-expression.hc:1:23..1:24
+                  closing_parenthesis depth=1 span=cli/parse-defined-expression.hc:1:24..1:25
+              opening_parenthesis span=cli/parse-defined-expression.hc:1:25..1:26
+              target
+                type primitive=U64 spelling="U64" span=cli/parse-defined-expression.hc:1:26..1:29
+              closing_parenthesis span=cli/parse-defined-expression.hc:1:29..1:30
+          operator spelling="+" span=cli/parse-defined-expression.hc:1:31..1:32
+          right
+            expression kind=defined wrappers=1 span=cli/parse-defined-expression.hc:1:33..1:44
+              keyword spelling="defined" span=cli/parse-defined-expression.hc:1:33..1:40
+              opening_parenthesis depth=1 span=cli/parse-defined-expression.hc:1:40..1:41
+              operand kind=non_name spelling="42" span=cli/parse-defined-expression.hc:1:41..1:43
+              closing_parenthesis depth=1 span=cli/parse-defined-expression.hc:1:43..1:44
+    return_type primitive=I64 spelling="I64" span=cli/parse-defined-expression.hc:1:45..1:48
+    name spelling="Checked" span=cli/parse-defined-expression.hc:1:49..1:56
+    opening_parenthesis span=cli/parse-defined-expression.hc:1:56..1:57
+    closing_parenthesis span=cli/parse-defined-expression.hc:1:57..1:58
+    semicolon span=cli/parse-defined-expression.hc:1:58..1:59

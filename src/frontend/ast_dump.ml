@@ -89,6 +89,10 @@ let member_access_kind_name = function
   | Ast.Direct_member -> "direct"
   | Ast.Pointer_member -> "pointer"
 
+let defined_operand_kind_name = function
+  | Ast.Defined_name -> "name"
+  | Ast.Defined_non_name -> "non_name"
+
 let association_name = function
   | Operator.Unspecified -> "unspecified"
   | Operator.Left -> "left"
@@ -261,6 +265,35 @@ let rec print_expression buffer sources ~indent expression =
             child_indent (wrapper_count - index)
             (location_text sources location))
         offset_expression.offset_closing_parentheses
+  | Ast.Defined_expression defined_expression ->
+      let wrapper_count =
+        List.length defined_expression.defined_opening_parentheses
+      in
+      Printf.bprintf buffer "%sexpression kind=defined wrappers=%d span=%s\n"
+        indent wrapper_count
+        (location_text sources defined_expression.defined_location);
+      Printf.bprintf buffer "%skeyword spelling=%S span=%s\n" child_indent
+        defined_expression.defined_keyword_spelling
+        (location_text sources defined_expression.defined_keyword_location);
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sopening_parenthesis depth=%d span=%s\n"
+            child_indent (index + 1)
+            (location_text sources location))
+        defined_expression.defined_opening_parentheses;
+      Printf.bprintf buffer "%soperand kind=%s spelling=%S span=%s\n"
+        child_indent
+        (defined_operand_kind_name
+           defined_expression.defined_operand.defined_operand_kind)
+        defined_expression.defined_operand.defined_operand_spelling
+        (location_text sources
+           defined_expression.defined_operand.defined_operand_location);
+      List.iteri
+        (fun index location ->
+          Printf.bprintf buffer "%sclosing_parenthesis depth=%d span=%s\n"
+            child_indent (wrapper_count - index)
+            (location_text sources location))
+        defined_expression.defined_closing_parentheses
   | Ast.Parenthesized_expression grouped ->
       Printf.bprintf buffer "%sexpression kind=parenthesized span=%s\n" indent
         (location_text sources grouped.parenthesized_location);
@@ -830,6 +863,48 @@ let rec expression_to_yojson sources = function
                  offset_expression.offset_closing_parentheses) );
           ( "location",
             location_to_yojson sources offset_expression.offset_location );
+        ]
+  | Ast.Defined_expression defined_expression ->
+      `Assoc
+        [
+          ("kind", `String "defined");
+          ( "keyword",
+            `Assoc
+              [
+                ("spelling", `String defined_expression.defined_keyword_spelling);
+                ( "location",
+                  location_to_yojson sources
+                    defined_expression.defined_keyword_location );
+              ] );
+          ( "opening_parentheses",
+            `List
+              (List.map
+                 (location_to_yojson sources)
+                 defined_expression.defined_opening_parentheses) );
+          ( "operand",
+            `Assoc
+              [
+                ( "kind",
+                  `String
+                    (defined_operand_kind_name
+                       defined_expression.defined_operand.defined_operand_kind)
+                );
+                ( "spelling",
+                  `String
+                    defined_expression.defined_operand.defined_operand_spelling
+                );
+                ( "location",
+                  location_to_yojson sources
+                    defined_expression.defined_operand.defined_operand_location
+                );
+              ] );
+          ( "closing_parentheses",
+            `List
+              (List.map
+                 (location_to_yojson sources)
+                 defined_expression.defined_closing_parentheses) );
+          ( "location",
+            location_to_yojson sources defined_expression.defined_location );
         ]
   | Ast.Parenthesized_expression grouped ->
       `Assoc

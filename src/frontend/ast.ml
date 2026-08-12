@@ -70,6 +70,7 @@ type unary_operator_kind =
 
 type postfix_operator_kind = Post_increment | Post_decrement
 type member_access_kind = Direct_member | Pointer_member
+type defined_operand_kind = Defined_name | Defined_non_name
 
 type expression =
   | Integer_literal of expression_literal
@@ -80,6 +81,7 @@ type expression =
   | Current_position_expression of expression_operator
   | Sizeof_expression of sizeof_expression
   | Offset_expression of offset_expression
+  | Defined_expression of defined_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -131,6 +133,21 @@ and offset_expression = {
   offset_members : offset_member list;
   offset_closing_parentheses : location list;
   offset_location : location;
+}
+
+and defined_operand = {
+  defined_operand_kind : defined_operand_kind;
+  defined_operand_spelling : string;
+  defined_operand_location : location;
+}
+
+and defined_expression = {
+  defined_keyword_spelling : string;
+  defined_keyword_location : location;
+  defined_opening_parentheses : location list;
+  defined_operand : defined_operand;
+  defined_closing_parentheses : location list;
+  defined_location : location;
 }
 
 and parenthesized_expression = {
@@ -412,6 +429,24 @@ let make_offset_expression ~keyword_spelling ~keyword_location
     offset_location = location;
   }
 
+let make_defined_operand ~kind ~spelling ~location =
+  {
+    defined_operand_kind = kind;
+    defined_operand_spelling = spelling;
+    defined_operand_location = location;
+  }
+
+let make_defined_expression ~keyword_spelling ~keyword_location
+    ~opening_parentheses ~operand ~closing_parentheses ~location =
+  {
+    defined_keyword_spelling = keyword_spelling;
+    defined_keyword_location = keyword_location;
+    defined_opening_parentheses = opening_parentheses;
+    defined_operand = operand;
+    defined_closing_parentheses = closing_parentheses;
+    defined_location = location;
+  }
+
 let make_parenthesized_expression ~opening_parenthesis ~expression
     ~closing_parenthesis ~location =
   {
@@ -502,6 +537,7 @@ let expression_location = function
   | Current_position_expression operator -> operator.operator_location
   | Sizeof_expression expression -> expression.sizeof_location
   | Offset_expression expression -> expression.offset_location
+  | Defined_expression expression -> expression.defined_location
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
   | Postfix_expression expression -> expression.postfix_location
