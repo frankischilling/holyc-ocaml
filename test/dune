@@ -1744,3 +1744,82 @@
    (diff
     cli/parse-implicit-output-error.json
     parse-implicit-output-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-statement-sequences.human.actual)
+ (deps cli/parse-statement-sequences.hc cli/parse-statement-sequences.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequences.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-statement-sequences.hc))
+   (diff
+    cli/parse-statement-sequences.human
+    parse-statement-sequences.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-statement-sequences.json.actual)
+ (deps cli/parse-statement-sequences.hc cli/parse-statement-sequences.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequences.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-statement-sequences.hc))
+   (diff
+    cli/parse-statement-sequences.json
+    parse-statement-sequences.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-statement-sequence-error.human.actual
+  parse-statement-sequence-error.human.stdout.actual)
+ (deps
+  cli/parse-statement-sequence-error.hc
+  cli/parse-statement-sequence-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequence-error.human.stdout.actual
+    (with-stderr-to
+     parse-statement-sequence-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-statement-sequence-error.hc))))
+   (diff
+    cli/parse-statement-sequence-error.human
+    parse-statement-sequence-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-statement-sequence-error.json.actual
+  parse-statement-sequence-error.json.stdout.actual)
+ (deps
+  cli/parse-statement-sequence-error.hc
+  cli/parse-statement-sequence-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-statement-sequence-error.json.stdout.actual
+    (with-stderr-to
+     parse-statement-sequence-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-statement-sequence-error.hc))))
+   (diff
+    cli/parse-statement-sequence-error.json
+    parse-statement-sequence-error.json.actual))))

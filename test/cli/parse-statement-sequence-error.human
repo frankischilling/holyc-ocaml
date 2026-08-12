@@ -1,0 +1,1 @@
+cli/parse-statement-sequence-error.hc:3:1: error[HCPARSE0047]: expected ';' or ',' after statement expression, but found end of input

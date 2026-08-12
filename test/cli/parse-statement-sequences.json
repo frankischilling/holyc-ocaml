@@ -1,0 +1,731 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-statement-sequences.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 30
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-statement-sequences.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-statement-sequences.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "statement_sequence",
+          "leading_commas": [
+            {
+              "span": {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-statement-sequences.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 11,
+                  "stop": 12
+                }
+              ]
+            },
+            {
+              "span": {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 2,
+                "source_id": 0,
+                "start": 12,
+                "stop": 13
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-statement-sequences.hc",
+                  "line": 2,
+                  "column": 2,
+                  "source_id": 0,
+                  "start": 12,
+                  "stop": 13
+                }
+              ]
+            }
+          ],
+          "elements": [
+            {
+              "statement": {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "binary",
+                  "left": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 13,
+                        "stop": 18
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-statement-sequences.hc",
+                          "line": 2,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 13,
+                          "stop": 18
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "=",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 18,
+                        "stop": 19
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-statement-sequences.hc",
+                          "line": 2,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 18,
+                          "stop": 19
+                        }
+                      ]
+                    }
+                  },
+                  "precedence": "PREC_ASSIGN",
+                  "precedence_value": 60,
+                  "association": "right",
+                  "ic": "IC_ASSIGN",
+                  "source_line": 319,
+                  "right": {
+                    "kind": "integer_literal",
+                    "spelling": "1",
+                    "value": "0x0000000000000001",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 20
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-statement-sequences.hc",
+                          "line": 2,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 19,
+                          "stop": 20
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 13,
+                      "stop": 20
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 13,
+                        "stop": 18
+                      },
+                      {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 18,
+                        "stop": 19
+                      },
+                      {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 20
+                      }
+                    ]
+                  }
+                },
+                "semicolon": null,
+                "location": {
+                  "span": {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 13,
+                    "stop": 20
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 13,
+                      "stop": 18
+                    },
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 18,
+                      "stop": 19
+                    },
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 20
+                    }
+                  ]
+                }
+              },
+              "following_commas": [
+                {
+                  "span": {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 21
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 21
+                    }
+                  ]
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-statement-sequences.hc",
+                  "line": 2,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 21
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 13,
+                    "stop": 18
+                  },
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 18,
+                    "stop": 19
+                  },
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 20
+                  },
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 21
+                  }
+                ]
+              }
+            },
+            {
+              "statement": {
+                "kind": "expression_statement",
+                "expression": {
+                  "kind": "postfix",
+                  "operator_kind": "post_increment",
+                  "operand": {
+                    "kind": "identifier",
+                    "spelling": "value",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 21,
+                        "stop": 26
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-statement-sequences.hc",
+                          "line": 2,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 21,
+                          "stop": 26
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "++",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 28
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-statement-sequences.hc",
+                          "line": 2,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 28
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 28
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 21,
+                        "stop": 26
+                      },
+                      {
+                        "path": "cli/parse-statement-sequences.hc",
+                        "line": 2,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 28
+                      }
+                    ]
+                  }
+                },
+                "semicolon": {
+                  "span": {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 29
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 29
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 26
+                    },
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 28
+                    },
+                    {
+                      "path": "cli/parse-statement-sequences.hc",
+                      "line": 2,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 29
+                    }
+                  ]
+                }
+              },
+              "following_commas": [],
+              "location": {
+                "span": {
+                  "path": "cli/parse-statement-sequences.hc",
+                  "line": 2,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 26
+                  },
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-statement-sequences.hc",
+                    "line": 2,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              }
+            }
+          ],
+          "location": {
+            "span": {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 29
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 2,
+                "source_id": 0,
+                "start": 12,
+                "stop": 13
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 3,
+                "source_id": 0,
+                "start": 13,
+                "stop": 18
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 8,
+                "source_id": 0,
+                "start": 18,
+                "stop": 19
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 9,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 10,
+                "source_id": 0,
+                "start": 20,
+                "stop": 21
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 21,
+                "stop": 26
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 16,
+                "source_id": 0,
+                "start": 26,
+                "stop": 28
+              },
+              {
+                "path": "cli/parse-statement-sequences.hc",
+                "line": 2,
+                "column": 18,
+                "source_id": 0,
+                "start": 28,
+                "stop": 29
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-statement-sequences.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 29
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 2,
+              "source_id": 0,
+              "start": 12,
+              "stop": 13
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 3,
+              "source_id": 0,
+              "start": 13,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 8,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 9,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 10,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 11,
+              "source_id": 0,
+              "start": 21,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 16,
+              "source_id": 0,
+              "start": 26,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-statement-sequences.hc",
+              "line": 2,
+              "column": 18,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
