@@ -353,6 +353,20 @@ type expression_statement = {
   expression_statement_location : location;
 }
 
+type switch_mode = Bounded_switch | No_bound_switch
+
+type switch_case_range = {
+  case_range_start : expression;
+  case_range_ellipsis : location;
+  case_range_end : expression;
+  case_range_location : location;
+}
+
+type switch_case_pattern =
+  | Implicit_case
+  | Single_case of expression
+  | Ranged_case of switch_case_range
+
 type statement =
   | Block_statement of block_statement
   | Break_statement of break_statement
@@ -367,6 +381,7 @@ type statement =
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
+  | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
 
@@ -439,6 +454,46 @@ and lock_statement = {
   lock_keyword : location;
   lock_body : statement;
   lock_location : location;
+}
+
+and switch_statement = {
+  switch_keyword : location;
+  switch_mode : switch_mode;
+  switch_opening_delimiter : location;
+  switch_expression : expression;
+  switch_closing_delimiter : location;
+  switch_opening_brace : location;
+  switch_elements : switch_element list;
+  switch_closing_brace : location;
+  switch_location : location;
+}
+
+and switch_element =
+  | Switch_case_element of switch_case_label
+  | Switch_default_element of switch_default_label
+  | Switch_subswitch_element of switch_subswitch
+  | Switch_statement_element of statement
+
+and switch_case_label = {
+  switch_case_keyword : location;
+  switch_case_pattern : switch_case_pattern;
+  switch_case_colon : location;
+  switch_case_location : location;
+}
+
+and switch_default_label = {
+  switch_default_keyword : location;
+  switch_default_colon : location;
+  switch_default_location : location;
+}
+
+and switch_subswitch = {
+  subswitch_start_keyword : location;
+  subswitch_start_colon : location;
+  subswitch_elements : switch_element list;
+  subswitch_end_keyword : location;
+  subswitch_end_colon : location;
+  subswitch_location : location;
 }
 
 and try_catch_statement = {
@@ -856,6 +911,54 @@ let make_label_statement ~name ~colon ~location =
 let make_lock_statement ~keyword ~body ~location =
   { lock_keyword = keyword; lock_body = body; lock_location = location }
 
+let make_switch_case_range ~start ~ellipsis ~end_ ~location =
+  {
+    case_range_start = start;
+    case_range_ellipsis = ellipsis;
+    case_range_end = end_;
+    case_range_location = location;
+  }
+
+let make_switch_case_label ~keyword ~pattern ~colon ~location =
+  {
+    switch_case_keyword = keyword;
+    switch_case_pattern = pattern;
+    switch_case_colon = colon;
+    switch_case_location = location;
+  }
+
+let make_switch_default_label ~keyword ~colon ~location =
+  {
+    switch_default_keyword = keyword;
+    switch_default_colon = colon;
+    switch_default_location = location;
+  }
+
+let make_switch_subswitch ~start_keyword ~start_colon ~elements ~end_keyword
+    ~end_colon ~location =
+  {
+    subswitch_start_keyword = start_keyword;
+    subswitch_start_colon = start_colon;
+    subswitch_elements = elements;
+    subswitch_end_keyword = end_keyword;
+    subswitch_end_colon = end_colon;
+    subswitch_location = location;
+  }
+
+let make_switch_statement ~keyword ~mode ~opening_delimiter ~expression
+    ~closing_delimiter ~opening_brace ~elements ~closing_brace ~location =
+  {
+    switch_keyword = keyword;
+    switch_mode = mode;
+    switch_opening_delimiter = opening_delimiter;
+    switch_expression = expression;
+    switch_closing_delimiter = closing_delimiter;
+    switch_opening_brace = opening_brace;
+    switch_elements = elements;
+    switch_closing_brace = closing_brace;
+    switch_location = location;
+  }
+
 let make_try_catch_statement ~try_keyword ~try_body ~catch_keyword ~catch_body
     ~location =
   {
@@ -913,6 +1016,7 @@ let statement_location = function
   | Lock_statement statement -> statement.lock_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
+  | Switch_statement statement -> statement.switch_location
   | Try_catch_statement statement -> statement.try_catch_location
   | While_statement statement -> statement.while_location
 

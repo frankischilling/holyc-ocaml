@@ -46,3 +46,4 @@
 - Added source-shaped `for` statements with statement initializers, mandatory conditions, optional semicolon-free updates, comma-linked update sequences, deterministic dumps, provenance tracking, and the shared loop-depth guard.
 - Added source-shaped `break` statements with optional retained semicolons, comma and `for` update boundaries, deterministic dumps, provenance tracking, and block-safe malformed-input recovery.
 - Added valueless and value-bearing `return` statements with source-shaped comma and `for` update boundaries, deterministic dumps, provenance tracking, and block-safe malformed-input recovery.
+- Added bounded and no-bound `switch` statements with implicit, single, ranged, and default labels, ordered ordinary statements, recursive `start:`/`end:` sub-switch regions, provenance tracking, deterministic dumps, and structural recovery diagnostics.

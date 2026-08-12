@@ -1518,6 +1518,73 @@ lowering_status = "planned"
 execution_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-SWITCH-STATEMENTS"
+description = "HolyC switch statements retain bounded and no-bound headers plus ordered case, default, statement, and nested sub-switch elements."
+sources = [
+  "Compiler/PrsStmt.HC:PrsSwitch",
+  "Compiler/PrsStmt.HC:PrsStmt KW_SWITCH dispatch",
+  "Compiler/CompilerA.HH:KW_SWITCH, KW_START, KW_END, KW_CASE, and KW_DFT",
+  "Compiler/OpCodes.DD:KEYWORD switch, start, end, case, and default",
+  "Compiler/UAsm.HC:no-bound switch, range, and sub-switch uses",
+  "Kernel/Compress.HC:no-bound switch use",
+  "Kernel/StrPrint.HC:nested switch and sub-switch uses",
+  "Demo/NullCase.HC:implicit cases",
+  "Demo/SubSwitch.HC:braced sub-switch",
+  "Doc/HolyC.DD:switch modes, ranges, implicit cases, and sub-switch rules"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-switch-statements.hc",
+  "test/cli/parse-switch-statements.human",
+  "test/cli/parse-switch-statements.json",
+  "test/cli/parse-switch-error.hc",
+  "test/cli/parse-switch-error.human",
+  "test/cli/parse-switch-error.json"
+]
+status = "implemented"
+issue = 117
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level tooling mode and every recursive supported statement context"
+switch_modes = ["bounded parentheses", "no-bound brackets"]
+case_patterns = ["implicit", "single expression", "ranged expressions"]
+default_spelling = "default; KW_DFT is the source compiler's internal keyword constant"
+body_elements = ["case label", "default label", "ordinary statement", "nested sub-switch"]
+subswitch_delimiters = ["start:", "end:"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = [
+  "HCPARSE0084",
+  "HCPARSE0085",
+  "HCPARSE0086",
+  "HCPARSE0087",
+  "HCPARSE0088",
+  "HCPARSE0090",
+  "HCPARSE0091",
+  "HCPARSE0092",
+  "HCPARSE0093",
+  "HCPARSE0094",
+  "HCPARSE0095",
+  "HCPARSE0096",
+  "HCPARSE0097"
+]
+recovery_boundary = "case, default, start, end, or the enclosing switch close"
+hosted_switch_nesting_limit = 256
+hosted_subswitch_nesting_limit = 256
+source_nesting_limit = "none identified"
+implicit_case_value_status = "planned"
+constant_and_duplicate_validation_status = "planned"
+front_porch_validation_status = "planned"
+break_target_status = "planned"
+jump_table_status = "planned"
+ic_lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
 sources = [

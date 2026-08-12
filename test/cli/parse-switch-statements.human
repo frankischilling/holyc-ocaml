@@ -1,0 +1,107 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-switch-statements.hc:1:1..23:1 items=3
+  global_variable span=cli/parse-switch-statements.hc:1:1..1:11
+    type primitive=I64 spelling="I64" span=cli/parse-switch-statements.hc:1:1..1:4
+    name spelling="value" span=cli/parse-switch-statements.hc:1:5..1:10
+    semicolon span=cli/parse-switch-statements.hc:1:10..1:11
+  top_level_statement span=cli/parse-switch-statements.hc:3:1..17:2
+    switch_statement span=cli/parse-switch-statements.hc:3:1..17:2 mode=bounded elements=9
+      keyword span=cli/parse-switch-statements.hc:3:1..3:7
+      opening_delimiter span=cli/parse-switch-statements.hc:3:8..3:9
+      expression
+        expression kind=identifier spelling="value" span=cli/parse-switch-statements.hc:3:9..3:14
+      closing_delimiter span=cli/parse-switch-statements.hc:3:14..3:15
+      opening_brace span=cli/parse-switch-statements.hc:3:16..3:17
+      element index=0
+        case_label span=cli/parse-switch-statements.hc:4:3..4:8 pattern=implicit
+          keyword span=cli/parse-switch-statements.hc:4:3..4:7
+          colon span=cli/parse-switch-statements.hc:4:7..4:8
+      element index=1
+        statement
+          empty_statement span=cli/parse-switch-statements.hc:5:5..5:6
+            semicolon span=cli/parse-switch-statements.hc:5:5..5:6
+      element index=2
+        case_label span=cli/parse-switch-statements.hc:6:3..6:10 pattern=single
+          keyword span=cli/parse-switch-statements.hc:6:3..6:7
+          value
+            expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-switch-statements.hc:6:8..6:9
+          colon span=cli/parse-switch-statements.hc:6:9..6:10
+      element index=3
+        statement
+          expression_statement span=cli/parse-switch-statements.hc:7:5..7:13 semicolon=true
+            expression kind=postfix operator_kind=post_increment span=cli/parse-switch-statements.hc:7:5..7:12
+              expression kind=identifier spelling="value" span=cli/parse-switch-statements.hc:7:5..7:10
+              operator spelling="++" span=cli/parse-switch-statements.hc:7:10..7:12
+            semicolon span=cli/parse-switch-statements.hc:7:12..7:13
+      element index=4
+        case_label span=cli/parse-switch-statements.hc:8:3..8:14 pattern=range
+          keyword span=cli/parse-switch-statements.hc:8:3..8:7
+          range span=cli/parse-switch-statements.hc:8:8..8:13
+            start
+              expression kind=integer_literal spelling="4" value="0x0000000000000004" span=cli/parse-switch-statements.hc:8:8..8:9
+            ellipsis span=cli/parse-switch-statements.hc:8:9..8:12
+            end
+              expression kind=integer_literal spelling="7" value="0x0000000000000007" span=cli/parse-switch-statements.hc:8:12..8:13
+          colon span=cli/parse-switch-statements.hc:8:13..8:14
+      element index=5
+        statement
+          expression_statement span=cli/parse-switch-statements.hc:9:5..9:13 semicolon=true
+            expression kind=postfix operator_kind=post_decrement span=cli/parse-switch-statements.hc:9:5..9:12
+              expression kind=identifier spelling="value" span=cli/parse-switch-statements.hc:9:5..9:10
+              operator spelling="--" span=cli/parse-switch-statements.hc:9:10..9:12
+            semicolon span=cli/parse-switch-statements.hc:9:12..9:13
+      element index=6
+        sub_switch span=cli/parse-switch-statements.hc:10:3..14:7 elements=3
+          start_keyword span=cli/parse-switch-statements.hc:10:3..10:8
+          start_colon span=cli/parse-switch-statements.hc:10:8..10:9
+          element index=0
+            statement
+              implicit_output target=print span=cli/parse-switch-statements.hc:11:5..11:9 arguments=0
+                marker kind=string_literal spelling="\"[\"" value="[" span=cli/parse-switch-statements.hc:11:5..11:8
+                fixed_argument kind=marker_expression
+                  expression kind=string_literal spelling="\"[\"" value="[" span=cli/parse-switch-statements.hc:11:5..11:8
+                semicolon span=cli/parse-switch-statements.hc:11:8..11:9
+          element index=1
+            default_label span=cli/parse-switch-statements.hc:12:5..12:13
+              keyword span=cli/parse-switch-statements.hc:12:5..12:12
+              colon span=cli/parse-switch-statements.hc:12:12..12:13
+          element index=2
+            statement
+              break_statement span=cli/parse-switch-statements.hc:13:7..13:13 semicolon=true
+                keyword span=cli/parse-switch-statements.hc:13:7..13:12
+                semicolon span=cli/parse-switch-statements.hc:13:12..13:13
+          end_keyword span=cli/parse-switch-statements.hc:14:3..14:6
+          end_colon span=cli/parse-switch-statements.hc:14:6..14:7
+      element index=7
+        statement
+          implicit_output target=print span=cli/parse-switch-statements.hc:15:5..15:10 arguments=0
+            marker kind=string_literal spelling="\"] \"" value="] " span=cli/parse-switch-statements.hc:15:5..15:9
+            fixed_argument kind=marker_expression
+              expression kind=string_literal spelling="\"] \"" value="] " span=cli/parse-switch-statements.hc:15:5..15:9
+            semicolon span=cli/parse-switch-statements.hc:15:9..15:10
+      element index=8
+        statement
+          break_statement span=cli/parse-switch-statements.hc:16:5..16:11 semicolon=true
+            keyword span=cli/parse-switch-statements.hc:16:5..16:10
+            semicolon span=cli/parse-switch-statements.hc:16:10..16:11
+      closing_brace span=cli/parse-switch-statements.hc:17:1..17:2
+  top_level_statement span=cli/parse-switch-statements.hc:19:1..22:2
+    switch_statement span=cli/parse-switch-statements.hc:19:1..22:2 mode=no_bound elements=2
+      keyword span=cli/parse-switch-statements.hc:19:1..19:7
+      opening_delimiter span=cli/parse-switch-statements.hc:19:8..19:9
+      expression
+        expression kind=identifier spelling="value" span=cli/parse-switch-statements.hc:19:9..19:14
+      closing_delimiter span=cli/parse-switch-statements.hc:19:14..19:15
+      opening_brace span=cli/parse-switch-statements.hc:19:16..19:17
+      element index=0
+        case_label span=cli/parse-switch-statements.hc:20:3..20:10 pattern=single
+          keyword span=cli/parse-switch-statements.hc:20:3..20:7
+          value
+            expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-switch-statements.hc:20:8..20:9
+          colon span=cli/parse-switch-statements.hc:20:9..20:10
+      element index=1
+        statement
+          empty_statement span=cli/parse-switch-statements.hc:21:5..21:6
+            semicolon span=cli/parse-switch-statements.hc:21:5..21:6
+      closing_brace span=cli/parse-switch-statements.hc:22:1..22:2
