@@ -1393,6 +1393,55 @@ conversion_and_warning_behavior = "planned"
 ic_lowering_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-SIZEOF-EXPRESSIONS"
+description = "HolyC sizeof terms retain their wrapper parentheses, unresolved named target, repeated member path, and every trailing target star."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm KW_SIZEOF branch",
+  "Compiler/PrsExp.HC:PrsSizeOf",
+  "Compiler/CompilerA.HH:KW_SIZEOF and IC_SIZEOF",
+  "Compiler/CInit.HC:IC_SIZEOF metadata",
+  "Doc/HolyC.DD:sizeof and offset note",
+  "Compiler/PrsStmt.HC:j=sizeof(U8 *)",
+  "Kernel/MultiProc.HC:sizeof(CCPU.start_stk)",
+  "Adam/ADefine.HC:sizeof(CBinFile)",
+  "Demo/GlblVars.HC:D(g1,sizeof(g1))"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-sizeof-expression.hc",
+  "test/cli/parse-sizeof-expression.human",
+  "test/cli/parse-sizeof-expression.json",
+  "test/cli/parse-sizeof-error.hc",
+  "test/cli/parse-sizeof-error.human",
+  "test/cli/parse-sizeof-error.json"
+]
+status = "implemented"
+issue = 85
+ast_schema = "holyc-ast-v1"
+accepted_targets = "one unresolved identifier followed by zero or more dot-separated member identifiers"
+wrapper_parentheses = "zero or more matched pairs"
+target_pointer_depth = "all trailing stars; the pinned branch does not apply PTR_STARS_NUM"
+member_documentation_difference = "the executable PrsSizeOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
+term_precedence = "PREC_TERM before every audited binary operator"
+direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_target_diagnostic = "HCPARSE0031"
+missing_member_diagnostic = "HCPARSE0032"
+unmatched_wrapper_diagnostic = "HCPARSE0033"
+direct_suffix_diagnostic = "HCPARSE0034"
+target_and_member_resolution = "planned"
+local_use_count_behavior = "planned"
+byte_size_calculation = "planned"
+ic_lowering_status = "planned"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
