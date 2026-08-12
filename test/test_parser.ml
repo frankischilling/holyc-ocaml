@@ -2269,7 +2269,29 @@ let aggregate_definition_failures () =
         "class Callbacks { I64 (*callback)(I64 value); };",
         "HCPARSE0123",
         "function-pointer" );
-    ]
+    ];
+  let nested_unions = Parser.max_aggregate_depth + 1 in
+  let source =
+    "class Deep { "
+    ^ String.concat "" (List.init nested_unions (fun _ -> "union { "))
+    ^ "I64 value;"
+    ^ String.concat "" (List.init nested_unions (fun _ -> " }"))
+    ^ "; }; I64 after;"
+  in
+  let session, _, output = parse_string source in
+  Alcotest.(check (list string))
+    "depth recovery consumes the complete aggregate" [ "HCPARSE0122" ]
+    (List.map (fun diagnostic -> diagnostic.Diagnostic.code) output.diagnostics);
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "after"
+  with
+  | Symbol_visibility.Present entry ->
+      Alcotest.(check string)
+        "parsing resumes after the rejected aggregate" "global-variable"
+        (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "recovery did not reach the following declaration"
 
 let deterministic_aggregate_definition_dumps () =
   let session, _, output =

@@ -78,6 +78,8 @@ type parsed_aggregate_members = {
   closing_brace : Ast.location;
 }
 
+type aggregate_parse_failure = { recovery_depth : int }
+
 type expression_context =
   | Default_expression
   | Array_dimension_expression
@@ -2066,17 +2068,18 @@ let rec parse_declarators cursor base_spelling declarators_rev =
       | Ast.Semicolon -> Some (List.rev declarators_rev)
       | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev)
 
-let aggregate_member_failure cursor item ~code ~message =
+let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
-  None
+  Error { recovery_depth }
 
 let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
-    members_rev tokens_rev : parsed_aggregate_members option =
+    members_rev tokens_rev :
+    (parsed_aggregate_members, aggregate_parse_failure) result =
   let item = peek cursor in
   match item.token.kind with
   | Token_kind.Punctuation '}' ->
       let closing_item = take cursor in
-      Some
+      Ok
         {
           members = List.rev members_rev;
           tokens = List.rev (closing_item.token :: tokens_rev);
@@ -2093,7 +2096,7 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
               : Common.Diagnostic.related);
           ]
         ~message:"expected '}' to close the aggregate body";
-      None
+      Error { recovery_depth = depth + 1 }
   | Token_kind.Punctuation ';' ->
       let semicolon_item = take cursor in
       parse_aggregate_members cursor ~opening_brace ~depth
@@ -2102,41 +2105,47 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
         (semicolon_item.token :: tokens_rev)
   | Token_kind.Keyword Keyword.Union -> (
       match parse_anonymous_union_member cursor ~depth with
-      | None -> None
-      | Some member ->
+      | Error failure -> Error failure
+      | Ok member ->
           parse_aggregate_members cursor ~opening_brace ~depth
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | Token_kind.Keyword Keyword.Class ->
-      aggregate_member_failure cursor item ~code:"HCPARSE0116"
+      aggregate_member_failure cursor item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0116"
         ~message:
           "nested named class definitions are not implemented in aggregate \
            bodies"
   | Token_kind.Operator Operator.Current_position ->
-      aggregate_member_failure cursor item ~code:"HCPARSE0117"
+      aggregate_member_failure cursor item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0117"
         ~message:
           "explicit '$$' aggregate offsets are not implemented in this parser \
            slice"
   | _ -> (
-      match parse_aggregate_member_declaration cursor with
-      | None -> None
-      | Some member ->
+      match
+        parse_aggregate_member_declaration cursor ~recovery_depth:(depth + 1)
+      with
+      | Error failure -> Error failure
+      | Ok member ->
           parse_aggregate_members cursor ~opening_brace ~depth
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
 
-and parse_anonymous_union_member cursor ~depth : parsed_aggregate_member option
-    =
+and parse_anonymous_union_member cursor ~depth :
+    (parsed_aggregate_member, aggregate_parse_failure) result =
   let keyword_item = take cursor in
   if depth >= max_aggregate_depth then
-    aggregate_member_failure cursor keyword_item ~code:"HCPARSE0122"
+    aggregate_member_failure cursor keyword_item ~recovery_depth:(depth + 1)
+      ~code:"HCPARSE0122"
       ~message:
         (Printf.sprintf "anonymous-union nesting exceeds the hosted limit of %d"
            max_aggregate_depth)
   else
     let opening_item = peek cursor in
     if opening_item.token.kind <> Token_kind.Punctuation '{' then
-      aggregate_member_failure cursor opening_item ~code:"HCPARSE0116"
+      aggregate_member_failure cursor opening_item ~recovery_depth:(depth + 1)
+        ~code:"HCPARSE0116"
         ~message:
           (Printf.sprintf
              "expected '{' after anonymous union keyword, but found %s; nested \
@@ -2148,8 +2157,8 @@ and parse_anonymous_union_member cursor ~depth : parsed_aggregate_member option
       match
         parse_aggregate_members cursor ~opening_brace ~depth:(depth + 1) [] []
       with
-      | None -> None
-      | Some parsed_members ->
+      | Error failure -> Error failure
+      | Ok parsed_members ->
           let semicolon_item =
             if (peek cursor).token.kind = Token_kind.Punctuation ';' then
               Some (take cursor)
@@ -2172,13 +2181,15 @@ and parse_anonymous_union_member cursor ~depth : parsed_aggregate_member option
               ~closing_brace:parsed_members.closing_brace ~semicolon
               ~location:(location_from_expression_tokens tokens)
           in
-          Some { node = Ast.Anonymous_union_member node; tokens }
+          Ok { node = Ast.Anonymous_union_member node; tokens }
 
-and parse_aggregate_member_declaration cursor : parsed_aggregate_member option =
+and parse_aggregate_member_declaration cursor ~recovery_depth :
+    (parsed_aggregate_member, aggregate_parse_failure) result =
   let type_item = peek cursor in
   match type_specifier_of_item cursor type_item with
   | None ->
-      aggregate_member_failure cursor type_item ~code:"HCPARSE0112"
+      aggregate_member_failure cursor type_item ~recovery_depth
+        ~code:"HCPARSE0112"
         ~message:
           (Printf.sprintf
              "expected a primitive, class, or union member type, but found %s"
@@ -2187,10 +2198,13 @@ and parse_aggregate_member_declaration cursor : parsed_aggregate_member option =
       let type_item = take cursor in
       let base_spelling = Ast.type_specifier_spelling type_specifier in
       let rec collect declarators_rev tokens_rev :
-          parsed_aggregate_member option =
-        match parse_aggregate_member_declarator cursor ~base_spelling with
-        | None -> None
-        | Some declarator -> (
+          (parsed_aggregate_member, aggregate_parse_failure) result =
+        match
+          parse_aggregate_member_declarator cursor ~base_spelling
+            ~recovery_depth
+        with
+        | Error failure -> Error failure
+        | Ok declarator -> (
             let declarators_rev = declarator.node :: declarators_rev in
             let tokens_rev = List.rev_append declarator.tokens tokens_rev in
             match declarator.node.member_delimiter.kind with
@@ -2202,7 +2216,7 @@ and parse_aggregate_member_declaration cursor : parsed_aggregate_member option =
                     ~declarators:(List.rev declarators_rev)
                     ~location:(location_from_expression_tokens tokens)
                 in
-                Some
+                Ok
                   ({
                      node = Ast.Aggregate_member_declaration declaration;
                      tokens;
@@ -2211,20 +2225,22 @@ and parse_aggregate_member_declaration cursor : parsed_aggregate_member option =
       in
       collect [] []
 
-and parse_aggregate_member_declarator cursor ~base_spelling :
-    parsed_aggregate_member_declarator option =
+and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth :
+    (parsed_aggregate_member_declarator, aggregate_parse_failure) result =
   match parse_pointer_layers cursor 0 [] [] with
-  | None -> None
+  | None -> Error { recovery_depth }
   | Some (pointer_layers, pointer_items) -> (
       let pointer_tokens = List.map (fun item -> item.token) pointer_items in
       let name_item = peek cursor in
       if name_item.token.kind = Token_kind.Punctuation '(' then
-        aggregate_member_failure cursor name_item ~code:"HCPARSE0123"
+        aggregate_member_failure cursor name_item ~recovery_depth
+          ~code:"HCPARSE0123"
           ~message:
             "function-pointer aggregate members are not implemented in this \
              parser slice"
       else if name_item.token.kind <> Token_kind.Identifier then
-        aggregate_member_failure cursor name_item ~code:"HCPARSE0113"
+        aggregate_member_failure cursor name_item ~recovery_depth
+          ~code:"HCPARSE0113"
           ~message:
             (Printf.sprintf "expected a member name after type %S, but found %s"
                (type_spelling base_spelling pointer_layers)
@@ -2236,12 +2252,12 @@ and parse_aggregate_member_declarator cursor ~base_spelling :
             ~location:(token_location name_item.token)
         in
         match parse_array_dimensions cursor 0 [] [] with
-        | None -> None
+        | None -> Error { recovery_depth }
         | Some (array_dimensions, array_tokens) -> (
             let delimiter_item = peek cursor in
             match delimiter_item.token.kind with
             | Token_kind.Identifier ->
-                aggregate_member_failure cursor delimiter_item
+                aggregate_member_failure cursor delimiter_item ~recovery_depth
                   ~code:"HCPARSE0118"
                   ~message:
                     "aggregate member metadata is not implemented in this \
@@ -2250,7 +2266,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling :
                 match delimiter_kind delimiter_item.token with
                 | None ->
                     aggregate_member_failure cursor delimiter_item
-                      ~code:"HCPARSE0114"
+                      ~recovery_depth ~code:"HCPARSE0114"
                       ~message:
                         (Printf.sprintf
                            "expected ',' or ';' after aggregate member %S, but \
@@ -2274,7 +2290,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling :
                         ~array_dimensions ~delimiter
                         ~location:(location_from_expression_tokens tokens)
                     in
-                    Some { node; tokens })))
+                    Ok { node; tokens })))
 
 let parse_aggregate_definition cursor ~modifier_tokens ~modifiers
     ~aggregate_kind =
@@ -2313,10 +2329,10 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers
       let opening_item = take cursor in
       let opening_brace = token_location opening_item.token in
       match parse_aggregate_members cursor ~opening_brace ~depth:0 [] [] with
-      | None ->
-          recover_aggregate_declaration cursor ~depth:1;
+      | Error failure ->
+          recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
           None
-      | Some parsed_members ->
+      | Ok parsed_members ->
           let semicolon_item = peek cursor in
           if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
             let trailing_declarator =
