@@ -2142,3 +2142,67 @@
        --format=json
        cli/parse-for-error.hc))))
    (diff cli/parse-for-error.json parse-for-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-statements.human.actual)
+ (deps cli/parse-break-statements.hc cli/parse-break-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-break-statements.hc))
+   (diff
+    cli/parse-break-statements.human
+    parse-break-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-statements.json.actual)
+ (deps cli/parse-break-statements.hc cli/parse-break-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-break-statements.hc))
+   (diff cli/parse-break-statements.json parse-break-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-break-error.human.actual
+  parse-break-error.human.stdout.actual)
+ (deps cli/parse-break-error.hc cli/parse-break-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-error.human.stdout.actual
+    (with-stderr-to
+     parse-break-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-break-error.hc))))
+   (diff cli/parse-break-error.human parse-break-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-break-error.json.actual parse-break-error.json.stdout.actual)
+ (deps cli/parse-break-error.hc cli/parse-break-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-break-error.json.stdout.actual
+    (with-stderr-to
+     parse-break-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-break-error.hc))))
+   (diff cli/parse-break-error.json parse-break-error.json.actual))))
