@@ -1,0 +1,907 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-compound-blocks.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 39
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-compound-blocks.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-compound-blocks.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "block_statement",
+              "opening_brace": {
+                "span": {
+                  "path": "cli/parse-compound-blocks.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  }
+                ]
+              },
+              "statements": [],
+              "closing_brace": {
+                "span": {
+                  "path": "cli/parse-compound-blocks.hc",
+                  "line": 3,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 3,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-compound-blocks.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 17
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 3,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "statement_sequence",
+              "leading_commas": [],
+              "elements": [
+                {
+                  "statement": {
+                    "kind": "expression_statement",
+                    "expression": {
+                      "kind": "binary",
+                      "left": {
+                        "kind": "identifier",
+                        "spelling": "value",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 20,
+                            "stop": 25
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-compound-blocks.hc",
+                              "line": 4,
+                              "column": 3,
+                              "source_id": 0,
+                              "start": 20,
+                              "stop": 25
+                            }
+                          ]
+                        }
+                      },
+                      "operator": {
+                        "spelling": "=",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 8,
+                            "source_id": 0,
+                            "start": 25,
+                            "stop": 26
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-compound-blocks.hc",
+                              "line": 4,
+                              "column": 8,
+                              "source_id": 0,
+                              "start": 25,
+                              "stop": 26
+                            }
+                          ]
+                        }
+                      },
+                      "precedence": "PREC_ASSIGN",
+                      "precedence_value": 60,
+                      "association": "right",
+                      "ic": "IC_ASSIGN",
+                      "source_line": 319,
+                      "right": {
+                        "kind": "integer_literal",
+                        "spelling": "1",
+                        "value": "0x0000000000000001",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 9,
+                            "source_id": 0,
+                            "start": 26,
+                            "stop": 27
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-compound-blocks.hc",
+                              "line": 4,
+                              "column": 9,
+                              "source_id": 0,
+                              "start": 26,
+                              "stop": 27
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 20,
+                          "stop": 27
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 20,
+                            "stop": 25
+                          },
+                          {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 8,
+                            "source_id": 0,
+                            "start": 25,
+                            "stop": 26
+                          },
+                          {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 9,
+                            "source_id": 0,
+                            "start": 26,
+                            "stop": 27
+                          }
+                        ]
+                      }
+                    },
+                    "semicolon": null,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 27
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 20,
+                          "stop": 25
+                        },
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 25,
+                          "stop": 26
+                        },
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 27
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [
+                    {
+                      "span": {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 27,
+                        "stop": 28
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 27,
+                          "stop": 28
+                        }
+                      ]
+                    }
+                  ],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-compound-blocks.hc",
+                      "line": 4,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 20,
+                      "stop": 28
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 20,
+                        "stop": 25
+                      },
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 26
+                      },
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 27
+                      },
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 27,
+                        "stop": 28
+                      }
+                    ]
+                  }
+                },
+                {
+                  "statement": {
+                    "kind": "expression_statement",
+                    "expression": {
+                      "kind": "postfix",
+                      "operator_kind": "post_increment",
+                      "operand": {
+                        "kind": "identifier",
+                        "spelling": "value",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 28,
+                            "stop": 33
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-compound-blocks.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 28,
+                              "stop": 33
+                            }
+                          ]
+                        }
+                      },
+                      "operator": {
+                        "spelling": "++",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 33,
+                            "stop": 35
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-compound-blocks.hc",
+                              "line": 4,
+                              "column": 16,
+                              "source_id": 0,
+                              "start": 33,
+                              "stop": 35
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 28,
+                          "stop": 35
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 28,
+                            "stop": 33
+                          },
+                          {
+                            "path": "cli/parse-compound-blocks.hc",
+                            "line": 4,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 33,
+                            "stop": 35
+                          }
+                        ]
+                      }
+                    },
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 35,
+                        "stop": 36
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 35,
+                          "stop": 36
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 28,
+                        "stop": 36
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 28,
+                          "stop": 33
+                        },
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 33,
+                          "stop": 35
+                        },
+                        {
+                          "path": "cli/parse-compound-blocks.hc",
+                          "line": 4,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 35,
+                          "stop": 36
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-compound-blocks.hc",
+                      "line": 4,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 36
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 28,
+                        "stop": 33
+                      },
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 33,
+                        "stop": 35
+                      },
+                      {
+                        "path": "cli/parse-compound-blocks.hc",
+                        "line": 4,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 35,
+                        "stop": 36
+                      }
+                    ]
+                  }
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-compound-blocks.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 36
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 20,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 26
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 27
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 33
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 33,
+                    "stop": 35
+                  },
+                  {
+                    "path": "cli/parse-compound-blocks.hc",
+                    "line": 4,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 36
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 37,
+              "stop": 38
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 37,
+                "stop": 38
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 38
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 3,
+                "column": 4,
+                "source_id": 0,
+                "start": 16,
+                "stop": 17
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 20,
+                "stop": 25
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 8,
+                "source_id": 0,
+                "start": 25,
+                "stop": 26
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 9,
+                "source_id": 0,
+                "start": 26,
+                "stop": 27
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 10,
+                "source_id": 0,
+                "start": 27,
+                "stop": 28
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 11,
+                "source_id": 0,
+                "start": 28,
+                "stop": 33
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 16,
+                "source_id": 0,
+                "start": 33,
+                "stop": 35
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 4,
+                "column": 18,
+                "source_id": 0,
+                "start": 35,
+                "stop": 36
+              },
+              {
+                "path": "cli/parse-compound-blocks.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 37,
+                "stop": 38
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-compound-blocks.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 38
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 3,
+              "column": 4,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 20,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 8,
+              "source_id": 0,
+              "start": 25,
+              "stop": 26
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 9,
+              "source_id": 0,
+              "start": 26,
+              "stop": 27
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 10,
+              "source_id": 0,
+              "start": 27,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 11,
+              "source_id": 0,
+              "start": 28,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 16,
+              "source_id": 0,
+              "start": 33,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 4,
+              "column": 18,
+              "source_id": 0,
+              "start": 35,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-compound-blocks.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 37,
+              "stop": 38
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

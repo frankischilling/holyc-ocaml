@@ -359,10 +359,18 @@ type expression_statement = private {
 }
 
 type statement =
+  | Block_statement of block_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
+
+and block_statement = private {
+  block_opening_brace : location;
+  block_statements : statement list;
+  block_closing_brace : location;
+  block_location : location;
+}
 
 and statement_sequence_element = private {
   sequence_statement : statement;
@@ -663,6 +671,13 @@ val make_expression_statement :
   semicolon:location option ->
   location:location ->
   expression_statement
+
+val make_block_statement :
+  opening_brace:location ->
+  statements:statement list ->
+  closing_brace:location ->
+  location:location ->
+  block_statement
 
 val make_statement_sequence_element :
   statement:statement ->

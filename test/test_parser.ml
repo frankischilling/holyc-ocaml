@@ -224,6 +224,10 @@ let expect_statement_sequence = function
   | Ast.Sequence_statement sequence -> sequence
   | _ -> Alcotest.fail "expected a comma-linked statement sequence"
 
+let expect_block_statement = function
+  | Ast.Block_statement statement -> statement
+  | _ -> Alcotest.fail "expected a compound block statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -7229,6 +7233,275 @@ let deterministic_statement_sequence_dumps () =
     | `Null -> true
     | _ -> false)
 
+let compound_block_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt recognizes an opening brace", "if (cc->token=='{') {");
+      ("PrsStmt advances past the opening brace", "Lex(cc);");
+      ( "PrsStmt stops a block at its closing brace",
+        "while (cc->token!='}' && cc->token!=TK_EOF)" );
+      ( "PrsStmt parses block children recursively",
+        "PrsStmt(cc,try_cnt,lb_break);" );
+      ( "a comma after a block continues its statement group",
+        "if (Lex(cc)!=',') goto sm_done;" );
+    ];
+  let driver = pinned "Compiler/CMain.HC" in
+  Alcotest.(check bool)
+    "AOT compilation can encounter blocks at top level" true
+    (contains driver "while (cc->token!=TK_EOF)")
+
+let compound_block_shapes () =
+  let source = "I64 value;{value=1;;'A';}" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let block =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_block_statement statement
+        | items ->
+            Alcotest.failf "expected one declaration and one block, got %d"
+              (List.length items)
+      in
+      Alcotest.(check int)
+        "opening brace is one byte" 1
+        (Span.length block.block_opening_brace.span);
+      Alcotest.(check int)
+        "closing brace is one byte" 1
+        (Span.length block.block_closing_brace.span);
+      Alcotest.(check int)
+        "block keeps three child statements" 3
+        (List.length block.block_statements);
+      let expression =
+        List.nth block.block_statements 0 |> expect_expression_statement
+      in
+      let empty = List.nth block.block_statements 1 |> expect_empty_statement in
+      let output_statement =
+        match List.nth block.block_statements 2 with
+        | Ast.Implicit_output_statement statement -> statement
+        | _ -> Alcotest.fail "expected PutChars as the final block child"
+      in
+      Alcotest.(check bool)
+        "assignment precedes the empty statement" true
+        (expression.expression_statement_location.span.stop
+       <= empty.empty_statement_location.span.start);
+      Alcotest.(check bool)
+        "empty statement precedes PutChars" true
+        (empty.empty_statement_location.span.stop
+       <= output_statement.location.span.start);
+      Alcotest.(check bool)
+        "block span includes both braces" true
+        (block.block_location.span.start = block.block_opening_brace.span.start
+        && block.block_location.span.stop = block.block_closing_brace.span.stop
+        ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let nested_block_and_sequence_shapes () =
+  let source = "I64 value;{{}value=1,value++;},value--;" in
+  let _, _, output = parse_string source in
+  let top_sequence =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_statement_sequence statement
+    | items ->
+        Alcotest.failf "expected one declaration and one sequence, got %d"
+          (List.length items)
+  in
+  Alcotest.(check int)
+    "top-level sequence has two elements" 2
+    (List.length top_sequence.sequence_elements);
+  let first_element = List.nth top_sequence.sequence_elements 0 in
+  Alcotest.(check int)
+    "comma after the outer block remains explicit" 1
+    (List.length first_element.sequence_following_commas);
+  let outer = expect_block_statement first_element.sequence_statement in
+  Alcotest.(check int)
+    "outer block has a nested block and sequence" 2
+    (List.length outer.block_statements);
+  let inner = List.nth outer.block_statements 0 |> expect_block_statement in
+  Alcotest.(check int)
+    "nested empty block has no children" 0
+    (List.length inner.block_statements);
+  let inner_sequence =
+    List.nth outer.block_statements 1 |> expect_statement_sequence
+  in
+  Alcotest.(check int)
+    "inner comma sequence has two expressions" 2
+    (List.length inner_sequence.sequence_elements);
+  let trailing =
+    List.nth top_sequence.sequence_elements 1 |> fun element ->
+    expect_expression_statement element.sequence_statement
+  in
+  let postfix =
+    expect_postfix_expression trailing.expression_statement_expression
+  in
+  Alcotest.(check bool)
+    "statement after the block is a decrement" true
+    (postfix.postfix_operator_kind = Ast.Post_decrement)
+
+let compound_block_modes_and_order () =
+  let source = "I64 before;{}I64 after;{;}" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable before;
+       Ast.Top_level_statement (Ast.Block_statement first);
+       Ast.Global_variable after;
+       Ast.Top_level_statement (Ast.Block_statement second);
+      ] ->
+          Alcotest.(check string) "first global" "before" before.name.spelling;
+          Alcotest.(check int)
+            "first block is empty" 0
+            (List.length first.block_statements);
+          Alcotest.(check string) "second global" "after" after.name.spelling;
+          Alcotest.(check int)
+            "second block contains one empty statement" 1
+            (List.length second.block_statements);
+          Alcotest.(check bool)
+            "mixed top-level items retain source order" true
+            (before.location.span.start < first.block_location.span.start
+            && first.block_location.span.start < after.location.span.start
+            && after.location.span.start < second.block_location.span.start)
+      | items ->
+          Alcotest.failf "expected four mixed top-level items, got %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let compound_block_provenance () =
+  let source =
+    "#define OPEN {\n#define CLOSE }\nI64 value;\nOPEN value=1; CLOSE"
+  in
+  let _, _, output = parse_string source in
+  let block =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_block_statement statement
+    | _ -> Alcotest.fail "expected a definition-backed compound block"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("opening brace", block.block_opening_brace);
+      ("closing brace", block.block_closing_brace);
+    ];
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let block_file = Filename.concat directory "block.HC" in
+      write_file root_file "I64 value;\n#include \"block\"";
+      write_file block_file "{value=1;}";
+      let session = Session.create () in
+      let root = Session.load_source session ~path:root_file |> Result.get_ok in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config directory) ~source:root
+      in
+      let block =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_block_statement statement
+        | _ -> Alcotest.fail "expected one included compound block"
+      in
+      let included_source =
+        Source_manager.find (Session.sources session)
+          block.block_opening_brace.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included brace keeps its canonical path" (Unix.realpath block_file)
+        (Source_file.path included_source))
+
+let compound_block_failures () =
+  List.iter
+    (fun (name, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        (name ^ " diagnostic") code (first_diagnostic output).code)
+    [
+      ("missing closing brace", "{;", "HCPARSE0049");
+      ("unmatched closing brace", "}", "HCPARSE0050");
+      ("comma before closing brace", "I64 value;{value=1,}", "HCPARSE0048");
+      ("unsupported block statement", "{return;}", "HCPARSE0048");
+      ("invalid block expression", "I64 value;{value=;}", "HCPARSE0018");
+      ("leading comma before close", "{,}", "HCPARSE0048");
+    ];
+  let _, _, recovered = parse_string "{\"x\"}" in
+  Alcotest.(check bool)
+    "failed implicit output has no AST" true
+    (Option.is_none recovered.ast);
+  Alcotest.(check (list string))
+    "recovery stops at the block close" [ "HCPARSE0046" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       recovered.diagnostics);
+  let excessive_nesting =
+    String.make (Parser.max_block_depth + 1) '{'
+    ^ String.make (Parser.max_block_depth + 1) '}'
+  in
+  let _, _, nested = parse_string excessive_nesting in
+  Alcotest.(check bool)
+    "excessive block nesting has no AST" true
+    (Option.is_none nested.ast);
+  let diagnostic = first_diagnostic nested in
+  Alcotest.(check string)
+    "excessive block nesting diagnostic" "HCPARSE0051" diagnostic.code;
+  Alcotest.(check (list string))
+    "excessive block recovery consumes the rejected block" [ "HCPARSE0051" ]
+    (List.map (fun item -> item.Diagnostic.code) nested.diagnostics);
+  Alcotest.(check bool)
+    "excessive block nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_block_depth))
+
+let deterministic_compound_block_dumps () =
+  let session, _, output = parse_string "I64 value;{{}value=1;}" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human block dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON block dump is deterministic" json
+    (Ast_dump.json sources ast);
+  let open Yojson.Safe.Util in
+  let block =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth_opt items 1 |> Option.get |> member "statement"
+  in
+  Alcotest.(check string)
+    "block JSON kind" "block_statement"
+    (block |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "block JSON has two children" 2
+    (block |> member "statements" |> to_list |> List.length);
+  Alcotest.(check bool)
+    "block JSON has an opening brace" true
+    (block |> member "opening_brace" <> `Null);
+  Alcotest.(check bool)
+    "block JSON has a closing brace" true
+    (block |> member "closing_brace" <> `Null);
+  let nested = block |> member "statements" |> to_list |> List.hd in
+  Alcotest.(check string)
+    "nested JSON kind" "block_statement"
+    (nested |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -7510,6 +7783,18 @@ let tests =
       statement_sequence_failures;
     Alcotest.test_case "deterministic statement sequence dumps" `Quick
       deterministic_statement_sequence_dumps;
+    Alcotest.test_case "pinned compound block behavior" `Quick
+      compound_block_source_behavior;
+    Alcotest.test_case "compound block shapes" `Quick compound_block_shapes;
+    Alcotest.test_case "nested block and sequence shapes" `Quick
+      nested_block_and_sequence_shapes;
+    Alcotest.test_case "compound block modes and order" `Quick
+      compound_block_modes_and_order;
+    Alcotest.test_case "compound block provenance" `Quick
+      compound_block_provenance;
+    Alcotest.test_case "compound block failures" `Quick compound_block_failures;
+    Alcotest.test_case "deterministic compound block dumps" `Quick
+      deterministic_compound_block_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

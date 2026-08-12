@@ -354,10 +354,18 @@ type expression_statement = {
 }
 
 type statement =
+  | Block_statement of block_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
+
+and block_statement = {
+  block_opening_brace : location;
+  block_statements : statement list;
+  block_closing_brace : location;
+  block_location : location;
+}
 
 and statement_sequence_element = {
   sequence_statement : statement;
@@ -679,6 +687,14 @@ let make_expression_statement ~expression ~semicolon ~location =
     expression_statement_location = location;
   }
 
+let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
+  {
+    block_opening_brace = opening_brace;
+    block_statements = statements;
+    block_closing_brace = closing_brace;
+    block_location = location;
+  }
+
 let make_statement_sequence_element ~statement ~following_commas ~location =
   {
     sequence_statement = statement;
@@ -694,6 +710,7 @@ let make_statement_sequence ~leading_commas ~elements ~location =
   }
 
 let statement_location = function
+  | Block_statement statement -> statement.block_location
   | Empty_statement statement -> statement.empty_statement_location
   | Expression_statement statement -> statement.expression_statement_location
   | Implicit_output_statement statement -> statement.location

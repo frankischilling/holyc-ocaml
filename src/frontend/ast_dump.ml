@@ -432,6 +432,20 @@ and print_expression_operator buffer sources ~indent
     (location_text sources operator.operator_location)
 
 let rec print_statement buffer sources ~indent = function
+  | Ast.Block_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sblock_statement span=%s statements=%d\n" indent
+        (location_text sources statement.block_location)
+        (List.length statement.block_statements);
+      Printf.bprintf buffer "%sopening_brace span=%s\n" child_indent
+        (location_text sources statement.block_opening_brace);
+      List.iteri
+        (fun index child ->
+          Printf.bprintf buffer "%sstatement index=%d\n" child_indent index;
+          print_statement buffer sources ~indent:(child_indent ^ "  ") child)
+        statement.block_statements;
+      Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+        (location_text sources statement.block_closing_brace)
   | Ast.Empty_statement statement ->
       Printf.bprintf buffer "%sempty_statement span=%s\n" indent
         (location_text sources statement.empty_statement_location);
@@ -1188,6 +1202,21 @@ let implicit_output_statement_to_yojson sources
     ]
 
 let rec statement_to_yojson sources = function
+  | Ast.Block_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "block_statement");
+          ( "opening_brace",
+            location_to_yojson sources statement.block_opening_brace );
+          ( "statements",
+            `List
+              (List.map
+                 (statement_to_yojson sources)
+                 statement.block_statements) );
+          ( "closing_brace",
+            location_to_yojson sources statement.block_closing_brace );
+          ("location", location_to_yojson sources statement.block_location);
+        ]
   | Ast.Empty_statement statement ->
       `Assoc
         [

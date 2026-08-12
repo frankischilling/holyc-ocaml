@@ -14,13 +14,13 @@ The parser accepts primitive globals, pointer and array declarators, comma-separ
 
 The shared expression parser covers literals, identifiers, `$$`, grouping, the audited prefix and binary operators, parenthesized calls with omitted slots, indexes, direct and pointer members, postfix increment and decrement, primitive postfix casts, `sizeof`, `offset`, and `defined`. It follows the precedence and control flow in the pinned compiler rather than substituting C rules.
 
-Top-level expression and empty statements now have explicit AST nodes. The parser also retains HolyC's comma-linked statement groups, including leading, repeated, and trailing separators. String statements select `Print`; character statements select `PutChars`. Empty markers such as `"" fmt,args;` and `'' value;` retain the following fixed expression, while a nonempty marker remains the start of its complete expression. A comma after `PutChars` starts another statement, but commas before a `Print` semicolon remain call arguments. Punctuation, source order, and generated-source provenance stay visible in AST dumps.
+Expression and empty statements now have explicit AST nodes. The parser retains HolyC's comma-linked statement groups, including leading, repeated, and trailing separators. It also parses empty, nested, and top-level compound blocks, with each brace and child statement preserved in source order. String statements select `Print`; character statements select `PutChars`. Empty markers such as `"" fmt,args;` and `'' value;` retain the following fixed expression, while a nonempty marker remains the start of its complete expression. A comma after `PutChars` starts another statement, but commas before a `Print` semicolon remain call arguments. Punctuation, source order, and generated-source provenance stay visible in AST dumps.
 
 The project also exposes checked, immutable specifications for all 12 HolyC primitive spellings, compiler options, function flags, all 185 intermediate-code identities, all 106 registers, 325 canonical opcodes, 49 aliases, 924 instruction forms, and the TempleOS BIN header and patch-record families.
 
 ## What is not implemented
 
-The current parser work is syntax only. It does not resolve types or bindings, calculate storage or class layouts, validate calls, substitute defaults, resolve `Print` or `PutChars`, lower expressions, or execute top-level statements. Function bodies, local declarations, classes, unions, control-flow statements, labels, assembly syntax, and whole-corpus parsing remain unavailable.
+The current parser work is syntax only. It does not create lexical scopes for blocks, resolve types or bindings, calculate storage or class layouts, validate calls, substitute defaults, resolve `Print` or `PutChars`, lower expressions, or execute top-level statements. Function bodies, local declarations, classes, unions, control-flow statements, labels, assembly syntax, and whole-corpus parsing remain unavailable.
 
 Executable IR, optimization, the interpreter, x86-64 emission, the hosted runtime, JIT execution, the assembler encoder, and the TempleOS `.BIN` writer are not present yet. The opcode and BIN APIs are audited specifications, not encoders or loaders. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
 
@@ -65,6 +65,7 @@ dune exec holyc -- parse test/cli/parse-globals.hc
 dune exec holyc -- parse --mode=aot test/cli/parse-bindings.hc
 dune exec holyc -- parse test/cli/parse-default-parameters.hc
 dune exec holyc -- parse test/cli/parse-implicit-output.hc
+dune exec holyc -- parse test/cli/parse-compound-blocks.hc
 dune exec holyc -- dump-ast --format=json test/cli/parse-implicit-output.hc
 dune exec holyc -- corpus lex --reference-root=third_party/TempleOS
 ```

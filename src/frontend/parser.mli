@@ -5,6 +5,7 @@ type output = {
 
 val max_pointer_depth : int
 val max_expression_depth : int
+val max_block_depth : int
 
 val parse :
   sources:Common.Source_manager.t ->
