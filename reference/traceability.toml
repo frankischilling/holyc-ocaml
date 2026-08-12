@@ -2056,7 +2056,8 @@ body_recovery = "tracks nested braces through the declaration semicolon"
 native_oracle_status = "not required; acceptance and publication order are explicit in pinned source"
 named_type_use = "implemented in HC-PARSER-NAMED-AGGREGATE-TYPES"
 aggregate_body_parsing = "implemented in HC-PARSER-AGGREGATE-DEFINITIONS"
-inheritance_layout_and_metadata = "planned"
+inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
+inherited_layout_and_metadata = "planned"
 semantic_duplicate_and_linkage_checks = "planned"
 
 [[feature]]
@@ -2103,11 +2104,12 @@ missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
 missing_final_semicolon_diagnostic = "HCPARSE0115"
-deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0119 and HCPARSE0121 through HCPARSE0123"
+deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0119 and HCPARSE0123"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
 backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
-inheritance_metadata_and_explicit_offsets = "planned"
+inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
+inherited_layout_metadata_and_explicit_offsets = "planned"
 nested_named_definitions_and_trailing_objects = "planned"
 function_pointer_members = "planned"
 semantic_identity_layout_overlap_and_linkage = "planned"
@@ -2157,6 +2159,51 @@ excess_pointer_diagnostic = "HCPARSE0004"
 recovery = "an invalid backing form is consumed through its aggregate body and final semicolon so the following top-level declaration remains parseable"
 native_oracle_status = "not required; recognition and body handoff are explicit in the pinned parser and type table"
 backing_layout_whole_value_and_subinteger_semantics = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-INHERITANCE"
+description = "Single-base aggregate headers retain the colon, visible base name, publication order, and source provenance without claiming inherited layout."
+sources = [
+  "Compiler/PrsStmt.HC:PrsClass colon and base_class branch",
+  "Doc/HolyC.DD:single base-class rule",
+  "Adam/Gr/Gr.HH:18-115",
+  "Kernel/KernelA.HH:hash inheritance chains"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-inheritance.hc",
+  "test/cli/parse-aggregate-inheritance.human",
+  "test/cli/parse-aggregate-inheritance.json",
+  "test/cli/parse-aggregate-inheritance-error.hc",
+  "test/cli/parse-aggregate-inheritance-error.human",
+  "test/cli/parse-aggregate-inheritance-error.json"
+]
+status = "implemented"
+issue = 133
+ast_schema = "holyc-ast-v1"
+accepted_form = "aggregate-backing? class-or-union identifier : visible-class-or-union-name { aggregate-member* } ;"
+base_representation = "the colon spelling and location are separate from the base identifier and its location"
+backing_distinction = "a backing precedes the aggregate keyword; a base follows the aggregate name"
+publication_order = "the derived aggregate is visible before the base token is requested"
+source_permitted_aggregate_kinds = ["class", "union"]
+intended_corpus_inherited_class_headers = 37
+intended_corpus_inherited_union_headers = 0
+corpus_scan_mode = "byte-preserving text; four Demo headers are in files that ordinary searches classify as binary"
+reference_sprite_slice = "all 17 definitions at Adam/Gr/Gr.HH:18-115 parse unchanged, including 16 derived classes"
+reference_kernel_examples = ["CHashSrcSym:CHash", "CHashExport:CHashSrcSym", "CHashFun:CHashClass"]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved for the colon, base identifier, and complete aggregate definition"
+invalid_base_diagnostic = "HCPARSE0121"
+multiple_base_diagnostic = "HCPARSE0126"
+recovery = "an invalid base form is consumed through its aggregate body and final semicolon so the following top-level declaration remains parseable"
+native_oracle_status = "not required; token order, HTT_CLASS lookup, and the one-base rejection are explicit in the pinned source"
+inherited_size_alignment_member_lookup_metadata_and_cycle_checks = "planned"
 
 [[feature]]
 id = "HC-PARSER-NAMED-AGGREGATE-TYPES"
@@ -2285,7 +2332,7 @@ contexts = ["parameter defaults", "global array dimensions", "call arguments", "
 definition_and_include_provenance = "preserved"
 missing_member_diagnostic = "HCPARSE0027"
 base_type_validation = "planned"
-member_lookup_and_inheritance = "planned"
+member_lookup_and_inherited_resolution = "planned"
 layout_and_offset_resolution = "planned"
 address_value_dereference_and_lvalue_status = "planned"
 lowering_status = "planned"
