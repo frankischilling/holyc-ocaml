@@ -321,10 +321,34 @@ type function_prototype = {
   location : location;
 }
 
+type implicit_output_target = Print_target | Put_chars_target
+
+type implicit_output_fixed_argument =
+  | Marker_fixed_argument of expression
+  | Expression_fixed_argument of expression
+
+type implicit_output_argument = {
+  leading_comma : location;
+  value : expression;
+  location : location;
+}
+
+type implicit_output_statement = {
+  target : implicit_output_target;
+  marker : expression_literal;
+  fixed_argument : implicit_output_fixed_argument;
+  arguments : implicit_output_argument list;
+  semicolon : location;
+  location : location;
+}
+
+type statement = Implicit_output_statement of implicit_output_statement
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
+  | Top_level_statement of statement
 
 type module_ = {
   source : Common.Source_id.t;
@@ -610,5 +634,15 @@ let make_function_prototype ~modifiers ~binding ~return_type
     semicolon;
     location;
   }
+
+let make_implicit_output_argument ~leading_comma ~value ~location =
+  { leading_comma; value; location }
+
+let make_implicit_output_statement ~target ~marker ~fixed_argument ~arguments
+    ~semicolon ~location =
+  { target; marker; fixed_argument; arguments; semicolon; location }
+
+let statement_location = function
+  | Implicit_output_statement statement -> statement.location
 
 let make_module ~source ~span ~items = { source; span; items }
