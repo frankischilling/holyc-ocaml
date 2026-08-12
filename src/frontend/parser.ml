@@ -1728,8 +1728,8 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
                       ~code:"HCPARSE0020"
                       ~message:
                         (Printf.sprintf
-                           "resolved nonprimitive postfix cast target %s after \
-                            %s is not implemented"
+                           "postfix cast target %s after %s is not a visible \
+                            type"
                            (token_description first.token)
                            term_name)
                   else

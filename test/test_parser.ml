@@ -5108,11 +5108,11 @@ let sizeof_failures () =
         "Decremented",
         "HCPARSE0034",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern sizeof(I64)(Widget) I64 Casted();",
         "Casted",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_sizeof_dumps () =
@@ -5516,11 +5516,11 @@ let offset_failures () =
         "Decremented",
         "HCPARSE0039",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern offset(Packet.field)(Widget) I64 Casted();",
         "Casted",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_offset_dumps () =
@@ -5898,10 +5898,10 @@ let defined_failures () =
         "_intern defined(Name)-- I64 Decremented();",
         "HCPARSE0042",
         "cannot be followed directly by \"--\"" );
-      ( "nonprimitive cast target",
+      ( "unrecognized cast target",
         "_intern defined(Name)(Widget) I64 Casted();",
         "HCPARSE0020",
-        "nonprimitive postfix cast target" );
+        "is not a visible type" );
     ]
 
 let deterministic_defined_dumps () =
