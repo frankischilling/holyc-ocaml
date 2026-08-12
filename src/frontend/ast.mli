@@ -343,11 +343,38 @@ type implicit_output_statement = private {
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
-type statement = Implicit_output_statement of implicit_output_statement
+type empty_statement = private {
+  empty_statement_semicolon : location;
+  empty_statement_location : location;
+}
+
+type expression_statement = private {
+  expression_statement_expression : expression;
+  expression_statement_semicolon : location option;
+  expression_statement_location : location;
+}
+
+type statement =
+  | Empty_statement of empty_statement
+  | Expression_statement of expression_statement
+  | Implicit_output_statement of implicit_output_statement
+  | Sequence_statement of statement_sequence
+
+and statement_sequence_element = private {
+  sequence_statement : statement;
+  sequence_following_commas : location list;
+  sequence_element_location : location;
+}
+
+and statement_sequence = private {
+  sequence_leading_commas : location list;
+  sequence_elements : statement_sequence_element list;
+  sequence_location : location;
+}
 
 type item =
   | Global_variable of global_variable
@@ -624,9 +651,30 @@ val make_implicit_output_statement :
   marker:expression_literal ->
   fixed_argument:implicit_output_fixed_argument ->
   arguments:implicit_output_argument list ->
-  semicolon:location ->
+  semicolon:location option ->
   location:location ->
   implicit_output_statement
+
+val make_empty_statement :
+  semicolon:location -> location:location -> empty_statement
+
+val make_expression_statement :
+  expression:expression ->
+  semicolon:location option ->
+  location:location ->
+  expression_statement
+
+val make_statement_sequence_element :
+  statement:statement ->
+  following_commas:location list ->
+  location:location ->
+  statement_sequence_element
+
+val make_statement_sequence :
+  leading_commas:location list ->
+  elements:statement_sequence_element list ->
+  location:location ->
+  statement_sequence
 
 val statement_location : statement -> location
 

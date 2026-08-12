@@ -56,7 +56,7 @@ The current parser grammar is deliberately narrow:
 ```text
 module             := item*
 item               := global-declaration | bound-function-prototype
-                    | top-level-output-statement
+                    | top-level-statement
 global-declaration := declaration-modifier* declaration-binding? primitive declarator ("," declarator)* ";"
 bound-function-prototype := declaration-modifier* declaration-binding primitive return-declarator
                             "(" parameter-list? ")" ";"
@@ -77,9 +77,16 @@ function-pointer-declarator := "(" pointer-star{1,4} identifier? ")"
                                "(" parameter-list? ")"
 array-dimension    := "[" core-expression? "]"
 parameter-default  := "=" (core-expression | "lastclass")
-top-level-output-statement := print-statement | put-chars-statement
+top-level-statement := statement-sequence
+statement-sequence := comma* (statement (comma+ statement)* comma*)?
+statement          := ";" | statement-expression statement-terminator
+                    | print-statement | put-chars-statement
+statement-expression := core-expression not beginning with a string or character literal
+statement-terminator := ";" | comma-boundary
+comma-boundary     := a comma retained by statement-sequence
 print-statement     := string-marker print-fixed-argument ("," core-expression)* ";"
-put-chars-statement := character-marker character-fixed-argument ";"
+put-chars-statement := character-marker character-fixed-argument
+                       (";" | comma-boundary)
 core-expression    := postfix-expression
                     | prefix-operator core-expression
                     | core-expression binary-operator core-expression
@@ -161,6 +168,14 @@ This slice parses but does not execute default, dimension, `_intern`, call, inde
 
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
+## Top-level statement sequences
+
+`PrsStmt` skips leading commas before selecting a statement form. It accepts a lone semicolon, parses an ordinary expression, and returns only when the next token is not a comma. A comma may replace the semicolon after an expression, and repeated commas are skipped before the next statement. The same loop applies when a semicolon-terminated statement is followed by a comma.
+
+The AST keeps an ordinary expression statement, an empty statement, and a comma-linked sequence as different shapes. A sequence records every leading comma, every statement in source order, and every following comma. An expression records whether it ended with its own semicolon or at a sequence comma. A group containing only commas has no semantic statements but still keeps those source locations, matching the pinned loop's behavior at end of input.
+
+At top level, a known global or function name can begin an expression statement. An unresolved identifier still takes the declaration or label path used by `PrsStmt`; label and declaration syntax after a sequence comma is not implemented yet. Blocks, control flow, local declarations, labels, and function-body statements remain separate parser work. `HCPARSE0047` reports a missing expression-statement terminator. `HCPARSE0048` reports a statement form at a comma boundary that this slice cannot represent.
+
 ## Statement-position output literals
 
 `PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items, where HolyC permits executable statements without a conventional `main`.
@@ -170,9 +185,10 @@ The marker determines how the fixed argument begins:
 - A nonempty marker starts the fixed expression. For example, `"value";` passes that string expression, while `'A'+1;` passes the complete addition expression.
 - An empty string marker is consumed before the format expression, as in `"" fmt,name;`.
 - An empty character marker is consumed before the character expression, as in `'' value;`.
-- A `Print` statement may retain further comma-led expressions. `PutChars` has one fixed argument; the broader comma-separated statement syntax is not part of this slice.
+- A `Print` statement may retain further comma-led expressions before its required semicolon.
+- `PutChars` has one fixed argument. A following comma ends that statement and continues the enclosing statement sequence.
 
-The AST records an explicit `Print` or `PutChars` target, the original marker, whether the fixed expression began at or after that marker, every additional `Print` argument and comma, the semicolon, and all source origins. Top-level declarations, prototypes, and these statements remain in one source-ordered item list in JIT and AOT modes. This is syntax support only. Function-body statements, runtime symbol resolution, argument checking, call lowering, and top-level execution are not implemented yet.
+The AST records an explicit `Print` or `PutChars` target, the original marker, whether the fixed expression began at or after that marker, every additional `Print` argument and comma, an optional semicolon where the source permits a sequence comma, and all source origins. Top-level declarations, prototypes, and statements remain in one source-ordered item list in JIT and AOT modes. This is syntax support only. Function-body statements, runtime symbol resolution, argument checking, call lowering, and top-level execution are not implemented yet.
 
 ## Operators and precedence
 

@@ -38,3 +38,4 @@
 - Added source-shaped `defined` terms that retain one operand token, distinguish identifier-shaped names from other tokens, preserve repeated wrapper parentheses, and enforce the pinned restricted postfix state.
 - Added a distinct `lastclass` parameter-default node for ordinary and nested function prototypes, with exact keyword provenance, deterministic dumps, and diagnostics that reject expression continuations after the keyword.
 - Added source-shaped top-level string and character statements with explicit `Print` and `PutChars` targets, variable-value empty markers, retained `Print` arguments, deterministic dumps, and bounded malformed-input diagnostics.
+- Added top-level expression and empty statements plus source-shaped comma-linked statement groups, preserving every separator, `PutChars` comma boundaries, source order, and generated-source provenance.

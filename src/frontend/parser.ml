@@ -27,6 +27,7 @@ type parsed_declarator_prefix = {
 
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
+type parsed_statement = { node : Ast.statement; tokens : Token.t list }
 
 type parsed_array_dimension = {
   node : Ast.array_dimension;
@@ -40,6 +41,7 @@ type expression_context =
   | Call_argument_expression
   | Index_expression
   | Implicit_output_argument_expression
+  | Statement_expression
 
 type parsed_parameter_default = {
   node : Ast.parameter_default;
@@ -522,6 +524,7 @@ let expression_context_name = function
   | Call_argument_expression -> "call argument expression"
   | Index_expression -> "index expression"
   | Implicit_output_argument_expression -> "implicit output argument"
+  | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
   | Default_expression -> "a default expression operand"
@@ -530,6 +533,7 @@ let expression_operand_name = function
   | Call_argument_expression -> "a call argument expression operand"
   | Index_expression -> "an index expression operand"
   | Implicit_output_argument_expression -> "an implicit output argument"
+  | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
     parsed_expression option =
@@ -2039,7 +2043,7 @@ let parse_global cursor =
           recover_declaration cursor;
           None)
 
-let parse_implicit_output_statement cursor =
+let parse_implicit_output_statement cursor : parsed_statement option =
   let marker_item = peek cursor in
   let target, marker_value, empty_marker =
     match (marker_item.token.Token.kind, marker_item.token.value) with
@@ -2130,47 +2134,242 @@ let parse_implicit_output_statement cursor =
       let parsed_arguments =
         match target with
         | Ast.Print_target -> parse_print_arguments [] []
-        | Ast.Put_chars_target ->
-            let next_item = peek cursor in
-            if next_item.token.kind = Token_kind.Punctuation ',' then (
-              report cursor next_item ~code:"HCPARSE0045"
-                ~message:
-                  "a comma after an implicit PutChars argument begins another \
-                   statement; that statement separator is not implemented";
-              None)
-            else Some ([], [])
+        | Ast.Put_chars_target -> Some ([], [])
       in
       match parsed_arguments with
       | None ->
           recover_declaration cursor;
           None
-      | Some (arguments, argument_tokens) ->
-          let semicolon_item = peek cursor in
-          if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
-            report cursor semicolon_item ~code:"HCPARSE0046"
+      | Some (arguments, argument_tokens) -> (
+          let terminator_item = peek cursor in
+          let terminator =
+            match terminator_item.token.kind with
+            | Token_kind.Punctuation ';' ->
+                let semicolon_item = take cursor in
+                Some
+                  ( Some (token_location semicolon_item.token),
+                    [ semicolon_item.token ] )
+            | Token_kind.Punctuation ',' when target = Ast.Put_chars_target ->
+                Some (None, [])
+            | _ ->
+                report cursor terminator_item ~code:"HCPARSE0046"
+                  ~message:
+                    (Printf.sprintf
+                       "expected ';' after implicit %s statement, but found %s"
+                       (match target with
+                       | Ast.Print_target -> "Print"
+                       | Ast.Put_chars_target -> "PutChars")
+                       (token_description terminator_item.token));
+                None
+          in
+          match terminator with
+          | None ->
+              recover_declaration cursor;
+              None
+          | Some (semicolon, terminator_tokens) ->
+              let tokens = fixed_tokens @ argument_tokens @ terminator_tokens in
+              let statement =
+                Ast.make_implicit_output_statement ~target ~marker
+                  ~fixed_argument ~arguments ~semicolon
+                  ~location:(location_from_expression_tokens tokens)
+              in
+              Some { node = Ast.Implicit_output_statement statement; tokens }))
+
+let rec take_statement_commas cursor items_rev =
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.Punctuation ',' ->
+      take_statement_commas cursor (take cursor :: items_rev)
+  | _ -> List.rev items_rev
+
+let statement_symbol_is_expression cursor name =
+  match Symbol_visibility.Environment.find_preprocessor cursor.symbols name with
+  | Symbol_visibility.Absent -> false
+  | Symbol_visibility.Shadowed_by_local -> true
+  | Symbol_visibility.Present entry -> (
+      match Symbol_visibility.kind entry with
+      | Symbol_visibility.Export_system_symbol
+      | Symbol_visibility.Global_variable
+      | Symbol_visibility.Function
+      | Symbol_visibility.Word
+      | Symbol_visibility.Dictionary_word
+      | Symbol_visibility.Frame_pointer -> true
+      | Symbol_visibility.Import_system_symbol
+      | Symbol_visibility.Definition
+      | Symbol_visibility.Class
+      | Symbol_visibility.Internal_type
+      | Symbol_visibility.Keyword
+      | Symbol_visibility.Assembly_keyword
+      | Symbol_visibility.Opcode
+      | Symbol_visibility.Register
+      | Symbol_visibility.File
+      | Symbol_visibility.Module
+      | Symbol_visibility.Help_file -> false)
+
+let token_starts_statement_expression cursor token =
+  match token.Token.kind with
+  | Token_kind.Integer | Token_kind.Float -> true
+  | Token_kind.Identifier ->
+      statement_symbol_is_expression cursor (token_text token)
+  | Token_kind.Punctuation ('(' | '+' | '-' | '!' | '~' | '*' | '&') -> true
+  | Token_kind.Operator
+      (Operator.Increment | Operator.Decrement | Operator.Current_position) ->
+      true
+  | Token_kind.Keyword (Keyword.Sizeof | Keyword.Offset | Keyword.Defined) ->
+      true
+  | _ -> false
+
+let token_starts_global_declaration cursor token =
+  Option.is_some (primitive_type_of_token token)
+  || Option.is_some (declaration_modifier_kind token)
+  || Option.is_some (declaration_binding_kind token)
+  || token.kind = Token_kind.Keyword Keyword.Underscore_intern
+  ||
+  match token.kind with
+  | Token_kind.Identifier ->
+      not (statement_symbol_is_expression cursor (token_text token))
+  | _ -> false
+
+let parse_empty_statement cursor : parsed_statement =
+  let semicolon_item = take cursor in
+  let location = token_location semicolon_item.token in
+  {
+    node =
+      Ast.Empty_statement
+        (Ast.make_empty_statement ~semicolon:location ~location);
+    tokens = [ semicolon_item.token ];
+  }
+
+let parse_expression_statement cursor : parsed_statement option =
+  match
+    parse_expression cursor ~context:Statement_expression ~depth:0
+      ~minimum_binding_power:0
+  with
+  | None -> None
+  | Some (expression : parsed_expression) -> (
+      let terminator_item = peek cursor in
+      let terminator =
+        match terminator_item.token.kind with
+        | Token_kind.Punctuation ';' ->
+            let semicolon_item = take cursor in
+            Some
+              ( Some (token_location semicolon_item.token),
+                [ semicolon_item.token ] )
+        | Token_kind.Punctuation ',' -> Some (None, [])
+        | _ ->
+            report cursor terminator_item ~code:"HCPARSE0047"
               ~message:
                 (Printf.sprintf
-                   "expected ';' after implicit %s statement, but found %s"
-                   (match target with
-                   | Ast.Print_target -> "Print"
-                   | Ast.Put_chars_target -> "PutChars")
-                   (token_description semicolon_item.token));
-            recover_declaration cursor;
-            None)
-          else
-            let semicolon_item = take cursor in
-            let tokens =
-              fixed_tokens @ argument_tokens @ [ semicolon_item.token ]
-            in
-            let statement =
-              Ast.make_implicit_output_statement ~target ~marker ~fixed_argument
-                ~arguments
-                ~semicolon:(token_location semicolon_item.token)
-                ~location:(location_from_expression_tokens tokens)
-            in
+                   "expected ';' or ',' after statement expression, but found \
+                    %s"
+                   (token_description terminator_item.token));
+            None
+      in
+      match terminator with
+      | None ->
+          recover_declaration cursor;
+          None
+      | Some (semicolon, terminator_tokens) ->
+          let tokens = expression.tokens @ terminator_tokens in
+          let statement =
+            Ast.make_expression_statement ~expression:expression.node ~semicolon
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Some { node = Ast.Expression_statement statement; tokens })
+
+let parse_statement_atom cursor : parsed_statement option =
+  let item = peek cursor in
+  match item.token.kind with
+  | Token_kind.String | Token_kind.Character ->
+      parse_implicit_output_statement cursor
+  | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
+  | _ when token_starts_statement_expression cursor item.token ->
+      parse_expression_statement cursor
+  | _ ->
+      let message =
+        match item.token.kind with
+        | Token_kind.Identifier
+          when not
+                 (statement_symbol_is_expression cursor (token_text item.token))
+          ->
+            Printf.sprintf
+              "label or declaration syntax for unresolved identifier %S after \
+               a statement comma is not implemented"
+              (token_text item.token)
+        | _ when token_starts_global_declaration cursor item.token ->
+            "a declaration after a statement comma is not implemented"
+        | _ ->
+            Printf.sprintf "statement form beginning with %s is not implemented"
+              (token_description item.token)
+      in
+      report cursor item ~code:"HCPARSE0048" ~message;
+      recover_declaration cursor;
+      None
+
+let parse_statement_sequence cursor : parsed_statement option =
+  let leading_items = take_statement_commas cursor [] in
+  let leading_commas =
+    List.map (fun item -> token_location item.token) leading_items
+  in
+  let leading_tokens = List.map (fun item -> item.token) leading_items in
+  let rec collect elements_rev tokens_rev =
+    let item = peek cursor in
+    if item.token.kind = Token_kind.Eof then
+      Some (List.rev elements_rev, List.rev tokens_rev)
+    else
+      match parse_statement_atom cursor with
+      | None -> None
+      | Some (statement : parsed_statement) ->
+          let comma_items = take_statement_commas cursor [] in
+          let following_commas =
+            List.map (fun item -> token_location item.token) comma_items
+          in
+          let comma_tokens = List.map (fun item -> item.token) comma_items in
+          let element_tokens = statement.tokens @ comma_tokens in
+          let element =
+            Ast.make_statement_sequence_element ~statement:statement.node
+              ~following_commas
+              ~location:(location_from_expression_tokens element_tokens)
+          in
+          let elements_rev = element :: elements_rev in
+          let tokens_rev = List.rev_append element_tokens tokens_rev in
+          if comma_items = [] then
+            Some (List.rev elements_rev, List.rev tokens_rev)
+          else collect elements_rev tokens_rev
+  in
+  let next_item = peek cursor in
+  if leading_items <> [] && next_item.token.kind = Token_kind.Eof then
+    let location = location_from_expression_tokens leading_tokens in
+    Some
+      {
+        node =
+          Ast.Sequence_statement
+            (Ast.make_statement_sequence ~leading_commas ~elements:[] ~location);
+        tokens = leading_tokens;
+      }
+  else
+    match collect [] (List.rev leading_tokens) with
+    | None -> None
+    | Some (elements, tokens) -> (
+        let has_following_commas =
+          List.exists
+            (fun (element : Ast.statement_sequence_element) ->
+              element.sequence_following_commas <> [])
+            elements
+        in
+        match (leading_items, has_following_commas, elements) with
+        | [], false, [ element ] ->
+            Some { node = element.sequence_statement; tokens }
+        | _ ->
+            let location = location_from_expression_tokens tokens in
             Some
-              (Ast.Top_level_statement (Ast.Implicit_output_statement statement))
-      )
+              {
+                node =
+                  Ast.Sequence_statement
+                    (Ast.make_statement_sequence ~leading_commas ~elements
+                       ~location);
+                tokens;
+              })
 
 let parse ~sources ~definitions ~symbols ~config source =
   let stream =
@@ -2193,13 +2392,14 @@ let parse ~sources ~definitions ~symbols ~config source =
     | Token_kind.Eof ->
         ignore (take cursor);
         finished := true
-    | Token_kind.String | Token_kind.Character -> (
-        match parse_implicit_output_statement cursor with
+    | _ when token_starts_global_declaration cursor item.token -> (
+        match parse_global cursor with
         | Some item -> items_rev := item :: !items_rev
         | None -> ())
     | _ -> (
-        match parse_global cursor with
-        | Some item -> items_rev := item :: !items_rev
+        match parse_statement_sequence cursor with
+        | Some statement ->
+            items_rev := Ast.Top_level_statement statement.node :: !items_rev
         | None -> ())
   done;
   let diagnostics = List.rev cursor.diagnostics_rev in

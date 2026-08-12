@@ -338,11 +338,38 @@ type implicit_output_statement = {
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
-type statement = Implicit_output_statement of implicit_output_statement
+type empty_statement = {
+  empty_statement_semicolon : location;
+  empty_statement_location : location;
+}
+
+type expression_statement = {
+  expression_statement_expression : expression;
+  expression_statement_semicolon : location option;
+  expression_statement_location : location;
+}
+
+type statement =
+  | Empty_statement of empty_statement
+  | Expression_statement of expression_statement
+  | Implicit_output_statement of implicit_output_statement
+  | Sequence_statement of statement_sequence
+
+and statement_sequence_element = {
+  sequence_statement : statement;
+  sequence_following_commas : location list;
+  sequence_element_location : location;
+}
+
+and statement_sequence = {
+  sequence_leading_commas : location list;
+  sequence_elements : statement_sequence_element list;
+  sequence_location : location;
+}
 
 type item =
   | Global_variable of global_variable
@@ -642,7 +669,34 @@ let make_implicit_output_statement ~target ~marker ~fixed_argument ~arguments
     ~semicolon ~location =
   { target; marker; fixed_argument; arguments; semicolon; location }
 
+let make_empty_statement ~semicolon ~location =
+  { empty_statement_semicolon = semicolon; empty_statement_location = location }
+
+let make_expression_statement ~expression ~semicolon ~location =
+  {
+    expression_statement_expression = expression;
+    expression_statement_semicolon = semicolon;
+    expression_statement_location = location;
+  }
+
+let make_statement_sequence_element ~statement ~following_commas ~location =
+  {
+    sequence_statement = statement;
+    sequence_following_commas = following_commas;
+    sequence_element_location = location;
+  }
+
+let make_statement_sequence ~leading_commas ~elements ~location =
+  {
+    sequence_leading_commas = leading_commas;
+    sequence_elements = elements;
+    sequence_location = location;
+  }
+
 let statement_location = function
+  | Empty_statement statement -> statement.empty_statement_location
+  | Expression_statement statement -> statement.expression_statement_location
   | Implicit_output_statement statement -> statement.location
+  | Sequence_statement sequence -> sequence.sequence_location
 
 let make_module ~source ~span ~items = { source; span; items }
