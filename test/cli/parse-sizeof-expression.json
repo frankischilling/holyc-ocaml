@@ -1,0 +1,1126 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-sizeof-expression.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 71
+    },
+    "items": [
+      {
+        "kind": "function_prototype",
+        "binding": {
+          "kind": "intern",
+          "spelling": "_intern",
+          "location": {
+            "span": {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-sizeof-expression.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 7
+              }
+            ]
+          },
+          "target_expression": {
+            "kind": "binary",
+            "left": {
+              "kind": "sizeof",
+              "keyword": {
+                "spelling": "sizeof",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 14
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 8,
+                      "stop": 14
+                    }
+                  ]
+                }
+              },
+              "opening_parentheses": [
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 15
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 14,
+                      "stop": 15
+                    }
+                  ]
+                },
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 15,
+                      "stop": 16
+                    }
+                  ]
+                },
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 16,
+                      "stop": 17
+                    }
+                  ]
+                }
+              ],
+              "target": {
+                "spelling": "Packet",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 23
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 17,
+                      "stop": 23
+                    }
+                  ]
+                }
+              },
+              "members": [
+                {
+                  "dot": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 24
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      }
+                    ]
+                  },
+                  "name": {
+                    "spelling": "header",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 30
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-sizeof-expression.hc",
+                          "line": 1,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 30
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 30
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 23,
+                        "stop": 24
+                      },
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 30
+                      }
+                    ]
+                  }
+                }
+              ],
+              "pointer_layers": [
+                {
+                  "depth": 1,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 31,
+                      "stop": 32
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 32,
+                        "source_id": 0,
+                        "start": 31,
+                        "stop": 32
+                      }
+                    ]
+                  }
+                },
+                {
+                  "depth": 2,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 32,
+                      "stop": 33
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 33,
+                        "source_id": 0,
+                        "start": 32,
+                        "stop": 33
+                      }
+                    ]
+                  }
+                },
+                {
+                  "depth": 3,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 34,
+                      "source_id": 0,
+                      "start": 33,
+                      "stop": 34
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 34,
+                        "source_id": 0,
+                        "start": 33,
+                        "stop": 34
+                      }
+                    ]
+                  }
+                },
+                {
+                  "depth": 4,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 35,
+                      "source_id": 0,
+                      "start": 34,
+                      "stop": 35
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 35,
+                        "source_id": 0,
+                        "start": 34,
+                        "stop": 35
+                      }
+                    ]
+                  }
+                },
+                {
+                  "depth": 5,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 36,
+                      "source_id": 0,
+                      "start": 35,
+                      "stop": 36
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-sizeof-expression.hc",
+                        "line": 1,
+                        "column": 36,
+                        "source_id": 0,
+                        "start": 35,
+                        "stop": 36
+                      }
+                    ]
+                  }
+                }
+              ],
+              "closing_parentheses": [
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 37,
+                      "source_id": 0,
+                      "start": 36,
+                      "stop": 37
+                    }
+                  ]
+                },
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 38,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 37,
+                      "stop": 38
+                    }
+                  ]
+                },
+                {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 39,
+                      "source_id": 0,
+                      "start": 38,
+                      "stop": 39
+                    }
+                  ]
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 39
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 8,
+                    "stop": 14
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 14,
+                    "stop": 15
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 15,
+                    "stop": 16
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 17,
+                    "stop": 23
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 24
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 30
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 31,
+                    "stop": 32
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 33,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 34,
+                    "source_id": 0,
+                    "start": 33,
+                    "stop": 34
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 35,
+                    "source_id": 0,
+                    "start": 34,
+                    "stop": 35
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 36
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 38,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  }
+                ]
+              }
+            },
+            "operator": {
+              "spelling": "+",
+              "location": {
+                "span": {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 41
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 41
+                  }
+                ]
+              }
+            },
+            "precedence": "PREC_ADD",
+            "precedence_value": 36,
+            "association": "unspecified",
+            "ic": "IC_ADD",
+            "source_line": 302,
+            "right": {
+              "kind": "sizeof",
+              "keyword": {
+                "spelling": "sizeof",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 48
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 43,
+                      "source_id": 0,
+                      "start": 42,
+                      "stop": 48
+                    }
+                  ]
+                }
+              },
+              "opening_parentheses": [],
+              "target": {
+                "spelling": "table",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 54
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-sizeof-expression.hc",
+                      "line": 1,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 54
+                    }
+                  ]
+                }
+              },
+              "members": [],
+              "closing_parentheses": [],
+              "location": {
+                "span": {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 42,
+                  "stop": 54
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 43,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 48
+                  },
+                  {
+                    "path": "cli/parse-sizeof-expression.hc",
+                    "line": 1,
+                    "column": 50,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 54
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-sizeof-expression.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 54
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 8,
+                  "stop": 14
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 15
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 15,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 23
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 31,
+                  "stop": 32
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 34,
+                  "source_id": 0,
+                  "start": 33,
+                  "stop": 34
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 35,
+                  "source_id": 0,
+                  "start": 34,
+                  "stop": 35
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 36
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 37,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 37
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 37,
+                  "stop": 38
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 38,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 41
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 42,
+                  "stop": 48
+                },
+                {
+                  "path": "cli/parse-sizeof-expression.hc",
+                  "line": 1,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 54
+                }
+              ]
+            }
+          }
+        },
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 56,
+              "source_id": 0,
+              "start": 55,
+              "stop": 58
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-sizeof-expression.hc",
+                "line": 1,
+                "column": 56,
+                "source_id": 0,
+                "start": 55,
+                "stop": 58
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Measured",
+          "location": {
+            "span": {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 60,
+              "source_id": 0,
+              "start": 59,
+              "stop": 67
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-sizeof-expression.hc",
+                "line": 1,
+                "column": 60,
+                "source_id": 0,
+                "start": 59,
+                "stop": 67
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-sizeof-expression.hc",
+            "line": 1,
+            "column": 68,
+            "source_id": 0,
+            "start": 67,
+            "stop": 68
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 68,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-sizeof-expression.hc",
+            "line": 1,
+            "column": 69,
+            "source_id": 0,
+            "start": 68,
+            "stop": 69
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 69,
+              "source_id": 0,
+              "start": 68,
+              "stop": 69
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-sizeof-expression.hc",
+            "line": 1,
+            "column": 70,
+            "source_id": 0,
+            "start": 69,
+            "stop": 70
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 70,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-sizeof-expression.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 70
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 7
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 15,
+              "source_id": 0,
+              "start": 14,
+              "stop": 15
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 16,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 24,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 25,
+              "source_id": 0,
+              "start": 24,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 32,
+              "source_id": 0,
+              "start": 31,
+              "stop": 32
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 33,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 34,
+              "source_id": 0,
+              "start": 33,
+              "stop": 34
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 35,
+              "source_id": 0,
+              "start": 34,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 36,
+              "source_id": 0,
+              "start": 35,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 37,
+              "source_id": 0,
+              "start": 36,
+              "stop": 37
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 38,
+              "source_id": 0,
+              "start": 37,
+              "stop": 38
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 39,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 41,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 43,
+              "source_id": 0,
+              "start": 42,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 50,
+              "source_id": 0,
+              "start": 49,
+              "stop": 54
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 56,
+              "source_id": 0,
+              "start": 55,
+              "stop": 58
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 60,
+              "source_id": 0,
+              "start": 59,
+              "stop": 67
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 68,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 69,
+              "source_id": 0,
+              "start": 68,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-sizeof-expression.hc",
+              "line": 1,
+              "column": 70,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

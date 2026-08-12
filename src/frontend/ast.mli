@@ -83,6 +83,7 @@ type expression =
   | String_literal of expression_literal
   | Identifier_expression of identifier
   | Current_position_expression of expression_operator
+  | Sizeof_expression of sizeof_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -101,6 +102,23 @@ and expression_literal = private {
 and expression_operator = private {
   operator_spelling : string;
   operator_location : location;
+}
+
+and sizeof_member = private {
+  sizeof_member_dot : location;
+  sizeof_member_name : identifier;
+  sizeof_member_location : location;
+}
+
+and sizeof_expression = private {
+  sizeof_keyword_spelling : string;
+  sizeof_keyword_location : location;
+  sizeof_opening_parentheses : location list;
+  sizeof_target : identifier;
+  sizeof_members : sizeof_member list;
+  sizeof_pointer_layers : pointer_layer list;
+  sizeof_closing_parentheses : location list;
+  sizeof_location : location;
 }
 
 and parenthesized_expression = private {
@@ -364,6 +382,20 @@ val make_expression_literal :
 
 val make_expression_operator :
   spelling:string -> location:location -> expression_operator
+
+val make_sizeof_member :
+  dot:location -> name:identifier -> location:location -> sizeof_member
+
+val make_sizeof_expression :
+  keyword_spelling:string ->
+  keyword_location:location ->
+  opening_parentheses:location list ->
+  target:identifier ->
+  members:sizeof_member list ->
+  pointer_layers:pointer_layer list ->
+  closing_parentheses:location list ->
+  location:location ->
+  sizeof_expression
 
 val make_parenthesized_expression :
   opening_parenthesis:location ->

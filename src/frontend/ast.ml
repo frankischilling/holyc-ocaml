@@ -78,6 +78,7 @@ type expression =
   | String_literal of expression_literal
   | Identifier_expression of identifier
   | Current_position_expression of expression_operator
+  | Sizeof_expression of sizeof_expression
   | Parenthesized_expression of parenthesized_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -96,6 +97,23 @@ and expression_literal = {
 and expression_operator = {
   operator_spelling : string;
   operator_location : location;
+}
+
+and sizeof_member = {
+  sizeof_member_dot : location;
+  sizeof_member_name : identifier;
+  sizeof_member_location : location;
+}
+
+and sizeof_expression = {
+  sizeof_keyword_spelling : string;
+  sizeof_keyword_location : location;
+  sizeof_opening_parentheses : location list;
+  sizeof_target : identifier;
+  sizeof_members : sizeof_member list;
+  sizeof_pointer_layers : pointer_layer list;
+  sizeof_closing_parentheses : location list;
+  sizeof_location : location;
 }
 
 and parenthesized_expression = {
@@ -337,6 +355,27 @@ let make_expression_literal ~spelling ~value ~location =
 let make_expression_operator ~spelling ~location =
   { operator_spelling = spelling; operator_location = location }
 
+let make_sizeof_member ~dot ~name ~location =
+  {
+    sizeof_member_dot = dot;
+    sizeof_member_name = name;
+    sizeof_member_location = location;
+  }
+
+let make_sizeof_expression ~keyword_spelling ~keyword_location
+    ~opening_parentheses ~target ~members ~pointer_layers ~closing_parentheses
+    ~location =
+  {
+    sizeof_keyword_spelling = keyword_spelling;
+    sizeof_keyword_location = keyword_location;
+    sizeof_opening_parentheses = opening_parentheses;
+    sizeof_target = target;
+    sizeof_members = members;
+    sizeof_pointer_layers = pointer_layers;
+    sizeof_closing_parentheses = closing_parentheses;
+    sizeof_location = location;
+  }
+
 let make_parenthesized_expression ~opening_parenthesis ~expression
     ~closing_parenthesis ~location =
   {
@@ -425,6 +464,7 @@ let expression_location = function
   | String_literal literal -> literal.literal_location
   | Identifier_expression identifier -> identifier.location
   | Current_position_expression operator -> operator.operator_location
+  | Sizeof_expression expression -> expression.sizeof_location
   | Parenthesized_expression expression -> expression.parenthesized_location
   | Prefix_expression expression -> expression.prefix_location
   | Postfix_expression expression -> expression.postfix_location

@@ -149,6 +149,10 @@ let expect_postfix_cast_expression = function
   | Ast.Postfix_cast_expression cast -> cast
   | _ -> Alcotest.fail "expected a postfix cast expression"
 
+let expect_sizeof_expression = function
+  | Ast.Sizeof_expression sizeof_expression -> sizeof_expression
+  | _ -> Alcotest.fail "expected a sizeof expression"
+
 let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
@@ -3510,6 +3514,452 @@ let deterministic_postfix_cast_dumps () =
     (binary_json |> member "right" |> member "target_type" |> member "primitive"
    |> to_string)
 
+let sizeof_source_behavior () =
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains expression_parser fragment))
+    [
+      ("sizeof keyword dispatch", "case KW_SIZEOF:");
+      ("sizeof has term precedence", "if (PREC_TERM>*max_prec)");
+      ("sizeof accepts wrapper parentheses", "while (Lex(cc)=='(')");
+      ("sizeof delegates its named target", "PrsSizeOf(cc);");
+      ("sizeof requires matching wrappers", "LexExcept(cc,\"Missing ')' at ");
+      ("sizeof target must be an identifier", "if (cc->token!=TK_IDENT)");
+      ( "sizeof accepts compiler object kinds",
+        "HTT_CLASS|HTT_INTERNAL_TYPE|HTT_GLBL_VAR|" );
+      ("sizeof follows repeated members", "while (Lex(cc)=='.') {");
+      ("sizeof recognizes a pointer target", "if (cc->token=='*') {");
+      ("sizeof consumes every target star", "while (Lex(cc)=='*');");
+      ("sizeof uses pointer size after a star", "i=sizeof(U8 *);");
+      ( "sizeof emits an immediate result",
+        "ICAdd(cc,IC_IMM_I64,i,cmp.internal_types[RT_I64]);" );
+      ("maybe-modifiers state is explicit", "case PE_MAYBE_MODIFIERS:");
+      ( "maybe-modifiers dispatches only on a parenthesis",
+        "if (cc->token=='(') { //Typecast or fun_ptr" );
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "sizeof keyword identity" true
+    (contains compiler_header "#define KW_SIZEOF\t13");
+  Alcotest.(check bool)
+    "sizeof IC identity" true
+    (contains compiler_header "#define IC_SIZEOF");
+  Alcotest.(check bool)
+    "sizeof IC metadata" true
+    (contains (pinned "Compiler/CInit.HC") "\"SIZEOF\"");
+  let language_guide = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "language guide documents the one-member claim" true
+    (contains language_guide "only accept one level of member vars");
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Compiler/PrsStmt.HC", "j=sizeof(U8 *);");
+      ("Kernel/MultiProc.HC", "sizeof(CCPU.start_stk)");
+      ("Adam/ADefine.HC", "sizeof(CBinFile)");
+      ("Demo/GlblVars.HC", "D(g1,sizeof(g1));");
+    ]
+
+let sizeof_shapes () =
+  let sizeof_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_sizeof_expression
+  in
+  List.iteri
+    (fun index primitive ->
+      let spelling = Primitive_type.to_string primitive in
+      let sizeof_expression =
+        sizeof_from
+          (Printf.sprintf "_intern sizeof(%s) I64 Size%d();" spelling index)
+      in
+      Alcotest.(check string)
+        (spelling ^ " target spelling")
+        spelling sizeof_expression.sizeof_target.spelling;
+      Alcotest.(check int)
+        (spelling ^ " wrapper count")
+        1
+        (List.length sizeof_expression.sizeof_opening_parentheses))
+    Primitive_type.all;
+  let bare = sizeof_from "_intern sizeof I64 I64 Bare();" in
+  Alcotest.(check string)
+    "bare keyword spelling" "sizeof" bare.sizeof_keyword_spelling;
+  Alcotest.(check string) "bare target" "I64" bare.sizeof_target.spelling;
+  Alcotest.(check int)
+    "bare form has no wrapper" 0
+    (List.length bare.sizeof_opening_parentheses);
+  let wrapped = sizeof_from "_intern sizeof(((I64))) I64 Wrapped();" in
+  Alcotest.(check int)
+    "three opening wrappers" 3
+    (List.length wrapped.sizeof_opening_parentheses);
+  Alcotest.(check int)
+    "three closing wrappers" 3
+    (List.length wrapped.sizeof_closing_parentheses);
+  let members =
+    sizeof_from "_intern sizeof(Root.first.second) I64 Members();"
+  in
+  Alcotest.(check string) "member root" "Root" members.sizeof_target.spelling;
+  Alcotest.(check (list string))
+    "source loop retains repeated members" [ "first"; "second" ]
+    (List.map
+       (fun (member : Ast.sizeof_member) -> member.sizeof_member_name.spelling)
+       members.sizeof_members);
+  List.iter
+    (fun depth ->
+      let stars = String.make depth '*' in
+      let sizeof_expression =
+        sizeof_from
+          (Printf.sprintf "_intern sizeof(U8%s) I64 Pointer%d();" stars depth)
+      in
+      Alcotest.(check (list int))
+        (Printf.sprintf "sizeof pointer depth %d" depth)
+        (List.init depth (fun index -> index + 1))
+        (List.map
+           (fun (layer : Ast.pointer_layer) -> layer.depth)
+           sizeof_expression.sizeof_pointer_layers))
+    [ 0; 1; 4; 5 ];
+  let bare_pointer = sizeof_from "_intern sizeof U8 * I64 BarePointer();" in
+  Alcotest.(check int)
+    "unparenthesized star belongs to sizeof" 1
+    (List.length bare_pointer.sizeof_pointer_layers)
+
+let sizeof_postfix_and_precedence () =
+  let expression_from source =
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+  in
+  let cast =
+    expression_from "_intern sizeof(I64)(U64) I64 Casted();"
+    |> expect_postfix_cast_expression
+  in
+  ignore (expect_sizeof_expression cast.cast_operand);
+  let called =
+    expression_from "_intern sizeof(I64)(U0 *)() I64 Called();"
+    |> expect_call_expression
+  in
+  ignore
+    ( called.call_callee |> expect_postfix_cast_expression |> fun cast ->
+      expect_sizeof_expression cast.cast_operand );
+  let indexed =
+    expression_from "_intern sizeof(I64)(U8 *)[0] I64 Indexed();"
+    |> expect_index_expression
+  in
+  ignore
+    ( indexed.index_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_sizeof_expression cast.cast_operand );
+  let member =
+    expression_from "_intern sizeof(I64)(U8 *).value I64 Member();"
+    |> expect_member_expression
+  in
+  ignore
+    ( member.member_base |> expect_postfix_cast_expression |> fun cast ->
+      expect_sizeof_expression cast.cast_operand );
+  let update =
+    expression_from "_intern sizeof(I64)(I64)++ I64 Updated();"
+    |> expect_postfix_expression
+  in
+  ignore
+    ( update.postfix_operand |> expect_postfix_cast_expression |> fun cast ->
+      expect_sizeof_expression cast.cast_operand );
+  let prefix =
+    expression_from "_intern -sizeof(I64) I64 Negated();"
+    |> expect_prefix_expression
+  in
+  ignore (expect_sizeof_expression prefix.prefix_operand);
+  List.iteri
+    (fun index (operator : Operator.binary_operator) ->
+      let root =
+        expression_from
+          (Printf.sprintf "_intern sizeof(I64) %s 2 I64 Binary%d();"
+             operator.spelling index)
+        |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        (operator.spelling ^ " remains the binary root")
+        operator.spelling root.binary_operator.operator_spelling;
+      ignore (expect_sizeof_expression root.binary_left))
+    Operator.binary_operators;
+  let multiplication =
+    expression_from "_intern sizeof(U8) * 2 I64 Multiplied();"
+    |> expect_binary_expression
+  in
+  Alcotest.(check string)
+    "a star after a closing wrapper is multiplication" "*"
+    multiplication.binary_operator.operator_spelling;
+  ignore (expect_sizeof_expression multiplication.binary_left)
+
+let sizeof_contexts_and_modes () =
+  let _, _, default_output =
+    parse_string "extern U0 Defaults(I64 value=sizeof(I64));"
+  in
+  ignore
+    ( expect_ast default_output |> expect_one_prototype |> fun prototype ->
+      List.hd prototype.parameters |> expect_parameter_default |> fun default ->
+      expect_sizeof_expression default.value );
+  let _, _, dimension_output = parse_string "I64 values[sizeof(I64)];" in
+  ignore
+    ( expect_ast dimension_output |> expect_one_global |> fun variable ->
+      List.hd variable.array_dimensions
+      |> expect_dimension_expression |> expect_sizeof_expression );
+  let _, _, argument_output =
+    parse_string "_intern Consume(sizeof(I64)) I64 Called();"
+  in
+  ignore
+    ( expect_ast argument_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_call_expression
+      |> fun call ->
+      List.hd call.call_arguments
+      |> expect_provided_call_argument |> expect_sizeof_expression );
+  let _, _, index_output =
+    parse_string "_intern table[sizeof(I64)] I64 Indexed();"
+  in
+  ignore
+    ( expect_ast index_output |> expect_one_prototype |> fun prototype ->
+      expect_expression_binding_target prototype.binding
+      |> expect_index_expression
+      |> fun index -> expect_sizeof_expression index.index_value );
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode
+          "_intern sizeof(Packet.header) I64 Selected();"
+      in
+      ignore
+        ( expect_ast output |> expect_one_prototype |> fun prototype ->
+          expect_expression_binding_target prototype.binding
+          |> expect_sizeof_expression ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let sizeof_provenance () =
+  let source =
+    "#define SIZE sizeof\n\
+     #define OPEN (\n\
+     #define ROOT Packet\n\
+     #define DOT .\n\
+     #define MEMBER header\n\
+     #define STAR *\n\
+     #define CLOSE )\n\
+     _intern SIZE OPEN ROOT DOT MEMBER STAR CLOSE I64 Generated();"
+  in
+  let session, root, output = parse_string source in
+  let sizeof_expression =
+    expect_ast output |> expect_one_prototype |> fun prototype ->
+    expect_expression_binding_target prototype.binding
+    |> expect_sizeof_expression
+  in
+  let member = List.hd sizeof_expression.sizeof_members in
+  let pointer = List.hd sizeof_expression.sizeof_pointer_layers in
+  let opening = List.hd sizeof_expression.sizeof_opening_parentheses in
+  let closing = List.hd sizeof_expression.sizeof_closing_parentheses in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("keyword", sizeof_expression.sizeof_keyword_location);
+      ("opening parenthesis", opening);
+      ("target", sizeof_expression.sizeof_target.location);
+      ("member dot", member.sizeof_member_dot);
+      ("member name", member.sizeof_member_name.location);
+      ("pointer star", pointer.location);
+      ("closing parenthesis", closing);
+    ];
+  Alcotest.(check bool)
+    "combined sizeof location retains generated segments" true
+    (List.length sizeof_expression.sizeof_location.source_segments > 1);
+  let open Yojson.Safe.Util in
+  let sizeof_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated keyword provenance" true
+    (sizeof_json |> member "keyword" |> member "location"
+   |> member "generated_from" |> Yojson.Safe.to_string |> String.equal "null"
+   |> not);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "sizeof.HC" in
+      write_file root_file "#include \"sizeof\"";
+      write_file declaration_file
+        "_intern sizeof(Packet.header) I64 Included();";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_sizeof =
+        expect_ast include_output |> expect_one_prototype |> fun prototype ->
+        expect_expression_binding_target prototype.binding
+        |> expect_sizeof_expression
+      in
+      let expression_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_sizeof.sizeof_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included sizeof keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path expression_source))
+
+let sizeof_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) rejected_name
+      with
+      | Symbol_visibility.Absent -> ()
+      | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "rejected sizeof declaration %s became visible"
+            rejected_name)
+    [
+      ( "empty target",
+        "_intern sizeof() I64 Empty();",
+        "Empty",
+        "HCPARSE0031",
+        "expected a named sizeof target" );
+      ( "literal target",
+        "_intern sizeof(1) I64 Literal();",
+        "Literal",
+        "HCPARSE0031",
+        "found \"1\"" );
+      ( "missing member name",
+        "_intern sizeof(Packet.) I64 MissingMember();",
+        "MissingMember",
+        "HCPARSE0032",
+        "expected a member name after '.'" );
+      ( "unclosed target",
+        "_intern sizeof(Packet I64 Unclosed();",
+        "Unclosed",
+        "HCPARSE0033",
+        "one wrapper parenthesis remains" );
+      ( "unclosed outer wrapper",
+        "_intern sizeof(((I64)) I64 Outer();",
+        "Outer",
+        "HCPARSE0033",
+        "one wrapper parenthesis remains" );
+      ( "arbitrary expression target",
+        "_intern sizeof(value+1) I64 Expression();",
+        "Expression",
+        "HCPARSE0033",
+        "found \"+\"" );
+      ( "missing bare target",
+        "_intern sizeof + 1 I64 Missing();",
+        "Missing",
+        "HCPARSE0031",
+        "found \"+\"" );
+      ( "direct call suffix",
+        "_intern sizeof(I64)() I64 Called();",
+        "Called",
+        "HCPARSE0034",
+        "expected a postfix cast target after sizeof" );
+      ( "direct index suffix",
+        "_intern sizeof(I64)[0] I64 Indexed();",
+        "Indexed",
+        "HCPARSE0034",
+        "cannot be followed directly by \"[\"" );
+      ( "direct member suffix",
+        "_intern sizeof(I64).value I64 Member();",
+        "Member",
+        "HCPARSE0034",
+        "cannot be followed directly by \".\"" );
+      ( "direct pointer-member suffix",
+        "_intern sizeof(I64)->value I64 PointerMember();",
+        "PointerMember",
+        "HCPARSE0034",
+        "cannot be followed directly by \"->\"" );
+      ( "direct increment suffix",
+        "_intern sizeof(I64)++ I64 Incremented();",
+        "Incremented",
+        "HCPARSE0034",
+        "cannot be followed directly by \"++\"" );
+      ( "direct decrement suffix",
+        "_intern sizeof(I64)-- I64 Decremented();",
+        "Decremented",
+        "HCPARSE0034",
+        "cannot be followed directly by \"--\"" );
+      ( "nonprimitive cast target",
+        "_intern sizeof(I64)(Widget) I64 Casted();",
+        "Casted",
+        "HCPARSE0020",
+        "nonprimitive postfix cast target" );
+    ]
+
+let deterministic_sizeof_dumps () =
+  let session, _, output =
+    parse_string
+      "_intern sizeof(((Packet.header *****)))(U64) + sizeof table(U8 *)[0] \
+       I64 Measured();"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human sizeof dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON sizeof dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names wrapper and pointer counts" true
+    (contains human
+       "expression kind=sizeof wrappers=3 members=1 pointer_layers=5");
+  let open Yojson.Safe.Util in
+  let binary_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "binding" |> member "target_expression"
+  in
+  let left_sizeof = binary_json |> member "left" |> member "operand" in
+  Alcotest.(check string)
+    "JSON left cast wraps sizeof" "sizeof"
+    (left_sizeof |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "JSON keeps three opening wrappers" 3
+    (left_sizeof |> member "opening_parentheses" |> to_list |> List.length);
+  Alcotest.(check int)
+    "JSON keeps five pointer layers" 5
+    (left_sizeof |> member "pointer_layers" |> to_list |> List.length);
+  Alcotest.(check string)
+    "JSON right index base wraps sizeof in a cast" "sizeof"
+    (binary_json |> member "right" |> member "base" |> member "operand"
+   |> member "kind" |> to_string)
+
 let function_prototype_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -5261,6 +5711,16 @@ let tests =
     Alcotest.test_case "postfix cast failures" `Quick postfix_cast_failures;
     Alcotest.test_case "deterministic postfix cast dumps" `Quick
       deterministic_postfix_cast_dumps;
+    Alcotest.test_case "pinned sizeof behavior" `Quick sizeof_source_behavior;
+    Alcotest.test_case "sizeof shapes" `Quick sizeof_shapes;
+    Alcotest.test_case "sizeof postfix and precedence" `Quick
+      sizeof_postfix_and_precedence;
+    Alcotest.test_case "sizeof contexts and modes" `Quick
+      sizeof_contexts_and_modes;
+    Alcotest.test_case "sizeof provenance" `Quick sizeof_provenance;
+    Alcotest.test_case "sizeof failures" `Quick sizeof_failures;
+    Alcotest.test_case "deterministic sizeof dumps" `Quick
+      deterministic_sizeof_dumps;
     Alcotest.test_case "pinned function prototype behavior" `Quick
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick
