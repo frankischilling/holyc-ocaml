@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0055",
+    "severity": "error",
+    "message": "found 'else' without a matching 'if'",
+    "primary": {
+      "path": "cli/parse-function-definition-error.hc",
+      "line": 4,
+      "column": 3,
+      "source_id": 0,
+      "start": 56,
+      "stop": 60
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

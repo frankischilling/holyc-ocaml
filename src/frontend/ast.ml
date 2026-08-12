@@ -532,10 +532,24 @@ and statement_sequence = {
   sequence_location : location;
 }
 
+type function_definition = {
+  modifiers : declaration_modifier list;
+  return_type : primitive_type;
+  return_pointer_layers : pointer_layer list;
+  name : identifier;
+  opening_parenthesis : location;
+  parameters : function_parameter list;
+  variadic : variadic_marker option;
+  closing_parenthesis : location;
+  body : statement option;
+  location : location;
+}
+
 type item =
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
+  | Function_definition of function_definition
   | Top_level_statement of statement
 
 type module_ = {
@@ -1000,6 +1014,22 @@ let make_statement_sequence ~leading_commas ~elements ~location =
     sequence_leading_commas = leading_commas;
     sequence_elements = elements;
     sequence_location = location;
+  }
+
+let make_function_definition ~modifiers ~return_type ~return_pointer_layers
+    ~name ~opening_parenthesis ~parameters ~variadic ~closing_parenthesis ~body
+    ~location =
+  {
+    modifiers;
+    return_type;
+    return_pointer_layers;
+    name;
+    opening_parenthesis;
+    parameters;
+    variadic;
+    closing_parenthesis;
+    body;
+    location;
   }
 
 let statement_location = function

@@ -1,2 +1,2 @@
-// PrsGlblVarLst sends an unbound function to body parsing, which is not in this slice.
-interrupt U0 MissingBinding();
+// PrsGlblVarLst rejects an import while compiling in JIT mode.
+noargpop import U0 Blocked();

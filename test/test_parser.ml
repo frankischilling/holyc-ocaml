@@ -98,6 +98,26 @@ let expect_one_prototype ast =
       Alcotest.failf "expected one function prototype, got %d items"
         (List.length items)
 
+let expect_one_definition ast =
+  match ast.Ast.items with
+  | [ Ast.Function_definition definition ] -> definition
+  | [ Ast.Global_variable _ ] ->
+      Alcotest.fail "expected a function definition, got a singleton global"
+  | [ Ast.Global_declaration _ ] ->
+      Alcotest.fail "expected a function definition, got a declaration group"
+  | [ Ast.Function_prototype _ ] ->
+      Alcotest.fail "expected a function definition, got a prototype"
+  | [ Ast.Top_level_statement _ ] ->
+      Alcotest.fail "expected a function definition, got a top-level statement"
+  | items ->
+      Alcotest.failf "expected one function definition, got %d items"
+        (List.length items)
+
+let expect_function_body (definition : Ast.function_definition) =
+  match definition.body with
+  | Some body -> body
+  | None -> Alcotest.fail "expected a present function body"
+
 let expect_function_pointer (parameter : Ast.function_parameter) =
   match parameter.function_pointer with
   | Some function_pointer -> function_pointer
@@ -317,6 +337,8 @@ let globals ast =
           Alcotest.fail "expected singleton globals, got a declaration group"
       | Ast.Function_prototype _ ->
           Alcotest.fail "expected singleton globals, got a function prototype"
+      | Ast.Function_definition _ ->
+          Alcotest.fail "expected singleton globals, got a function definition"
       | Ast.Top_level_statement _ ->
           Alcotest.fail "expected singleton globals, got a top-level statement")
     ast.Ast.items
@@ -329,9 +351,27 @@ let prototypes ast =
           Alcotest.fail "expected function prototypes, got a singleton global"
       | Ast.Global_declaration _ ->
           Alcotest.fail "expected function prototypes, got a declaration group"
+      | Ast.Function_definition _ ->
+          Alcotest.fail
+            "expected function prototypes, got a function definition"
       | Ast.Top_level_statement _ ->
           Alcotest.fail
             "expected function prototypes, got a top-level statement")
+    ast.Ast.items
+
+let function_definitions ast =
+  List.map
+    (function
+      | Ast.Function_definition definition -> definition
+      | Ast.Global_variable _ ->
+          Alcotest.fail "expected function definitions, got a singleton global"
+      | Ast.Global_declaration _ ->
+          Alcotest.fail "expected function definitions, got a declaration group"
+      | Ast.Function_prototype _ ->
+          Alcotest.fail "expected function definitions, got a prototype"
+      | Ast.Top_level_statement _ ->
+          Alcotest.fail
+            "expected function definitions, got a top-level statement")
     ast.Ast.items
 
 let first_diagnostic output =
@@ -365,6 +405,8 @@ let supported_primitives () =
           Alcotest.fail "primitive fixture unexpectedly formed a group"
       | Ast.Function_prototype _ ->
           Alcotest.fail "primitive fixture unexpectedly formed a prototype"
+      | Ast.Function_definition _ ->
+          Alcotest.fail "primitive fixture unexpectedly formed a function"
       | Ast.Top_level_statement _ ->
           Alcotest.fail "primitive fixture unexpectedly formed a statement")
     Primitive_type.all ast.items
@@ -955,10 +997,6 @@ let function_calling_modifier_failures () =
       | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "rejected flagged function %s became visible" name)
     [
-      ( "unbound interrupt function",
-        "interrupt U0 Unbound();",
-        "Unbound",
-        "HCPARSE0008" );
       ( "flagged JIT import",
         "noargpop import U0 Blocked();",
         "Blocked",
@@ -6468,11 +6506,6 @@ let function_prototype_failures () =
       | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "rejected prototype %s became visible" name)
     [
-      ( "unbound function",
-        "U0 Unbound();",
-        "Unbound",
-        "HCPARSE0008",
-        "has no declaration binding" );
       ( "missing opening parenthesis",
         "extern U0 NoOpen);",
         "NoOpen",
@@ -6545,6 +6578,291 @@ let deterministic_function_dumps () =
     "JSON prototype dump repeats byte for byte" json
     (Ast_dump.json sources ast)
 
+let function_definition_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("function declarator dispatch", "if (cc->token=='(') {");
+      ("default declarators enter PrsFun", "PrsFun(cc,tmpc,st,fsp_flags);");
+      ( "function signatures share PrsFunJoin",
+        "cc->htc.local_var_lst=cc->htc.fun=PrsFunJoin" );
+      ("PrsFun parses one statement", "PrsStmt(cc,,,0);");
+      ("a lone semicolon is a statement", "} else if (cc->token==';') {");
+      ("EOF ends a statement parse", "goto sm_done; //TK_EOF");
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool)
+        (path ^ " supplies a representative function")
+        true
+        (contains (pinned path) fragment))
+    [
+      ("Compiler/CMisc.HC", "Bool Option(I64 num,Bool val)");
+      ("Kernel/FunSeg.HC", "I64 HasLower(U8 *src)");
+      ( "Adam/AMem.HC",
+        "public I64 TaskMemAlloced(CTask *task=NULL,Bool \
+         override_validate=FALSE)" );
+      ("Demo/Exceptions.HC", "U0 D1()");
+    ];
+  Alcotest.(check bool)
+    "the language guide rejects a mandatory main" true
+    (contains (pinned "Doc/HolyC.DD") "There is no $FG,2$main()$FG$ function.")
+
+let function_definition_shapes () =
+  let source =
+    "public interrupt U8 *Recursive(U8 *value=0,...){return Recursive();}\n\
+     U0 Empty();\n\
+     U0 Bare() return;\n\
+     U0 Sequence() 1,2;\n\
+     U0 End()"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match expect_ast output |> function_definitions with
+      | [ recursive; empty; bare; sequence; absent ] ->
+          Alcotest.(check (list string))
+            "function modifiers retain source order" [ "public"; "interrupt" ]
+            (List.map
+               (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+               recursive.modifiers);
+          Alcotest.(check int)
+            "return pointer depth" 1
+            (List.length recursive.return_pointer_layers);
+          Alcotest.(check int)
+            "one fixed parameter" 1
+            (List.length recursive.parameters);
+          Alcotest.(check bool)
+            "the fixed parameter retains its default" true
+            (Option.is_some (List.hd recursive.parameters).default);
+          Alcotest.(check bool)
+            "the variadic marker is retained" true
+            (Option.is_some recursive.variadic);
+          let recursive_block =
+            expect_function_body recursive |> expect_block_statement
+          in
+          let recursive_return =
+            match recursive_block.block_statements with
+            | [ statement ] -> expect_return_statement statement
+            | statements ->
+                Alcotest.failf "expected one recursive statement, got %d"
+                  (List.length statements)
+          in
+          let recursive_call =
+            recursive_return.return_value |> Option.get
+            |> expect_call_expression
+          in
+          Alcotest.(check string)
+            "recursive call keeps the function name" "Recursive"
+            (recursive_call.call_callee |> expect_identifier_expression).spelling;
+          ignore (expect_function_body empty |> expect_empty_statement);
+          ignore (expect_function_body bare |> expect_return_statement);
+          let sequence =
+            expect_function_body sequence |> expect_statement_sequence
+          in
+          Alcotest.(check int)
+            "comma-linked body has two statements" 2
+            (List.length sequence.sequence_elements);
+          Alcotest.(check bool)
+            "EOF leaves the final body absent" true
+            (Option.is_none absent.body);
+          Alcotest.(check int)
+            "an absent definition stops at its closing parenthesis"
+            absent.closing_parenthesis.span.stop absent.location.span.stop
+      | definitions ->
+          Alcotest.failf "expected five function definitions, got %d"
+            (List.length definitions))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_definition_streaming_visibility () =
+  let source =
+    "U0 Visible()\n\
+     #ifdef Visible\n\
+     {return;}\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif\n\
+     U8 selected;"
+  in
+  let session, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [ Ast.Function_definition definition; Ast.Global_variable selected ] -> (
+      Alcotest.(check string)
+        "the conditional sees the function" "Visible" definition.name.spelling;
+      Alcotest.(check string)
+        "the selected branch remains in source order" "selected"
+        selected.name.spelling;
+      ignore (expect_function_body definition |> expect_block_statement);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "Visible"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            "the visible symbol is a function" true
+            (Symbol_visibility.kind entry = Symbol_visibility.Function)
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.fail "the function was not published before its body")
+  | items ->
+      Alcotest.failf "expected a function and following global, got %d items"
+        (List.length items)
+
+let function_definition_provenance () =
+  let source = "#define HEAD public U0 Generated()\nHEAD {return;}" in
+  let session, root, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let generated_locations =
+    [
+      (List.hd definition.modifiers).location;
+      definition.return_type.location;
+      definition.name.location;
+      definition.opening_parenthesis;
+      definition.closing_parenthesis;
+    ]
+  in
+  List.iter
+    (fun (location : Ast.location) ->
+      Alcotest.(check bool)
+        "header token comes from a generated frame" false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        "header token retains its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "header token retains its definition" true
+        (Option.is_some location.defined_at))
+    generated_locations;
+  let body = expect_function_body definition |> expect_block_statement in
+  Alcotest.(check bool)
+    "the direct body remains in the root source" true
+    (Source_id.equal body.block_location.span.source (Source_file.id root));
+  let open Yojson.Safe.Util in
+  let item =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON retains generated function provenance" true
+    (item |> member "name" |> member "location" |> member "generated_from"
+   <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let body_file = Filename.concat directory "body.HC" in
+      write_file root_file "U0 Included()\n#include \"body\"";
+      write_file body_file "{return;}";
+      let include_session = Session.create () in
+      let include_root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:include_root
+      in
+      let included = expect_ast include_output |> expect_one_definition in
+      let included_body =
+        expect_function_body included |> expect_block_statement
+      in
+      let body_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_body.block_opening_brace.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "an included body keeps its canonical source" (Unix.realpath body_file)
+        (Source_file.path body_source))
+
+let function_definition_failures () =
+  let session, _, malformed =
+    parse_string "U0 Broken(){else;} U0 Recovered();"
+  in
+  Alcotest.(check bool)
+    "a malformed definition has no AST" true
+    (Option.is_none malformed.ast);
+  Alcotest.(check string)
+    "the body keeps its ordinary statement diagnostic" "HCPARSE0055"
+    (first_diagnostic malformed).code;
+  List.iter
+    (fun name ->
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            (name ^ " remains a function symbol")
+            true
+            (Symbol_visibility.kind entry = Symbol_visibility.Function)
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "expected recovered function symbol %s" name)
+    [ "Broken"; "Recovered" ];
+  let rejected_session, _, rejected = parse_string "U0 Bad(I64 value,){}" in
+  Alcotest.(check string)
+    "a malformed definition parameter uses the shared diagnostic" "HCPARSE0009"
+    (first_diagnostic rejected).code;
+  (match
+     Symbol_visibility.Environment.find_preprocessor
+       (Session.symbols rejected_session)
+       "Bad"
+   with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "a definition with a rejected header became visible");
+  let _, _, bound_body = parse_string "extern U0 Prototype(){}" in
+  Alcotest.(check string)
+    "a bound form remains a prototype" "HCPARSE0016"
+    (first_diagnostic bound_body).code;
+  let depth = Parser.max_block_depth + 1 in
+  let nested_source =
+    "U0 TooDeep()" ^ String.make depth '{' ^ String.make depth '}'
+  in
+  let _, _, nested = parse_string nested_source in
+  Alcotest.(check bool)
+    "excessive definition nesting has no AST" true
+    (Option.is_none nested.ast);
+  Alcotest.(check string)
+    "definition nesting uses the block diagnostic" "HCPARSE0051"
+    (first_diagnostic nested).code
+
+let deterministic_function_definition_dumps () =
+  let session, _, output =
+    parse_string "public U0 Present(){return;} U0 Absent()"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human definition dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON definition dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump distinguishes a present body" true
+    (contains human "body=present");
+  Alcotest.(check bool)
+    "human dump distinguishes an absent body" true
+    (contains human "body=absent");
+  let open Yojson.Safe.Util in
+  let items =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+  in
+  Alcotest.(check (list string))
+    "JSON uses the definition kind"
+    [ "function_definition"; "function_definition" ]
+    (List.map (fun item -> item |> member "kind" |> to_string) items);
+  Alcotest.(check string)
+    "JSON keeps a present return body" "block_statement"
+    (List.hd items |> member "body" |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON uses null for an absent body" true
+    (List.nth items 1 |> member "body" = `Null)
+
 let empty_and_comment_only () =
   List.iter
     (fun contents ->
@@ -6570,6 +6888,9 @@ let order_and_spans () =
         | Ast.Function_prototype _ ->
             Alcotest.fail
               "independent declarations unexpectedly formed a prototype"
+        | Ast.Function_definition _ ->
+            Alcotest.fail
+              "independent declarations unexpectedly formed a function"
         | Ast.Top_level_statement _ ->
             Alcotest.fail
               "independent declarations unexpectedly formed a statement")
@@ -6699,6 +7020,8 @@ let declarations_update_symbol_conditionals () =
              Alcotest.fail "conditional fixture unexpectedly formed a group"
          | Ast.Function_prototype _ ->
              Alcotest.fail "conditional fixture unexpectedly formed a prototype"
+         | Ast.Function_definition _ ->
+             Alcotest.fail "conditional fixture unexpectedly formed a function"
          | Ast.Top_level_statement _ ->
              Alcotest.fail "conditional fixture unexpectedly formed a statement")
        ast.items)
@@ -6773,6 +7096,7 @@ let implicit_output_shapes () =
         | Ast.Global_variable _
         | Ast.Global_declaration _
         | Ast.Function_prototype _
+        | Ast.Function_definition _
         | Ast.Top_level_statement _ ->
             Alcotest.fail "output fixture unexpectedly parsed a declaration")
       ast.items
@@ -10761,7 +11085,6 @@ let unsupported_forms () =
       ("missing name", "I64 ;", "HCPARSE0002");
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
-      ("function", "I64 Function();", "HCPARSE0008");
     ]
   in
   List.iter
@@ -11200,6 +11523,18 @@ let tests =
       function_parameter_register_failures;
     Alcotest.test_case "deterministic function dumps" `Quick
       deterministic_function_dumps;
+    Alcotest.test_case "pinned function definition behavior" `Quick
+      function_definition_source_behavior;
+    Alcotest.test_case "function definition shapes" `Quick
+      function_definition_shapes;
+    Alcotest.test_case "function definition streaming visibility" `Quick
+      function_definition_streaming_visibility;
+    Alcotest.test_case "function definition provenance" `Quick
+      function_definition_provenance;
+    Alcotest.test_case "function definition failures" `Quick
+      function_definition_failures;
+    Alcotest.test_case "deterministic function definition dumps" `Quick
+      deterministic_function_definition_dumps;
     Alcotest.test_case "empty and comment-only modules" `Quick
       empty_and_comment_only;
     Alcotest.test_case "source order and spans" `Quick order_and_spans;

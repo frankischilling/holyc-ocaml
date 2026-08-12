@@ -993,6 +993,40 @@ let human sources module_ =
             (location_text sources prototype.closing_parenthesis);
           Printf.bprintf buffer "    semicolon span=%s\n"
             (location_text sources prototype.semicolon)
+      | Ast.Function_definition definition ->
+          Printf.bprintf buffer
+            "  function_definition span=%s parameters=%d variadic=%b body=%s\n"
+            (location_text sources definition.location)
+            (List.length definition.parameters)
+            (Option.is_some definition.variadic)
+            (if Option.is_some definition.body then "present" else "absent");
+          print_modifiers buffer sources ~indent:"    " definition.modifiers;
+          Printf.bprintf buffer
+            "    return_type primitive=%s spelling=%S span=%s\n"
+            (Sema.Primitive_type.to_string definition.return_type.primitive)
+            definition.return_type.spelling
+            (location_text sources definition.return_type.location);
+          print_pointer_layers buffer sources ~indent:"    "
+            definition.return_pointer_layers;
+          Printf.bprintf buffer "    name spelling=%S span=%s\n"
+            definition.name.spelling
+            (location_text sources definition.name.location);
+          Printf.bprintf buffer "    opening_parenthesis span=%s\n"
+            (location_text sources definition.opening_parenthesis);
+          List.iteri
+            (print_function_parameter buffer sources ~indent:"    ")
+            definition.parameters;
+          Option.iter
+            (print_variadic_marker buffer sources ~indent:"    ")
+            definition.variadic;
+          Printf.bprintf buffer "    closing_parenthesis span=%s\n"
+            (location_text sources definition.closing_parenthesis);
+          Option.iter
+            (fun body ->
+              Printf.bprintf buffer "    body span=%s\n"
+                (location_text sources (Ast.statement_location body));
+              print_statement buffer sources ~indent:"      " body)
+            definition.body
       | Ast.Top_level_statement statement ->
           Printf.bprintf buffer "  top_level_statement span=%s\n"
             (location_text sources (Ast.statement_location statement));
@@ -1956,6 +1990,36 @@ let item_to_yojson sources = function
               location_to_yojson sources prototype.closing_parenthesis );
             ("semicolon", location_to_yojson sources prototype.semicolon);
             ("location", location_to_yojson sources prototype.location);
+          ])
+  | Ast.Function_definition definition ->
+      `Assoc
+        ([ ("kind", `String "function_definition") ]
+        @ modifier_fields sources definition.modifiers
+        @ [
+            ("return_type", primitive_to_yojson sources definition.return_type);
+          ]
+        @ pointer_layer_fields sources definition.return_pointer_layers
+        @ [
+            ("name", identifier_to_yojson sources definition.name);
+            ( "opening_parenthesis",
+              location_to_yojson sources definition.opening_parenthesis );
+            ( "parameters",
+              `List
+                (List.map (parameter_to_yojson sources) definition.parameters)
+            );
+          ]
+        @ (match definition.variadic with
+          | None -> []
+          | Some variadic ->
+              [ ("variadic", variadic_to_yojson sources variadic) ])
+        @ [
+            ( "closing_parenthesis",
+              location_to_yojson sources definition.closing_parenthesis );
+            ( "body",
+              match definition.body with
+              | None -> `Null
+              | Some body -> statement_to_yojson sources body );
+            ("location", location_to_yojson sources definition.location);
           ])
   | Ast.Top_level_statement statement ->
       `Assoc
