@@ -358,6 +358,20 @@ type expression_statement = private {
   expression_statement_location : location;
 }
 
+type switch_mode = Bounded_switch | No_bound_switch
+
+type switch_case_range = private {
+  case_range_start : expression;
+  case_range_ellipsis : location;
+  case_range_end : expression;
+  case_range_location : location;
+}
+
+type switch_case_pattern =
+  | Implicit_case
+  | Single_case of expression
+  | Ranged_case of switch_case_range
+
 type statement =
   | Block_statement of block_statement
   | Break_statement of break_statement
@@ -372,6 +386,7 @@ type statement =
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
+  | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
 
@@ -444,6 +459,46 @@ and lock_statement = private {
   lock_keyword : location;
   lock_body : statement;
   lock_location : location;
+}
+
+and switch_statement = private {
+  switch_keyword : location;
+  switch_mode : switch_mode;
+  switch_opening_delimiter : location;
+  switch_expression : expression;
+  switch_closing_delimiter : location;
+  switch_opening_brace : location;
+  switch_elements : switch_element list;
+  switch_closing_brace : location;
+  switch_location : location;
+}
+
+and switch_element =
+  | Switch_case_element of switch_case_label
+  | Switch_default_element of switch_default_label
+  | Switch_subswitch_element of switch_subswitch
+  | Switch_statement_element of statement
+
+and switch_case_label = private {
+  switch_case_keyword : location;
+  switch_case_pattern : switch_case_pattern;
+  switch_case_colon : location;
+  switch_case_location : location;
+}
+
+and switch_default_label = private {
+  switch_default_keyword : location;
+  switch_default_colon : location;
+  switch_default_location : location;
+}
+
+and switch_subswitch = private {
+  subswitch_start_keyword : location;
+  subswitch_start_colon : location;
+  subswitch_elements : switch_element list;
+  subswitch_end_keyword : location;
+  subswitch_end_colon : location;
+  subswitch_location : location;
 }
 
 and try_catch_statement = private {
@@ -831,6 +886,47 @@ val make_label_statement :
 
 val make_lock_statement :
   keyword:location -> body:statement -> location:location -> lock_statement
+
+val make_switch_case_range :
+  start:expression ->
+  ellipsis:location ->
+  end_:expression ->
+  location:location ->
+  switch_case_range
+
+val make_switch_case_label :
+  keyword:location ->
+  pattern:switch_case_pattern ->
+  colon:location ->
+  location:location ->
+  switch_case_label
+
+val make_switch_default_label :
+  keyword:location ->
+  colon:location ->
+  location:location ->
+  switch_default_label
+
+val make_switch_subswitch :
+  start_keyword:location ->
+  start_colon:location ->
+  elements:switch_element list ->
+  end_keyword:location ->
+  end_colon:location ->
+  location:location ->
+  switch_subswitch
+
+val make_switch_statement :
+  keyword:location ->
+  mode:switch_mode ->
+  opening_delimiter:location ->
+  expression:expression ->
+  closing_delimiter:location ->
+  opening_brace:location ->
+  elements:switch_element list ->
+  closing_brace:location ->
+  location:location ->
+  switch_statement
 
 val make_try_catch_statement :
   try_keyword:location ->

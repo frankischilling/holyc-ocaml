@@ -10,6 +10,7 @@ val max_conditional_depth : int
 val max_loop_depth : int
 val max_lock_depth : int
 val max_try_depth : int
+val max_switch_depth : int
 
 val parse :
   sources:Common.Source_manager.t ->

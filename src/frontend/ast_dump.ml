@@ -602,6 +602,37 @@ let rec print_statement buffer sources ~indent = function
       Printf.bprintf buffer "%sbody\n" child_indent;
       print_statement buffer sources ~indent:(child_indent ^ "  ")
         statement.lock_body
+  | Ast.Switch_statement statement ->
+      let child_indent = indent ^ "  " in
+      let mode =
+        match statement.switch_mode with
+        | Ast.Bounded_switch -> "bounded"
+        | Ast.No_bound_switch -> "no_bound"
+      in
+      Printf.bprintf buffer "%sswitch_statement span=%s mode=%s elements=%d\n"
+        indent
+        (location_text sources statement.switch_location)
+        mode
+        (List.length statement.switch_elements);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.switch_keyword);
+      Printf.bprintf buffer "%sopening_delimiter span=%s\n" child_indent
+        (location_text sources statement.switch_opening_delimiter);
+      Printf.bprintf buffer "%sexpression\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        statement.switch_expression;
+      Printf.bprintf buffer "%sclosing_delimiter span=%s\n" child_indent
+        (location_text sources statement.switch_closing_delimiter);
+      Printf.bprintf buffer "%sopening_brace span=%s\n" child_indent
+        (location_text sources statement.switch_opening_brace);
+      List.iteri
+        (fun index element ->
+          Printf.bprintf buffer "%selement index=%d\n" child_indent index;
+          print_switch_element buffer sources ~indent:(child_indent ^ "  ")
+            element)
+        statement.switch_elements;
+      Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+        (location_text sources statement.switch_closing_brace)
   | Ast.Try_catch_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%stry_catch_statement span=%s\n" indent
@@ -664,6 +695,70 @@ let rec print_statement buffer sources ~indent = function
                 (location_text sources comma))
             element.sequence_following_commas)
         sequence.sequence_elements
+
+and print_switch_element buffer sources ~indent = function
+  | Ast.Switch_case_element case_label ->
+      let child_indent = indent ^ "  " in
+      let pattern =
+        match case_label.switch_case_pattern with
+        | Ast.Implicit_case -> "implicit"
+        | Ast.Single_case _ -> "single"
+        | Ast.Ranged_case _ -> "range"
+      in
+      Printf.bprintf buffer "%scase_label span=%s pattern=%s\n" indent
+        (location_text sources case_label.switch_case_location)
+        pattern;
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources case_label.switch_case_keyword);
+      (match case_label.switch_case_pattern with
+      | Ast.Implicit_case -> ()
+      | Ast.Single_case expression ->
+          Printf.bprintf buffer "%svalue\n" child_indent;
+          print_expression buffer sources ~indent:(child_indent ^ "  ")
+            expression
+      | Ast.Ranged_case range ->
+          Printf.bprintf buffer "%srange span=%s\n" child_indent
+            (location_text sources range.case_range_location);
+          Printf.bprintf buffer "%s  start\n" child_indent;
+          print_expression buffer sources ~indent:(child_indent ^ "    ")
+            range.case_range_start;
+          Printf.bprintf buffer "%s  ellipsis span=%s\n" child_indent
+            (location_text sources range.case_range_ellipsis);
+          Printf.bprintf buffer "%s  end\n" child_indent;
+          print_expression buffer sources ~indent:(child_indent ^ "    ")
+            range.case_range_end);
+      Printf.bprintf buffer "%scolon span=%s\n" child_indent
+        (location_text sources case_label.switch_case_colon)
+  | Ast.Switch_default_element default_label ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sdefault_label span=%s\n" indent
+        (location_text sources default_label.switch_default_location);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources default_label.switch_default_keyword);
+      Printf.bprintf buffer "%scolon span=%s\n" child_indent
+        (location_text sources default_label.switch_default_colon)
+  | Ast.Switch_subswitch_element subswitch ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%ssub_switch span=%s elements=%d\n" indent
+        (location_text sources subswitch.subswitch_location)
+        (List.length subswitch.subswitch_elements);
+      Printf.bprintf buffer "%sstart_keyword span=%s\n" child_indent
+        (location_text sources subswitch.subswitch_start_keyword);
+      Printf.bprintf buffer "%sstart_colon span=%s\n" child_indent
+        (location_text sources subswitch.subswitch_start_colon);
+      List.iteri
+        (fun index element ->
+          Printf.bprintf buffer "%selement index=%d\n" child_indent index;
+          print_switch_element buffer sources ~indent:(child_indent ^ "  ")
+            element)
+        subswitch.subswitch_elements;
+      Printf.bprintf buffer "%send_keyword span=%s\n" child_indent
+        (location_text sources subswitch.subswitch_end_keyword);
+      Printf.bprintf buffer "%send_colon span=%s\n" child_indent
+        (location_text sources subswitch.subswitch_end_colon)
+  | Ast.Switch_statement_element statement ->
+      Printf.bprintf buffer "%sstatement\n" indent;
+      print_statement buffer sources ~indent:(indent ^ "  ") statement
 
 and print_implicit_output_statement buffer sources ~indent
     (statement : Ast.implicit_output_statement) =
@@ -1528,6 +1623,33 @@ let rec statement_to_yojson sources = function
           ("body", statement_to_yojson sources statement.lock_body);
           ("location", location_to_yojson sources statement.lock_location);
         ]
+  | Ast.Switch_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "switch_statement");
+          ( "mode",
+            `String
+              (match statement.switch_mode with
+              | Ast.Bounded_switch -> "bounded"
+              | Ast.No_bound_switch -> "no_bound") );
+          ("keyword", location_to_yojson sources statement.switch_keyword);
+          ( "opening_delimiter",
+            location_to_yojson sources statement.switch_opening_delimiter );
+          ( "expression",
+            expression_to_yojson sources statement.switch_expression );
+          ( "closing_delimiter",
+            location_to_yojson sources statement.switch_closing_delimiter );
+          ( "opening_brace",
+            location_to_yojson sources statement.switch_opening_brace );
+          ( "elements",
+            `List
+              (List.map
+                 (switch_element_to_yojson sources)
+                 statement.switch_elements) );
+          ( "closing_brace",
+            location_to_yojson sources statement.switch_closing_brace );
+          ("location", location_to_yojson sources statement.switch_location);
+        ]
   | Ast.Try_catch_statement statement ->
       `Assoc
         [
@@ -1578,6 +1700,74 @@ let rec statement_to_yojson sources = function
           ( "elements",
             `List (List.map element_to_yojson sequence.sequence_elements) );
           ("location", location_to_yojson sources sequence.sequence_location);
+        ]
+
+and switch_element_to_yojson sources = function
+  | Ast.Switch_case_element case_label ->
+      let pattern =
+        match case_label.switch_case_pattern with
+        | Ast.Implicit_case -> `Assoc [ ("kind", `String "implicit") ]
+        | Ast.Single_case expression ->
+            `Assoc
+              [
+                ("kind", `String "single");
+                ("value", expression_to_yojson sources expression);
+              ]
+        | Ast.Ranged_case range ->
+            `Assoc
+              [
+                ("kind", `String "range");
+                ("start", expression_to_yojson sources range.case_range_start);
+                ( "ellipsis",
+                  location_to_yojson sources range.case_range_ellipsis );
+                ("end", expression_to_yojson sources range.case_range_end);
+                ( "location",
+                  location_to_yojson sources range.case_range_location );
+              ]
+      in
+      `Assoc
+        [
+          ("kind", `String "case_label");
+          ("keyword", location_to_yojson sources case_label.switch_case_keyword);
+          ("pattern", pattern);
+          ("colon", location_to_yojson sources case_label.switch_case_colon);
+          ( "location",
+            location_to_yojson sources case_label.switch_case_location );
+        ]
+  | Ast.Switch_default_element default_label ->
+      `Assoc
+        [
+          ("kind", `String "default_label");
+          ( "keyword",
+            location_to_yojson sources default_label.switch_default_keyword );
+          ( "colon",
+            location_to_yojson sources default_label.switch_default_colon );
+          ( "location",
+            location_to_yojson sources default_label.switch_default_location );
+        ]
+  | Ast.Switch_subswitch_element subswitch ->
+      `Assoc
+        [
+          ("kind", `String "sub_switch");
+          ( "start_keyword",
+            location_to_yojson sources subswitch.subswitch_start_keyword );
+          ( "start_colon",
+            location_to_yojson sources subswitch.subswitch_start_colon );
+          ( "elements",
+            `List
+              (List.map
+                 (switch_element_to_yojson sources)
+                 subswitch.subswitch_elements) );
+          ( "end_keyword",
+            location_to_yojson sources subswitch.subswitch_end_keyword );
+          ("end_colon", location_to_yojson sources subswitch.subswitch_end_colon);
+          ("location", location_to_yojson sources subswitch.subswitch_location);
+        ]
+  | Ast.Switch_statement_element statement ->
+      `Assoc
+        [
+          ("kind", `String "statement");
+          ("statement", statement_to_yojson sources statement);
         ]
 
 let binding_to_yojson sources (binding : Ast.declaration_binding) =

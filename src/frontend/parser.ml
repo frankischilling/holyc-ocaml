@@ -29,9 +29,26 @@ type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
 type parsed_expression = { node : Ast.expression; tokens : Token.t list }
 type parsed_statement = { node : Ast.statement; tokens : Token.t list }
 
+type parsed_switch_element = {
+  node : Ast.switch_element;
+  tokens : Token.t list;
+}
+
+type switch_region_end =
+  | Switch_region_brace of located_token
+  | Switch_region_end_label of located_token * located_token
+
+type parsed_switch_region = {
+  region_elements : Ast.switch_element list;
+  region_tokens : Token.t list;
+  region_end : switch_region_end;
+  region_had_error : bool;
+}
+
 type statement_boundary =
   | Top_level_boundary
   | Block_boundary
+  | Switch_boundary
   | For_update_boundary of statement_boundary
 
 type parsed_array_dimension = {
@@ -50,6 +67,8 @@ type expression_context =
   | Do_while_condition_expression
   | For_condition_expression
   | If_condition_expression
+  | Switch_expression
+  | Switch_case_expression
   | While_condition_expression
   | Statement_expression
 
@@ -97,6 +116,7 @@ let max_conditional_depth = 256
 let max_loop_depth = 256
 let max_lock_depth = 256
 let max_try_depth = 256
+let max_switch_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -274,26 +294,77 @@ let rec recover_declaration cursor =
       ignore (take cursor);
       recover_declaration cursor
 
-let rec statement_boundary_is_block = function
-  | Block_boundary -> true
-  | For_update_boundary boundary -> statement_boundary_is_block boundary
+let rec statement_boundary_stops_at_closing_brace = function
+  | Block_boundary | Switch_boundary -> true
+  | For_update_boundary boundary ->
+      statement_boundary_stops_at_closing_brace boundary
   | Top_level_boundary -> false
+
+let rec statement_boundary_is_switch = function
+  | Switch_boundary -> true
+  | For_update_boundary boundary -> statement_boundary_is_switch boundary
+  | Top_level_boundary | Block_boundary -> false
+
+let token_is_switch_boundary token =
+  match token.Token.kind with
+  | Token_kind.Keyword
+      (Keyword.Case | Keyword.Default | Keyword.Start | Keyword.End) -> true
+  | _ -> false
 
 let rec recover_statement cursor ~boundary =
   let item = peek cursor in
   match item.token.Token.kind with
   | Token_kind.Eof -> ()
-  | Token_kind.Punctuation '}' when statement_boundary_is_block boundary -> ()
+  | Token_kind.Punctuation '}'
+    when statement_boundary_stops_at_closing_brace boundary -> ()
+  | _
+    when statement_boundary_is_switch boundary
+         && token_is_switch_boundary item.token -> ()
   | Token_kind.Punctuation ')' -> (
       match boundary with
       | For_update_boundary _ -> ()
-      | Top_level_boundary | Block_boundary ->
+      | Top_level_boundary | Block_boundary | Switch_boundary ->
           ignore (take cursor);
           recover_statement cursor ~boundary)
   | Token_kind.Punctuation ';' -> ignore (take cursor)
   | _ ->
       ignore (take cursor);
       recover_statement cursor ~boundary
+
+let recover_switch_tail cursor ~boundary =
+  let rec skip_body depth =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Eof -> ()
+    | Token_kind.Punctuation '{' ->
+        ignore (take cursor);
+        skip_body (depth + 1)
+    | Token_kind.Punctuation '}' when depth > 1 ->
+        ignore (take cursor);
+        skip_body (depth - 1)
+    | Token_kind.Punctuation '}' -> ignore (take cursor)
+    | _ ->
+        ignore (take cursor);
+        skip_body depth
+  in
+  let rec seek_body () =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Eof -> ()
+    | Token_kind.Punctuation '{' ->
+        ignore (take cursor);
+        skip_body 1
+    | Token_kind.Punctuation ';' -> ignore (take cursor)
+    | Token_kind.Punctuation '}'
+      when statement_boundary_stops_at_closing_brace boundary -> ()
+    | _
+      when statement_boundary_is_switch boundary
+           && token_is_switch_boundary item.token -> ()
+    | _ ->
+        ignore (take cursor);
+        seek_body ()
+  in
+  seek_body ()
 
 let recover_for_header cursor ~boundary =
   let rec skip nested_parentheses nested_braces =
@@ -314,7 +385,8 @@ let recover_for_header cursor ~boundary =
     | Token_kind.Punctuation '}' when nested_braces > 0 ->
         ignore (take cursor);
         skip nested_parentheses (nested_braces - 1)
-    | Token_kind.Punctuation '}' when statement_boundary_is_block boundary -> ()
+    | Token_kind.Punctuation '}'
+      when statement_boundary_stops_at_closing_brace boundary -> ()
     | _ ->
         ignore (take cursor);
         skip nested_parentheses nested_braces
@@ -327,7 +399,7 @@ let rec statement_body_boundary = function
 
 let is_for_update_boundary = function
   | For_update_boundary _ -> true
-  | Top_level_boundary | Block_boundary -> false
+  | Top_level_boundary | Block_boundary | Switch_boundary -> false
 
 let recover_compound_statement cursor =
   let rec skip depth =
@@ -621,6 +693,8 @@ let expression_context_name = function
   | Do_while_condition_expression -> "do-while condition expression"
   | For_condition_expression -> "for condition expression"
   | If_condition_expression -> "if condition expression"
+  | Switch_expression -> "switch expression"
+  | Switch_case_expression -> "switch case expression"
   | While_condition_expression -> "while condition expression"
   | Statement_expression -> "statement expression"
 
@@ -635,6 +709,8 @@ let expression_operand_name = function
   | Do_while_condition_expression -> "a do-while condition expression operand"
   | For_condition_expression -> "a for condition expression operand"
   | If_condition_expression -> "an if condition expression operand"
+  | Switch_expression -> "a switch expression operand"
+  | Switch_case_expression -> "a switch case expression operand"
   | While_condition_expression -> "a while condition expression operand"
   | Statement_expression -> "a statement expression operand"
 
@@ -2563,33 +2639,36 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           Some { node = Ast.Expression_statement statement; tokens })
 
 let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
   | Token_kind.Punctuation '{' ->
       parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
-        ~lock_depth ~try_depth
+        ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Break -> parse_break_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Do ->
       parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.For ->
       parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Goto -> parse_goto_statement cursor ~boundary
   | Token_kind.Keyword Keyword.If ->
       parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Lock ->
       parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Return -> parse_return_statement cursor ~boundary
+  | Token_kind.Keyword Keyword.Switch ->
+      parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Try ->
       parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.While ->
       parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
   | Token_kind.Keyword Keyword.Catch ->
       report cursor item ~code:"HCPARSE0082"
         ~message:"found 'catch' without a matching 'try'";
@@ -2643,7 +2722,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       None
 
 and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let do_item = peek cursor in
   if loop_depth >= max_loop_depth then (
     report cursor do_item ~code:"HCPARSE0061"
@@ -2658,7 +2737,8 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
       parse_required_statement cursor
         ~boundary:(statement_body_boundary boundary)
         ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1) ~lock_depth
-        ~try_depth ~code:"HCPARSE0062" ~description:"a statement after 'do'"
+        ~try_depth ~switch_depth ~code:"HCPARSE0062"
+        ~description:"a statement after 'do'"
     with
     | None -> None
     | Some body -> (
@@ -2737,7 +2817,7 @@ and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
                     Some { node = Ast.Do_while_statement statement; tokens })
 
 and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let keyword_item = peek cursor in
   if loop_depth >= max_loop_depth then (
     report cursor keyword_item ~code:"HCPARSE0061"
@@ -2770,7 +2850,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
         match
           parse_required_statement cursor ~boundary:statement_boundary
             ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
-            ~lock_depth ~try_depth ~code:"HCPARSE0068"
+            ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0068"
             ~description:"an initializer statement in the for header"
         with
         | None ->
@@ -2810,7 +2890,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                            ~boundary:(For_update_boundary statement_boundary)
                            ~block_depth ~conditional_depth
                            ~loop_depth:(loop_depth + 1) ~lock_depth ~try_depth
-                           ~code:"HCPARSE0070"
+                           ~switch_depth ~code:"HCPARSE0070"
                            ~description:"a for update statement")
                   in
                   match parsed_update with
@@ -2834,7 +2914,8 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                           parse_required_statement cursor
                             ~boundary:statement_boundary ~block_depth
                             ~conditional_depth ~loop_depth:(loop_depth + 1)
-                            ~lock_depth ~try_depth ~code:"HCPARSE0071"
+                            ~lock_depth ~try_depth ~switch_depth
+                            ~code:"HCPARSE0071"
                             ~description:"a statement after the for header"
                         with
                         | None -> None
@@ -2876,7 +2957,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                 ))
 
 and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let keyword_item = peek cursor in
   if conditional_depth >= max_conditional_depth then (
     report cursor keyword_item ~code:"HCPARSE0057"
@@ -2921,7 +3002,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
               parse_required_statement cursor
                 ~boundary:(statement_body_boundary boundary)
                 ~block_depth ~conditional_depth:branch_depth ~loop_depth
-                ~lock_depth ~try_depth ~code:"HCPARSE0054"
+                ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0054"
                 ~description:"a statement after the if condition"
             with
             | None -> None
@@ -2944,7 +3025,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
                         (parse_required_statement cursor
                            ~boundary:(statement_body_boundary boundary)
                            ~block_depth ~conditional_depth:branch_depth
-                           ~loop_depth ~lock_depth ~try_depth
+                           ~loop_depth ~lock_depth ~try_depth ~switch_depth
                            ~code:"HCPARSE0056"
                            ~description:"a statement after 'else'")
                   | _ -> Some (None, [])
@@ -2970,7 +3051,7 @@ and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
                     Some { node = Ast.If_statement statement; tokens }))
 
 and parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let keyword_item = peek cursor in
   if lock_depth >= max_lock_depth then (
     report cursor keyword_item ~code:"HCPARSE0078"
@@ -2985,7 +3066,8 @@ and parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
       parse_required_statement cursor
         ~boundary:(statement_body_boundary boundary)
         ~block_depth ~conditional_depth ~loop_depth ~lock_depth:(lock_depth + 1)
-        ~try_depth ~code:"HCPARSE0077" ~description:"a statement after 'lock'"
+        ~try_depth ~switch_depth ~code:"HCPARSE0077"
+        ~description:"a statement after 'lock'"
     with
     | None -> None
     | Some body ->
@@ -2998,8 +3080,381 @@ and parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
         in
         Some { node = Ast.Lock_statement statement; tokens }
 
+and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
+  let keyword_item = peek cursor in
+  if switch_depth >= max_switch_depth then (
+    report cursor keyword_item ~code:"HCPARSE0084"
+      ~message:
+        (Printf.sprintf
+           "switch-statement nesting exceeds the hosted limit of %d"
+           max_switch_depth);
+    ignore (take cursor);
+    recover_switch_tail cursor ~boundary;
+    None)
+  else
+    let keyword_item = take cursor in
+    let opening_item = peek cursor in
+    let delimiter =
+      match opening_item.token.kind with
+      | Token_kind.Punctuation '(' ->
+          Some (Ast.Bounded_switch, Token_kind.Punctuation ')')
+      | Token_kind.Punctuation '[' ->
+          Some (Ast.No_bound_switch, Token_kind.Punctuation ']')
+      | _ -> None
+    in
+    match delimiter with
+    | None ->
+        report cursor opening_item ~code:"HCPARSE0085"
+          ~message:
+            (Printf.sprintf "expected '(' or '[' after 'switch', but found %s"
+               (token_description opening_item.token));
+        recover_switch_tail cursor ~boundary;
+        None
+    | Some (mode, closing_kind) -> (
+        let opening_item = take cursor in
+        match
+          parse_expression cursor ~context:Switch_expression ~depth:0
+            ~minimum_binding_power:0
+        with
+        | None ->
+            recover_switch_tail cursor ~boundary;
+            None
+        | Some (expression : parsed_expression) -> (
+            let closing_item = peek cursor in
+            if closing_item.token.kind <> closing_kind then (
+              report cursor closing_item ~code:"HCPARSE0086"
+                ~message:
+                  (Printf.sprintf
+                     "expected %S after the switch expression, but found %s"
+                     (match mode with
+                     | Ast.Bounded_switch -> ")"
+                     | Ast.No_bound_switch -> "]")
+                     (token_description closing_item.token));
+              recover_switch_tail cursor ~boundary;
+              None)
+            else
+              let closing_item = take cursor in
+              let opening_brace_item = peek cursor in
+              if opening_brace_item.token.kind <> Token_kind.Punctuation '{'
+              then (
+                report cursor opening_brace_item ~code:"HCPARSE0087"
+                  ~message:
+                    (Printf.sprintf
+                       "expected '{' after the switch header, but found %s"
+                       (token_description opening_brace_item.token));
+                recover_switch_tail cursor ~boundary;
+                None)
+              else
+                let opening_brace_item = take cursor in
+                match
+                  parse_switch_region cursor ~expect_end:false
+                    ~subswitch_depth:0 ~block_depth ~conditional_depth
+                    ~loop_depth ~lock_depth ~try_depth
+                    ~switch_depth:(switch_depth + 1)
+                with
+                | None -> None
+                | Some region -> (
+                    match region.region_end with
+                    | Switch_region_end_label _ ->
+                        invalid_arg
+                          "switch body ended with a sub-switch terminator"
+                    | Switch_region_brace closing_brace_item ->
+                        if region.region_had_error then None
+                        else
+                          let tokens =
+                            keyword_item.token :: opening_item.token
+                            :: expression.tokens
+                            @ closing_item.token :: opening_brace_item.token
+                              :: region.region_tokens
+                          in
+                          let statement =
+                            Ast.make_switch_statement
+                              ~keyword:(token_location keyword_item.token)
+                              ~mode
+                              ~opening_delimiter:
+                                (token_location opening_item.token)
+                              ~expression:expression.node
+                              ~closing_delimiter:
+                                (token_location closing_item.token)
+                              ~opening_brace:
+                                (token_location opening_brace_item.token)
+                              ~elements:region.region_elements
+                              ~closing_brace:
+                                (token_location closing_brace_item.token)
+                              ~location:(location_from_expression_tokens tokens)
+                          in
+                          Some { node = Ast.Switch_statement statement; tokens }
+                    )))
+
+and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
+    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth :
+    parsed_switch_region option =
+  let finish elements_rev tokens_rev end_ ending_tokens had_error =
+    Some
+      {
+        region_elements = List.rev elements_rev;
+        region_tokens = List.rev tokens_rev @ ending_tokens;
+        region_end = end_;
+        region_had_error = had_error;
+      }
+  in
+  let rec collect elements_rev tokens_rev had_error =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Punctuation '}' when expect_end ->
+        report cursor item ~code:"HCPARSE0095"
+          ~message:"expected 'end:' before the enclosing switch closes";
+        None
+    | Token_kind.Punctuation '}' ->
+        let closing_item = take cursor in
+        finish elements_rev tokens_rev (Switch_region_brace closing_item)
+          [ closing_item.token ] had_error
+    | Token_kind.Eof ->
+        report cursor item
+          ~code:(if expect_end then "HCPARSE0095" else "HCPARSE0088")
+          ~message:
+            (if expect_end then "expected 'end:' before the end of input"
+             else "expected '}' to close the switch statement");
+        None
+    | Token_kind.Keyword Keyword.End when expect_end ->
+        let end_item = take cursor in
+        let colon_item = peek cursor in
+        if colon_item.token.kind <> Token_kind.Punctuation ':' then (
+          report cursor colon_item ~code:"HCPARSE0096"
+            ~message:
+              (Printf.sprintf "expected ':' after 'end', but found %s"
+                 (token_description colon_item.token));
+          recover_statement cursor ~boundary:Switch_boundary;
+          None)
+        else
+          let colon_item = take cursor in
+          finish elements_rev tokens_rev
+            (Switch_region_end_label (end_item, colon_item))
+            [ end_item.token; colon_item.token ]
+            had_error
+    | Token_kind.Keyword Keyword.End ->
+        let end_item = take cursor in
+        report cursor end_item ~code:"HCPARSE0094"
+          ~message:"found 'end:' without a matching 'start:'";
+        let consumed =
+          let colon_item = peek cursor in
+          if colon_item.token.kind = Token_kind.Punctuation ':' then
+            [ end_item.token; (take cursor).token ]
+          else [ end_item.token ]
+        in
+        collect elements_rev (List.rev_append consumed tokens_rev) true
+    | Token_kind.Keyword Keyword.Case -> (
+        match parse_switch_case_element cursor with
+        | Some element ->
+            collect
+              (element.node :: elements_rev)
+              (List.rev_append element.tokens tokens_rev)
+              had_error
+        | None -> collect elements_rev tokens_rev true)
+    | Token_kind.Keyword Keyword.Default -> (
+        match parse_switch_default_element cursor with
+        | Some element ->
+            collect
+              (element.node :: elements_rev)
+              (List.rev_append element.tokens tokens_rev)
+              had_error
+        | None -> collect elements_rev tokens_rev true)
+    | Token_kind.Keyword Keyword.Start -> (
+        match
+          parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
+            ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+        with
+        | Some element ->
+            collect
+              (element.node :: elements_rev)
+              (List.rev_append element.tokens tokens_rev)
+              had_error
+        | None -> collect elements_rev tokens_rev true)
+    | _ -> (
+        match
+          parse_statement_sequence cursor ~boundary:Switch_boundary ~block_depth
+            ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+        with
+        | Some statement ->
+            let element = Ast.Switch_statement_element statement.node in
+            collect (element :: elements_rev)
+              (List.rev_append statement.tokens tokens_rev)
+              had_error
+        | None -> collect elements_rev tokens_rev true)
+  in
+  collect [] [] false
+
+and parse_switch_case_element cursor : parsed_switch_element option =
+  let keyword_item = take cursor in
+  let first_item = peek cursor in
+  let parsed_pattern =
+    if first_item.token.kind = Token_kind.Punctuation ':' then
+      Some (Ast.Implicit_case, [])
+    else
+      match
+        parse_expression cursor ~context:Switch_case_expression ~depth:0
+          ~minimum_binding_power:0
+      with
+      | None -> None
+      | Some (start_expression : parsed_expression) -> (
+          let ellipsis_item = peek cursor in
+          if ellipsis_item.token.kind <> Token_kind.Operator Operator.Ellipsis
+          then
+            Some (Ast.Single_case start_expression.node, start_expression.tokens)
+          else
+            let ellipsis_item = take cursor in
+            let end_item = peek cursor in
+            if
+              end_item.token.kind = Token_kind.Punctuation ':'
+              || end_item.token.kind = Token_kind.Punctuation '}'
+              || end_item.token.kind = Token_kind.Eof
+              || token_is_switch_boundary end_item.token
+            then (
+              report cursor end_item ~code:"HCPARSE0090"
+                ~message:
+                  (Printf.sprintf
+                     "expected an expression after the case range ellipsis, \
+                      but found %s"
+                     (token_description end_item.token));
+              None)
+            else
+              match
+                parse_expression cursor ~context:Switch_case_expression ~depth:0
+                  ~minimum_binding_power:0
+              with
+              | None -> None
+              | Some (end_expression : parsed_expression) ->
+                  let range_tokens =
+                    start_expression.tokens
+                    @ (ellipsis_item.token :: end_expression.tokens)
+                  in
+                  let range =
+                    Ast.make_switch_case_range ~start:start_expression.node
+                      ~ellipsis:(token_location ellipsis_item.token)
+                      ~end_:end_expression.node
+                      ~location:(location_from_expression_tokens range_tokens)
+                  in
+                  Some (Ast.Ranged_case range, range_tokens))
+  in
+  match parsed_pattern with
+  | None ->
+      recover_statement cursor ~boundary:Switch_boundary;
+      None
+  | Some (pattern, pattern_tokens) ->
+      let colon_item = peek cursor in
+      if colon_item.token.kind <> Token_kind.Punctuation ':' then (
+        report cursor colon_item ~code:"HCPARSE0091"
+          ~message:
+            (Printf.sprintf "expected ':' after the case label, but found %s"
+               (token_description colon_item.token));
+        recover_statement cursor ~boundary:Switch_boundary;
+        None)
+      else
+        let colon_item = take cursor in
+        let tokens =
+          (keyword_item.token :: pattern_tokens) @ [ colon_item.token ]
+        in
+        let label =
+          Ast.make_switch_case_label
+            ~keyword:(token_location keyword_item.token)
+            ~pattern
+            ~colon:(token_location colon_item.token)
+            ~location:(location_from_expression_tokens tokens)
+        in
+        Some { node = Ast.Switch_case_element label; tokens }
+
+and parse_switch_default_element cursor : parsed_switch_element option =
+  let keyword_item = take cursor in
+  let colon_item = peek cursor in
+  if colon_item.token.kind <> Token_kind.Punctuation ':' then (
+    report cursor colon_item ~code:"HCPARSE0092"
+      ~message:
+        (Printf.sprintf "expected ':' after 'default', but found %s"
+           (token_description colon_item.token));
+    recover_statement cursor ~boundary:Switch_boundary;
+    None)
+  else
+    let colon_item = take cursor in
+    let tokens = [ keyword_item.token; colon_item.token ] in
+    let label =
+      Ast.make_switch_default_label
+        ~keyword:(token_location keyword_item.token)
+        ~colon:(token_location colon_item.token)
+        ~location:(location_from_expression_tokens tokens)
+    in
+    Some { node = Ast.Switch_default_element label; tokens }
+
+and parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
+    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth :
+    parsed_switch_element option =
+  let start_item = peek cursor in
+  if subswitch_depth >= max_switch_depth then (
+    report cursor start_item ~code:"HCPARSE0097"
+      ~message:
+        (Printf.sprintf "sub-switch nesting exceeds the hosted limit of %d"
+           max_switch_depth);
+    ignore (take cursor);
+    let rec skip nested =
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Eof | Token_kind.Punctuation '}' -> ()
+      | Token_kind.Keyword Keyword.Start ->
+          ignore (take cursor);
+          skip (nested + 1)
+      | Token_kind.Keyword Keyword.End ->
+          ignore (take cursor);
+          if (peek cursor).token.kind = Token_kind.Punctuation ':' then
+            ignore (take cursor);
+          if nested > 0 then skip (nested - 1)
+      | _ ->
+          ignore (take cursor);
+          skip nested
+    in
+    skip 0;
+    None)
+  else
+    let start_item = take cursor in
+    let start_colon_item = peek cursor in
+    if start_colon_item.token.kind <> Token_kind.Punctuation ':' then (
+      report cursor start_colon_item ~code:"HCPARSE0093"
+        ~message:
+          (Printf.sprintf "expected ':' after 'start', but found %s"
+             (token_description start_colon_item.token));
+      recover_statement cursor ~boundary:Switch_boundary;
+      None)
+    else
+      let start_colon_item = take cursor in
+      match
+        parse_switch_region cursor ~expect_end:true
+          ~subswitch_depth:(subswitch_depth + 1) ~block_depth ~conditional_depth
+          ~loop_depth ~lock_depth ~try_depth ~switch_depth
+      with
+      | None -> None
+      | Some region -> (
+          match region.region_end with
+          | Switch_region_brace _ ->
+              invalid_arg "sub-switch ended with a switch-body brace"
+          | Switch_region_end_label (end_item, end_colon_item) ->
+              if region.region_had_error then None
+              else
+                let tokens =
+                  start_item.token :: start_colon_item.token
+                  :: region.region_tokens
+                in
+                let subswitch =
+                  Ast.make_switch_subswitch
+                    ~start_keyword:(token_location start_item.token)
+                    ~start_colon:(token_location start_colon_item.token)
+                    ~elements:region.region_elements
+                    ~end_keyword:(token_location end_item.token)
+                    ~end_colon:(token_location end_colon_item.token)
+                    ~location:(location_from_expression_tokens tokens)
+                in
+                Some { node = Ast.Switch_subswitch_element subswitch; tokens })
+
 and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let try_item = peek cursor in
   if try_depth >= max_try_depth then (
     report cursor try_item ~code:"HCPARSE0083"
@@ -3021,7 +3476,8 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
       match
         parse_required_statement cursor ~boundary:body_boundary ~block_depth
           ~conditional_depth ~loop_depth ~lock_depth ~try_depth:(try_depth + 1)
-          ~code:"HCPARSE0079" ~description:"a statement after 'try'"
+          ~switch_depth ~code:"HCPARSE0079"
+          ~description:"a statement after 'try'"
       with
       | None -> None
       | Some try_body -> (
@@ -3047,7 +3503,7 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
               match
                 parse_required_statement cursor ~boundary:body_boundary
                   ~block_depth ~conditional_depth ~loop_depth ~lock_depth
-                  ~try_depth:(try_depth + 1) ~code:"HCPARSE0081"
+                  ~try_depth:(try_depth + 1) ~switch_depth ~code:"HCPARSE0081"
                   ~description:"a statement after 'catch'"
               with
               | None -> None
@@ -3067,7 +3523,7 @@ and parse_try_catch_statement cursor ~boundary ~block_depth ~conditional_depth
                   Some { node = Ast.Try_catch_statement statement; tokens })
 
 and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let keyword_item = peek cursor in
   if loop_depth >= max_loop_depth then (
     report cursor keyword_item ~code:"HCPARSE0061"
@@ -3111,7 +3567,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
               parse_required_statement cursor
                 ~boundary:(statement_body_boundary boundary)
                 ~block_depth ~conditional_depth ~loop_depth:(loop_depth + 1)
-                ~lock_depth ~try_depth ~code:"HCPARSE0060"
+                ~lock_depth ~try_depth ~switch_depth ~code:"HCPARSE0060"
                 ~description:"a statement after the while condition"
             with
             | None -> None
@@ -3132,7 +3588,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
                 Some { node = Ast.While_statement statement; tokens })
 
 and parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth ~code ~description :
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth ~code ~description :
     parsed_statement option =
   let first_item = peek cursor in
   let missing =
@@ -3140,6 +3596,9 @@ and parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
     | Token_kind.Eof
     | Token_kind.Punctuation '}'
     | Token_kind.Keyword Keyword.Else -> true
+    | _
+      when statement_boundary_is_switch boundary
+           && token_is_switch_boundary first_item.token -> true
     | _ -> false
   in
   if missing then (
@@ -3152,7 +3611,7 @@ and parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
   else
     match
       parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
-        ~loop_depth ~lock_depth ~try_depth
+        ~loop_depth ~lock_depth ~try_depth ~switch_depth
     with
     | Some ({ node = Ast.Sequence_statement sequence; _ } : parsed_statement)
       when sequence.sequence_elements = [] ->
@@ -3165,7 +3624,7 @@ and parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
     | statement -> statement
 
 and parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
-    ~lock_depth ~try_depth : parsed_statement option =
+    ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let opening_item = peek cursor in
   if block_depth >= max_block_depth then (
     report cursor opening_item ~code:"HCPARSE0051"
@@ -3215,7 +3674,7 @@ and parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
           match
             parse_statement_sequence cursor ~boundary:Block_boundary
               ~block_depth:(block_depth + 1) ~conditional_depth ~loop_depth
-              ~lock_depth ~try_depth
+              ~lock_depth ~try_depth ~switch_depth
           with
           | Some statement ->
               collect
@@ -3227,7 +3686,7 @@ and parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
     collect [] [] false
 
 and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
-    ~loop_depth ~lock_depth ~try_depth : parsed_statement option =
+    ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let leading_items = take_statement_commas cursor [] in
   let leading_commas =
     List.map (fun item -> token_location item.token) leading_items
@@ -3240,7 +3699,7 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
     else
       match
         parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
-          ~loop_depth ~lock_depth ~try_depth
+          ~loop_depth ~lock_depth ~try_depth ~switch_depth
       with
       | None -> None
       | Some (statement : parsed_statement) ->
@@ -3321,7 +3780,7 @@ let parse ~sources ~definitions ~symbols ~config source =
         match
           parse_statement_sequence cursor ~boundary:Top_level_boundary
             ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-            ~try_depth:0
+            ~try_depth:0 ~switch_depth:0
         with
         | Some statement ->
             items_rev := Ast.Top_level_statement statement.node :: !items_rev
@@ -3334,7 +3793,7 @@ let parse ~sources ~definitions ~symbols ~config source =
         match
           parse_statement_sequence cursor ~boundary:Top_level_boundary
             ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-            ~try_depth:0
+            ~try_depth:0 ~switch_depth:0
         with
         | Some statement ->
             items_rev := Ast.Top_level_statement statement.node :: !items_rev
