@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0036",
+    "severity": "error",
+    "message": "expected '.' after named offset target \"Packet\" in _intern target expression, but found \")\"",
+    "primary": {
+      "path": "cli/parse-offset-error.hc",
+      "line": 1,
+      "column": 22,
+      "source_id": 0,
+      "start": 21,
+      "stop": 22
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
