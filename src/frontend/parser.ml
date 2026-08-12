@@ -265,17 +265,16 @@ let rec recover_declaration cursor =
       ignore (take cursor);
       recover_declaration cursor
 
+let rec statement_boundary_is_block = function
+  | Block_boundary -> true
+  | For_update_boundary boundary -> statement_boundary_is_block boundary
+  | Top_level_boundary -> false
+
 let rec recover_statement cursor ~boundary =
   let item = peek cursor in
   match item.token.Token.kind with
   | Token_kind.Eof -> ()
-  | Token_kind.Punctuation '}'
-    when let rec in_block = function
-           | Block_boundary -> true
-           | For_update_boundary boundary -> in_block boundary
-           | Top_level_boundary -> false
-         in
-         in_block boundary -> ()
+  | Token_kind.Punctuation '}' when statement_boundary_is_block boundary -> ()
   | Token_kind.Punctuation ')' -> (
       match boundary with
       | For_update_boundary _ -> ()
@@ -287,22 +286,31 @@ let rec recover_statement cursor ~boundary =
       ignore (take cursor);
       recover_statement cursor ~boundary
 
-let recover_for_header cursor =
-  let rec skip nested_parentheses =
+let recover_for_header cursor ~boundary =
+  let rec skip nested_parentheses nested_braces =
     let item = peek cursor in
     match item.token.Token.kind with
     | Token_kind.Eof -> ()
     | Token_kind.Punctuation '(' ->
         ignore (take cursor);
-        skip (nested_parentheses + 1)
+        skip (nested_parentheses + 1) nested_braces
     | Token_kind.Punctuation ')' ->
         ignore (take cursor);
-        if nested_parentheses > 0 then skip (nested_parentheses - 1)
+        if nested_parentheses > 0 then
+          skip (nested_parentheses - 1) nested_braces
+        else if nested_braces > 0 then skip nested_parentheses nested_braces
+    | Token_kind.Punctuation '{' ->
+        ignore (take cursor);
+        skip nested_parentheses (nested_braces + 1)
+    | Token_kind.Punctuation '}' when nested_braces > 0 ->
+        ignore (take cursor);
+        skip nested_parentheses (nested_braces - 1)
+    | Token_kind.Punctuation '}' when statement_boundary_is_block boundary -> ()
     | _ ->
         ignore (take cursor);
-        skip nested_parentheses
+        skip nested_parentheses nested_braces
   in
-  skip 0
+  skip 0 0
 
 let rec statement_body_boundary = function
   | For_update_boundary boundary -> statement_body_boundary boundary
@@ -2548,7 +2556,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
         report cursor initialization_item ~code:"HCPARSE0068"
           ~message:
             "expected an initializer statement in the for header, but found ')'";
-        recover_for_header cursor;
+        recover_for_header cursor ~boundary:statement_boundary;
         None)
       else
         match
@@ -2558,7 +2566,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
             ~description:"an initializer statement in the for header"
         with
         | None ->
-            recover_for_header cursor;
+            recover_for_header cursor ~boundary:statement_boundary;
             None
         | Some initialization -> (
             match
@@ -2566,7 +2574,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                 ~minimum_binding_power:0
             with
             | None ->
-                recover_for_header cursor;
+                recover_for_header cursor ~boundary:statement_boundary;
                 None
             | Some (condition : parsed_expression) -> (
                 let condition_semicolon_item = peek cursor in
@@ -2579,7 +2587,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                       (Printf.sprintf
                          "expected ';' after the for condition, but found %s"
                          (token_description condition_semicolon_item.token));
-                  recover_for_header cursor;
+                  recover_for_header cursor ~boundary:statement_boundary;
                   None)
                 else
                   let condition_semicolon_item = take cursor in
@@ -2598,7 +2606,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                   in
                   match parsed_update with
                   | None ->
-                      recover_for_header cursor;
+                      recover_for_header cursor ~boundary:statement_boundary;
                       None
                   | Some update -> (
                       let closing_item = peek cursor in
@@ -2609,7 +2617,7 @@ and parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
                             (Printf.sprintf
                                "expected ')' after the for update, but found %s"
                                (token_description closing_item.token));
-                        recover_for_header cursor;
+                        recover_for_header cursor ~boundary:statement_boundary;
                         None)
                       else
                         let closing_item = take cursor in

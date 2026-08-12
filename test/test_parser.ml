@@ -8596,6 +8596,12 @@ let for_statement_failures () =
     (List.map
        (fun diagnostic -> diagnostic.Diagnostic.code)
        nested_recovery.diagnostics);
+  let _, _, block_recovery = parse_string "{for(;);}" in
+  Alcotest.(check (list string))
+    "header recovery preserves the enclosing block close" [ "HCPARSE0018" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       block_recovery.diagnostics);
   let mixed_source =
     "I64 value;"
     ^ String.concat ""
