@@ -920,13 +920,65 @@ function_symbol_publication = "after the complete header and before the first bo
 body_error_symbol_publication = "retained because publication precedes body parsing"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved independently for the header and body"
-local_declaration_status = "planned"
-function_scope_status = "planned"
+local_declaration_status = "primitive automatic and static forms implemented in HC-PARSER-LOCAL-DECLARATIONS"
+function_scope_status = "function-wide syntax lookup context implemented; semantic scope and storage are planned"
 type_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
 native_oracle_status = "matched the pinned TempleOS compiler"
 native_oracle_fixture = "test/oracle/function-definitions.json"
+
+[[feature]]
+id = "HC-PARSER-LOCAL-DECLARATIONS"
+description = "Function bodies retain primitive automatic and static local declaration groups, including pointer layers, array dimensions, scalar initializers, and automatic per-declarator register requests."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt local declaration dispatch",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Adam/Snd/SndMath.HC",
+  "Demo/Asm/AsmAndC1.HC",
+  "Demo/Asm/AsmAndC2.HC",
+  "Kernel/KMisc.HC"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-local-declarations.hc",
+  "test/cli/parse-local-declarations.human",
+  "test/cli/parse-local-declarations.json",
+  "test/cli/parse-local-declaration-error.hc",
+  "test/cli/parse-local-declaration-error.human",
+  "test/cli/parse-local-declaration-error.json"
+]
+status = "implemented"
+issue = 121
+ast_schema = "holyc-ast-v1"
+accepted_type_status = "primitive types with zero through four pointer layers"
+storage_status = ["automatic", "static"]
+register_qualifier_status = "reg and noreg after the type on automatic declarators"
+explicit_register_status = "canonical U64 register spellings on automatic reg declarators"
+declaration_group_status = "comma-separated declarators with independent register requests, pointer depths, array dimensions, and scalar initializers"
+name_publication = "before parsing the declarator initializer, matching MemberAdd order"
+lookup_context = "function-wide syntax context shared by nested statements"
+parameter_visibility = "named parameters are visible before the body"
+variadic_visibility = "argc and argv are visible in variadic bodies"
+for_initializer_status = "accepted through the ordinary statement parser"
+static_register_qualifier_status = "rejected with HCPARSE0099"
+class_and_union_local_status = "planned"
+function_pointer_local_status = "planned"
+aggregate_initializer_status = "planned"
+semantic_scope_status = "planned"
+storage_and_layout_status = "planned"
+type_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+native_oracle_status = "required before compatibility confirmation"
 
 [[feature]]
 id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
