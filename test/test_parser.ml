@@ -244,6 +244,10 @@ let expect_for_statement = function
   | Ast.For_statement statement -> statement
   | _ -> Alcotest.fail "expected a for statement"
 
+let expect_break_statement = function
+  | Ast.Break_statement statement -> statement
+  | _ -> Alcotest.fail "expected a break statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -8648,6 +8652,254 @@ let deterministic_for_dumps () =
     "JSON for body keeps its block" "block_statement"
     (loop |> member "body" |> member "kind" |> to_string)
 
+let break_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches break", "case KW_BREAK:");
+      ("break requires an active target", "if (!lb_break)");
+      ( "break reports a missing target",
+        "LexExcept(cc,\"'break' not allowed\\n\")" );
+      ("break emits a jump", "ICAdd(cc,IC_JMP,lb_break,0);");
+      ("break uses the common terminator", "goto sm_semicolon;");
+      ("the common terminator accepts a comma", "else if (cc->token!=',')");
+      ("while supplies its break target", "PrsStmt(cc,try_cnt,lb_done);");
+    ];
+  Alcotest.(check bool)
+    "break keeps its pinned keyword ID" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_BREAK\t19");
+  Alcotest.(check bool)
+    "the language guide uses break in switch cases" true
+    (contains (pinned "Doc/HolyC.DD") "case 0: \"Zero \";\tbreak;")
+
+let break_statement_shapes () =
+  let source =
+    "I64 active;break;while(active)break;do \
+     break;while(active);for(;active;)break;"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable _;
+       Ast.Top_level_statement top_level_break;
+       Ast.Top_level_statement while_loop;
+       Ast.Top_level_statement do_loop;
+       Ast.Top_level_statement for_loop;
+      ] ->
+          let top_level_break = expect_break_statement top_level_break in
+          Alcotest.(check int)
+            "break keyword is five bytes" 5
+            (Span.length top_level_break.break_keyword.span);
+          Alcotest.(check bool)
+            "ordinary break retains its semicolon" true
+            (Option.is_some top_level_break.break_semicolon);
+          Alcotest.(check bool)
+            "ordinary break span covers its terminator" true
+            (top_level_break.break_location.span.stop
+           = (Option.get top_level_break.break_semicolon).span.stop);
+          let while_loop = expect_while_statement while_loop in
+          ignore (expect_break_statement while_loop.while_body);
+          let do_loop = expect_do_while_statement do_loop in
+          ignore (expect_break_statement do_loop.do_body);
+          let for_loop = expect_for_statement for_loop in
+          ignore (expect_break_statement for_loop.for_body)
+      | items ->
+          Alcotest.failf
+            "expected one declaration and four break-bearing statements, got %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let break_statement_boundaries_and_nesting () =
+  let source =
+    "I64 active;break,active--;for(;active;break)break;{if(active)break;else \
+     break;}"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement sequence;
+   Ast.Top_level_statement for_loop;
+   Ast.Top_level_statement block;
+  ] ->
+      let sequence = expect_statement_sequence sequence in
+      Alcotest.(check int)
+        "comma sequence keeps two statements" 2
+        (List.length sequence.sequence_elements);
+      let first = List.hd sequence.sequence_elements in
+      let comma_break = expect_break_statement first.sequence_statement in
+      Alcotest.(check bool)
+        "comma-terminated break has no semicolon" true
+        (Option.is_none comma_break.break_semicolon);
+      Alcotest.(check int)
+        "break element retains its following comma" 1
+        (List.length first.sequence_following_commas);
+      let for_loop = expect_for_statement for_loop in
+      let update =
+        match for_loop.for_update with
+        | Some update -> expect_break_statement update
+        | None -> Alcotest.fail "expected a break in the for update"
+      in
+      Alcotest.(check bool)
+        "for-update break has no fabricated semicolon" true
+        (Option.is_none update.break_semicolon);
+      let body = expect_break_statement for_loop.for_body in
+      Alcotest.(check bool)
+        "for-body break keeps its semicolon" true
+        (Option.is_some body.break_semicolon);
+      let block = expect_block_statement block in
+      let conditional =
+        match block.block_statements with
+        | [ statement ] -> expect_if_statement statement
+        | statements ->
+            Alcotest.failf "expected one conditional in the block, got %d"
+              (List.length statements)
+      in
+      ignore (expect_break_statement conditional.if_then_branch);
+      let else_break =
+        match conditional.if_else_clause with
+        | Some clause -> expect_break_statement clause.else_branch
+        | None -> Alcotest.fail "expected an else break"
+      in
+      Alcotest.(check bool)
+        "else branch retains its break terminator" true
+        (Option.is_some else_break.break_semicolon)
+  | items ->
+      Alcotest.failf
+        "expected a declaration, sequence, for loop, and block, got %d items"
+        (List.length items)
+
+let break_statement_provenance () =
+  let source = "#define EXIT break\n#define END ;\nEXIT END" in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Top_level_statement statement ] -> expect_break_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed break statement"
+  in
+  let semicolon = Option.get statement.break_semicolon in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [ ("break keyword", statement.break_keyword); ("semicolon", semicolon) ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated break provenance" true
+    (statement_json |> member "keyword" |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let break_file = Filename.concat directory "break.HC" in
+      write_file root_file "#include \"break\"";
+      write_file break_file "break;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_break =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Top_level_statement statement ] ->
+            expect_break_statement statement
+        | _ -> Alcotest.fail "expected one included break statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_break.break_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included break keeps its canonical path" (Unix.realpath break_file)
+        (Source_file.path included_source))
+
+let break_statement_failures () =
+  List.iter
+    (fun (name, source, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (name ^ " diagnostic") "HCPARSE0072" diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the invalid boundary")
+        true
+        (contains diagnostic.message found))
+    [
+      ("end of input", "break", "end of input");
+      ("closing parenthesis", "break)", "found \")\"");
+      ("following expression", "break 1;", "found \"1\"");
+    ];
+  let _, _, block_recovery = parse_string "{break}" in
+  Alcotest.(check (list string))
+    "break recovery preserves the enclosing block close" [ "HCPARSE0072" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       block_recovery.diagnostics);
+  let _, _, update_semicolon = parse_string "I64 active;for(;active;break;);" in
+  Alcotest.(check string)
+    "for-update semicolon stays an outer header error" "HCPARSE0070"
+    (first_diagnostic update_semicolon).code
+
+let deterministic_break_dumps () =
+  let session, _, output =
+    parse_string "I64 active;for(;active;break){if(active)break;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human break dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON break dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies break statements" true
+    (contains human "break_statement");
+  let open Yojson.Safe.Util in
+  let for_loop =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  let update = for_loop |> member "update" in
+  Alcotest.(check string)
+    "JSON for update keeps the break kind" "break_statement"
+    (update |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON for-update break has a null semicolon" true
+    (update |> member "semicolon" = `Null);
+  let nested_break =
+    for_loop |> member "body" |> member "statements" |> to_list |> List.hd
+    |> member "then_branch"
+  in
+  Alcotest.(check string)
+    "JSON nested break keeps its kind" "break_statement"
+    (nested_break |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -8984,6 +9236,17 @@ let tests =
     Alcotest.test_case "for statement failures" `Quick for_statement_failures;
     Alcotest.test_case "deterministic for statement dumps" `Quick
       deterministic_for_dumps;
+    Alcotest.test_case "pinned break behavior" `Quick
+      break_statement_source_behavior;
+    Alcotest.test_case "break statement shapes" `Quick break_statement_shapes;
+    Alcotest.test_case "break statement boundaries and nesting" `Quick
+      break_statement_boundaries_and_nesting;
+    Alcotest.test_case "break statement provenance" `Quick
+      break_statement_provenance;
+    Alcotest.test_case "break statement failures" `Quick
+      break_statement_failures;
+    Alcotest.test_case "deterministic break statement dumps" `Quick
+      deterministic_break_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick
