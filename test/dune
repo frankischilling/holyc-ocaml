@@ -71,6 +71,9 @@
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
   ../third_party/TempleOS/Demo/MultiCore/Lock.HC
   ../third_party/TempleOS/Demo/Exceptions.HC
+  ../third_party/TempleOS/Demo/NullCase.HC
+  ../third_party/TempleOS/Demo/SubSwitch.HC
+  ../third_party/TempleOS/Kernel/Compress.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC

@@ -9282,6 +9282,9 @@ let deterministic_lock_dumps () =
     (inner |> member "kind" |> to_string)
 
 let switch_statement_source_behavior () =
+  let normalized path =
+    pinned path |> String.split_on_char '\r' |> String.concat ""
+  in
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
     (fun (description, fragment) ->
@@ -9339,7 +9342,44 @@ let switch_statement_source_behavior () =
     (contains guide "case: \"Zero");
   Alcotest.(check bool)
     "the guide documents sub-switch regions" true
-    (contains guide "start$FG$/$FG,2$end")
+    (contains guide "start$FG$/$FG,2$end");
+  let check_fragments path fragments =
+    let source = normalized path in
+    List.iter
+      (fun (description, fragment) ->
+        Alcotest.(check bool) description true (contains source fragment))
+      fragments
+  in
+  check_fragments "Compiler/UAsm.HC"
+    [
+      ("UAsm uses a no-bound switch", "switch [tmpins->uasm_slash_val] {");
+      ("UAsm uses a case range", "case 0...7:");
+      ("UAsm opens a sub-switch", "start:");
+      ("UAsm closes a sub-switch", "end:");
+    ];
+  check_fragments "Kernel/Compress.HC"
+    [
+      ( "the kernel compressor uses a no-bound switch",
+        "switch [arc->compression_type] {" );
+    ];
+  check_fragments "Kernel/StrPrint.HC"
+    [
+      ("StrPrint contains a nested ordinary switch", "switch (ch1) {");
+      ("StrPrint opens a sub-switch", "start:");
+      ("StrPrint closes a sub-switch", "end:");
+    ];
+  check_fragments "Demo/NullCase.HC"
+    [
+      ("NullCase begins with an implicit case", "case: \"Zero\\n\";");
+      ( "NullCase resumes implicit numbering after an explicit case",
+        "case: \"Eleven\\n\";" );
+    ];
+  check_fragments "Demo/SubSwitch.HC"
+    [
+      ("SubSwitch has an ordinary outer case", "case 4: \"Four \";");
+      ("SubSwitch opens its grouped cases", "start:");
+      ("SubSwitch closes its grouped cases", "end:");
+    ]
 
 let switch_statement_shapes () =
   let source =
@@ -9475,6 +9515,248 @@ let switch_subswitch_shapes_and_boundaries () =
         "expected a declaration and three structured statements, got %d items"
         (List.length items)
 
+let switch_statement_contexts () =
+  let source =
+    "I64 value;{switch(value){}}switch(value){value++;case 0:case \
+     1:;start:start:end:end:}while(value)switch[value]{}do \
+     switch(value){}while(value);for(;value;switch(value){})switch[value]{}lock \
+     switch(value){}try switch(value){}catch switch[value]{}"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable _;
+       Ast.Top_level_statement block;
+       Ast.Top_level_statement ordered;
+       Ast.Top_level_statement while_loop;
+       Ast.Top_level_statement do_while_loop;
+       Ast.Top_level_statement for_loop;
+       Ast.Top_level_statement locked;
+       Ast.Top_level_statement guarded;
+      ] ->
+          let block = expect_block_statement block in
+          Alcotest.(check int)
+            "a block retains its empty switch" 1
+            (List.length block.block_statements);
+          let empty_switch =
+            List.hd block.block_statements |> expect_switch_statement
+          in
+          Alcotest.(check int)
+            "an empty switch has no elements" 0
+            (List.length empty_switch.switch_elements);
+          let ordered = expect_switch_statement ordered in
+          (match ordered.switch_elements with
+          | [
+           Ast.Switch_statement_element (Ast.Expression_statement _);
+           Ast.Switch_case_element _;
+           Ast.Switch_case_element _;
+           Ast.Switch_statement_element (Ast.Empty_statement _);
+           Ast.Switch_subswitch_element outer;
+          ] -> (
+              match outer.subswitch_elements with
+              | [ Ast.Switch_subswitch_element inner ] ->
+                  Alcotest.(check int)
+                    "an empty nested front porch has no elements" 0
+                    (List.length inner.subswitch_elements)
+              | elements ->
+                  Alcotest.failf
+                    "expected one nested sub-switch, got %d outer elements"
+                    (List.length elements))
+          | elements ->
+              Alcotest.failf "unexpected ordered switch shape with %d elements"
+                (List.length elements));
+          let while_switch =
+            expect_while_statement while_loop |> fun statement ->
+            expect_switch_statement statement.while_body
+          in
+          Alcotest.(check bool)
+            "a while body retains bracket mode" true
+            (while_switch.switch_mode = Ast.No_bound_switch);
+          let do_switch =
+            expect_do_while_statement do_while_loop |> fun statement ->
+            expect_switch_statement statement.do_body
+          in
+          Alcotest.(check bool)
+            "a do body retains parenthesized mode" true
+            (do_switch.switch_mode = Ast.Bounded_switch);
+          let for_loop = expect_for_statement for_loop in
+          (match for_loop.for_update with
+          | Some update -> ignore (expect_switch_statement update)
+          | None -> Alcotest.fail "expected a switch in the for update");
+          ignore (expect_switch_statement for_loop.for_body);
+          let lock = expect_lock_statement locked in
+          ignore (expect_switch_statement lock.lock_body);
+          let guarded = expect_try_catch_statement guarded in
+          ignore (expect_switch_statement guarded.try_body);
+          ignore (expect_switch_statement guarded.catch_body)
+      | items ->
+          Alcotest.failf
+            "expected a declaration and seven structured statements, got %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let switch_statement_provenance () =
+  let source =
+    "#define SELECT switch\n\
+     #define OPEN [\n\
+     #define CLOSE ]\n\
+     #define BODY_OPEN {\n\
+     #define CHOICE case\n\
+     #define RANGE ...\n\
+     #define LABEL :\n\
+     #define SUB_START start\n\
+     #define FALLBACK default\n\
+     #define SUB_END end\n\
+     #define BODY_CLOSE }\n\
+     I64 value;\n\
+     SELECT OPEN value CLOSE BODY_OPEN CHOICE 1 RANGE 2 LABEL SUB_START LABEL \
+     FALLBACK LABEL ; SUB_END LABEL BODY_CLOSE"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_switch_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed switch statement"
+  in
+  let case_label, range, subswitch, default_label =
+    match statement.switch_elements with
+    | [ Ast.Switch_case_element case_label; Ast.Switch_subswitch_element sub ]
+      ->
+        let range =
+          match case_label.switch_case_pattern with
+          | Ast.Ranged_case range -> range
+          | _ -> Alcotest.fail "expected a definition-backed case range"
+        in
+        let default_label =
+          match sub.subswitch_elements with
+          | [
+           Ast.Switch_default_element default_label;
+           Ast.Switch_statement_element (Ast.Empty_statement _);
+          ] -> default_label
+          | _ -> Alcotest.fail "expected a definition-backed default label"
+        in
+        (case_label, range, sub, default_label)
+    | _ -> Alcotest.fail "expected one case and one sub-switch"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("switch keyword", statement.switch_keyword);
+      ("opening delimiter", statement.switch_opening_delimiter);
+      ("closing delimiter", statement.switch_closing_delimiter);
+      ("opening brace", statement.switch_opening_brace);
+      ("closing brace", statement.switch_closing_brace);
+      ("case keyword", case_label.switch_case_keyword);
+      ("case range ellipsis", range.case_range_ellipsis);
+      ("case colon", case_label.switch_case_colon);
+      ("start keyword", subswitch.subswitch_start_keyword);
+      ("start colon", subswitch.subswitch_start_colon);
+      ("default keyword", default_label.switch_default_keyword);
+      ("default colon", default_label.switch_default_colon);
+      ("end keyword", subswitch.subswitch_end_keyword);
+      ("end colon", subswitch.subswitch_end_colon);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  let elements = statement_json |> member "elements" |> to_list in
+  let case_json = List.nth elements 0 in
+  let sub_json = List.nth elements 1 in
+  let default_json = sub_json |> member "elements" |> to_list |> List.hd in
+  List.iter
+    (fun (description, json) ->
+      Alcotest.(check bool)
+        description true
+        (json |> member "generated_from" <> `Null))
+    [
+      ( "JSON keeps generated switch delimiters",
+        member "opening_delimiter" statement_json );
+      ( "JSON keeps generated range punctuation",
+        case_json |> member "pattern" |> member "ellipsis" );
+      ("JSON keeps generated start labels", member "start_keyword" sub_json);
+      ("JSON keeps generated default labels", member "keyword" default_json);
+      ("JSON keeps generated end labels", member "end_keyword" sub_json);
+    ];
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let switch_file = Filename.concat directory "switch.HC" in
+      write_file root_file "I64 value;\n#include \"switch\"";
+      write_file switch_file "switch[value]{case 1...2:start:default:;end:}";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_switch_statement statement
+        | _ -> Alcotest.fail "expected one included switch statement"
+      in
+      let included_case, included_subswitch, included_default =
+        match included.switch_elements with
+        | [
+         Ast.Switch_case_element case_label; Ast.Switch_subswitch_element sub;
+        ] ->
+            let default_label =
+              match sub.subswitch_elements with
+              | [
+               Ast.Switch_default_element default_label;
+               Ast.Switch_statement_element (Ast.Empty_statement _);
+              ] -> default_label
+              | _ -> Alcotest.fail "expected an included default label"
+            in
+            (case_label, sub, default_label)
+        | _ -> Alcotest.fail "expected included switch labels"
+      in
+      let range =
+        match included_case.switch_case_pattern with
+        | Ast.Ranged_case range -> range
+        | _ -> Alcotest.fail "expected an included case range"
+      in
+      List.iter
+        (fun (location : Ast.location) ->
+          let source =
+            Source_manager.find
+              (Session.sources include_session)
+              location.Ast.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included switch token keeps its canonical path"
+            (Unix.realpath switch_file)
+            (Source_file.path source))
+        [
+          included.switch_keyword;
+          included.switch_opening_delimiter;
+          included.switch_closing_delimiter;
+          included.switch_opening_brace;
+          included.switch_closing_brace;
+          included_case.switch_case_keyword;
+          range.case_range_ellipsis;
+          included_case.switch_case_colon;
+          included_subswitch.subswitch_start_keyword;
+          included_default.switch_default_keyword;
+          included_subswitch.subswitch_end_keyword;
+        ])
+
 let switch_statement_failures () =
   List.iter
     (fun (name, source, code, found) ->
@@ -9548,7 +9830,25 @@ let switch_statement_failures () =
     "sub-switch nesting diagnostic" "HCPARSE0097" diagnostic.code;
   Alcotest.(check bool)
     "sub-switch nesting message names the hosted limit" true
-    (contains diagnostic.message (string_of_int Parser.max_switch_depth))
+    (contains diagnostic.message (string_of_int Parser.max_switch_depth));
+  let _, _, malformed_child = parse_string "switch(value){)case 1:;}" in
+  Alcotest.(check bool)
+    "a malformed switch child exposes no AST" true
+    (Option.is_none malformed_child.ast);
+  Alcotest.(check (list string))
+    "child recovery stops at the next case label" [ "HCPARSE0048" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       malformed_child.diagnostics);
+  let _, _, label_recovery = parse_string "switch(value){case 1 case 2:;}" in
+  Alcotest.(check bool)
+    "a recovered label exposes no AST" true
+    (Option.is_none label_recovery.ast);
+  Alcotest.(check (list string))
+    "label recovery leaves the next case available" [ "HCPARSE0091" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       label_recovery.diagnostics)
 
 let deterministic_switch_dumps () =
   let session, _, output =
@@ -10814,6 +11114,10 @@ let tests =
     Alcotest.test_case "switch statement shapes" `Quick switch_statement_shapes;
     Alcotest.test_case "sub-switch shapes and boundaries" `Quick
       switch_subswitch_shapes_and_boundaries;
+    Alcotest.test_case "switch statement contexts" `Quick
+      switch_statement_contexts;
+    Alcotest.test_case "switch statement provenance" `Quick
+      switch_statement_provenance;
     Alcotest.test_case "switch statement failures" `Quick
       switch_statement_failures;
     Alcotest.test_case "deterministic switch dumps" `Quick
