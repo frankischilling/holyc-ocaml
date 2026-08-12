@@ -2333,6 +2333,38 @@ let parse_empty_statement cursor : parsed_statement =
     tokens = [ semicolon_item.token ];
   }
 
+let parse_break_statement cursor ~boundary : parsed_statement option =
+  let keyword_item = take cursor in
+  let terminator_item = peek cursor in
+  let terminator =
+    match (boundary, terminator_item.token.kind) with
+    | For_update_boundary _, _ -> Some (None, [])
+    | _, Token_kind.Punctuation ';' ->
+        let semicolon_item = take cursor in
+        Some
+          (Some (token_location semicolon_item.token), [ semicolon_item.token ])
+    | _, Token_kind.Punctuation ',' -> Some (None, [])
+    | _ ->
+        report cursor terminator_item ~code:"HCPARSE0072"
+          ~message:
+            (Printf.sprintf "expected ';' or ',' after 'break', but found %s"
+               (token_description terminator_item.token));
+        None
+  in
+  match terminator with
+  | None ->
+      recover_statement cursor ~boundary;
+      None
+  | Some (semicolon, terminator_tokens) ->
+      let tokens = keyword_item.token :: terminator_tokens in
+      let statement =
+        Ast.make_break_statement
+          ~keyword:(token_location keyword_item.token)
+          ~semicolon
+          ~location:(location_from_expression_tokens tokens)
+      in
+      Some { node = Ast.Break_statement statement; tokens }
+
 let parse_expression_statement cursor ~boundary : parsed_statement option =
   match
     parse_expression cursor ~context:Statement_expression ~depth:0
@@ -2377,6 +2409,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   match item.token.kind with
   | Token_kind.Punctuation '{' ->
       parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
+  | Token_kind.Keyword Keyword.Break -> parse_break_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Do ->
       parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth

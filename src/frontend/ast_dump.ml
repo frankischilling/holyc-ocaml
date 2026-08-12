@@ -446,6 +446,17 @@ let rec print_statement buffer sources ~indent = function
         statement.block_statements;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources statement.block_closing_brace)
+  | Ast.Break_statement statement ->
+      Printf.bprintf buffer "%sbreak_statement span=%s semicolon=%b\n" indent
+        (location_text sources statement.break_location)
+        (Option.is_some statement.break_semicolon);
+      Printf.bprintf buffer "%s  keyword span=%s\n" indent
+        (location_text sources statement.break_keyword);
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%s  semicolon span=%s\n" indent
+            (location_text sources semicolon))
+        statement.break_semicolon
   | Ast.Do_while_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sdo_while_statement span=%s\n" indent
@@ -1306,6 +1317,17 @@ let rec statement_to_yojson sources = function
           ( "closing_brace",
             location_to_yojson sources statement.block_closing_brace );
           ("location", location_to_yojson sources statement.block_location);
+        ]
+  | Ast.Break_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "break_statement");
+          ("keyword", location_to_yojson sources statement.break_keyword);
+          ( "semicolon",
+            match statement.break_semicolon with
+            | None -> `Null
+            | Some semicolon -> location_to_yojson sources semicolon );
+          ("location", location_to_yojson sources statement.break_location);
         ]
   | Ast.Do_while_statement statement ->
       `Assoc

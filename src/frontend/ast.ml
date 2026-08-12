@@ -355,6 +355,7 @@ type expression_statement = {
 
 type statement =
   | Block_statement of block_statement
+  | Break_statement of break_statement
   | Do_while_statement of do_while_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
@@ -369,6 +370,12 @@ and block_statement = {
   block_statements : statement list;
   block_closing_brace : location;
   block_location : location;
+}
+
+and break_statement = {
+  break_keyword : location;
+  break_semicolon : location option;
+  break_location : location;
 }
 
 and do_while_statement = {
@@ -747,6 +754,13 @@ let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
     block_location = location;
   }
 
+let make_break_statement ~keyword ~semicolon ~location =
+  {
+    break_keyword = keyword;
+    break_semicolon = semicolon;
+    break_location = location;
+  }
+
 let make_do_while_statement ~do_keyword ~body ~while_keyword
     ~opening_parenthesis ~condition ~closing_parenthesis ~semicolon ~location =
   {
@@ -816,6 +830,7 @@ let make_statement_sequence ~leading_commas ~elements ~location =
 
 let statement_location = function
   | Block_statement statement -> statement.block_location
+  | Break_statement statement -> statement.break_location
   | Do_while_statement statement -> statement.do_while_location
   | Empty_statement statement -> statement.empty_statement_location
   | Expression_statement statement -> statement.expression_statement_location

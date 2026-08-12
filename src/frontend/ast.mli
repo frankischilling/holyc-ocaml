@@ -360,6 +360,7 @@ type expression_statement = private {
 
 type statement =
   | Block_statement of block_statement
+  | Break_statement of break_statement
   | Do_while_statement of do_while_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
@@ -374,6 +375,12 @@ and block_statement = private {
   block_statements : statement list;
   block_closing_brace : location;
   block_location : location;
+}
+
+and break_statement = private {
+  break_keyword : location;
+  break_semicolon : location option;
+  break_location : location;
 }
 
 and do_while_statement = private {
@@ -730,6 +737,12 @@ val make_block_statement :
   closing_brace:location ->
   location:location ->
   block_statement
+
+val make_break_statement :
+  keyword:location ->
+  semicolon:location option ->
+  location:location ->
+  break_statement
 
 val make_do_while_statement :
   do_keyword:location ->
