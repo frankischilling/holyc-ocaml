@@ -308,6 +308,13 @@ type aggregate_backing = {
   backing_location : location;
 }
 
+type aggregate_base = {
+  base_colon_spelling : string;
+  base_colon_location : location;
+  base_name : identifier;
+  base_location : location;
+}
+
 type aggregate_definition = {
   modifiers : declaration_modifier list;
   backing : aggregate_backing option;
@@ -315,6 +322,7 @@ type aggregate_definition = {
   aggregate_keyword_spelling : string;
   aggregate_keyword_location : location;
   name : identifier;
+  base : aggregate_base option;
   opening_brace : location;
   members : aggregate_member list;
   closing_brace : location;
@@ -760,9 +768,17 @@ let make_aggregate_backing ~type_specifier ~pointer_layers ~location =
     backing_location = location;
   }
 
+let make_aggregate_base ~colon_spelling ~colon_location ~name ~location =
+  {
+    base_colon_spelling = colon_spelling;
+    base_colon_location = colon_location;
+    base_name = name;
+    base_location = location;
+  }
+
 let make_aggregate_definition ~modifiers ~backing ~aggregate_kind
-    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~opening_brace
-    ~members ~closing_brace ~semicolon ~location =
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~base
+    ~opening_brace ~members ~closing_brace ~semicolon ~location =
   {
     modifiers;
     backing;
@@ -770,6 +786,7 @@ let make_aggregate_definition ~modifiers ~backing ~aggregate_kind
     aggregate_keyword_spelling;
     aggregate_keyword_location;
     name;
+    base;
     opening_brace;
     members;
     closing_brace;

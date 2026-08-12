@@ -2986,6 +2986,89 @@
 
 (rule
  (alias runtest)
+ (targets parse-aggregate-inheritance.human.actual)
+ (deps
+  cli/parse-aggregate-inheritance.hc
+  cli/parse-aggregate-inheritance.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-inheritance.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-inheritance.hc))
+   (diff
+    cli/parse-aggregate-inheritance.human
+    parse-aggregate-inheritance.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-inheritance.json.actual)
+ (deps
+  cli/parse-aggregate-inheritance.hc
+  cli/parse-aggregate-inheritance.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-inheritance.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-inheritance.hc))
+   (diff
+    cli/parse-aggregate-inheritance.json
+    parse-aggregate-inheritance.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-inheritance-error.human.actual
+  parse-aggregate-inheritance-error.human.stdout.actual)
+ (deps
+  cli/parse-aggregate-inheritance-error.hc
+  cli/parse-aggregate-inheritance-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-inheritance-error.human.stdout.actual
+    (with-stderr-to
+     parse-aggregate-inheritance-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-inheritance-error.hc))))
+   (diff
+    cli/parse-aggregate-inheritance-error.human
+    parse-aggregate-inheritance-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-inheritance-error.json.actual
+  parse-aggregate-inheritance-error.json.stdout.actual)
+ (deps
+  cli/parse-aggregate-inheritance-error.hc
+  cli/parse-aggregate-inheritance-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-inheritance-error.json.stdout.actual
+    (with-stderr-to
+     parse-aggregate-inheritance-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-aggregate-inheritance-error.hc))))
+   (diff
+    cli/parse-aggregate-inheritance-error.json
+    parse-aggregate-inheritance-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets
   parse-aggregate-definition-error.human.actual
   parse-aggregate-definition-error.human.stdout.actual)

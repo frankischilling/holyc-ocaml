@@ -83,6 +83,11 @@ type parsed_aggregate_backing = {
   tokens : Token.t list;
 }
 
+type parsed_aggregate_base = {
+  node : Ast.aggregate_base;
+  tokens : Token.t list;
+}
+
 type aggregate_parse_failure = { recovery_depth : int }
 
 type expression_context =
@@ -1969,6 +1974,55 @@ let parse_aggregate_backing cursor type_item type_specifier =
       in
       Some ({ node; tokens } : parsed_aggregate_backing)
 
+let parse_aggregate_base cursor =
+  let colon_item = peek cursor in
+  if colon_item.token.kind <> Token_kind.Punctuation ':' then Some None
+  else
+    let colon_item = take cursor in
+    let base_item = peek cursor in
+    if
+      base_item.token.kind <> Token_kind.Identifier
+      || not (token_is_named_type cursor base_item.token)
+    then (
+      let message =
+        if base_item.token.kind = Token_kind.Identifier then
+          Printf.sprintf
+            "%S is not a visible class or union and cannot be used as a base"
+            base_item.token.raw
+        else
+          Printf.sprintf
+            "expected a visible class or union after ':', but found %s"
+            (token_description base_item.token)
+      in
+      report cursor base_item ~code:"HCPARSE0121" ~message;
+      recover_aggregate_declaration cursor ~depth:0;
+      None)
+    else
+      let base_item = take cursor in
+      let base_name =
+        Ast.make_identifier ~spelling:base_item.token.raw
+          ~location:(token_location base_item.token)
+      in
+      let following_item = peek cursor in
+      if following_item.token.kind = Token_kind.Punctuation ',' then (
+        report cursor following_item ~code:"HCPARSE0126"
+          ~message:
+            (Printf.sprintf
+               "aggregate definition names a second base after %S; HolyC \
+                allows one base class"
+               base_name.spelling);
+        recover_aggregate_declaration cursor ~depth:0;
+        None)
+      else
+        let tokens = [ colon_item.token; base_item.token ] in
+        let node =
+          Ast.make_aggregate_base ~colon_spelling:colon_item.token.raw
+            ~colon_location:(token_location colon_item.token)
+            ~name:base_name
+            ~location:(location_from_expression_tokens tokens)
+        in
+        Some (Some ({ node; tokens } : parsed_aggregate_base))
+
 let parse_binding cursor =
   let item = peek cursor in
   match item.token.kind with
@@ -2376,73 +2430,86 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
         ~location:(token_location name_item.token)
     in
     publish_class cursor name;
-    let opening_item = peek cursor in
-    if opening_item.token.kind = Token_kind.Punctuation ':' then (
-      report cursor opening_item ~code:"HCPARSE0121"
-        ~message:"aggregate inheritance is not implemented in this parser slice";
-      recover_aggregate_declaration cursor ~depth:0;
-      None)
-    else if opening_item.token.kind <> Token_kind.Punctuation '{' then (
-      report cursor opening_item ~code:"HCPARSE0110"
-        ~message:
-          (Printf.sprintf "expected '{' after %s name %S, but found %s"
-             aggregate_item.token.raw name.spelling
-             (token_description opening_item.token));
-      recover_aggregate_declaration cursor ~depth:0;
-      None)
-    else
-      let opening_item = take cursor in
-      let opening_brace = token_location opening_item.token in
-      match parse_aggregate_members cursor ~opening_brace ~depth:0 [] [] with
-      | Error failure ->
-          recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
-          None
-      | Ok parsed_members ->
-          let semicolon_item = peek cursor in
-          if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
-            let trailing_declarator =
-              semicolon_item.token.kind = Token_kind.Identifier
-            in
-            report cursor semicolon_item
-              ~code:
-                (if trailing_declarator then "HCPARSE0119" else "HCPARSE0115")
-              ~message:
-                (if trailing_declarator then
-                   "global object declarators after an aggregate definition \
-                    are not implemented in this parser slice"
-                 else
-                   Printf.sprintf
-                     "expected ';' after aggregate definition %S, but found %s"
-                     name.spelling
-                     (token_description semicolon_item.token));
-            if trailing_declarator then recover_declaration cursor;
-            None)
-          else
-            let semicolon_item = take cursor in
-            let tokens =
-              modifier_tokens
-              @ (match backing with
-                | None -> []
-                | Some (backing : parsed_aggregate_backing) -> backing.tokens)
-              @ [ aggregate_item.token; name_item.token; opening_item.token ]
-              @ parsed_members.tokens @ [ semicolon_item.token ]
-            in
-            let definition =
-              Ast.make_aggregate_definition ~modifiers
-                ~backing:
-                  (Option.map
-                     (fun (backing : parsed_aggregate_backing) -> backing.node)
-                     backing)
-                ~aggregate_kind
-                ~aggregate_keyword_spelling:aggregate_item.token.raw
-                ~aggregate_keyword_location:
-                  (token_location aggregate_item.token)
-                ~name ~opening_brace ~members:parsed_members.members
-                ~closing_brace:parsed_members.closing_brace
-                ~semicolon:(token_location semicolon_item.token)
-                ~location:(location_from_expression_tokens tokens)
-            in
-            Some (Ast.Aggregate_definition definition)
+    match parse_aggregate_base cursor with
+    | None -> None
+    | Some base -> (
+        let opening_item = peek cursor in
+        if opening_item.token.kind <> Token_kind.Punctuation '{' then (
+          report cursor opening_item ~code:"HCPARSE0110"
+            ~message:
+              (Printf.sprintf "expected '{' after %s name %S, but found %s"
+                 aggregate_item.token.raw name.spelling
+                 (token_description opening_item.token));
+          recover_aggregate_declaration cursor ~depth:0;
+          None)
+        else
+          let opening_item = take cursor in
+          let opening_brace = token_location opening_item.token in
+          match
+            parse_aggregate_members cursor ~opening_brace ~depth:0 [] []
+          with
+          | Error failure ->
+              recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
+              None
+          | Ok parsed_members ->
+              let semicolon_item = peek cursor in
+              if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
+                let trailing_declarator =
+                  semicolon_item.token.kind = Token_kind.Identifier
+                in
+                report cursor semicolon_item
+                  ~code:
+                    (if trailing_declarator then "HCPARSE0119"
+                     else "HCPARSE0115")
+                  ~message:
+                    (if trailing_declarator then
+                       "global object declarators after an aggregate \
+                        definition are not implemented in this parser slice"
+                     else
+                       Printf.sprintf
+                         "expected ';' after aggregate definition %S, but \
+                          found %s"
+                         name.spelling
+                         (token_description semicolon_item.token));
+                if trailing_declarator then recover_declaration cursor;
+                None)
+              else
+                let semicolon_item = take cursor in
+                let tokens =
+                  modifier_tokens
+                  @ (match backing with
+                    | None -> []
+                    | Some (backing : parsed_aggregate_backing) ->
+                        backing.tokens)
+                  @ [ aggregate_item.token; name_item.token ]
+                  @ (match base with
+                    | None -> []
+                    | Some (base : parsed_aggregate_base) -> base.tokens)
+                  @ (opening_item.token :: parsed_members.tokens)
+                  @ [ semicolon_item.token ]
+                in
+                let definition =
+                  Ast.make_aggregate_definition ~modifiers
+                    ~backing:
+                      (Option.map
+                         (fun (backing : parsed_aggregate_backing) ->
+                           backing.node)
+                         backing)
+                    ~aggregate_kind
+                    ~aggregate_keyword_spelling:aggregate_item.token.raw
+                    ~aggregate_keyword_location:
+                      (token_location aggregate_item.token)
+                    ~name
+                    ~base:
+                      (Option.map
+                         (fun (base : parsed_aggregate_base) -> base.node)
+                         base)
+                    ~opening_brace ~members:parsed_members.members
+                    ~closing_brace:parsed_members.closing_brace
+                    ~semicolon:(token_location semicolon_item.token)
+                    ~location:(location_from_expression_tokens tokens)
+                in
+                Some (Ast.Aggregate_definition definition))
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0126",
+    "severity": "error",
+    "message": "aggregate definition names a second base after \"Root\"; HolyC allows one base class",
+    "primary": {
+      "path": "cli/parse-aggregate-inheritance-error.hc",
+      "line": 3,
+      "column": 20,
+      "source_id": 0,
+      "start": 50,
+      "stop": 51
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

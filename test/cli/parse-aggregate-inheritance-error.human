@@ -1,0 +1,3 @@
+cli/parse-aggregate-inheritance-error.hc:3:20: error[HCPARSE0126]: aggregate definition names a second base after "Root"; HolyC allows one base class
+    3 | class Broken : Root, Other
+      |                    ^
