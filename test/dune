@@ -2206,3 +2206,71 @@
        --format=json
        cli/parse-break-error.hc))))
    (diff cli/parse-break-error.json parse-break-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-return-statements.human.actual)
+ (deps cli/parse-return-statements.hc cli/parse-return-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-return-statements.hc))
+   (diff
+    cli/parse-return-statements.human
+    parse-return-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-return-statements.json.actual)
+ (deps cli/parse-return-statements.hc cli/parse-return-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-return-statements.hc))
+   (diff
+    cli/parse-return-statements.json
+    parse-return-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-return-error.human.actual
+  parse-return-error.human.stdout.actual)
+ (deps cli/parse-return-error.hc cli/parse-return-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-error.human.stdout.actual
+    (with-stderr-to
+     parse-return-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-return-error.hc))))
+   (diff cli/parse-return-error.human parse-return-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-return-error.json.actual
+  parse-return-error.json.stdout.actual)
+ (deps cli/parse-return-error.hc cli/parse-return-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-return-error.json.stdout.actual
+    (with-stderr-to
+     parse-return-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-return-error.hc))))
+   (diff cli/parse-return-error.json parse-return-error.json.actual))))

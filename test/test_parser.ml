@@ -248,6 +248,10 @@ let expect_break_statement = function
   | Ast.Break_statement statement -> statement
   | _ -> Alcotest.fail "expected a break statement"
 
+let expect_return_statement = function
+  | Ast.Return_statement statement -> statement
+  | _ -> Alcotest.fail "expected a return statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -7215,7 +7219,6 @@ let statement_sequence_failures () =
         (name ^ " diagnostic") code (first_diagnostic output).code)
     [
       ("missing expression terminator", "I64 value;value=1", "HCPARSE0047");
-      ("unsupported return", "return;", "HCPARSE0048");
       ("declaration after comma", "I64 value;value=1,I64 other;", "HCPARSE0048");
       ("unresolved comma target", "'A',missing;", "HCPARSE0048");
       ("missing assignment operand", "I64 value;value=;", "HCPARSE0018");
@@ -7457,7 +7460,6 @@ let compound_block_failures () =
       ("missing closing brace", "{;", "HCPARSE0049");
       ("unmatched closing brace", "}", "HCPARSE0050");
       ("comma before closing brace", "I64 value;{value=1,}", "HCPARSE0048");
-      ("unsupported block statement", "{return;}", "HCPARSE0048");
       ("invalid block expression", "I64 value;{value=;}", "HCPARSE0018");
       ("leading comma before close", "{,}", "HCPARSE0048");
     ];
@@ -8902,6 +8904,319 @@ let deterministic_break_dumps () =
     "JSON nested break keeps its kind" "break_statement"
     (nested_break |> member "kind" |> to_string)
 
+let return_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches return", "case KW_RETURN:");
+      ("return requires a function context", "if (!cc->htc.fun)");
+      ("return checks for an immediate semicolon", "if (Lex(cc)!=';') {");
+      ( "value-bearing return parses an expression",
+        "if (!PrsExpression(cc,NULL,FALSE))" );
+      ( "value-bearing return emits its dedicated IC",
+        "ICAdd(cc,IC_RETURN_VAL,0,cc->htc.fun->return_class);" );
+      ("return jumps to the leave label", "ICAdd(cc,IC_JMP,cc->lb_leave,0);");
+      ("return uses the common terminator", "goto sm_semicolon;");
+      ("the common terminator accepts a comma", "else if (cc->token!=',')");
+    ];
+  Alcotest.(check bool)
+    "return keeps its pinned keyword ID" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_RETURN\t12");
+  Alcotest.(check bool)
+    "the language guide returns a value" true
+    (contains (pinned "Doc/HolyC.DD") "return res;");
+  Alcotest.(check bool)
+    "the compiler corpus contains valueless returns" true
+    (contains (pinned "Compiler/BackC.HC") "      return;");
+  Alcotest.(check bool)
+    "the kernel corpus contains early returned values" true
+    (contains (pinned "Kernel/FunSeg.HC") "    return NULL;")
+
+let return_statement_shapes () =
+  let source =
+    "I64 active;return;return 1+2*3;while(active)return active--;do \
+     return;while(active);for(;active;)return active;"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Global_variable _;
+       Ast.Top_level_statement valueless;
+       Ast.Top_level_statement valued;
+       Ast.Top_level_statement while_loop;
+       Ast.Top_level_statement do_loop;
+       Ast.Top_level_statement for_loop;
+      ] ->
+          let valueless = expect_return_statement valueless in
+          Alcotest.(check int)
+            "return keyword is six bytes" 6
+            (Span.length valueless.return_keyword.span);
+          Alcotest.(check bool)
+            "valueless return has no expression" true
+            (Option.is_none valueless.return_value);
+          Alcotest.(check bool)
+            "valueless return retains its semicolon" true
+            (Option.is_some valueless.return_semicolon);
+          Alcotest.(check bool)
+            "valueless return span covers its terminator" true
+            (valueless.return_location.span.stop
+           = (Option.get valueless.return_semicolon).span.stop);
+          let valued = expect_return_statement valued in
+          let root =
+            Option.get valued.return_value |> expect_binary_expression
+          in
+          Alcotest.(check string)
+            "returned expression keeps its addition root" "+"
+            root.binary_operator.operator_spelling;
+          Alcotest.(check string)
+            "multiplication binds inside the returned expression" "*"
+            (expect_binary_expression root.binary_right).binary_operator
+              .operator_spelling;
+          Alcotest.(check bool)
+            "value-bearing return retains its semicolon" true
+            (Option.is_some valued.return_semicolon);
+          let while_loop = expect_while_statement while_loop in
+          let while_return = expect_return_statement while_loop.while_body in
+          ignore
+            (Option.get while_return.return_value |> expect_postfix_expression);
+          let do_loop = expect_do_while_statement do_loop in
+          let do_return = expect_return_statement do_loop.do_body in
+          Alcotest.(check bool)
+            "do body keeps a valueless return" true
+            (Option.is_none do_return.return_value);
+          let for_loop = expect_for_statement for_loop in
+          let for_return = expect_return_statement for_loop.for_body in
+          ignore
+            (Option.get for_return.return_value |> expect_identifier_expression)
+      | items ->
+          Alcotest.failf
+            "expected one declaration and five return-bearing statements, got \
+             %d"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let return_statement_boundaries_and_nesting () =
+  let source =
+    "I64 active;return active,active--;for(;active;return \
+     active--){if(active)return;else return active;}"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement sequence;
+   Ast.Top_level_statement for_loop;
+  ] ->
+      let sequence = expect_statement_sequence sequence in
+      Alcotest.(check int)
+        "comma sequence keeps two statements" 2
+        (List.length sequence.sequence_elements);
+      let first = List.hd sequence.sequence_elements in
+      let comma_return = expect_return_statement first.sequence_statement in
+      Alcotest.(check bool)
+        "comma-terminated return keeps its value" true
+        (Option.is_some comma_return.return_value);
+      Alcotest.(check bool)
+        "comma-terminated return has no semicolon" true
+        (Option.is_none comma_return.return_semicolon);
+      Alcotest.(check int)
+        "return element retains its following comma" 1
+        (List.length first.sequence_following_commas);
+      let for_loop = expect_for_statement for_loop in
+      let update =
+        match for_loop.for_update with
+        | Some update -> expect_return_statement update
+        | None -> Alcotest.fail "expected a return in the for update"
+      in
+      Alcotest.(check bool)
+        "for-update return keeps its value" true
+        (Option.is_some update.return_value);
+      Alcotest.(check bool)
+        "for-update return has no fabricated semicolon" true
+        (Option.is_none update.return_semicolon);
+      let block = expect_block_statement for_loop.for_body in
+      let conditional =
+        match block.block_statements with
+        | [ statement ] -> expect_if_statement statement
+        | statements ->
+            Alcotest.failf "expected one conditional in the block, got %d"
+              (List.length statements)
+      in
+      let then_return = expect_return_statement conditional.if_then_branch in
+      Alcotest.(check bool)
+        "then branch keeps a valueless return" true
+        (Option.is_none then_return.return_value);
+      let else_return =
+        match conditional.if_else_clause with
+        | Some clause -> expect_return_statement clause.else_branch
+        | None -> Alcotest.fail "expected an else return"
+      in
+      Alcotest.(check bool)
+        "else branch keeps its return value" true
+        (Option.is_some else_return.return_value)
+  | items ->
+      Alcotest.failf
+        "expected a declaration, sequence, and for loop, got %d items"
+        (List.length items)
+
+let return_statement_provenance () =
+  let source =
+    "#define EXIT return\n\
+     #define VALUE active\n\
+     #define END ;\n\
+     I64 active;EXIT VALUE END"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_return_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed return statement"
+  in
+  let value =
+    Option.get statement.return_value |> expect_identifier_expression
+  in
+  let semicolon = Option.get statement.return_semicolon in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("return keyword", statement.return_keyword);
+      ("return value", value.location);
+      ("semicolon", semicolon);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated return provenance" true
+    (statement_json |> member "keyword" |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let return_file = Filename.concat directory "return.HC" in
+      write_file root_file "#include \"return\"";
+      write_file return_file "return 1;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_return =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Top_level_statement statement ] ->
+            expect_return_statement statement
+        | _ -> Alcotest.fail "expected one included return statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_return.return_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included return keeps its canonical path"
+        (Unix.realpath return_file)
+        (Source_file.path included_source))
+
+let return_statement_failures () =
+  List.iter
+    (fun (name, source, code, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the failure")
+        true
+        (contains diagnostic.message found))
+    [
+      ("end of input", "return", "HCPARSE0074", "end of input");
+      ("comma without a value", "return,active;", "HCPARSE0074", "found \",\"");
+      ("closing parenthesis", "return)", "HCPARSE0074", "found \")\"");
+      ("invalid terminator", "return 1)", "HCPARSE0073", "found \")\"");
+      ("following expression", "return 1 2;", "HCPARSE0073", "found \"2\"");
+    ];
+  let _, _, block_recovery = parse_string "{return 1}" in
+  Alcotest.(check (list string))
+    "return recovery preserves the enclosing block close" [ "HCPARSE0073" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       block_recovery.diagnostics);
+  let _, _, empty_block_recovery = parse_string "{return}" in
+  Alcotest.(check (list string))
+    "missing return value preserves the enclosing block close" [ "HCPARSE0074" ]
+    (List.map
+       (fun diagnostic -> diagnostic.Diagnostic.code)
+       empty_block_recovery.diagnostics);
+  let _, _, update_semicolon =
+    parse_string "I64 active;for(;active;return;)active--;"
+  in
+  Alcotest.(check string)
+    "a valueless for-update return remains invalid" "HCPARSE0070"
+    (first_diagnostic update_semicolon).code
+
+let deterministic_return_dumps () =
+  let session, _, output =
+    parse_string
+      "I64 active;return;for(;active;return active--){if(active)return active;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human return dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON return dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies return statements" true
+    (contains human "return_statement");
+  let open Yojson.Safe.Util in
+  let items =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+  in
+  let valueless = List.nth items 1 |> member "statement" in
+  Alcotest.(check bool)
+    "JSON valueless return has a null value" true
+    (valueless |> member "value" = `Null);
+  Alcotest.(check bool)
+    "JSON valueless return retains its semicolon" true
+    (valueless |> member "semicolon" <> `Null);
+  let for_loop = List.nth items 2 |> member "statement" in
+  let update = for_loop |> member "update" in
+  Alcotest.(check string)
+    "JSON for update keeps the return kind" "return_statement"
+    (update |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON for-update return keeps its value" "postfix"
+    (update |> member "value" |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON for-update return has a null semicolon" true
+    (update |> member "semicolon" = `Null)
+
 let unsupported_forms () =
   let cases =
     [
@@ -8910,7 +9225,6 @@ let unsupported_forms () =
       ("missing semicolon", "I64 value", "HCPARSE0003");
       ("initializer", "I64 value=1;", "HCPARSE0003");
       ("function", "I64 Function();", "HCPARSE0008");
-      ("statement", "return;", "HCPARSE0048");
     ]
   in
   List.iter
@@ -9249,6 +9563,17 @@ let tests =
       break_statement_failures;
     Alcotest.test_case "deterministic break statement dumps" `Quick
       deterministic_break_dumps;
+    Alcotest.test_case "pinned return behavior" `Quick
+      return_statement_source_behavior;
+    Alcotest.test_case "return statement shapes" `Quick return_statement_shapes;
+    Alcotest.test_case "return statement boundaries and nesting" `Quick
+      return_statement_boundaries_and_nesting;
+    Alcotest.test_case "return statement provenance" `Quick
+      return_statement_provenance;
+    Alcotest.test_case "return statement failures" `Quick
+      return_statement_failures;
+    Alcotest.test_case "deterministic return statement dumps" `Quick
+      deterministic_return_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

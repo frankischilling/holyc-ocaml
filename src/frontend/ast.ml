@@ -362,6 +362,7 @@ type statement =
   | For_statement of for_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
+  | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
 
@@ -415,6 +416,13 @@ and if_statement = {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and return_statement = {
+  return_keyword : location;
+  return_value : expression option;
+  return_semicolon : location option;
+  return_location : location;
 }
 
 and while_statement = {
@@ -803,6 +811,14 @@ let make_if_statement ~keyword ~opening_parenthesis ~condition
     if_location = location;
   }
 
+let make_return_statement ~keyword ~value ~semicolon ~location =
+  {
+    return_keyword = keyword;
+    return_value = value;
+    return_semicolon = semicolon;
+    return_location = location;
+  }
+
 let make_while_statement ~keyword ~opening_parenthesis ~condition
     ~closing_parenthesis ~body ~location =
   {
@@ -837,6 +853,7 @@ let statement_location = function
   | For_statement statement -> statement.for_location
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
+  | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
   | While_statement statement -> statement.while_location
 

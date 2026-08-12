@@ -46,6 +46,7 @@ type expression_context =
   | Call_argument_expression
   | Index_expression
   | Implicit_output_argument_expression
+  | Return_expression
   | Do_while_condition_expression
   | For_condition_expression
   | If_condition_expression
@@ -608,6 +609,7 @@ let expression_context_name = function
   | Call_argument_expression -> "call argument expression"
   | Index_expression -> "index expression"
   | Implicit_output_argument_expression -> "implicit output argument"
+  | Return_expression -> "return expression"
   | Do_while_condition_expression -> "do-while condition expression"
   | For_condition_expression -> "for condition expression"
   | If_condition_expression -> "if condition expression"
@@ -621,6 +623,7 @@ let expression_operand_name = function
   | Call_argument_expression -> "a call argument expression operand"
   | Index_expression -> "an index expression operand"
   | Implicit_output_argument_expression -> "an implicit output argument"
+  | Return_expression -> "a return expression operand"
   | Do_while_condition_expression -> "a do-while condition expression operand"
   | For_condition_expression -> "a for condition expression operand"
   | If_condition_expression -> "an if condition expression operand"
@@ -2365,6 +2368,73 @@ let parse_break_statement cursor ~boundary : parsed_statement option =
       in
       Some { node = Ast.Break_statement statement; tokens }
 
+let parse_return_statement cursor ~boundary : parsed_statement option =
+  let keyword_item = take cursor in
+  let build value value_tokens semicolon terminator_tokens :
+      parsed_statement option =
+    let tokens = keyword_item.token :: (value_tokens @ terminator_tokens) in
+    let statement =
+      Ast.make_return_statement
+        ~keyword:(token_location keyword_item.token)
+        ~value ~semicolon
+        ~location:(location_from_expression_tokens tokens)
+    in
+    Some { node = Ast.Return_statement statement; tokens }
+  in
+  let first_item = peek cursor in
+  match (boundary, first_item.token.kind) with
+  | For_update_boundary _, Token_kind.Punctuation ';' ->
+      report cursor first_item ~code:"HCPARSE0070"
+        ~message:"expected ')' after the for update, but found ';'";
+      recover_statement cursor ~boundary;
+      None
+  | _, Token_kind.Punctuation ';' ->
+      let semicolon_item = take cursor in
+      build None []
+        (Some (token_location semicolon_item.token))
+        [ semicolon_item.token ]
+  | _, (Token_kind.Punctuation (',' | ')' | ']' | '}') | Token_kind.Eof) ->
+      report cursor first_item ~code:"HCPARSE0074"
+        ~message:
+          (Printf.sprintf "expected a return expression or ';', but found %s"
+             (token_description first_item.token));
+      recover_statement cursor ~boundary;
+      None
+  | _ -> (
+      match
+        parse_expression cursor ~context:Return_expression ~depth:0
+          ~minimum_binding_power:0
+      with
+      | None ->
+          recover_statement cursor ~boundary;
+          None
+      | Some (value : parsed_expression) -> (
+          let terminator_item = peek cursor in
+          let terminator =
+            match (boundary, terminator_item.token.kind) with
+            | For_update_boundary _, _ -> Some (None, [])
+            | _, Token_kind.Punctuation ';' ->
+                let semicolon_item = take cursor in
+                Some
+                  ( Some (token_location semicolon_item.token),
+                    [ semicolon_item.token ] )
+            | _, Token_kind.Punctuation ',' -> Some (None, [])
+            | _ ->
+                report cursor terminator_item ~code:"HCPARSE0073"
+                  ~message:
+                    (Printf.sprintf
+                       "expected ';' or ',' after a return expression, but \
+                        found %s"
+                       (token_description terminator_item.token));
+                None
+          in
+          match terminator with
+          | None ->
+              recover_statement cursor ~boundary;
+              None
+          | Some (semicolon, terminator_tokens) ->
+              build (Some value.node) value.tokens semicolon terminator_tokens))
+
 let parse_expression_statement cursor ~boundary : parsed_statement option =
   match
     parse_expression cursor ~context:Statement_expression ~depth:0
@@ -2419,6 +2489,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Keyword Keyword.If ->
       parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
+  | Token_kind.Keyword Keyword.Return -> parse_return_statement cursor ~boundary
   | Token_kind.Keyword Keyword.While ->
       parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
