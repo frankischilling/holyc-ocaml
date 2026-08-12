@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0114",
+    "severity": "error",
+    "message": "expected ',' or ';' after aggregate member \"value\", but found \"}\"",
+    "primary": {
+      "path": "cli/parse-aggregate-definition-error.hc",
+      "line": 1,
+      "column": 26,
+      "source_id": 0,
+      "start": 25,
+      "stop": 26
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

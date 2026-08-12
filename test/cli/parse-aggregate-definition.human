@@ -1,0 +1,65 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-definition.hc:1:1..9:1 items=3
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-definition.hc:1:1..6:3 members=3
+    modifier kind=public spelling="public" span=cli/parse-aggregate-definition.hc:1:1..1:7
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-definition.hc:1:8..1:13
+    name spelling="Node" span=cli/parse-aggregate-definition.hc:1:14..1:18
+    opening_brace span=cli/parse-aggregate-definition.hc:2:1..2:2
+    member_declaration index=0 span=cli/parse-aggregate-definition.hc:3:3..3:14 declarators=1
+      type named spelling="Node" span=cli/parse-aggregate-definition.hc:3:3..3:7
+      declarator index=0 span=cli/parse-aggregate-definition.hc:3:8..3:14
+        pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-definition.hc:3:8..3:9
+        name spelling="next" span=cli/parse-aggregate-definition.hc:3:9..3:13
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:3:13..3:14
+    member_declaration index=1 span=cli/parse-aggregate-definition.hc:4:3..4:15 declarators=1
+      type primitive=U8 spelling="U8" span=cli/parse-aggregate-definition.hc:4:3..4:5
+      declarator index=0 span=cli/parse-aggregate-definition.hc:4:6..4:15
+        name spelling="bytes" span=cli/parse-aggregate-definition.hc:4:6..4:11
+        array_dimension index=0 sized=true span=cli/parse-aggregate-definition.hc:4:11..4:14
+          opening_bracket span=cli/parse-aggregate-definition.hc:4:11..4:12
+          expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-aggregate-definition.hc:4:12..4:13
+          closing_bracket span=cli/parse-aggregate-definition.hc:4:13..4:14
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:4:14..4:15
+    anonymous_union index=2 span=cli/parse-aggregate-definition.hc:5:3..5:51 members=2
+      keyword spelling="union" span=cli/parse-aggregate-definition.hc:5:3..5:8
+      opening_brace span=cli/parse-aggregate-definition.hc:5:9..5:10
+        member_declaration index=0 span=cli/parse-aggregate-definition.hc:5:11..5:28 declarators=1
+          type primitive=I64 spelling="I64" span=cli/parse-aggregate-definition.hc:5:11..5:14
+          declarator index=0 span=cli/parse-aggregate-definition.hc:5:15..5:28
+            name spelling="signed_value" span=cli/parse-aggregate-definition.hc:5:15..5:27
+            delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:5:27..5:28
+        member_declaration index=1 span=cli/parse-aggregate-definition.hc:5:29..5:48 declarators=1
+          type primitive=U64 spelling="U64" span=cli/parse-aggregate-definition.hc:5:29..5:32
+          declarator index=0 span=cli/parse-aggregate-definition.hc:5:33..5:48
+            name spelling="unsigned_value" span=cli/parse-aggregate-definition.hc:5:33..5:47
+            delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:5:47..5:48
+      closing_brace span=cli/parse-aggregate-definition.hc:5:49..5:50
+      semicolon span=cli/parse-aggregate-definition.hc:5:50..5:51
+    closing_brace span=cli/parse-aggregate-definition.hc:6:1..6:2
+    semicolon span=cli/parse-aggregate-definition.hc:6:2..6:3
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-definition.hc:7:1..7:44 members=2
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-definition.hc:7:1..7:6
+    name spelling="Payload" span=cli/parse-aggregate-definition.hc:7:7..7:14
+    opening_brace span=cli/parse-aggregate-definition.hc:7:15..7:16
+    member_declaration index=0 span=cli/parse-aggregate-definition.hc:7:17..7:28 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-definition.hc:7:17..7:20
+      declarator index=0 span=cli/parse-aggregate-definition.hc:7:21..7:28
+        name spelling="number" span=cli/parse-aggregate-definition.hc:7:21..7:27
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:7:27..7:28
+    member_declaration index=1 span=cli/parse-aggregate-definition.hc:7:29..7:41 declarators=1
+      type primitive=U8 spelling="U8" span=cli/parse-aggregate-definition.hc:7:29..7:31
+      declarator index=0 span=cli/parse-aggregate-definition.hc:7:32..7:41
+        name spelling="bytes" span=cli/parse-aggregate-definition.hc:7:32..7:37
+        array_dimension index=0 sized=true span=cli/parse-aggregate-definition.hc:7:37..7:40
+          opening_bracket span=cli/parse-aggregate-definition.hc:7:37..7:38
+          expression kind=integer_literal spelling="8" value="0x0000000000000008" span=cli/parse-aggregate-definition.hc:7:38..7:39
+          closing_bracket span=cli/parse-aggregate-definition.hc:7:39..7:40
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-definition.hc:7:40..7:41
+    closing_brace span=cli/parse-aggregate-definition.hc:7:42..7:43
+    semicolon span=cli/parse-aggregate-definition.hc:7:43..7:44
+  global_variable span=cli/parse-aggregate-definition.hc:8:1..8:12
+    type named spelling="Node" span=cli/parse-aggregate-definition.hc:8:1..8:5
+    pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-definition.hc:8:6..8:7
+    name spelling="head" span=cli/parse-aggregate-definition.hc:8:7..8:11
+    semicolon span=cli/parse-aggregate-definition.hc:8:11..8:12

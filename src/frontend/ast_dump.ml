@@ -936,6 +936,60 @@ let print_array_dimensions buffer sources ~indent dimensions =
         (location_text sources dimension.closing_bracket))
     dimensions
 
+let rec print_aggregate_member buffer sources ~indent index = function
+  | Ast.Aggregate_member_declaration declaration ->
+      Printf.bprintf buffer
+        "%smember_declaration index=%d span=%s declarators=%d\n" indent index
+        (location_text sources declaration.member_declaration_location)
+        (List.length declaration.member_declarators);
+      let child_indent = indent ^ "  " in
+      print_type buffer sources ~indent:child_indent
+        declaration.member_type_specifier;
+      List.iteri
+        (fun declarator_index (declarator : Ast.aggregate_member_declarator) ->
+          let declarator_indent = child_indent ^ "  " in
+          Printf.bprintf buffer "%sdeclarator index=%d span=%s\n" child_indent
+            declarator_index
+            (location_text sources declarator.member_declarator_location);
+          print_pointer_layers buffer sources ~indent:declarator_indent
+            declarator.member_pointer_layers;
+          Printf.bprintf buffer "%sname spelling=%S span=%s\n" declarator_indent
+            declarator.member_name.spelling
+            (location_text sources declarator.member_name.location);
+          print_array_dimensions buffer sources ~indent:declarator_indent
+            declarator.member_array_dimensions;
+          Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
+            declarator_indent
+            (delimiter_kind_name declarator.member_delimiter.kind)
+            declarator.member_delimiter.spelling
+            (location_text sources declarator.member_delimiter.location))
+        declaration.member_declarators
+  | Ast.Anonymous_union_member anonymous_union -> (
+      Printf.bprintf buffer "%sanonymous_union index=%d span=%s members=%d\n"
+        indent index
+        (location_text sources anonymous_union.anonymous_union_location)
+        (List.length anonymous_union.anonymous_union_members);
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%skeyword spelling=%S span=%s\n" child_indent
+        anonymous_union.anonymous_union_keyword_spelling
+        (location_text sources anonymous_union.anonymous_union_keyword_location);
+      Printf.bprintf buffer "%sopening_brace span=%s\n" child_indent
+        (location_text sources anonymous_union.anonymous_union_opening_brace);
+      List.iteri
+        (print_aggregate_member buffer sources ~indent:(child_indent ^ "  "))
+        anonymous_union.anonymous_union_members;
+      Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+        (location_text sources anonymous_union.anonymous_union_closing_brace);
+      match anonymous_union.anonymous_union_semicolon with
+      | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
+      | Some semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+            (location_text sources semicolon))
+  | Ast.Empty_aggregate_member semicolon ->
+      Printf.bprintf buffer "%sempty_member index=%d semicolon=%s\n" indent
+        index
+        (location_text sources semicolon)
+
 let print_parameter_default buffer sources ~indent
     (default : Ast.parameter_default) =
   let child_indent = indent ^ "  " in
@@ -1039,6 +1093,28 @@ let human sources module_ =
             (location_text sources declaration.name.location);
           Printf.bprintf buffer "    semicolon span=%s\n"
             (location_text sources declaration.semicolon)
+      | Ast.Aggregate_definition definition ->
+          Printf.bprintf buffer
+            "  aggregate_definition aggregate_kind=%s span=%s members=%d\n"
+            (aggregate_kind_name definition.aggregate_kind)
+            (location_text sources definition.location)
+            (List.length definition.members);
+          print_modifiers buffer sources ~indent:"    " definition.modifiers;
+          Printf.bprintf buffer "    aggregate_keyword spelling=%S span=%s\n"
+            definition.aggregate_keyword_spelling
+            (location_text sources definition.aggregate_keyword_location);
+          Printf.bprintf buffer "    name spelling=%S span=%s\n"
+            definition.name.spelling
+            (location_text sources definition.name.location);
+          Printf.bprintf buffer "    opening_brace span=%s\n"
+            (location_text sources definition.opening_brace);
+          List.iteri
+            (print_aggregate_member buffer sources ~indent:"    ")
+            definition.members;
+          Printf.bprintf buffer "    closing_brace span=%s\n"
+            (location_text sources definition.closing_brace);
+          Printf.bprintf buffer "    semicolon span=%s\n"
+            (location_text sources definition.semicolon)
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
@@ -2046,6 +2122,74 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
         ("location", location_to_yojson sources declarator.location);
       ])
 
+let aggregate_member_declarator_to_yojson sources
+    (declarator : Ast.aggregate_member_declarator) =
+  `Assoc
+    (pointer_layer_fields sources declarator.member_pointer_layers
+    @ [ ("name", identifier_to_yojson sources declarator.member_name) ]
+    @ array_dimension_fields sources declarator.member_array_dimensions
+    @ [
+        ("delimiter", delimiter_to_yojson sources declarator.member_delimiter);
+        ( "location",
+          location_to_yojson sources declarator.member_declarator_location );
+      ])
+
+let rec aggregate_member_to_yojson sources = function
+  | Ast.Aggregate_member_declaration declaration ->
+      `Assoc
+        [
+          ("kind", `String "member_declaration");
+          ("type", type_to_yojson sources declaration.member_type_specifier);
+          ( "declarators",
+            `List
+              (List.map
+                 (aggregate_member_declarator_to_yojson sources)
+                 declaration.member_declarators) );
+          ( "location",
+            location_to_yojson sources declaration.member_declaration_location
+          );
+        ]
+  | Ast.Anonymous_union_member anonymous_union ->
+      `Assoc
+        ([
+           ("kind", `String "anonymous_union");
+           ( "keyword",
+             `Assoc
+               [
+                 ( "spelling",
+                   `String anonymous_union.anonymous_union_keyword_spelling );
+                 ( "location",
+                   location_to_yojson sources
+                     anonymous_union.anonymous_union_keyword_location );
+               ] );
+           ( "opening_brace",
+             location_to_yojson sources
+               anonymous_union.anonymous_union_opening_brace );
+           ( "members",
+             `List
+               (List.map
+                  (aggregate_member_to_yojson sources)
+                  anonymous_union.anonymous_union_members) );
+           ( "closing_brace",
+             location_to_yojson sources
+               anonymous_union.anonymous_union_closing_brace );
+         ]
+        @ (match anonymous_union.anonymous_union_semicolon with
+          | None -> []
+          | Some semicolon ->
+              [ ("semicolon", location_to_yojson sources semicolon) ])
+        @ [
+            ( "location",
+              location_to_yojson sources
+                anonymous_union.anonymous_union_location );
+          ])
+  | Ast.Empty_aggregate_member semicolon ->
+      `Assoc
+        [
+          ("kind", `String "empty_member");
+          ("semicolon", location_to_yojson sources semicolon);
+        ]
+
 let parameter_default_to_yojson sources (default : Ast.parameter_default) =
   let value =
     match default.value with
@@ -2152,6 +2296,36 @@ let item_to_yojson sources = function
             ("name", identifier_to_yojson sources declaration.name);
             ("semicolon", location_to_yojson sources declaration.semicolon);
             ("location", location_to_yojson sources declaration.location);
+          ])
+  | Ast.Aggregate_definition definition ->
+      `Assoc
+        ([
+           ("kind", `String "aggregate_definition");
+           ( "aggregate_kind",
+             `String (aggregate_kind_name definition.aggregate_kind) );
+         ]
+        @ modifier_fields sources definition.modifiers
+        @ [
+            ( "aggregate_keyword",
+              `Assoc
+                [
+                  ("spelling", `String definition.aggregate_keyword_spelling);
+                  ( "location",
+                    location_to_yojson sources
+                      definition.aggregate_keyword_location );
+                ] );
+            ("name", identifier_to_yojson sources definition.name);
+            ( "opening_brace",
+              location_to_yojson sources definition.opening_brace );
+            ( "members",
+              `List
+                (List.map
+                   (aggregate_member_to_yojson sources)
+                   definition.members) );
+            ( "closing_brace",
+              location_to_yojson sources definition.closing_brace );
+            ("semicolon", location_to_yojson sources definition.semicolon);
+            ("location", location_to_yojson sources definition.location);
           ])
   | Ast.Global_variable variable ->
       `Assoc
