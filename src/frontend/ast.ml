@@ -27,6 +27,10 @@ type primitive_type = {
   location : location;
 }
 
+type type_specifier =
+  | Primitive_type_specifier of primitive_type
+  | Named_type_specifier of identifier
+
 type pointer_layer = { depth : int; spelling : string; location : location }
 type declaration_delimiter_kind = Comma | Semicolon
 
@@ -174,7 +178,7 @@ and postfix_expression = {
 and postfix_cast_expression = {
   cast_operand : expression;
   cast_opening_parenthesis : location;
-  cast_type : primitive_type;
+  cast_type : type_specifier;
   cast_pointer_layers : pointer_layer list;
   cast_closing_parenthesis : location;
   cast_location : location;
@@ -273,7 +277,7 @@ type global_declarator = {
 type global_variable = {
   modifiers : declaration_modifier list;
   binding : declaration_binding option;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   pointer_layers : pointer_layer list;
   name : identifier;
   array_dimensions : array_dimension list;
@@ -284,7 +288,7 @@ type global_variable = {
 type global_declaration = {
   modifiers : declaration_modifier list;
   binding : declaration_binding option;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   declarators : global_declarator list;
   location : location;
 }
@@ -306,7 +310,7 @@ type parameter_default = {
 
 type function_parameter = {
   register_qualifiers : register_qualifier list;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   pointer_layers : pointer_layer list;
   name : identifier option;
   function_pointer : function_pointer_declarator option;
@@ -329,7 +333,7 @@ and function_pointer_declarator = {
 type function_prototype = {
   modifiers : declaration_modifier list;
   binding : declaration_binding;
-  return_type : primitive_type;
+  return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
   name : identifier;
   opening_parenthesis : location;
@@ -393,7 +397,7 @@ type local_declarator = {
 type local_declaration = {
   local_storage : local_storage;
   local_modifiers : declaration_modifier list;
-  local_type_specifier : primitive_type;
+  local_type_specifier : type_specifier;
   local_declarators : local_declarator list;
   local_declaration_location : location;
 }
@@ -580,7 +584,7 @@ and statement_sequence = {
 
 type function_definition = {
   modifiers : declaration_modifier list;
-  return_type : primitive_type;
+  return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
   name : identifier;
   opening_parenthesis : location;
@@ -637,6 +641,14 @@ let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
 
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }
+
+let type_specifier_spelling = function
+  | Primitive_type_specifier primitive -> primitive.spelling
+  | Named_type_specifier name -> name.spelling
+
+let type_specifier_location = function
+  | Primitive_type_specifier primitive -> primitive.location
+  | Named_type_specifier name -> name.location
 
 let make_identifier ~spelling ~location : identifier = { spelling; location }
 

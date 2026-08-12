@@ -1,0 +1,3 @@
+cli/parse-named-type-error.hc:1:1: error[HCPARSE0001]: expected a primitive, class, or union type at the start of a global declaration, but found identifier "UnknownType"
+    1 | UnknownType *value;
+      | ^^^^^^^^^^^

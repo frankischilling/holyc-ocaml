@@ -27,6 +27,10 @@ type primitive_type = private {
   location : location;
 }
 
+type type_specifier =
+  | Primitive_type_specifier of primitive_type
+  | Named_type_specifier of identifier
+
 type pointer_layer = private {
   depth : int;
   spelling : string;
@@ -179,7 +183,7 @@ and postfix_expression = private {
 and postfix_cast_expression = private {
   cast_operand : expression;
   cast_opening_parenthesis : location;
-  cast_type : primitive_type;
+  cast_type : type_specifier;
   cast_pointer_layers : pointer_layer list;
   cast_closing_parenthesis : location;
   cast_location : location;
@@ -278,7 +282,7 @@ type global_declarator = private {
 type global_variable = private {
   modifiers : declaration_modifier list;
   binding : declaration_binding option;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   pointer_layers : pointer_layer list;
   name : identifier;
   array_dimensions : array_dimension list;
@@ -289,7 +293,7 @@ type global_variable = private {
 type global_declaration = private {
   modifiers : declaration_modifier list;
   binding : declaration_binding option;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   declarators : global_declarator list;
   location : location;
 }
@@ -311,7 +315,7 @@ type parameter_default = private {
 
 type function_parameter = private {
   register_qualifiers : register_qualifier list;
-  type_specifier : primitive_type;
+  type_specifier : type_specifier;
   pointer_layers : pointer_layer list;
   name : identifier option;
   function_pointer : function_pointer_declarator option;
@@ -334,7 +338,7 @@ and function_pointer_declarator = private {
 type function_prototype = private {
   modifiers : declaration_modifier list;
   binding : declaration_binding;
-  return_type : primitive_type;
+  return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
   name : identifier;
   opening_parenthesis : location;
@@ -398,7 +402,7 @@ type local_declarator = private {
 type local_declaration = private {
   local_storage : local_storage;
   local_modifiers : declaration_modifier list;
-  local_type_specifier : primitive_type;
+  local_type_specifier : type_specifier;
   local_declarators : local_declarator list;
   local_declaration_location : location;
 }
@@ -585,7 +589,7 @@ and statement_sequence = private {
 
 type function_definition = private {
   modifiers : declaration_modifier list;
-  return_type : primitive_type;
+  return_type : type_specifier;
   return_pointer_layers : pointer_layer list;
   name : identifier;
   opening_parenthesis : location;
@@ -648,6 +652,8 @@ val make_primitive_type :
   location:location ->
   primitive_type
 
+val type_specifier_spelling : type_specifier -> string
+val type_specifier_location : type_specifier -> location
 val make_identifier : spelling:string -> location:location -> identifier
 
 val make_pointer_layer :
@@ -677,7 +683,7 @@ val make_global_declarator :
 val make_global_variable :
   modifiers:declaration_modifier list ->
   binding:declaration_binding option ->
-  type_specifier:primitive_type ->
+  type_specifier:type_specifier ->
   pointer_layers:pointer_layer list ->
   name:identifier ->
   array_dimensions:array_dimension list ->
@@ -688,7 +694,7 @@ val make_global_variable :
 val make_global_declaration :
   modifiers:declaration_modifier list ->
   binding:declaration_binding option ->
-  type_specifier:primitive_type ->
+  type_specifier:type_specifier ->
   declarators:global_declarator list ->
   location:location ->
   global_declaration
@@ -776,7 +782,7 @@ val make_postfix_expression :
 val make_postfix_cast_expression :
   operand:expression ->
   opening_parenthesis:location ->
-  type_specifier:primitive_type ->
+  type_specifier:type_specifier ->
   pointer_layers:pointer_layer list ->
   closing_parenthesis:location ->
   location:location ->
@@ -832,7 +838,7 @@ val make_lastclass_default :
 
 val make_function_parameter :
   register_qualifiers:register_qualifier list ->
-  type_specifier:primitive_type ->
+  type_specifier:type_specifier ->
   pointer_layers:pointer_layer list ->
   name:identifier option ->
   function_pointer:function_pointer_declarator option ->
@@ -861,7 +867,7 @@ val make_variadic_marker :
 val make_function_prototype :
   modifiers:declaration_modifier list ->
   binding:declaration_binding ->
-  return_type:primitive_type ->
+  return_type:type_specifier ->
   return_pointer_layers:pointer_layer list ->
   name:identifier ->
   opening_parenthesis:location ->
@@ -912,7 +918,7 @@ val make_local_declarator :
 val make_local_declaration :
   storage:local_storage ->
   modifiers:declaration_modifier list ->
-  type_specifier:primitive_type ->
+  type_specifier:type_specifier ->
   declarators:local_declarator list ->
   location:location ->
   local_declaration
@@ -1058,7 +1064,7 @@ val make_statement_sequence :
 
 val make_function_definition :
   modifiers:declaration_modifier list ->
-  return_type:primitive_type ->
+  return_type:type_specifier ->
   return_pointer_layers:pointer_layer list ->
   name:identifier ->
   opening_parenthesis:location ->

@@ -2,7 +2,7 @@
   {
     "code": "HCPARSE0001",
     "severity": "error",
-    "message": "expected a primitive type after declaration modifier \"public\", but found \";\"",
+    "message": "expected a primitive, class, or union type after declaration modifier \"public\", but found \";\"",
     "primary": {
       "path": "cli/parse-modifier-error.hc",
       "line": 2,

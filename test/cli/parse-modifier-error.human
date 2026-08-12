@@ -1,3 +1,3 @@
-cli/parse-modifier-error.hc:2:8: error[HCPARSE0001]: expected a primitive type after declaration modifier "public", but found ";"
+cli/parse-modifier-error.hc:2:8: error[HCPARSE0001]: expected a primitive, class, or union type after declaration modifier "public", but found ";"
     2 | public ;
       |        ^

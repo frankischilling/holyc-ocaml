@@ -2872,3 +2872,69 @@
    (diff
     cli/parse-aggregate-forward-error.json
     parse-aggregate-forward-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-named-types.human.actual)
+ (deps cli/parse-named-types.hc cli/parse-named-types.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-named-types.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-named-types.hc))
+   (diff cli/parse-named-types.human parse-named-types.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-named-types.json.actual)
+ (deps cli/parse-named-types.hc cli/parse-named-types.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-named-types.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-named-types.hc))
+   (diff cli/parse-named-types.json parse-named-types.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-named-type-error.human.actual
+  parse-named-type-error.human.stdout.actual)
+ (deps cli/parse-named-type-error.hc cli/parse-named-type-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-named-type-error.human.stdout.actual
+    (with-stderr-to
+     parse-named-type-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-named-type-error.hc))))
+   (diff
+    cli/parse-named-type-error.human
+    parse-named-type-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-named-type-error.json.actual
+  parse-named-type-error.json.stdout.actual)
+ (deps cli/parse-named-type-error.hc cli/parse-named-type-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-named-type-error.json.stdout.actual
+    (with-stderr-to
+     parse-named-type-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-named-type-error.hc))))
+   (diff cli/parse-named-type-error.json parse-named-type-error.json.actual))))
