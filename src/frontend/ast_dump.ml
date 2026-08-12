@@ -97,6 +97,10 @@ let implicit_output_target_name = function
   | Ast.Print_target -> "print"
   | Ast.Put_chars_target -> "put_chars"
 
+let local_storage_name = function
+  | Ast.Automatic_local -> "automatic"
+  | Ast.Static_local -> "static"
+
 let association_name = function
   | Operator.Unspecified -> "unspecified"
   | Operator.Left -> "left"
@@ -593,6 +597,67 @@ let rec print_statement buffer sources ~indent = function
         (location_text sources statement.label_name.location);
       Printf.bprintf buffer "%scolon span=%s\n" child_indent
         (location_text sources statement.label_colon)
+  | Ast.Local_declaration_statement declaration ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer
+        "%slocal_declaration span=%s storage=%s declarators=%d\n" indent
+        (location_text sources declaration.local_declaration_location)
+        (local_storage_name declaration.local_storage)
+        (List.length declaration.local_declarators);
+      print_modifiers buffer sources ~indent:child_indent
+        declaration.local_modifiers;
+      print_type buffer sources ~indent:child_indent
+        declaration.local_type_specifier;
+      List.iteri
+        (fun index (declarator : Ast.local_declarator) ->
+          let declarator_indent = child_indent ^ "  " in
+          Printf.bprintf buffer "%sdeclarator index=%d span=%s\n" child_indent
+            index
+            (location_text sources declarator.local_declarator_location);
+          print_register_qualifiers buffer sources ~indent:declarator_indent
+            ~position:Ast.After_type declarator.local_register_qualifiers;
+          print_pointer_layers buffer sources ~indent:declarator_indent
+            declarator.local_pointer_layers;
+          Printf.bprintf buffer "%sname spelling=%S span=%s\n" declarator_indent
+            declarator.local_name.spelling
+            (location_text sources declarator.local_name.location);
+          List.iteri
+            (fun dimension_index (dimension : Ast.array_dimension) ->
+              let dimension_indent = declarator_indent ^ "  " in
+              Printf.bprintf buffer
+                "%sarray_dimension index=%d sized=%b span=%s\n"
+                declarator_indent dimension_index
+                (Option.is_some dimension.dimension_expression)
+                (location_text sources dimension.location);
+              Printf.bprintf buffer "%sopening_bracket span=%s\n"
+                dimension_indent
+                (location_text sources dimension.opening_bracket);
+              (match dimension.dimension_expression with
+              | None ->
+                  Printf.bprintf buffer "%sexpression omitted\n"
+                    dimension_indent
+              | Some expression ->
+                  print_expression buffer sources ~indent:dimension_indent
+                    expression);
+              Printf.bprintf buffer "%sclosing_bracket span=%s\n"
+                dimension_indent
+                (location_text sources dimension.closing_bracket))
+            declarator.local_array_dimensions;
+          Option.iter
+            (fun (initial_value : Ast.local_initializer) ->
+              Printf.bprintf buffer "%sinitializer span=%s\n" declarator_indent
+                (location_text sources initial_value.local_initializer_location);
+              Printf.bprintf buffer "%s  equals span=%s\n" declarator_indent
+                (location_text sources initial_value.local_initializer_equals);
+              print_expression buffer sources ~indent:(declarator_indent ^ "  ")
+                initial_value.local_initializer_value)
+            declarator.local_initializer;
+          Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
+            declarator_indent
+            (delimiter_kind_name declarator.local_delimiter.kind)
+            declarator.local_delimiter.spelling
+            (location_text sources declarator.local_delimiter.location))
+        declaration.local_declarators
   | Ast.Lock_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%slock_statement span=%s\n" indent
@@ -1649,6 +1714,76 @@ let rec statement_to_yojson sources = function
           ("colon", location_to_yojson sources statement.label_colon);
           ("location", location_to_yojson sources statement.label_location);
         ]
+  | Ast.Local_declaration_statement declaration ->
+      let dimension_to_yojson (dimension : Ast.array_dimension) =
+        `Assoc
+          [
+            ( "opening_bracket",
+              location_to_yojson sources dimension.opening_bracket );
+            ( "expression",
+              match dimension.dimension_expression with
+              | None -> `Null
+              | Some expression -> expression_to_yojson sources expression );
+            ( "closing_bracket",
+              location_to_yojson sources dimension.closing_bracket );
+            ("location", location_to_yojson sources dimension.location);
+          ]
+      in
+      let initializer_to_yojson (initial_value : Ast.local_initializer) =
+        `Assoc
+          [
+            ( "equals",
+              location_to_yojson sources initial_value.local_initializer_equals
+            );
+            ( "value",
+              expression_to_yojson sources initial_value.local_initializer_value
+            );
+            ( "location",
+              location_to_yojson sources
+                initial_value.local_initializer_location );
+          ]
+      in
+      let declarator_to_yojson (declarator : Ast.local_declarator) =
+        `Assoc
+          (register_qualifier_fields sources
+             declarator.local_register_qualifiers
+          @ pointer_layer_fields sources declarator.local_pointer_layers
+          @ [ ("name", identifier_to_yojson sources declarator.local_name) ]
+          @ (match declarator.local_array_dimensions with
+            | [] -> []
+            | dimensions ->
+                [
+                  ( "array_dimensions",
+                    `List (List.map dimension_to_yojson dimensions) );
+                ])
+          @ (match declarator.local_initializer with
+            | None -> []
+            | Some initial_value ->
+                [ ("initializer", initializer_to_yojson initial_value) ])
+          @ [
+              ( "delimiter",
+                delimiter_to_yojson sources declarator.local_delimiter );
+              ( "location",
+                location_to_yojson sources declarator.local_declarator_location
+              );
+            ])
+      in
+      `Assoc
+        ([
+           ("kind", `String "local_declaration_statement");
+           ("storage", `String (local_storage_name declaration.local_storage));
+         ]
+        @ modifier_fields sources declaration.local_modifiers
+        @ [
+            ( "type",
+              primitive_to_yojson sources declaration.local_type_specifier );
+            ( "declarators",
+              `List
+                (List.map declarator_to_yojson declaration.local_declarators) );
+            ( "location",
+              location_to_yojson sources declaration.local_declaration_location
+            );
+          ])
   | Ast.Lock_statement statement ->
       `Assoc
         [

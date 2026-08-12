@@ -358,6 +358,32 @@ type expression_statement = private {
   expression_statement_location : location;
 }
 
+type local_storage = Automatic_local | Static_local
+
+type local_initializer = private {
+  local_initializer_equals : location;
+  local_initializer_value : expression;
+  local_initializer_location : location;
+}
+
+type local_declarator = private {
+  local_register_qualifiers : register_qualifier list;
+  local_pointer_layers : pointer_layer list;
+  local_name : identifier;
+  local_array_dimensions : array_dimension list;
+  local_initializer : local_initializer option;
+  local_delimiter : declaration_delimiter;
+  local_declarator_location : location;
+}
+
+type local_declaration = private {
+  local_storage : local_storage;
+  local_modifiers : declaration_modifier list;
+  local_type_specifier : primitive_type;
+  local_declarators : local_declarator list;
+  local_declaration_location : location;
+}
+
 type switch_mode = Bounded_switch | No_bound_switch
 
 type switch_case_range = private {
@@ -383,6 +409,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Label_statement of label_statement
+  | Local_declaration_statement of local_declaration
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
@@ -838,6 +865,27 @@ val make_expression_statement :
   semicolon:location option ->
   location:location ->
   expression_statement
+
+val make_local_initializer :
+  equals:location -> value:expression -> location:location -> local_initializer
+
+val make_local_declarator :
+  register_qualifiers:register_qualifier list ->
+  pointer_layers:pointer_layer list ->
+  name:identifier ->
+  array_dimensions:array_dimension list ->
+  initial_value:local_initializer option ->
+  delimiter:declaration_delimiter ->
+  location:location ->
+  local_declarator
+
+val make_local_declaration :
+  storage:local_storage ->
+  modifiers:declaration_modifier list ->
+  type_specifier:primitive_type ->
+  declarators:local_declarator list ->
+  location:location ->
+  local_declaration
 
 val make_block_statement :
   opening_brace:location ->

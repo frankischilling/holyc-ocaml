@@ -353,6 +353,32 @@ type expression_statement = {
   expression_statement_location : location;
 }
 
+type local_storage = Automatic_local | Static_local
+
+type local_initializer = {
+  local_initializer_equals : location;
+  local_initializer_value : expression;
+  local_initializer_location : location;
+}
+
+type local_declarator = {
+  local_register_qualifiers : register_qualifier list;
+  local_pointer_layers : pointer_layer list;
+  local_name : identifier;
+  local_array_dimensions : array_dimension list;
+  local_initializer : local_initializer option;
+  local_delimiter : declaration_delimiter;
+  local_declarator_location : location;
+}
+
+type local_declaration = {
+  local_storage : local_storage;
+  local_modifiers : declaration_modifier list;
+  local_type_specifier : primitive_type;
+  local_declarators : local_declarator list;
+  local_declaration_location : location;
+}
+
 type switch_mode = Bounded_switch | No_bound_switch
 
 type switch_case_range = {
@@ -378,6 +404,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Label_statement of label_statement
+  | Local_declaration_statement of local_declaration
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
@@ -854,6 +881,35 @@ let make_expression_statement ~expression ~semicolon ~location =
     expression_statement_location = location;
   }
 
+let make_local_initializer ~equals ~value ~location =
+  {
+    local_initializer_equals = equals;
+    local_initializer_value = value;
+    local_initializer_location = location;
+  }
+
+let make_local_declarator ~register_qualifiers ~pointer_layers ~name
+    ~array_dimensions ~initial_value ~delimiter ~location =
+  {
+    local_register_qualifiers = register_qualifiers;
+    local_pointer_layers = pointer_layers;
+    local_name = name;
+    local_array_dimensions = array_dimensions;
+    local_initializer = initial_value;
+    local_delimiter = delimiter;
+    local_declarator_location = location;
+  }
+
+let make_local_declaration ~storage ~modifiers ~type_specifier ~declarators
+    ~location =
+  {
+    local_storage = storage;
+    local_modifiers = modifiers;
+    local_type_specifier = type_specifier;
+    local_declarators = declarators;
+    local_declaration_location = location;
+  }
+
 let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
   {
     block_opening_brace = opening_brace;
@@ -1043,6 +1099,8 @@ let statement_location = function
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
   | Label_statement statement -> statement.label_location
+  | Local_declaration_statement declaration ->
+      declaration.local_declaration_location
   | Lock_statement statement -> statement.lock_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
