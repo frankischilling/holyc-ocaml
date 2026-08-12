@@ -1649,9 +1649,7 @@
      (with-accepted-exit-codes
       1
       (run %{exe:../bin/holyc.exe} parse cli/parse-lastclass-error.hc))))
-   (diff
-    cli/parse-lastclass-error.human
-    parse-lastclass-error.human.actual))))
+   (diff cli/parse-lastclass-error.human parse-lastclass-error.human.actual))))
 
 (rule
  (alias runtest)
@@ -1672,6 +1670,4 @@
        parse
        --format=json
        cli/parse-lastclass-error.hc))))
-   (diff
-    cli/parse-lastclass-error.json
-    parse-lastclass-error.json.actual))))
+   (diff cli/parse-lastclass-error.json parse-lastclass-error.json.actual))))
