@@ -12,7 +12,7 @@ type cursor = {
   stream : Preprocessor.t;
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
-  mutable lookahead : located_token option;
+  mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
 }
 
@@ -134,17 +134,23 @@ let rec pull cursor =
   | Lexer.Token token ->
       { token; context = Preprocessor.diagnostic_context cursor.stream }
 
-let peek cursor =
-  match cursor.lookahead with
-  | Some item -> item
-  | None ->
-      let item = pull cursor in
-      cursor.lookahead <- Some item;
-      item
+let rec ensure_lookahead cursor count =
+  if List.length cursor.lookahead >= count then ()
+  else (
+    cursor.lookahead <- cursor.lookahead @ [ pull cursor ];
+    ensure_lookahead cursor count)
+
+let peek_n cursor offset =
+  if offset < 0 then invalid_arg "parser lookahead offset cannot be negative";
+  if offset > 1 then invalid_arg "parser lookahead is limited to two tokens";
+  ensure_lookahead cursor (offset + 1);
+  List.nth cursor.lookahead offset
+
+let peek cursor = peek_n cursor 0
 
 let take cursor =
   let item = peek cursor in
-  cursor.lookahead <- None;
+  cursor.lookahead <- List.tl cursor.lookahead;
   item
 
 let token_segments token =
@@ -2302,6 +2308,19 @@ let statement_symbol_is_expression cursor name =
       | Symbol_visibility.Module
       | Symbol_visibility.Help_file -> false)
 
+let token_starts_function_label cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols
+          (token_text token)
+      with
+      | Symbol_visibility.Absent ->
+          (peek_n cursor 1).token.kind = Token_kind.Punctuation ':'
+      | Symbol_visibility.Shadowed_by_local | Symbol_visibility.Present _ ->
+          false)
+  | _ -> false
+
 let token_starts_statement_expression cursor token =
   match token.Token.kind with
   | Token_kind.Integer | Token_kind.Float -> true
@@ -2367,6 +2386,74 @@ let parse_break_statement cursor ~boundary : parsed_statement option =
           ~location:(location_from_expression_tokens tokens)
       in
       Some { node = Ast.Break_statement statement; tokens }
+
+let parse_goto_statement cursor ~boundary : parsed_statement option =
+  let keyword_item = take cursor in
+  let target_item = peek cursor in
+  if target_item.token.kind <> Token_kind.Identifier then (
+    report cursor target_item ~code:"HCPARSE0075"
+      ~message:
+        (Printf.sprintf "expected a label name after 'goto', but found %s"
+           (token_description target_item.token));
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let target_item = take cursor in
+    let terminator_item = peek cursor in
+    let terminator =
+      match (boundary, terminator_item.token.kind) with
+      | For_update_boundary _, _ -> Some (None, [])
+      | _, Token_kind.Punctuation ';' ->
+          let semicolon_item = take cursor in
+          Some
+            ( Some (token_location semicolon_item.token),
+              [ semicolon_item.token ] )
+      | _, Token_kind.Punctuation ',' -> Some (None, [])
+      | _ ->
+          report cursor terminator_item ~code:"HCPARSE0076"
+            ~message:
+              (Printf.sprintf
+                 "expected ';' or ',' after goto target %S, but found %s"
+                 (token_text target_item.token)
+                 (token_description terminator_item.token));
+          None
+    in
+    match terminator with
+    | None ->
+        recover_statement cursor ~boundary;
+        None
+    | Some (semicolon, terminator_tokens) ->
+        let tokens =
+          keyword_item.token :: target_item.token :: terminator_tokens
+        in
+        let target =
+          Ast.make_identifier
+            ~spelling:(token_text target_item.token)
+            ~location:(token_location target_item.token)
+        in
+        let statement =
+          Ast.make_goto_statement
+            ~keyword:(token_location keyword_item.token)
+            ~target ~semicolon
+            ~location:(location_from_expression_tokens tokens)
+        in
+        Some { node = Ast.Goto_statement statement; tokens }
+
+let parse_label_statement cursor : parsed_statement option =
+  let name_item = take cursor in
+  let colon_item = take cursor in
+  let tokens = [ name_item.token; colon_item.token ] in
+  let name =
+    Ast.make_identifier
+      ~spelling:(token_text name_item.token)
+      ~location:(token_location name_item.token)
+  in
+  let statement =
+    Ast.make_label_statement ~name
+      ~colon:(token_location colon_item.token)
+      ~location:(location_from_expression_tokens tokens)
+  in
+  Some { node = Ast.Label_statement statement; tokens }
 
 let parse_return_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
@@ -2486,6 +2573,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Keyword Keyword.For ->
       parse_for_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
+  | Token_kind.Keyword Keyword.Goto -> parse_goto_statement cursor ~boundary
   | Token_kind.Keyword Keyword.If ->
       parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
@@ -2506,6 +2594,8 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       recover_statement cursor ~boundary;
       None
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
+  | Token_kind.Identifier when token_starts_function_label cursor item.token ->
+      parse_label_statement cursor
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary
   | _ ->
@@ -3099,7 +3189,7 @@ let parse ~sources ~definitions ~symbols ~config source =
       stream;
       symbols;
       compilation_mode = Preprocessor.Config.compilation_mode config;
-      lookahead = None;
+      lookahead = [];
       diagnostics_rev = [];
     }
   in
@@ -3111,6 +3201,15 @@ let parse ~sources ~definitions ~symbols ~config source =
     | Token_kind.Eof ->
         ignore (take cursor);
         finished := true
+    | Token_kind.Identifier when token_starts_function_label cursor item.token
+      -> (
+        match
+          parse_statement_sequence cursor ~boundary:Top_level_boundary
+            ~block_depth:0 ~conditional_depth:0 ~loop_depth:0
+        with
+        | Some statement ->
+            items_rev := Ast.Top_level_statement statement.node :: !items_rev
+        | None -> ())
     | _ when token_starts_global_declaration cursor item.token -> (
         match parse_global cursor with
         | Some item -> items_rev := item :: !items_rev

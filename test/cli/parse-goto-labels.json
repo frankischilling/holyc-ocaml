@@ -1,0 +1,623 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-goto-labels.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 44
+    },
+    "items": [
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "goto_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 4
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 4
+              }
+            ]
+          },
+          "target": {
+            "spelling": "finish",
+            "location": {
+              "span": {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 6,
+                "source_id": 0,
+                "start": 5,
+                "stop": 11
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 1,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 5,
+                  "stop": 11
+                }
+              ]
+            }
+          },
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 12,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 4
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 6,
+                "source_id": 0,
+                "start": 5,
+                "stop": 11
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 1,
+                "column": 12,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-goto-labels.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 12
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 4
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 6,
+              "source_id": 0,
+              "start": 5,
+              "stop": 11
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "label_statement",
+          "name": {
+            "spelling": "finish",
+            "location": {
+              "span": {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 13,
+                "stop": 19
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 2,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 19
+                }
+              ]
+            }
+          },
+          "colon": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 2,
+              "column": 7,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 2,
+                "column": 7,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 13,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 13,
+                "stop": 19
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 2,
+                "column": 7,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-goto-labels.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 13,
+            "stop": 20
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 13,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 2,
+              "column": 7,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 21,
+              "stop": 22
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 21,
+                "stop": 22
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "label_statement",
+              "name": {
+                "spelling": "again",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 4,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-goto-labels.hc",
+                      "line": 4,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 23,
+                      "stop": 28
+                    }
+                  ]
+                }
+              },
+              "colon": {
+                "span": {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 4,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 4,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 4,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 23,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 4,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "goto_statement",
+              "keyword": {
+                "span": {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 5,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 34
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 34
+                  }
+                ]
+              },
+              "target": {
+                "spelling": "again",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 40
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-goto-labels.hc",
+                      "line": 5,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 35,
+                      "stop": 40
+                    }
+                  ]
+                }
+              },
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 5,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 41
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 41
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-goto-labels.hc",
+                  "line": 5,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 41
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 1,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 34
+                  },
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 40
+                  },
+                  {
+                    "path": "cli/parse-goto-labels.hc",
+                    "line": 5,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 41
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 42,
+              "stop": 43
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 42,
+                "stop": 43
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 21,
+              "stop": 43
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 21,
+                "stop": 22
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 23,
+                "stop": 28
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 4,
+                "column": 6,
+                "source_id": 0,
+                "start": 28,
+                "stop": 29
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 30,
+                "stop": 34
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 5,
+                "column": 6,
+                "source_id": 0,
+                "start": 35,
+                "stop": 40
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 5,
+                "column": 11,
+                "source_id": 0,
+                "start": 40,
+                "stop": 41
+              },
+              {
+                "path": "cli/parse-goto-labels.hc",
+                "line": 6,
+                "column": 1,
+                "source_id": 0,
+                "start": 42,
+                "stop": 43
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-goto-labels.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 21,
+            "stop": 43
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 21,
+              "stop": 22
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 23,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 4,
+              "column": 6,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 30,
+              "stop": 34
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 5,
+              "column": 6,
+              "source_id": 0,
+              "start": 35,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 5,
+              "column": 11,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-goto-labels.hc",
+              "line": 6,
+              "column": 1,
+              "source_id": 0,
+              "start": 42,
+              "stop": 43
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

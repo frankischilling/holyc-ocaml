@@ -360,8 +360,10 @@ type statement =
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
   | For_statement of for_statement
+  | Goto_statement of goto_statement
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
+  | Label_statement of label_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
@@ -408,6 +410,13 @@ and for_statement = {
   for_location : location;
 }
 
+and goto_statement = {
+  goto_keyword : location;
+  goto_target : identifier;
+  goto_semicolon : location option;
+  goto_location : location;
+}
+
 and if_statement = {
   if_keyword : location;
   if_opening_parenthesis : location;
@@ -416,6 +425,12 @@ and if_statement = {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and label_statement = {
+  label_name : identifier;
+  label_colon : location;
+  label_location : location;
 }
 
 and return_statement = {
@@ -799,6 +814,14 @@ let make_for_statement ~keyword ~opening_parenthesis ~initialization ~condition
     for_location = location;
   }
 
+let make_goto_statement ~keyword ~target ~semicolon ~location =
+  {
+    goto_keyword = keyword;
+    goto_target = target;
+    goto_semicolon = semicolon;
+    goto_location = location;
+  }
+
 let make_if_statement ~keyword ~opening_parenthesis ~condition
     ~closing_parenthesis ~then_branch ~else_clause ~location =
   {
@@ -810,6 +833,9 @@ let make_if_statement ~keyword ~opening_parenthesis ~condition
     if_else_clause = else_clause;
     if_location = location;
   }
+
+let make_label_statement ~name ~colon ~location =
+  { label_name = name; label_colon = colon; label_location = location }
 
 let make_return_statement ~keyword ~value ~semicolon ~location =
   {
@@ -851,8 +877,10 @@ let statement_location = function
   | Empty_statement statement -> statement.empty_statement_location
   | Expression_statement statement -> statement.expression_statement_location
   | For_statement statement -> statement.for_location
+  | Goto_statement statement -> statement.goto_location
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
+  | Label_statement statement -> statement.label_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
   | While_statement statement -> statement.while_location

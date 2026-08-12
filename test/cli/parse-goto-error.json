@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0075",
+    "severity": "error",
+    "message": "expected a label name after 'goto', but found \"1\"",
+    "primary": {
+      "path": "cli/parse-goto-error.hc",
+      "line": 1,
+      "column": 6,
+      "source_id": 0,
+      "start": 5,
+      "stop": 6
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

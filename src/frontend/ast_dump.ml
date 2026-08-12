@@ -521,6 +521,23 @@ let rec print_statement buffer sources ~indent = function
       Printf.bprintf buffer "%sbody\n" child_indent;
       print_statement buffer sources ~indent:(child_indent ^ "  ")
         statement.for_body
+  | Ast.Goto_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sgoto_statement span=%s target=%S semicolon=%b\n"
+        indent
+        (location_text sources statement.goto_location)
+        statement.goto_target.spelling
+        (Option.is_some statement.goto_semicolon);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.goto_keyword);
+      Printf.bprintf buffer "%starget spelling=%S span=%s\n" child_indent
+        statement.goto_target.spelling
+        (location_text sources statement.goto_target.location);
+      Option.iter
+        (fun semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+            (location_text sources semicolon))
+        statement.goto_semicolon
   | Ast.If_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sif_statement span=%s else=%b\n" indent
@@ -566,6 +583,16 @@ let rec print_statement buffer sources ~indent = function
         statement.while_body
   | Ast.Implicit_output_statement statement ->
       print_implicit_output_statement buffer sources ~indent statement
+  | Ast.Label_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%slabel_statement span=%s name=%S\n" indent
+        (location_text sources statement.label_location)
+        statement.label_name.spelling;
+      Printf.bprintf buffer "%sname spelling=%S span=%s\n" child_indent
+        statement.label_name.spelling
+        (location_text sources statement.label_name.location);
+      Printf.bprintf buffer "%scolon span=%s\n" child_indent
+        (location_text sources statement.label_colon)
   | Ast.Return_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sreturn_statement span=%s value=%b semicolon=%b\n"
@@ -1409,6 +1436,18 @@ let rec statement_to_yojson sources = function
           ("body", statement_to_yojson sources statement.for_body);
           ("location", location_to_yojson sources statement.for_location);
         ]
+  | Ast.Goto_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "goto_statement");
+          ("keyword", location_to_yojson sources statement.goto_keyword);
+          ("target", identifier_to_yojson sources statement.goto_target);
+          ( "semicolon",
+            match statement.goto_semicolon with
+            | None -> `Null
+            | Some semicolon -> location_to_yojson sources semicolon );
+          ("location", location_to_yojson sources statement.goto_location);
+        ]
   | Ast.If_statement statement ->
       `Assoc
         [
@@ -1450,6 +1489,14 @@ let rec statement_to_yojson sources = function
         ]
   | Ast.Implicit_output_statement statement ->
       implicit_output_statement_to_yojson sources statement
+  | Ast.Label_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "label_statement");
+          ("name", identifier_to_yojson sources statement.label_name);
+          ("colon", location_to_yojson sources statement.label_colon);
+          ("location", location_to_yojson sources statement.label_location);
+        ]
   | Ast.Return_statement statement ->
       `Assoc
         [
