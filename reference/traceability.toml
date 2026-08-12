@@ -2089,7 +2089,7 @@ status = "implemented"
 issue = 129
 ast_schema = "holyc-ast-v1"
 accepted_forms = ["modifier* class identifier { aggregate-member* } ;", "modifier* union identifier { aggregate-member* } ;"]
-ordinary_member_shape = "one primitive or visible named type followed by one or more pointer and array declarators"
+ordinary_member_shape = "one primitive, internal storage, or visible named type followed by one or more pointer and array declarators"
 member_delimiters = "commas continue a shared type group; a semicolon completes it"
 anonymous_union_shape = "recursive union { aggregate-member* } with an optional following semicolon"
 empty_member_semicolons = "retained as ordered AST nodes"
@@ -2103,13 +2103,60 @@ missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
 missing_final_semicolon_diagnostic = "HCPARSE0115"
-deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0121 and HCPARSE0123"
+deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0119 and HCPARSE0121 through HCPARSE0123"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
-backing_types_inheritance_metadata_and_explicit_offsets = "planned"
+backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
+inheritance_metadata_and_explicit_offsets = "planned"
 nested_named_definitions_and_trailing_objects = "planned"
 function_pointer_members = "planned"
 semantic_identity_layout_overlap_and_linkage = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-BACKING-TYPES"
+description = "Internal storage types and type-backed class or union definitions retain their source spelling, pointer layers, aggregate body, and provenance."
+sources = [
+  "Compiler/CInit.HC:internal_types_table",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Kernel/KernelA.HH:67-113",
+  "Kernel/KernelA.HH:CDate, CICType, CAbsCntsI64, and color definitions",
+  "Doc/HolyC.DD:whole and subinteger access examples"
+]
+implementation = [
+  "src/sema/primitive_type.ml",
+  "src/sema/primitive_type.mli",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_primitive_type.ml",
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-backing.hc",
+  "test/cli/parse-aggregate-backing.human",
+  "test/cli/parse-aggregate-backing.json",
+  "test/cli/parse-aggregate-backing-error.hc",
+  "test/cli/parse-aggregate-backing-error.human",
+  "test/cli/parse-aggregate-backing-error.json"
+]
+status = "implemented"
+issue = 131
+ast_schema = "holyc-ast-v1"
+internal_type_spellings = ["I0i", "U0i", "I8i", "U8i", "I16i", "U16i", "I32i", "U32i", "I64i", "U64i", "F64i"]
+accepted_form = "internal-or-visible-type pointer-layer{0,4} class-or-union identifier { aggregate-member* } ;"
+internal_type_use = "accepted anywhere the parser already accepts a type specifier"
+reference_unions = "all six public integer unions at Kernel/KernelA.HH:67-113 parse without filtering"
+representative_reference_classes = "CDate, CICType, CAbsCntsI64, CColorROPU16, CColorROPU32, CBGR24, and CBGR48"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved for the backing type, pointer layers, aggregate name, and members"
+unknown_backing_diagnostic = "HCPARSE0124"
+binding_before_aggregate_diagnostic = "HCPARSE0125"
+excess_pointer_diagnostic = "HCPARSE0004"
+recovery = "an invalid backing form is consumed through its aggregate body and final semicolon so the following top-level declaration remains parseable"
+native_oracle_status = "not required; recognition and body handoff are explicit in the pinned parser and type table"
+backing_layout_whole_value_and_subinteger_semantics = "planned"
 
 [[feature]]
 id = "HC-PARSER-NAMED-AGGREGATE-TYPES"
