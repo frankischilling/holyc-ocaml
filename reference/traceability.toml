@@ -905,7 +905,8 @@ tests = [
   "test/cli/parse-function-definitions.json",
   "test/cli/parse-function-definition-error.hc",
   "test/cli/parse-function-definition-error.human",
-  "test/cli/parse-function-definition-error.json"
+  "test/cli/parse-function-definition-error.json",
+  "test/oracle/function-definitions.json"
 ]
 status = "implemented"
 issue = 119
@@ -924,6 +925,8 @@ function_scope_status = "planned"
 type_checking_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
+native_oracle_status = "matched the pinned TempleOS compiler"
+native_oracle_fixture = "test/oracle/function-definitions.json"
 
 [[feature]]
 id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"

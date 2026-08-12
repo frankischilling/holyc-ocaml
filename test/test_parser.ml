@@ -6612,6 +6612,55 @@ let function_definition_source_behavior () =
     "the language guide rejects a mandatory main" true
     (contains (pinned "Doc/HolyC.DD") "There is no $FG,2$main()$FG$ function.")
 
+let function_definition_oracle_fixture () =
+  let open Yojson.Safe.Util in
+  let fixture_path =
+    [
+      "oracle/function-definitions.json";
+      "test/oracle/function-definitions.json";
+      "../test/oracle/function-definitions.json";
+    ]
+    |> List.find_opt Sys.file_exists
+    |> function
+    | Some path -> path
+    | None -> Alcotest.fail "the function-definition oracle fixture is missing"
+  in
+  let fixture = Yojson.Safe.from_file fixture_path in
+  Alcotest.(check string)
+    "fixture ID" "parser/function-definitions-001"
+    (fixture |> member "id" |> to_string);
+  Alcotest.(check string)
+    "fixture uses the compiler reference commit" Version.reference_commit
+    (fixture |> member "reference" |> member "commit" |> to_string);
+  Alcotest.(check string)
+    "fixture records the verified final ISO SHA-1"
+    "1a1ec79990e21fa3d66ac680009da63d3ac512b0"
+    (fixture |> member "reference" |> member "published_sha1" |> to_string);
+  Alcotest.(check string)
+    "keyboard preflight passed" "ORACLE_KEY=5"
+    (fixture |> member "input_delivery" |> member "preflight_output"
+   |> to_string);
+  let checks = fixture |> member "checks" |> to_list in
+  Alcotest.(check int) "six native checks are recorded" 6 (List.length checks);
+  List.iter
+    (fun check ->
+      let id = check |> member "id" |> to_string in
+      Alcotest.(check string)
+        (id ^ " matched") "matched"
+        (check |> member "result" |> to_string))
+    checks;
+  Alcotest.(check (list string))
+    "native output remains exact"
+    [
+      "ORACLE_EMPTY=1";
+      "ORACLE_BLOCK=11";
+      "ORACLE_BARE=12";
+      "ORACLE_RECURSIVE=13";
+      "ORACLE_VISIBLE=1";
+      "ORACLE_ABSENT=1";
+    ]
+    (fixture |> member "observed_output" |> to_list |> List.map to_string)
+
 let function_definition_shapes () =
   let source =
     "public interrupt U8 *Recursive(U8 *value=0,...){return Recursive();}\n\
@@ -11528,6 +11577,8 @@ let tests =
       deterministic_function_dumps;
     Alcotest.test_case "pinned function definition behavior" `Quick
       function_definition_source_behavior;
+    Alcotest.test_case "function definition native oracle fixture" `Quick
+      function_definition_oracle_fixture;
     Alcotest.test_case "function definition shapes" `Quick
       function_definition_shapes;
     Alcotest.test_case "function definition streaming visibility" `Quick

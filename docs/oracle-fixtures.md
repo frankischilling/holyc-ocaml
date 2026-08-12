@@ -2,6 +2,25 @@
 
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Function definitions
+
+The native compiler accepted the function-definition fixture recorded in [`test/oracle/function-definitions.json`](../test/oracle/function-definitions.json). The source was passed to `ExePrint` as one buffer so the final signature reached the compiler at EOF and the `#ifdef` directive ran while the preceding function still awaited its body.
+
+The run covered an explicit semicolon body, a compound body, an unbraced body, recursive publication with a default parameter, preprocessor visibility before the first body token, and a signature with no body token at EOF. The observed results were:
+
+```text
+ORACLE_EMPTY=1
+ORACLE_BLOCK=11
+ORACLE_BARE=12
+ORACLE_RECURSIVE=13
+ORACLE_VISIBLE=1
+ORACLE_ABSENT=1
+```
+
+`ORACLE_EMPTY=1` was printed only after calling the semicolon-bodied function. `ORACLE_VISIBLE=1` proves that the true `#ifdef OracleVisible` branch supplied the function body; its false branch contains an invalid declaration and would have stopped compilation. `ORACLE_ABSENT=1` confirms that the EOF signature entered the current task's function table.
+
+The run used the same verified ISO and isolated QEMU configuration described below. QEMU ran without a display, networking, or persistent disk. Input arrived through QEMU's loopback-only machine-control channel. A preflight command checked the key mapping, and the accepted source was captured before the result commands ran. The fixture records both capture hashes. A discarded attempt with overlapping modifier events is not compatibility evidence.
+
 ## Lexical frame boundaries
 
 The first native compiler oracle run covers the point where an include or definition buffer ends while `Lex` is still scanning one lexical item. The machine-readable record is [`test/oracle/frame-boundaries.json`](../test/oracle/frame-boundaries.json).
@@ -46,3 +65,5 @@ qemu-system-x86_64 -m 512 -smp 1 -accel tcg -cdrom TOS_Distro.ISO -boot d -no-re
 ```
 
 At the TempleOS prompt, run `AutoComplete(OFF);`, then enter the commands listed for each case in the JSON record. Ignore the shell's timing lines and compare the labeled output exactly. The direct lexer case must print both `GE_KIND=1` and `GE_TAIL=1:tail`.
+
+For the function-definition fixture, run its `compile_command` as one command, then run each entry under `checks` in order. The six labeled result lines must match the recorded output exactly.
