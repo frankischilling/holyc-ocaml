@@ -490,6 +490,22 @@ let rec print_statement buffer sources ~indent = function
           print_statement buffer sources ~indent:(child_indent ^ "    ")
             else_clause.else_branch)
         statement.if_else_clause
+  | Ast.While_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%swhile_statement span=%s\n" indent
+        (location_text sources statement.while_location);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.while_keyword);
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources statement.while_opening_parenthesis);
+      Printf.bprintf buffer "%scondition\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        statement.while_condition;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources statement.while_closing_parenthesis);
+      Printf.bprintf buffer "%sbody\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.while_body
   | Ast.Implicit_output_statement statement ->
       print_implicit_output_statement buffer sources ~indent statement
   | Ast.Sequence_statement sequence ->
@@ -1293,6 +1309,19 @@ let rec statement_to_yojson sources = function
                       location_to_yojson sources else_clause.else_location );
                   ] );
           ("location", location_to_yojson sources statement.if_location);
+        ]
+  | Ast.While_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "while_statement");
+          ("keyword", location_to_yojson sources statement.while_keyword);
+          ( "opening_parenthesis",
+            location_to_yojson sources statement.while_opening_parenthesis );
+          ("condition", expression_to_yojson sources statement.while_condition);
+          ( "closing_parenthesis",
+            location_to_yojson sources statement.while_closing_parenthesis );
+          ("body", statement_to_yojson sources statement.while_body);
+          ("location", location_to_yojson sources statement.while_location);
         ]
   | Ast.Implicit_output_statement statement ->
       implicit_output_statement_to_yojson sources statement

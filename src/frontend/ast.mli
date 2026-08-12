@@ -365,6 +365,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
+  | While_statement of while_statement
 
 and block_statement = private {
   block_opening_brace : location;
@@ -387,6 +388,15 @@ and if_statement = private {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and while_statement = private {
+  while_keyword : location;
+  while_opening_parenthesis : location;
+  while_condition : expression;
+  while_closing_parenthesis : location;
+  while_body : statement;
+  while_location : location;
 }
 
 and statement_sequence_element = private {
@@ -708,6 +718,15 @@ val make_if_statement :
   else_clause:else_clause option ->
   location:location ->
   if_statement
+
+val make_while_statement :
+  keyword:location ->
+  opening_parenthesis:location ->
+  condition:expression ->
+  closing_parenthesis:location ->
+  body:statement ->
+  location:location ->
+  while_statement
 
 val make_statement_sequence_element :
   statement:statement ->

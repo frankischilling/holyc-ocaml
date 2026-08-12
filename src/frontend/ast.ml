@@ -360,6 +360,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
+  | While_statement of while_statement
 
 and block_statement = {
   block_opening_brace : location;
@@ -382,6 +383,15 @@ and if_statement = {
   if_then_branch : statement;
   if_else_clause : else_clause option;
   if_location : location;
+}
+
+and while_statement = {
+  while_keyword : location;
+  while_opening_parenthesis : location;
+  while_condition : expression;
+  while_closing_parenthesis : location;
+  while_body : statement;
+  while_location : location;
 }
 
 and statement_sequence_element = {
@@ -727,6 +737,17 @@ let make_if_statement ~keyword ~opening_parenthesis ~condition
     if_location = location;
   }
 
+let make_while_statement ~keyword ~opening_parenthesis ~condition
+    ~closing_parenthesis ~body ~location =
+  {
+    while_keyword = keyword;
+    while_opening_parenthesis = opening_parenthesis;
+    while_condition = condition;
+    while_closing_parenthesis = closing_parenthesis;
+    while_body = body;
+    while_location = location;
+  }
+
 let make_statement_sequence_element ~statement ~following_commas ~location =
   {
     sequence_statement = statement;
@@ -748,5 +769,6 @@ let statement_location = function
   | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
   | Sequence_statement sequence -> sequence.sequence_location
+  | While_statement statement -> statement.while_location
 
 let make_module ~source ~span ~items = { source; span; items }
