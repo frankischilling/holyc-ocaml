@@ -78,7 +78,8 @@ let storage_spellings () =
   List.iter
     (fun (spelling, primitive) ->
       Alcotest.(check bool)
-        (spelling ^ " storage lookup") true
+        (spelling ^ " storage lookup")
+        true
         (match Primitive.of_storage_spelling spelling with
         | Some found -> Primitive.equal found primitive
         | None -> false))
@@ -86,7 +87,8 @@ let storage_spellings () =
   List.iter
     (fun spelling ->
       Alcotest.(check bool)
-        (spelling ^ " is not an intrinsic storage spelling") true
+        (spelling ^ " is not an intrinsic storage spelling")
+        true
         (Option.is_none (Primitive.of_storage_spelling spelling)))
     expected_spellings
 

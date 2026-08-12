@@ -183,8 +183,8 @@ let print_return_type buffer sources ~indent = function
         primitive.spelling
         (location_text sources primitive.location)
   | Ast.Internal_type_specifier internal ->
-      Printf.bprintf buffer
-        "%sreturn_type internal=%s spelling=%S span=%s\n" indent
+      Printf.bprintf buffer "%sreturn_type internal=%s spelling=%S span=%s\n"
+        indent
         (Sema.Primitive_type.to_string internal.Ast.primitive)
         internal.spelling
         (location_text sources internal.location)
@@ -2341,7 +2341,7 @@ let item_to_yojson sources = function
            ("kind", `String "aggregate_definition");
            ( "aggregate_kind",
              `String (aggregate_kind_name definition.aggregate_kind) );
-          ]
+         ]
         @ modifier_fields sources definition.modifiers
         @ (match definition.backing with
           | None -> []

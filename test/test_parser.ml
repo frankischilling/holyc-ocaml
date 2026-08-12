@@ -127,7 +127,8 @@ let expect_named_specifier expected = function
 
 let expect_internal_specifier expected = function
   | Ast.Internal_type_specifier internal ->
-      Alcotest.(check string) "internal type spelling" expected internal.spelling;
+      Alcotest.(check string)
+        "internal type spelling" expected internal.spelling;
       internal
   | Ast.Primitive_type_specifier primitive ->
       Alcotest.failf "expected internal type %S, got primitive type %S" expected
@@ -2355,7 +2356,8 @@ let aggregate_backing_source_behavior () =
     (fun (description, fragment) ->
       Alcotest.(check bool) description true (contains variables fragment))
     [
-      ("backing parser enters aggregate syntax", "if (k==KW_UNION || k==KW_CLASS)");
+      ( "backing parser enters aggregate syntax",
+        "if (k==KW_UNION || k==KW_CLASS)" );
       ("backing type is retained", "tmpc2->fwd_class=tmpc1;");
       ("member types accept internal symbols", "HTT_CLASS|HTT_INTERNAL_TYPE");
     ];
@@ -2390,7 +2392,7 @@ let internal_type_specifiers () =
   let source =
     expected
     |> List.mapi (fun index (spelling, _) ->
-           Printf.sprintf "%s intrinsic_%d;" spelling index)
+        Printf.sprintf "%s intrinsic_%d;" spelling index)
     |> String.concat "\n"
   in
   let _, _, output = parse_string source in
@@ -2406,7 +2408,8 @@ let internal_type_specifiers () =
             expect_internal_specifier spelling variable.type_specifier
           in
           Alcotest.(check bool)
-            (spelling ^ " raw primitive") true
+            (spelling ^ " raw primitive")
+            true
             (Primitive_type.equal primitive internal.primitive)
       | _ -> Alcotest.failf "%s did not parse as a global" spelling)
     expected items
@@ -2429,8 +2432,8 @@ let pinned_integer_union_backings () =
   let definitions =
     (expect_ast output).items
     |> List.map (function
-         | Ast.Aggregate_definition definition -> definition
-         | _ -> Alcotest.fail "integer union slice produced a non-aggregate item")
+      | Ast.Aggregate_definition definition -> definition
+      | _ -> Alcotest.fail "integer union slice produced a non-aggregate item")
   in
   Alcotest.(check int)
     "six integer unions" (List.length expected) (List.length definitions);
@@ -2451,8 +2454,8 @@ let pinned_integer_union_backings () =
             (List.length backing.backing_pointer_layers))
     expected definitions;
   let first_member =
-    List.hd definitions |> fun definition -> List.hd definition.members
-    |> expect_aggregate_member_declaration
+    List.hd definitions |> fun definition ->
+    List.hd definition.members |> expect_aggregate_member_declaration
   in
   ignore (expect_internal_specifier "I8i" first_member.member_type_specifier)
 
@@ -2486,14 +2489,13 @@ let pinned_backed_class_headers () =
       let definitions =
         (expect_ast output).items
         |> List.map (function
-             | Ast.Aggregate_definition definition -> definition
-             | _ -> Alcotest.fail "backed class slice produced another item kind")
+          | Ast.Aggregate_definition definition -> definition
+          | _ -> Alcotest.fail "backed class slice produced another item kind")
       in
       List.iter2
-        (fun (name, backing_spelling)
-             (definition : Ast.aggregate_definition) ->
-          Alcotest.(check string) "backed class name" name
-            definition.name.spelling;
+        (fun (name, backing_spelling) (definition : Ast.aggregate_definition) ->
+          Alcotest.(check string)
+            "backed class name" name definition.name.spelling;
           match definition.backing with
           | None -> Alcotest.failf "%s lost its backing type" name
           | Some backing ->
@@ -2521,8 +2523,8 @@ let aggregate_backing_pointer_layers () =
   let definitions =
     (expect_ast output).items
     |> List.map (function
-         | Ast.Aggregate_definition definition -> definition
-         | _ -> Alcotest.fail "backing pointer source produced another item kind")
+      | Ast.Aggregate_definition definition -> definition
+      | _ -> Alcotest.fail "backing pointer source produced another item kind")
   in
   List.iteri
     (fun index (definition : Ast.aggregate_definition) ->
@@ -2539,21 +2541,27 @@ let aggregate_backing_failures_recover () =
     (fun (description, source, expected_code) ->
       let session, _, output = parse_string source in
       Alcotest.(check bool)
-        (description ^ " has no public AST") true
+        (description ^ " has no public AST")
+        true
         (Option.is_none output.ast);
       Alcotest.(check (list string))
-        (description ^ " diagnostic") [ expected_code ]
-        (List.map (fun diagnostic -> diagnostic.Diagnostic.code) output.diagnostics);
+        (description ^ " diagnostic")
+        [ expected_code ]
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           output.diagnostics);
       match
-        Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
-          "after"
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
       with
       | Symbol_visibility.Present entry ->
           Alcotest.(check string)
-            (description ^ " resumes after the aggregate") "global-variable"
+            (description ^ " resumes after the aggregate")
+            "global-variable"
             (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
       | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
-          Alcotest.failf "%s did not reach the following declaration" description)
+          Alcotest.failf "%s did not reach the following declaration"
+            description)
     [
       ( "unknown backing",
         "Missing class Unknown { I64 value; }; I64 after;",
@@ -2605,17 +2613,19 @@ let aggregate_backing_provenance_and_dumps () =
     (contains human "backing span=" && contains human "type primitive=I64");
   let open Yojson.Safe.Util in
   let json_backing =
-    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
-    |> List.hd |> member "backing"
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "backing"
   in
   Alcotest.(check string)
     "JSON backing kind" "primitive"
     (json_backing |> member "type" |> member "kind" |> to_string);
   Alcotest.(check string)
     "JSON member intrinsic kind" "internal"
-    (Yojson.Safe.from_string json |> member "module" |> member "items"
-    |> to_list |> List.hd |> member "members" |> to_list |> List.hd
-    |> member "type" |> member "kind" |> to_string);
+    (Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "members" |> to_list |> List.hd |> member "type" |> member "kind"
+    |> to_string);
   with_temp_directory (fun include_root ->
       let root_file = Filename.concat include_root "root.HC" in
       let definition_file = Filename.concat include_root "backed.HC" in

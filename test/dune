@@ -2908,9 +2908,7 @@
 (rule
  (alias runtest)
  (targets parse-aggregate-backing.human.actual)
- (deps
-  cli/parse-aggregate-backing.hc
-  cli/parse-aggregate-backing.human)
+ (deps cli/parse-aggregate-backing.hc cli/parse-aggregate-backing.human)
  (action
   (progn
    (with-stdout-to
@@ -2953,7 +2951,10 @@
      parse-aggregate-backing-error.human.actual
      (with-accepted-exit-codes
       1
-      (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-backing-error.hc))))
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-backing-error.hc))))
    (diff
     cli/parse-aggregate-backing-error.human
     parse-aggregate-backing-error.human.actual))))

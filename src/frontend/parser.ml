@@ -515,8 +515,7 @@ let rec parse_pointer_layers_with_recovery cursor ~recover depth layers_rev
             ~location:(token_location item.token)
         in
         parse_pointer_layers_with_recovery cursor ~recover depth
-          (layer :: layers_rev)
-          (item :: items_rev)
+          (layer :: layers_rev) (item :: items_rev)
   | _ -> Some (List.rev layers_rev, List.rev items_rev)
 
 let parse_pointer_layers cursor depth layers_rev items_rev =
@@ -1950,8 +1949,7 @@ let aggregate_kind_after_backing cursor ~offset =
   let rec inspect offset pointer_count =
     let token = (peek_n cursor offset).token in
     match token.kind with
-    | Token_kind.Punctuation '*'
-      when pointer_count <= max_pointer_depth ->
+    | Token_kind.Punctuation '*' when pointer_count <= max_pointer_depth ->
         inspect (offset + 1) (pointer_count + 1)
     | _ -> aggregate_kind_of_token token
   in
@@ -2918,85 +2916,90 @@ let parse_global cursor ~parse_function_definition =
                           with
                           | None -> None
                           | Some backing ->
-                              parse_aggregate_definition cursor
-                                ~modifier_tokens ~modifiers
-                                ~backing:(Some backing) ~aggregate_kind))
-                  | None ->
-                    let spelling = Ast.type_specifier_spelling type_specifier in
-                    match parse_declarator_prefix cursor spelling with
-                    | None -> None
-                    | Some first_prefix -> (
-                        let next_item = peek cursor in
-                        match (next_item.token.kind, binding) with
-                        | Token_kind.Punctuation '(', Some binding ->
-                            parse_function_prototype cursor ~modifier_tokens
-                              ~modifiers ~binding_tokens ~binding ~type_item
-                              ~return_type:type_specifier first_prefix
-                        | Token_kind.Punctuation '(', None ->
-                            parse_function_definition cursor ~modifier_tokens
-                              ~modifiers ~type_item ~return_type:type_specifier
-                              first_prefix
-                        | _ -> (
-                            match
-                              parse_variable_declarator_suffix cursor
-                                first_prefix
-                            with
-                            | None -> None
-                            | Some first_declarator -> (
-                                let parsed_declarators =
-                                  match
-                                    first_declarator.node.delimiter.kind
-                                  with
-                                  | Ast.Semicolon -> Some [ first_declarator ]
-                                  | Ast.Comma ->
-                                      parse_declarators cursor spelling
-                                        [ first_declarator ]
-                                in
-                                match parsed_declarators with
-                                | None -> None
-                                | Some declarators -> (
-                                    let declaration_tokens =
-                                      modifier_tokens @ binding_tokens
-                                      @ type_item.token
-                                        :: List.concat_map
-                                             (fun (item : parsed_declarator) ->
-                                               item.tokens)
-                                             declarators
-                                    in
-                                    match declarators with
-                                    | [ declarator ] ->
-                                        let variable =
-                                          Ast.make_global_variable ~modifiers
-                                            ~binding ~type_specifier
-                                            ~pointer_layers:
-                                              declarator.node.pointer_layers
-                                            ~name:declarator.node.name
-                                            ~array_dimensions:
-                                              declarator.node.array_dimensions
-                                            ~semicolon:
-                                              declarator.node.delimiter.location
-                                                .span
-                                            ~location:
-                                              (location_from_tokens
-                                                 declaration_tokens)
-                                        in
-                                        Some (Ast.Global_variable variable)
-                                    | _ ->
-                                        let declaration =
-                                          Ast.make_global_declaration ~modifiers
-                                            ~binding ~type_specifier
-                                            ~declarators:
-                                              (List.map
-                                                 (fun (item : parsed_declarator)
-                                                    -> item.node)
-                                                 declarators)
-                                            ~location:
-                                              (location_from_tokens
-                                                 declaration_tokens)
-                                        in
-                                        Some
-                                          (Ast.Global_declaration declaration)))
-                            )))
+                              parse_aggregate_definition cursor ~modifier_tokens
+                                ~modifiers ~backing:(Some backing)
+                                ~aggregate_kind))
+                  | None -> (
+                      let spelling =
+                        Ast.type_specifier_spelling type_specifier
+                      in
+                      match parse_declarator_prefix cursor spelling with
+                      | None -> None
+                      | Some first_prefix -> (
+                          let next_item = peek cursor in
+                          match (next_item.token.kind, binding) with
+                          | Token_kind.Punctuation '(', Some binding ->
+                              parse_function_prototype cursor ~modifier_tokens
+                                ~modifiers ~binding_tokens ~binding ~type_item
+                                ~return_type:type_specifier first_prefix
+                          | Token_kind.Punctuation '(', None ->
+                              parse_function_definition cursor ~modifier_tokens
+                                ~modifiers ~type_item
+                                ~return_type:type_specifier first_prefix
+                          | _ -> (
+                              match
+                                parse_variable_declarator_suffix cursor
+                                  first_prefix
+                              with
+                              | None -> None
+                              | Some first_declarator -> (
+                                  let parsed_declarators =
+                                    match
+                                      first_declarator.node.delimiter.kind
+                                    with
+                                    | Ast.Semicolon -> Some [ first_declarator ]
+                                    | Ast.Comma ->
+                                        parse_declarators cursor spelling
+                                          [ first_declarator ]
+                                  in
+                                  match parsed_declarators with
+                                  | None -> None
+                                  | Some declarators -> (
+                                      let declaration_tokens =
+                                        modifier_tokens @ binding_tokens
+                                        @ type_item.token
+                                          :: List.concat_map
+                                               (fun (item : parsed_declarator)
+                                                  -> item.tokens)
+                                               declarators
+                                      in
+                                      match declarators with
+                                      | [ declarator ] ->
+                                          let variable =
+                                            Ast.make_global_variable ~modifiers
+                                              ~binding ~type_specifier
+                                              ~pointer_layers:
+                                                declarator.node.pointer_layers
+                                              ~name:declarator.node.name
+                                              ~array_dimensions:
+                                                declarator.node.array_dimensions
+                                              ~semicolon:
+                                                declarator.node.delimiter
+                                                  .location
+                                                  .span
+                                              ~location:
+                                                (location_from_tokens
+                                                   declaration_tokens)
+                                          in
+                                          Some (Ast.Global_variable variable)
+                                      | _ ->
+                                          let declaration =
+                                            Ast.make_global_declaration
+                                              ~modifiers ~binding
+                                              ~type_specifier
+                                              ~declarators:
+                                                (List.map
+                                                   (fun (item :
+                                                          parsed_declarator) ->
+                                                     item.node)
+                                                   declarators)
+                                              ~location:
+                                                (location_from_tokens
+                                                   declaration_tokens)
+                                          in
+                                          Some
+                                            (Ast.Global_declaration declaration)
+                                      ))))))
               | _
                 when Option.is_some
                        (aggregate_kind_after_backing cursor ~offset:1) ->

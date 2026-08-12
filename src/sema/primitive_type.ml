@@ -191,8 +191,8 @@ let of_spelling spelling =
 let of_storage_spelling spelling =
   specifications
   |> List.find_opt (fun specification ->
-         specification.primitive <> Bool
-         && String.equal specification.storage_spelling spelling)
+      specification.primitive <> Bool
+      && String.equal specification.storage_spelling spelling)
   |> Option.map (fun specification -> specification.primitive)
 
 let raw_type raw_name =
