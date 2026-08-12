@@ -1,0 +1,327 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-do-while-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 13
+    },
+    "items": [
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "do_while_statement",
+          "do_keyword": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 2
+              }
+            ]
+          },
+          "body": {
+            "kind": "empty_statement",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 3,
+                "source_id": 0,
+                "start": 2,
+                "stop": 3
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-do-while-statements.hc",
+                  "line": 1,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 2,
+                  "stop": 3
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 3,
+                "source_id": 0,
+                "start": 2,
+                "stop": 3
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-do-while-statements.hc",
+                  "line": 1,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 2,
+                  "stop": 3
+                }
+              ]
+            }
+          },
+          "while_keyword": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 8
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 4,
+                "source_id": 0,
+                "start": 3,
+                "stop": 8
+              }
+            ]
+          },
+          "opening_parenthesis": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 9
+              }
+            ]
+          },
+          "condition": {
+            "kind": "integer_literal",
+            "spelling": "1",
+            "value": "0x0000000000000001",
+            "location": {
+              "span": {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 10,
+                "source_id": 0,
+                "start": 9,
+                "stop": 10
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-do-while-statements.hc",
+                  "line": 1,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 9,
+                  "stop": 10
+                }
+              ]
+            }
+          },
+          "closing_parenthesis": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 11,
+              "source_id": 0,
+              "start": 10,
+              "stop": 11
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 11,
+                "source_id": 0,
+                "start": 10,
+                "stop": 11
+              }
+            ]
+          },
+          "semicolon": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 12,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 2
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 3,
+                "source_id": 0,
+                "start": 2,
+                "stop": 3
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 4,
+                "source_id": 0,
+                "start": 3,
+                "stop": 8
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 9,
+                "source_id": 0,
+                "start": 8,
+                "stop": 9
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 10,
+                "source_id": 0,
+                "start": 9,
+                "stop": 10
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 11,
+                "source_id": 0,
+                "start": 10,
+                "stop": 11
+              },
+              {
+                "path": "cli/parse-do-while-statements.hc",
+                "line": 1,
+                "column": 12,
+                "source_id": 0,
+                "start": 11,
+                "stop": 12
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-do-while-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 12
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 3,
+              "source_id": 0,
+              "start": 2,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 8
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 11,
+              "source_id": 0,
+              "start": 10,
+              "stop": 11
+            },
+            {
+              "path": "cli/parse-do-while-statements.hc",
+              "line": 1,
+              "column": 12,
+              "source_id": 0,
+              "start": 11,
+              "stop": 12
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

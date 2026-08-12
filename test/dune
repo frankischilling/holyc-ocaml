@@ -2013,3 +2013,71 @@
        --format=json
        cli/parse-while-error.hc))))
    (diff cli/parse-while-error.json parse-while-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-do-while-statements.human.actual)
+ (deps cli/parse-do-while-statements.hc cli/parse-do-while-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-do-while-statements.hc))
+   (diff
+    cli/parse-do-while-statements.human
+    parse-do-while-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-do-while-statements.json.actual)
+ (deps cli/parse-do-while-statements.hc cli/parse-do-while-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-do-while-statements.hc))
+   (diff
+    cli/parse-do-while-statements.json
+    parse-do-while-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-do-while-error.human.actual
+  parse-do-while-error.human.stdout.actual)
+ (deps cli/parse-do-while-error.hc cli/parse-do-while-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-error.human.stdout.actual
+    (with-stderr-to
+     parse-do-while-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-do-while-error.hc))))
+   (diff cli/parse-do-while-error.human parse-do-while-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-do-while-error.json.actual
+  parse-do-while-error.json.stdout.actual)
+ (deps cli/parse-do-while-error.hc cli/parse-do-while-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-do-while-error.json.stdout.actual
+    (with-stderr-to
+     parse-do-while-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-do-while-error.hc))))
+   (diff cli/parse-do-while-error.json parse-do-while-error.json.actual))))

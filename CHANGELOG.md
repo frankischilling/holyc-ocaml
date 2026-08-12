@@ -42,3 +42,4 @@
 - Added recursive compound statement blocks at top level and inside blocks, with explicit brace provenance, comma-linked block boundaries, deterministic dumps, and recovery at the matching close.
 - Added source-shaped `if` and `else` statements with required parenthesized conditions, nearest-`if` association, recursive statement branches, deterministic dumps, provenance tracking, and bounded malformed-input recovery.
 - Added source-shaped `while` statements with required parenthesized conditions, recursive statement bodies, nearest-`if` association across loops, deterministic dumps, provenance tracking, and bounded malformed-input recovery.
+- Added source-shaped `do ... while` statements with a body parsed before the required trailing condition, an explicit final semicolon, deterministic dumps, provenance tracking, and bounded malformed-input recovery.

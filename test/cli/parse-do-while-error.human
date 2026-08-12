@@ -1,0 +1,1 @@
+cli/parse-do-while-error.hc:3:1: error[HCPARSE0066]: expected ';' after the do-while condition, but found end of input
