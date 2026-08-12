@@ -372,6 +372,7 @@ type statement =
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
+  | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
 
 and block_statement = private {
@@ -443,6 +444,14 @@ and lock_statement = private {
   lock_keyword : location;
   lock_body : statement;
   lock_location : location;
+}
+
+and try_catch_statement = private {
+  try_keyword : location;
+  try_body : statement;
+  catch_keyword : location;
+  catch_body : statement;
+  try_catch_location : location;
 }
 
 and return_statement = private {
@@ -822,6 +831,14 @@ val make_label_statement :
 
 val make_lock_statement :
   keyword:location -> body:statement -> location:location -> lock_statement
+
+val make_try_catch_statement :
+  try_keyword:location ->
+  try_body:statement ->
+  catch_keyword:location ->
+  catch_body:statement ->
+  location:location ->
+  try_catch_statement
 
 val make_return_statement :
   keyword:location ->

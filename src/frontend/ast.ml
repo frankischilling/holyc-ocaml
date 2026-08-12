@@ -367,6 +367,7 @@ type statement =
   | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
+  | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
 
 and block_statement = {
@@ -438,6 +439,14 @@ and lock_statement = {
   lock_keyword : location;
   lock_body : statement;
   lock_location : location;
+}
+
+and try_catch_statement = {
+  try_keyword : location;
+  try_body : statement;
+  catch_keyword : location;
+  catch_body : statement;
+  try_catch_location : location;
 }
 
 and return_statement = {
@@ -847,6 +856,16 @@ let make_label_statement ~name ~colon ~location =
 let make_lock_statement ~keyword ~body ~location =
   { lock_keyword = keyword; lock_body = body; lock_location = location }
 
+let make_try_catch_statement ~try_keyword ~try_body ~catch_keyword ~catch_body
+    ~location =
+  {
+    try_keyword;
+    try_body;
+    catch_keyword;
+    catch_body;
+    try_catch_location = location;
+  }
+
 let make_return_statement ~keyword ~value ~semicolon ~location =
   {
     return_keyword = keyword;
@@ -894,6 +913,7 @@ let statement_location = function
   | Lock_statement statement -> statement.lock_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
+  | Try_catch_statement statement -> statement.try_catch_location
   | While_statement statement -> statement.while_location
 
 let make_module ~source ~span ~items = { source; span; items }

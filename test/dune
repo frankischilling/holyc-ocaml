@@ -70,6 +70,7 @@
   ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
   ../third_party/TempleOS/Demo/MultiCore/Lock.HC
+  ../third_party/TempleOS/Demo/Exceptions.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/Job.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
