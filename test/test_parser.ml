@@ -228,6 +228,10 @@ let expect_block_statement = function
   | Ast.Block_statement statement -> statement
   | _ -> Alcotest.fail "expected a compound block statement"
 
+let expect_if_statement = function
+  | Ast.If_statement statement -> statement
+  | _ -> Alcotest.fail "expected an if statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -7502,6 +7506,296 @@ let deterministic_compound_block_dumps () =
     "nested JSON kind" "block_statement"
     (nested |> member "kind" |> to_string)
 
+let if_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsIf requires an opening parenthesis", "if (cc->token!='(')");
+      ("PrsIf parses the condition", "if (!PrsExpression(cc,NULL,FALSE))");
+      ("PrsIf requires a closing parenthesis", "if (cc->token!=')')");
+      ("PrsIf branches on a zero condition", "ICAdd(cc,IC_BR_ZERO,lb,0);");
+      ("PrsIf parses the selected statement", "PrsStmt(cc,try_cnt,lb_break);");
+      ("PrsIf recognizes else", "if (k==KW_ELSE) {");
+      ("PrsIf jumps over the else branch", "ICAdd(cc,IC_JMP,lb1,0);");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "if keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_IF\t\t6");
+  Alcotest.(check bool)
+    "else keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_ELSE\t\t7");
+  Alcotest.(check bool)
+    "the language guide documents chained conditions" true
+    (contains (pinned "Doc/HolyC.DD") "if (13<=age<20)")
+
+let if_statement_shapes () =
+  let source = "I64 value;if(value)value=1;else;" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_if_statement statement
+        | items ->
+            Alcotest.failf "expected one declaration and one if, got %d"
+              (List.length items)
+      in
+      Alcotest.(check int)
+        "if keyword is two bytes" 2
+        (Span.length statement.if_keyword.span);
+      Alcotest.(check int)
+        "opening parenthesis is one byte" 1
+        (Span.length statement.if_opening_parenthesis.span);
+      Alcotest.(check int)
+        "closing parenthesis is one byte" 1
+        (Span.length statement.if_closing_parenthesis.span);
+      Alcotest.(check string)
+        "condition identifier" "value"
+        (expect_identifier_expression statement.if_condition).spelling;
+      ignore (expect_expression_statement statement.if_then_branch);
+      let else_clause = Option.get statement.if_else_clause in
+      ignore (expect_empty_statement else_clause.else_branch);
+      Alcotest.(check bool)
+        "if span covers its else branch" true
+        (statement.if_location.span.start = statement.if_keyword.span.start
+        && statement.if_location.span.stop = else_clause.else_location.span.stop
+        ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let nested_if_else_binding () =
+  let source = "I64 a;I64 b;if(a)if(b)'T';else'F';if(a){'Y';}else{'N';}" in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Top_level_statement first;
+   Ast.Top_level_statement second;
+  ] ->
+      let outer = expect_if_statement first in
+      Alcotest.(check bool)
+        "outer if has no else" true
+        (Option.is_none outer.if_else_clause);
+      let inner = expect_if_statement outer.if_then_branch in
+      Alcotest.(check bool)
+        "else binds to the nearest if" true
+        (Option.is_some inner.if_else_clause);
+      let block_if = expect_if_statement second in
+      let then_block = expect_block_statement block_if.if_then_branch in
+      let else_block =
+        Option.get block_if.if_else_clause |> fun clause ->
+        expect_block_statement clause.else_branch
+      in
+      Alcotest.(check int)
+        "then block keeps one statement" 1
+        (List.length then_block.block_statements);
+      Alcotest.(check int)
+        "else block keeps one statement" 1
+        (List.length else_block.block_statements)
+  | items ->
+      Alcotest.failf "expected two declarations and two if statements, got %d"
+        (List.length items)
+
+let if_branch_sequences_and_order () =
+  let source = "I64 value;if(value),value=1,value++;else{value=2;}value--;" in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Top_level_statement conditional;
+   Ast.Top_level_statement trailing;
+  ] ->
+      let conditional = expect_if_statement conditional in
+      let then_sequence =
+        expect_statement_sequence conditional.if_then_branch
+      in
+      Alcotest.(check int)
+        "then branch keeps its leading comma" 1
+        (List.length then_sequence.sequence_leading_commas);
+      Alcotest.(check int)
+        "then branch keeps both expressions" 2
+        (List.length then_sequence.sequence_elements);
+      let else_block =
+        Option.get conditional.if_else_clause |> fun clause ->
+        expect_block_statement clause.else_branch
+      in
+      Alcotest.(check int)
+        "else branch is a block with one child" 1
+        (List.length else_block.block_statements);
+      let trailing = expect_expression_statement trailing in
+      Alcotest.(check bool)
+        "statement after if stays outside the conditional" true
+        (conditional.if_location.span.stop
+       <= trailing.expression_statement_location.span.start)
+  | items ->
+      Alcotest.failf
+        "expected a declaration, an if, and a trailing statement, got %d"
+        (List.length items)
+
+let if_statement_provenance () =
+  let source =
+    "#define IF if\n\
+     #define OPEN (\n\
+     #define CLOSE )\n\
+     #define OTHERWISE else\n\
+     I64 value;\n\
+     IF OPEN value CLOSE value=1; OTHERWISE value=2;"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_if_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed if statement"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("if keyword", statement.if_keyword);
+      ("opening parenthesis", statement.if_opening_parenthesis);
+      ("closing parenthesis", statement.if_closing_parenthesis);
+      ("else keyword", (Option.get statement.if_else_clause).else_keyword);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated if punctuation provenance" true
+    (statement_json
+    |> member "opening_parenthesis"
+    |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let conditional_file = Filename.concat directory "conditional.HC" in
+      write_file root_file "I64 value;\n#include \"conditional\"";
+      write_file conditional_file "if(value)value=1;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_if =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_if_statement statement
+        | _ -> Alcotest.fail "expected one included if statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_if.if_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included if keeps its canonical path"
+        (Unix.realpath conditional_file)
+        (Source_file.path included_source))
+
+let if_statement_failures () =
+  List.iter
+    (fun (name, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ( "missing opening parenthesis",
+        "I64 value;if value)value=1;",
+        "HCPARSE0052",
+        "expected '(' after 'if'" );
+      ( "missing condition",
+        "I64 value;if()value=1;",
+        "HCPARSE0018",
+        "if condition expression operand" );
+      ( "missing closing parenthesis",
+        "I64 value;if(value value=1;",
+        "HCPARSE0053",
+        "expected ')' after the if condition" );
+      ( "missing then branch",
+        "I64 value;if(value)",
+        "HCPARSE0054",
+        "statement after the if condition" );
+      ("unmatched else", "else;", "HCPARSE0055", "without a matching 'if'");
+      ( "missing else branch",
+        "I64 value;if(value)value=1;else",
+        "HCPARSE0056",
+        "statement after 'else'" );
+    ];
+  let nested_source =
+    "I64 value;"
+    ^ String.concat ""
+        (List.init (Parser.max_conditional_depth + 1) (fun _ -> "if(value)"))
+    ^ ";"
+  in
+  let _, _, nested = parse_string nested_source in
+  let diagnostic = first_diagnostic nested in
+  Alcotest.(check string)
+    "excessive conditional nesting diagnostic" "HCPARSE0057" diagnostic.code;
+  Alcotest.(check (list string))
+    "conditional recovery reports one depth error" [ "HCPARSE0057" ]
+    (List.map (fun item -> item.Diagnostic.code) nested.diagnostics);
+  Alcotest.(check bool)
+    "conditional nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_conditional_depth))
+
+let deterministic_if_dumps () =
+  let session, _, output =
+    parse_string "I64 value;if(value){'Y';}else if(value),value=1,value++;"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human if dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON if dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the else clause" true
+    (contains human "else_clause");
+  let open Yojson.Safe.Util in
+  let conditional =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON conditional kind" "if_statement"
+    (conditional |> member "kind" |> to_string);
+  let nested = conditional |> member "else_clause" |> member "branch" in
+  Alcotest.(check string)
+    "JSON else branch keeps nested if" "if_statement"
+    (nested |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON nested then branch keeps sequence" "statement_sequence"
+    (nested |> member "then_branch" |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -7795,6 +8089,16 @@ let tests =
     Alcotest.test_case "compound block failures" `Quick compound_block_failures;
     Alcotest.test_case "deterministic compound block dumps" `Quick
       deterministic_compound_block_dumps;
+    Alcotest.test_case "pinned if and else behavior" `Quick
+      if_statement_source_behavior;
+    Alcotest.test_case "if statement shapes" `Quick if_statement_shapes;
+    Alcotest.test_case "nearest if owns else" `Quick nested_if_else_binding;
+    Alcotest.test_case "if branch sequences and order" `Quick
+      if_branch_sequences_and_order;
+    Alcotest.test_case "if statement provenance" `Quick if_statement_provenance;
+    Alcotest.test_case "if statement failures" `Quick if_statement_failures;
+    Alcotest.test_case "deterministic if statement dumps" `Quick
+      deterministic_if_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

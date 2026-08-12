@@ -1,0 +1,474 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-if-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 34
+    },
+    "items": [
+      {
+        "kind": "global_variable",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 3
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "value",
+          "location": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 1,
+                "column": 5,
+                "source_id": 0,
+                "start": 4,
+                "stop": 9
+              }
+            ]
+          }
+        },
+        "semicolon": {
+          "path": "cli/parse-if-statements.hc",
+          "line": 1,
+          "column": 10,
+          "source_id": 0,
+          "start": 9,
+          "stop": 10
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-if-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 10
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 3
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 1,
+              "column": 5,
+              "source_id": 0,
+              "start": 4,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 10
+            }
+          ]
+        }
+      },
+      {
+        "kind": "top_level_statement",
+        "statement": {
+          "kind": "if_statement",
+          "keyword": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 13
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 13
+              }
+            ]
+          },
+          "opening_parenthesis": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 3,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 3,
+                "source_id": 0,
+                "start": 13,
+                "stop": 14
+              }
+            ]
+          },
+          "condition": {
+            "kind": "identifier",
+            "spelling": "value",
+            "location": {
+              "span": {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 14,
+                "stop": 19
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 2,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 14,
+                  "stop": 19
+                }
+              ]
+            }
+          },
+          "closing_parenthesis": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 9,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 9,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              }
+            ]
+          },
+          "then_branch": {
+            "kind": "empty_statement",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-if-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 23,
+                "stop": 24
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-if-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 23,
+                "stop": 24
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 23,
+                  "stop": 24
+                }
+              ]
+            }
+          },
+          "else_clause": {
+            "keyword": {
+              "span": {
+                "path": "cli/parse-if-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 25,
+                "stop": 29
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 29
+                }
+              ]
+            },
+            "branch": {
+              "kind": "empty_statement",
+              "semicolon": {
+                "span": {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-if-statements.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-if-statements.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 32,
+                    "stop": 33
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-if-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 25,
+                "stop": 33
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 4,
+                  "column": 1,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-if-statements.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                }
+              ]
+            }
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 33
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 11,
+                "stop": 13
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 3,
+                "source_id": 0,
+                "start": 13,
+                "stop": 14
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 14,
+                "stop": 19
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 2,
+                "column": 9,
+                "source_id": 0,
+                "start": 19,
+                "stop": 20
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 23,
+                "stop": 24
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 4,
+                "column": 1,
+                "source_id": 0,
+                "start": 25,
+                "stop": 29
+              },
+              {
+                "path": "cli/parse-if-statements.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 32,
+                "stop": 33
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-if-statements.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 11,
+            "stop": 33
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 11,
+              "stop": 13
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 3,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 14,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 2,
+              "column": 9,
+              "source_id": 0,
+              "start": 19,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 23,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 25,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-if-statements.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
