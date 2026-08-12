@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0105",
+    "severity": "error",
+    "message": "parenthesis-free call to \"Required\" requires argument 1 (value), but found \";\"",
+    "primary": {
+      "path": "cli/parse-parenthesis-free-call-error.hc",
+      "line": 2,
+      "column": 9,
+      "source_id": 0,
+      "start": 40,
+      "stop": 41
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

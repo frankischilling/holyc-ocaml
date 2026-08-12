@@ -196,6 +196,16 @@ let expect_call_expression = function
   | Ast.Call_expression call -> call
   | _ -> Alcotest.fail "expected a call expression"
 
+let expect_parenthesis_free_call (call : Ast.call_expression) =
+  match call.call_syntax with
+  | Ast.Parenthesis_free_call -> ()
+  | Ast.Parenthesized_call _ -> Alcotest.fail "expected a parenthesis-free call"
+
+let expect_parenthesized_call (call : Ast.call_expression) =
+  match call.call_syntax with
+  | Ast.Parenthesized_call _ -> ()
+  | Ast.Parenthesis_free_call -> Alcotest.fail "expected a parenthesized call"
+
 let expect_index_expression = function
   | Ast.Index_expression index -> index
   | _ -> Alcotest.fail "expected an index expression"
@@ -2044,7 +2054,7 @@ let deterministic_intern_dumps () =
     "JSON internal dump repeats byte for byte" json
     (Ast_dump.json sources ast)
 
-let call_expression_source_behavior () =
+let parenthesis_free_call_source_behavior () =
   let expression_parser = pinned "Compiler/PrsExp.HC" in
   List.iter
     (fun (description, fragment) ->
@@ -2056,10 +2066,14 @@ let call_expression_source_behavior () =
       ("direct call dispatch", "PrsFunCall(cc,ps,FALSE,tmpex)");
       ("indirect call dispatch", "PrsFunCall(cc,ps,TRUE,PrsPop2(ps))");
       ("parenthesized call detection", "if (cc->token=='(') {");
+      ("parenthesis-free call state", "needs_right_paren=FALSE;");
       ("fixed argument default flag", "tmpm->flags & MLF_DFT_AVAILABLE");
       ( "omitted argument token test",
         "(cc->token==')' || cc->token==',' || !needs_right_paren)" );
       ("call closing parenthesis check", "LexExcept(cc,\"Missing ')' at \"");
+      ("required arguments use the expression parser", "if (!PrsExpression");
+      ("variadic extras require parentheses", "} else if (needs_right_paren) {");
+      ("address-of has a direct function path", "if (tmpc->type & HTT_FUN) {");
     ];
   let language_guide = pinned "Doc/HolyC.DD" in
   List.iter
@@ -2072,6 +2086,11 @@ let call_expression_source_behavior () =
       ("defaults need not trail", "Default args don't have to be on the end.");
       ("documented middle hole", "Test(,3);");
     ];
+  Alcotest.(check bool)
+    "throw has two defaulted fixed parameters" true
+    (contains
+       (pinned "Kernel/KExcept.HC")
+       "U0 throw(I64 ch=0,Bool no_log=FALSE)");
   List.iter
     (fun (path, fragment) ->
       Alcotest.(check bool) path true (contains (pinned path) fragment))
@@ -2081,6 +2100,48 @@ let call_expression_source_behavior () =
       ("Compiler/CMain.HC", "PrsStmt(cc,,,cmp_flags)");
       ("Compiler/CMisc.HC", "GetStr(,,GSF_SHIFT_ESC_EXIT)");
     ]
+
+let parenthesis_free_call_oracle_fixture () =
+  let open Yojson.Safe.Util in
+  let fixture_path =
+    [
+      "oracle/parenthesis-free-calls.json";
+      "test/oracle/parenthesis-free-calls.json";
+      "../test/oracle/parenthesis-free-calls.json";
+    ]
+    |> List.find_opt Sys.file_exists
+    |> function
+    | Some path -> path
+    | None -> Alcotest.fail "the parenthesis-free call oracle is missing"
+  in
+  let fixture = Yojson.Safe.from_file fixture_path in
+  Alcotest.(check string)
+    "fixture ID" "parser/parenthesis-free-calls-001"
+    (fixture |> member "id" |> to_string);
+  Alcotest.(check string)
+    "fixture uses the compiler reference commit" Version.reference_commit
+    (fixture |> member "reference" |> member "commit" |> to_string);
+  Alcotest.(check string)
+    "fixture records the verified final ISO SHA-1"
+    "1a1ec79990e21fa3d66ac680009da63d3ac512b0"
+    (fixture |> member "reference" |> member "published_sha1" |> to_string);
+  Alcotest.(check string)
+    "keyboard preflight passed" "ans=0x00000005=5"
+    (fixture |> member "input_delivery" |> member "preflight_output"
+   |> to_string);
+  let checks = fixture |> member "checks" |> to_list in
+  Alcotest.(check int) "seven native checks are recorded" 7 (List.length checks);
+  List.iter
+    (fun check ->
+      let id = check |> member "id" |> to_string in
+      Alcotest.(check string)
+        (id ^ " matched") "matched"
+        (check |> member "result" |> to_string))
+    checks;
+  Alcotest.(check (list int))
+    "native values remain exact"
+    [ 10; 46; 173; 23; 0; 12; 1 ]
+    (fixture |> member "observed_values" |> to_list |> List.map to_int)
 
 let call_argument_slots () =
   let call_from source =
@@ -2136,6 +2197,293 @@ let call_argument_slots () =
        (fun (argument : Ast.call_argument) ->
          Option.is_some argument.following_comma)
        consecutive.call_arguments)
+
+let parenthesis_free_call_shapes () =
+  let source =
+    "extern I64 Zero();\n\
+     extern I64 Defaults(I64 a=4,I64 b=6);\n\
+     extern I64 Mixed(I64 a=1,I64 b,I64 c=3);\n\
+     extern I64 Required(I64 a,I64 b);\n\
+     extern I64 Variadic(...);\n\
+     Zero;\n\
+     Defaults;\n\
+     Mixed 7;\n\
+     Required 2 3;\n\
+     Variadic;\n\
+     Zero+2;\n\
+     &Zero;\n\
+     Zero()(I64);"
+  in
+  let session, _, output = parse_string source in
+  let statements =
+    (expect_ast output).Ast.items
+    |> List.filter_map (function
+      | Ast.Top_level_statement statement -> Some statement
+      | Ast.Function_prototype _ -> None
+      | Ast.Global_variable _
+      | Ast.Global_declaration _
+      | Ast.Function_definition _ ->
+          Alcotest.fail "the call fixture contains an unexpected item")
+  in
+  let expressions =
+    List.map
+      (fun statement ->
+        (expect_expression_statement statement).expression_statement_expression)
+      statements
+  in
+  Alcotest.(check int) "eight call expressions" 8 (List.length expressions);
+  let zero = List.nth expressions 0 |> expect_call_expression in
+  expect_parenthesis_free_call zero;
+  Alcotest.(check int)
+    "zero-parameter call has no slots" 0
+    (List.length zero.call_arguments);
+  let defaults = List.nth expressions 1 |> expect_call_expression in
+  expect_parenthesis_free_call defaults;
+  Alcotest.(check int)
+    "all-default call retains both slots" 2
+    (List.length defaults.call_arguments);
+  List.iter expect_omitted_call_argument defaults.call_arguments;
+  let mixed = List.nth expressions 2 |> expect_call_expression in
+  Alcotest.(check int)
+    "mixed call retains declaration order" 3
+    (List.length mixed.call_arguments);
+  expect_omitted_call_argument (List.nth mixed.call_arguments 0);
+  Alcotest.(check int64)
+    "required middle argument" 7L
+    (List.nth mixed.call_arguments 1
+    |> expect_provided_call_argument |> expect_integer_expression);
+  expect_omitted_call_argument (List.nth mixed.call_arguments 2);
+  let required = List.nth expressions 3 |> expect_call_expression in
+  Alcotest.(check (list int64))
+    "adjacent required arguments" [ 2L; 3L ]
+    (List.map
+       (fun argument ->
+         argument |> expect_provided_call_argument |> expect_integer_expression)
+       required.call_arguments);
+  let variadic = List.nth expressions 4 |> expect_call_expression in
+  Alcotest.(check int)
+    "variadic extras stay absent" 0
+    (List.length variadic.call_arguments);
+  let binary = List.nth expressions 5 |> expect_binary_expression in
+  expect_parenthesis_free_call (expect_call_expression binary.binary_left);
+  Alcotest.(check int64)
+    "binary right operand" 2L
+    (expect_integer_expression binary.binary_right);
+  let address = List.nth expressions 6 |> expect_prefix_expression in
+  Alcotest.(check bool)
+    "address-of operator" true
+    (address.prefix_operator_kind = Ast.Address_of);
+  Alcotest.(check string)
+    "address-of keeps the function identifier" "Zero"
+    (expect_identifier_expression address.prefix_operand).spelling;
+  let cast = List.nth expressions 7 |> expect_postfix_cast_expression in
+  let explicit_call = expect_call_expression cast.cast_operand in
+  expect_parenthesized_call explicit_call;
+  let shape =
+    match
+      Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+        "Mixed"
+    with
+    | Symbol_visibility.Present entry ->
+        Symbol_visibility.function_call_shape entry |> Option.get
+    | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+        Alcotest.fail "the mixed function shape is not visible"
+  in
+  Alcotest.(check (list bool))
+    "symbol entry retains default availability" [ true; false; true ]
+    (List.map
+       (fun parameter -> parameter.Symbol_visibility.has_default)
+       shape.parameters)
+
+let parenthesis_free_recursive_calls_and_shadowing () =
+  List.iter
+    (fun mode ->
+      let _, _, recursive_output =
+        parse_string ~compilation_mode:mode
+          "I64 Recursive(I64 value=1){return Recursive;}"
+      in
+      let return_statement =
+        expect_ast recursive_output
+        |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_return_statement
+      in
+      let recursive_call =
+        return_statement.return_value |> Option.get |> expect_call_expression
+      in
+      expect_parenthesis_free_call recursive_call;
+      expect_omitted_call_argument (List.hd recursive_call.call_arguments))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, shadowed_output =
+    parse_string
+      "extern I64 Target();\n\
+       I64 Shadowed(I64 Target){return Target;}\n\
+       I64 Target;\n\
+       Target;"
+  in
+  match (expect_ast shadowed_output).Ast.items with
+  | [
+   Ast.Function_prototype _;
+   Ast.Function_definition definition;
+   Ast.Global_variable _;
+   Ast.Top_level_statement top_level;
+  ] ->
+      let local_identifier =
+        expect_function_body definition |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_return_statement
+        |> fun statement ->
+        statement.return_value |> Option.get |> expect_identifier_expression
+      in
+      Alcotest.(check string)
+        "parameter suppresses the function call" "Target"
+        local_identifier.spelling;
+      let global_identifier =
+        (expect_expression_statement top_level).expression_statement_expression
+        |> expect_identifier_expression
+      in
+      Alcotest.(check string)
+        "newer global suppresses the function call" "Target"
+        global_identifier.spelling
+  | items ->
+      Alcotest.failf "expected four shadowing items, got %d" (List.length items)
+
+let parenthesis_free_call_provenance () =
+  let session, _, generated_output =
+    parse_string
+      "#define GENERATED extern I64 Generated(I64 value=1); Generated\n\
+       GENERATED;"
+  in
+  let generated_call =
+    match (expect_ast generated_output).Ast.items with
+    | [ Ast.Function_prototype _; Ast.Top_level_statement statement ] ->
+        (expect_expression_statement statement).expression_statement_expression
+        |> expect_call_expression
+    | items ->
+        Alcotest.failf "expected a generated prototype and call, got %d items"
+          (List.length items)
+  in
+  expect_parenthesis_free_call generated_call;
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("generated callee", Ast.expression_location generated_call.call_callee);
+      ( "generated omitted slot",
+        (List.hd generated_call.call_arguments).call_argument_location );
+    ];
+  with_temp_directory (fun directory ->
+      let root_path = Filename.concat directory "root.HC" in
+      let call_path = Filename.concat directory "call.HC" in
+      write_file root_path "#include \"call\"";
+      write_file call_path "extern I64 Included(I64 value=1); Included;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_path |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_call =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Function_prototype _; Ast.Top_level_statement statement ] ->
+            (expect_expression_statement statement)
+              .expression_statement_expression |> expect_call_expression
+        | items ->
+            Alcotest.failf "expected an included prototype and call, got %d"
+              (List.length items)
+      in
+      let call_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_call.call_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included call keeps its canonical source" (Unix.realpath call_path)
+        (Source_file.path call_source));
+  let sources = Session.sources session in
+  let ast = expect_ast generated_output in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "parenthesis-free human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "parenthesis-free JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names the source form" true
+    (contains human "syntax=parenthesis-free");
+  let open Yojson.Safe.Util in
+  let call_json =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items ->
+    List.nth items 1 |> member "statement" |> member "expression"
+  in
+  Alcotest.(check bool)
+    "JSON has no opening parenthesis" true
+    (call_json |> member "opening_parenthesis" = `Null);
+  Alcotest.(check bool)
+    "JSON has no closing parenthesis" true
+    (call_json |> member "closing_parenthesis" = `Null)
+
+let parenthesis_free_call_failures () =
+  let _, _, missing = parse_string "I64 Need(I64 value); Need;" in
+  Alcotest.(check bool)
+    "missing required input has no AST" true
+    (Option.is_none missing.ast);
+  Alcotest.(check string)
+    "missing required input code" "HCPARSE0105" (first_diagnostic missing).code;
+  Alcotest.(check bool)
+    "missing required input names the slot" true
+    (contains (first_diagnostic missing).message "argument 1 (value)");
+  let session = Session.create () in
+  ignore
+    (Symbol_visibility.Environment.add (Session.symbols session) ~name:"Legacy"
+       ~kind:Symbol_visibility.Function ());
+  let explicit_source =
+    Session.add_source session ~path:"legacy-explicit.HC" ~contents:"Legacy();"
+  in
+  let explicit_output =
+    Holyc_lib.parse_detailed session
+      ~config:(config (Sys.getcwd ()))
+      ~source:explicit_source
+  in
+  let explicit_call =
+    match (expect_ast explicit_output).Ast.items with
+    | [ Ast.Top_level_statement statement ] ->
+        expect_call_expression
+          (expect_expression_statement statement)
+            .expression_statement_expression
+    | items ->
+        Alcotest.failf "expected one explicit legacy call, got %d items"
+          (List.length items)
+  in
+  ignore (expect_parenthesized_call explicit_call);
+  let source =
+    Session.add_source session ~path:"legacy.HC" ~contents:"Legacy;"
+  in
+  let output =
+    Holyc_lib.parse_detailed session ~config:(config (Sys.getcwd ())) ~source
+  in
+  Alcotest.(check bool)
+    "missing call shape has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check string)
+    "missing call shape code" "HCPARSE0106" (first_diagnostic output).code;
+  Alcotest.(check bool)
+    "missing call shape message names the function" true
+    (contains (first_diagnostic output).message "Legacy")
 
 let call_expression_precedence_and_nesting () =
   List.iteri
@@ -2229,6 +2577,13 @@ let call_expression_provenance () =
   in
   let omitted = List.hd call.call_arguments in
   let provided = List.nth call.call_arguments 1 in
+  let opening_parenthesis, closing_parenthesis =
+    match call.call_syntax with
+    | Ast.Parenthesized_call { opening_parenthesis; closing_parenthesis } ->
+        (opening_parenthesis, closing_parenthesis)
+    | Ast.Parenthesis_free_call ->
+        Alcotest.fail "expected a parenthesized generated call"
+  in
   List.iter
     (fun ((description, location) : string * Ast.location) ->
       Alcotest.(check bool)
@@ -2245,12 +2600,12 @@ let call_expression_provenance () =
         (Option.is_some location.defined_at))
     [
       ("callee", Ast.expression_location call.call_callee);
-      ("opening parenthesis", call.call_opening_parenthesis);
+      ("opening parenthesis", opening_parenthesis);
       ("omitted slot", omitted.call_argument_location);
       ("omitted slot comma", Option.get omitted.following_comma);
       ( "provided argument",
         expect_provided_call_argument provided |> Ast.expression_location );
-      ("closing parenthesis", call.call_closing_parenthesis);
+      ("closing parenthesis", closing_parenthesis);
     ];
   let open Yojson.Safe.Util in
   let target_json =
@@ -11790,7 +12145,17 @@ let tests =
     Alcotest.test_case "deterministic _intern dumps" `Quick
       deterministic_intern_dumps;
     Alcotest.test_case "pinned call expression behavior" `Quick
-      call_expression_source_behavior;
+      parenthesis_free_call_source_behavior;
+    Alcotest.test_case "parenthesis-free call native oracle" `Quick
+      parenthesis_free_call_oracle_fixture;
+    Alcotest.test_case "parenthesis-free call shapes" `Quick
+      parenthesis_free_call_shapes;
+    Alcotest.test_case "parenthesis-free recursion and shadowing" `Quick
+      parenthesis_free_recursive_calls_and_shadowing;
+    Alcotest.test_case "parenthesis-free call provenance" `Quick
+      parenthesis_free_call_provenance;
+    Alcotest.test_case "parenthesis-free call failures" `Quick
+      parenthesis_free_call_failures;
     Alcotest.test_case "call argument slots" `Quick call_argument_slots;
     Alcotest.test_case "call precedence and nesting" `Quick
       call_expression_precedence_and_nesting;

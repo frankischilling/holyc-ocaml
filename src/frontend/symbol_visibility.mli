@@ -22,12 +22,23 @@ type origin =
   | Source_span of Common.Span.t
   | Session_registration
 
+type parameter_call_shape = {
+  parameter_name : string option;
+  has_default : bool;
+}
+
+type function_call_shape = {
+  parameters : parameter_call_shape list;
+  variadic : bool;
+}
+
 type entry
 
 val id : entry -> int
 val name : entry -> string
 val kind : entry -> kind
 val origin : entry -> origin
+val function_call_shape : entry -> function_call_shape option
 val kind_name : kind -> string
 val kind_bit : kind -> int
 
@@ -38,7 +49,16 @@ module Environment : sig
   type local_context
 
   val create : unit -> t
-  val add : ?origin:origin -> t -> name:string -> kind:kind -> unit -> entry
+
+  val add :
+    ?origin:origin ->
+    ?function_call_shape:function_call_shape ->
+    t ->
+    name:string ->
+    kind:kind ->
+    unit ->
+    entry
+
   val find_preprocessor : t -> string -> lookup
   val all : t -> entry list
   val begin_local_context : t -> local_context

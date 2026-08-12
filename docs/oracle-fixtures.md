@@ -42,6 +42,24 @@ ORACLE_ABSENT=1
 
 The run used the same verified ISO and isolated QEMU configuration described below. QEMU ran without a display, networking, or persistent disk. Input arrived through QEMU's loopback-only machine-control channel. A preflight command checked the key mapping, and the accepted source was captured before the result commands ran. The fixture records both capture hashes. A discarded attempt with overlapping modifier events is not compatibility evidence.
 
+## Parenthesis-free calls
+
+[`test/oracle/parenthesis-free-calls.json`](../test/oracle/parenthesis-free-calls.json) records seven direct-call checks from the native TempleOS compiler. The tested functions cover zero fixed parameters, two defaulted parameters, a required parameter between defaults, two required parameters, and a variadic signature. The observed results were:
+
+```text
+OracleZero;          => 10
+OracleDefaults;      => 46
+OracleMixed 7;       => 173
+OracleRequired 2 3;  => 23
+OracleVar;           => 0
+OracleZero+2;        => 12
+&OracleZero!=0;      => 1
+```
+
+These results confirm that a direct function name starts a call without parentheses, defaults occupy their declared positions, required parameters consume adjacent expressions, and a parenthesis-free variadic call has no extra arguments. The binary check places the call before `+2`; the address check proves that `&Function` takes the function address instead of calling it.
+
+The run used the verified ISO, read-only boot media, and isolated QEMU configuration described below. The preflight expression returned 5 before the fixture ran. The fixture records SHA-256 hashes for the accepted-source and observed-result captures; neither screenshot nor the ISO is committed. This evidence covers parser-visible call shape only. It does not establish the OCaml compiler's future default evaluation, type conversion, lowering, or execution behavior.
+
 ## Lexical frame boundaries
 
 The first native compiler oracle run covers the point where an include or definition buffer ends while `Lex` is still scanning one lexical item. The machine-readable record is [`test/oracle/frame-boundaries.json`](../test/oracle/frame-boundaries.json).

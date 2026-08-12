@@ -360,21 +360,35 @@ let rec print_expression buffer sources ~indent expression =
       Printf.bprintf buffer "%sright\n" child_indent;
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         binary.binary_right
-  | Ast.Call_expression call ->
-      Printf.bprintf buffer "%sexpression kind=call arguments=%d span=%s\n"
-        indent
-        (List.length call.call_arguments)
-        (location_text sources call.call_location);
+  | Ast.Call_expression call -> (
+      (match call.call_syntax with
+      | Ast.Parenthesized_call _ ->
+          Printf.bprintf buffer "%sexpression kind=call arguments=%d span=%s\n"
+            indent
+            (List.length call.call_arguments)
+            (location_text sources call.call_location)
+      | Ast.Parenthesis_free_call ->
+          Printf.bprintf buffer
+            "%sexpression kind=call syntax=parenthesis-free arguments=%d span=%s\n"
+            indent
+            (List.length call.call_arguments)
+            (location_text sources call.call_location));
       Printf.bprintf buffer "%scallee\n" child_indent;
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         call.call_callee;
-      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
-        (location_text sources call.call_opening_parenthesis);
+      (match call.call_syntax with
+      | Ast.Parenthesized_call { opening_parenthesis; _ } ->
+          Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+            (location_text sources opening_parenthesis)
+      | Ast.Parenthesis_free_call -> ());
       List.iteri
         (print_call_argument buffer sources ~indent:child_indent)
         call.call_arguments;
-      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
-        (location_text sources call.call_closing_parenthesis)
+      match call.call_syntax with
+      | Ast.Parenthesized_call { closing_parenthesis; _ } ->
+          Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+            (location_text sources closing_parenthesis)
+      | Ast.Parenthesis_free_call -> ())
   | Ast.Index_expression index ->
       Printf.bprintf buffer "%sexpression kind=index span=%s\n" indent
         (location_text sources index.index_location);
@@ -1456,18 +1470,23 @@ let rec expression_to_yojson sources = function
           ("location", location_to_yojson sources binary.binary_location);
         ]
   | Ast.Call_expression call ->
+      let opening_parenthesis, closing_parenthesis =
+        match call.call_syntax with
+        | Ast.Parenthesized_call { opening_parenthesis; closing_parenthesis } ->
+            ( location_to_yojson sources opening_parenthesis,
+              location_to_yojson sources closing_parenthesis )
+        | Ast.Parenthesis_free_call -> (`Null, `Null)
+      in
       `Assoc
         [
           ("kind", `String "call");
           ("callee", expression_to_yojson sources call.call_callee);
-          ( "opening_parenthesis",
-            location_to_yojson sources call.call_opening_parenthesis );
+          ("opening_parenthesis", opening_parenthesis);
           ( "arguments",
             `List
               (List.map (call_argument_to_yojson sources) call.call_arguments)
           );
-          ( "closing_parenthesis",
-            location_to_yojson sources call.call_closing_parenthesis );
+          ("closing_parenthesis", closing_parenthesis);
           ("location", location_to_yojson sources call.call_location);
         ]
   | Ast.Index_expression index ->

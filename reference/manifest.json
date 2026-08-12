@@ -53,6 +53,7 @@
     {"path": "Kernel/KLoad.HC", "sha256": "da0c11feab995197faf94593bf5eaebb7f110ce2aaefa1ef2583b10002c6f88b"},
     {"path": "Kernel/KMisc.HC", "sha256": "d4f81f5b73f2d8f0116bcf8b50872fe20937cc7982fc2ec97f48dfbcd6ce46be"},
     {"path": "Kernel/Job.HC", "sha256": "2d9f8bb8e8689a5974af71d4865941c2c1fd678f9acf79cfdaff0eadbab59a8f"},
+    {"path": "Kernel/KExcept.HC", "sha256": "4dbd451002990b2d310e2a19fae380f2fe6a9942578c456e44f214a6485099ad"},
     {"path": "Kernel/KStart16.HC", "sha256": "db71f3cef755745bb23ff6888cdf958e6e63046f2e68a9d96b7c9c0ec0685a85"},
     {"path": "Kernel/KStart32.HC", "sha256": "8b913008c3f10876353889562da44c26fadcb3b5e6618f48d2ee56da39b8adc2"},
     {"path": "Kernel/KUtils.HC", "sha256": "0372304b077110f40b13883af21aa5365b57ddfcb8572e0f75cb40af5a65131a"},

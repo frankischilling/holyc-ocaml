@@ -198,11 +198,17 @@ and call_argument = {
   call_argument_location : location;
 }
 
+and call_syntax =
+  | Parenthesized_call of {
+      opening_parenthesis : location;
+      closing_parenthesis : location;
+    }
+  | Parenthesis_free_call
+
 and call_expression = {
   call_callee : expression;
-  call_opening_parenthesis : location;
+  call_syntax : call_syntax;
   call_arguments : call_argument list;
-  call_closing_parenthesis : location;
   call_location : location;
 }
 
@@ -761,13 +767,11 @@ let make_call_argument ~value ~following_comma ~location =
     call_argument_location = location;
   }
 
-let make_call_expression ~callee ~opening_parenthesis ~arguments
-    ~closing_parenthesis ~location =
+let make_call_expression ~callee ~syntax ~arguments ~location =
   {
     call_callee = callee;
-    call_opening_parenthesis = opening_parenthesis;
+    call_syntax = syntax;
     call_arguments = arguments;
-    call_closing_parenthesis = closing_parenthesis;
     call_location = location;
   }
 

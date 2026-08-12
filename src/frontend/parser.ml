@@ -79,6 +79,11 @@ type expression_context =
   | Local_initializer_expression
   | Statement_expression
 
+type direct_function_resolution =
+  | Not_a_direct_function
+  | Direct_function_without_shape of Symbol_visibility.entry
+  | Direct_function_with_shape of Symbol_visibility.function_call_shape
+
 type parsed_parameter_default = {
   node : Ast.parameter_default;
   tokens : Token.t list;
@@ -202,6 +207,20 @@ let location_before_token token =
     ?defined_at:location.defined_at ~span:(empty_span location.span)
     ~source_segments:(List.map empty_span location.source_segments)
     ()
+
+let location_after_location (location : Ast.location) =
+  let empty_at_stop (span : Common.Span.t) =
+    Common.Span.unsafe_make ~source:span.source ~start:span.stop ~stop:span.stop
+  in
+  let source_segments =
+    match List.rev location.source_segments with
+    | last :: _ -> [ empty_at_stop last ]
+    | [] -> [ empty_at_stop location.span ]
+  in
+  Ast.make_location ?generated_from:location.generated_from
+    ?defined_at:location.defined_at
+    ~span:(empty_at_stop location.span)
+    ~source_segments ()
 
 let location_from_tokens = function
   | [] -> invalid_arg "a syntax location needs at least one token"
@@ -469,10 +488,26 @@ let publish_global cursor (name : Ast.identifier) =
        ~kind:Symbol_visibility.Global_variable
        ~origin:(Symbol_visibility.Source_span name.location.span) ())
 
-let publish_function cursor (name : Ast.identifier) =
+let publish_function cursor (name : Ast.identifier) parameters variadic =
+  let function_call_shape : Symbol_visibility.function_call_shape =
+    {
+      parameters =
+        List.map
+          (fun (parameter : Ast.function_parameter) ->
+            {
+              Symbol_visibility.parameter_name =
+                Option.map
+                  (fun (name : Ast.identifier) -> name.spelling)
+                  parameter.name;
+              has_default = Option.is_some parameter.default;
+            })
+          parameters;
+      variadic = Option.is_some variadic;
+    }
+  in
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
-       ~kind:Symbol_visibility.Function
+       ~kind:Symbol_visibility.Function ~function_call_shape
        ~origin:(Symbol_visibility.Source_span name.location.span) ())
 
 let publish_local cursor (name : Ast.identifier) =
@@ -766,8 +801,8 @@ let expression_operand_name = function
   | Local_initializer_expression -> "a local initializer expression operand"
   | Statement_expression -> "a statement expression operand"
 
-let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
-    parsed_expression option =
+let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
+    ~depth ~minimum_binding_power : parsed_expression option =
   let item = peek cursor in
   if depth >= max_expression_depth then
     expression_failure cursor item ~code:"HCPARSE0021"
@@ -776,20 +811,28 @@ let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
            (expression_context_name context)
            max_expression_depth)
   else
-    match parse_expression_prefix cursor ~context ~depth with
+    match
+      parse_expression_prefix cursor ~context ~depth
+        ~allow_parenthesis_free_call
+    with
     | None -> None
     | Some left ->
-        parse_expression_tail cursor ~context ~depth ~minimum_binding_power left
+        parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+          ~allow_parenthesis_free_call left
 
-and parse_expression_prefix cursor ~context ~depth : parsed_expression option =
+and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
+    : parsed_expression option =
   let item = peek cursor in
   match unary_operator_kind item.token with
   | Some operator_kind -> (
       let operator_item = take cursor in
       let operator = make_expression_operator operator_item.token in
+      let allow_parenthesis_free_call =
+        allow_parenthesis_free_call && operator_kind <> Ast.Address_of
+      in
       match
-        parse_expression cursor ~context ~depth:(depth + 1)
-          ~minimum_binding_power:max_int
+        parse_expression ~allow_parenthesis_free_call cursor ~context
+          ~depth:(depth + 1) ~minimum_binding_power:max_int
       with
       | None -> None
       | Some (operand : parsed_expression) ->
@@ -1254,6 +1297,79 @@ and parse_defined_expression cursor ~context : parsed_expression option =
         in
         Some { node; tokens }
 
+and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
+    (shape : Symbol_visibility.function_call_shape) : parsed_expression option =
+  let callee_name =
+    match callee.node with
+    | Ast.Identifier_expression identifier -> identifier.spelling
+    | _ -> invalid_arg "a parenthesis-free call needs a direct function name"
+  in
+  let token_cannot_start_argument token =
+    match token.Token.kind with
+    | Token_kind.Punctuation (',' | ')' | ']' | '}' | ';') | Token_kind.Eof ->
+        true
+    | _ -> false
+  in
+  let missing_argument_message index parameter item =
+    let name =
+      match parameter.Symbol_visibility.parameter_name with
+      | None -> ""
+      | Some name -> Printf.sprintf " (%s)" name
+    in
+    Printf.sprintf
+      "parenthesis-free call to %S requires argument %d%s, but found %s"
+      callee_name index name
+      (token_description item.token)
+  in
+  let rec collect index arguments_rev tokens_rev insertion_location = function
+    | [] ->
+        let tokens = List.rev tokens_rev in
+        let node =
+          Ast.Call_expression
+            (Ast.make_call_expression ~callee:callee.node
+               ~syntax:Ast.Parenthesis_free_call
+               ~arguments:(List.rev arguments_rev)
+               ~location:(location_from_expression_tokens tokens))
+        in
+        Some ({ node; tokens } : parsed_expression)
+    | parameter :: parameters -> (
+        if parameter.Symbol_visibility.has_default then
+          let argument =
+            Ast.make_call_argument ~value:Ast.Omitted_call_argument
+              ~following_comma:None
+              ~location:(location_after_location insertion_location)
+          in
+          collect (index + 1)
+            (argument :: arguments_rev)
+            tokens_rev insertion_location parameters
+        else
+          let item = peek cursor in
+          if token_cannot_start_argument item.token then
+            expression_failure cursor item ~code:"HCPARSE0105"
+              ~message:(missing_argument_message index parameter item)
+          else
+            match
+              parse_expression cursor ~context:Call_argument_expression
+                ~depth:(depth + 1) ~minimum_binding_power:0
+            with
+            | None -> None
+            | Some (expression : parsed_expression) ->
+                let argument =
+                  Ast.make_call_argument
+                    ~value:(Ast.Provided_call_argument expression.node)
+                    ~following_comma:None
+                    ~location:(Ast.expression_location expression.node)
+                in
+                collect (index + 1)
+                  (argument :: arguments_rev)
+                  (List.rev_append expression.tokens tokens_rev)
+                  (Ast.expression_location expression.node)
+                  parameters)
+  in
+  collect 1 [] (List.rev callee.tokens)
+    (Ast.expression_location callee.node)
+    shape.parameters
+
 and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
     opening : parsed_expression option =
   let build arguments_rev interior_tokens_rev closing =
@@ -1262,9 +1378,13 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
     let node =
       Ast.Call_expression
         (Ast.make_call_expression ~callee:callee.node
-           ~opening_parenthesis:(token_location opening.token)
+           ~syntax:
+             (Ast.Parenthesized_call
+                {
+                  opening_parenthesis = token_location opening.token;
+                  closing_parenthesis = token_location closing.token;
+                })
            ~arguments:(List.rev arguments_rev)
-           ~closing_parenthesis:(token_location closing.token)
            ~location:(location_from_expression_tokens tokens))
     in
     Some ({ node; tokens } : parsed_expression)
@@ -1473,8 +1593,71 @@ and parse_postfix_update_suffix cursor ~context (operand : parsed_expression)
   else Some { node; tokens }
 
 and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-    (left : parsed_expression) : parsed_expression option =
+    ~allow_parenthesis_free_call (left : parsed_expression) :
+    parsed_expression option =
   let item = peek cursor in
+  let direct_function =
+    match left.node with
+    | Ast.Identifier_expression identifier -> (
+        match
+          Symbol_visibility.Environment.find_preprocessor cursor.symbols
+            identifier.spelling
+        with
+        | Symbol_visibility.Present entry
+          when Symbol_visibility.kind entry = Symbol_visibility.Function -> (
+            match Symbol_visibility.function_call_shape entry with
+            | Some shape -> Direct_function_with_shape shape
+            | None -> Direct_function_without_shape entry)
+        | Symbol_visibility.Absent
+        | Symbol_visibility.Shadowed_by_local
+        | Symbol_visibility.Present _ -> Not_a_direct_function)
+    | _ -> Not_a_direct_function
+  in
+  if allow_parenthesis_free_call then
+    match direct_function with
+    | Direct_function_without_shape entry
+      when item.token.kind <> Token_kind.Punctuation '(' ->
+        expression_failure cursor item ~code:"HCPARSE0106"
+          ~message:
+            (Printf.sprintf
+               "cannot parse direct call to %S because its fixed-parameter \
+                shape is unavailable"
+               (Symbol_visibility.name entry))
+    | Direct_function_with_shape shape
+      when item.token.kind <> Token_kind.Punctuation '(' -> (
+        match parse_parenthesis_free_call cursor ~depth left shape with
+        | None -> None
+        | Some call ->
+            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
+              ~allow_parenthesis_free_call call)
+    | Not_a_direct_function
+    | Direct_function_without_shape _
+    | Direct_function_with_shape _ ->
+        parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
+          ~allow_parenthesis_free_call left
+  else
+    parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
+      ~allow_parenthesis_free_call left
+
+and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
+    ~allow_parenthesis_free_call (left : parsed_expression) :
+    parsed_expression option =
+  let item = peek cursor in
+  let direct_function_shape =
+    match left.node with
+    | Ast.Identifier_expression identifier -> (
+        match
+          Symbol_visibility.Environment.find_preprocessor cursor.symbols
+            identifier.spelling
+        with
+        | Symbol_visibility.Present entry
+          when Symbol_visibility.kind entry = Symbol_visibility.Function ->
+            Symbol_visibility.function_call_shape entry
+        | Symbol_visibility.Absent
+        | Symbol_visibility.Shadowed_by_local
+        | Symbol_visibility.Present _ -> None)
+    | _ -> None
+  in
   let restricted_term = restricted_modifier_term left.node in
   let invalid_direct_restricted_suffix =
     match (restricted_term, item.token.kind) with
@@ -1501,10 +1684,13 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
         let opening = take cursor in
         let first = peek cursor in
         let suffix =
-          match primitive_type_of_token first.token with
-          | Some primitive ->
+          match
+            (direct_function_shape, primitive_type_of_token first.token)
+          with
+          | Some _, _ -> parse_call_suffix cursor ~context ~depth left opening
+          | None, Some primitive ->
               parse_postfix_cast_suffix cursor ~context left opening primitive
-          | None -> (
+          | None, None -> (
               match restricted_term with
               | Some (term_name, code) ->
                   if first.token.kind = Token_kind.Identifier then
@@ -1534,25 +1720,25 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
         | None -> None
         | Some expression ->
             parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              expression)
+              ~allow_parenthesis_free_call expression)
     | Token_kind.Punctuation '[' -> (
         match parse_index_suffix cursor ~context ~depth left with
         | None -> None
         | Some index ->
             parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              index)
+              ~allow_parenthesis_free_call index)
     | Token_kind.Punctuation '.' -> (
         match parse_member_suffix cursor ~context left Ast.Direct_member with
         | None -> None
         | Some member ->
             parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              member)
+              ~allow_parenthesis_free_call member)
     | Token_kind.Operator Operator.Arrow -> (
         match parse_member_suffix cursor ~context left Ast.Pointer_member with
         | None -> None
         | Some member ->
             parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              member)
+              ~allow_parenthesis_free_call member)
     | Token_kind.Operator (Operator.Increment | Operator.Decrement) -> (
         match postfix_operator_kind item.token with
         | None -> assert false
@@ -2136,7 +2322,8 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
             ~semicolon:(token_location semicolon_item.token)
             ~location:(location_from_tokens declaration_tokens)
         in
-        publish_function cursor prefix.name;
+        publish_function cursor prefix.name parsed_parameters.parameters
+          parsed_parameters.variadic;
         Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
@@ -4047,7 +4234,8 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
         @ (type_item.token :: prefix.tokens)
         @ (opening.token :: parsed_parameters.tokens)
       in
-      publish_function cursor prefix.name;
+      publish_function cursor prefix.name parsed_parameters.parameters
+        parsed_parameters.variadic;
       let parsed_body =
         with_function_local_context cursor parsed_parameters.parameters
           parsed_parameters.variadic (fun () ->

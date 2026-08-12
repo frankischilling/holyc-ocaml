@@ -149,6 +149,41 @@ let local_shadowing () =
   | Symbol_visibility.Present _ -> ()
   | _ -> Alcotest.fail "the global should reappear after the local context"
 
+let function_call_shapes () =
+  let symbols = Symbol_visibility.Environment.create () in
+  let shape : Symbol_visibility.function_call_shape =
+    {
+      parameters =
+        [
+          { parameter_name = Some "first"; has_default = true };
+          { parameter_name = None; has_default = false };
+        ];
+      variadic = true;
+    }
+  in
+  let entry =
+    Symbol_visibility.Environment.add symbols ~name:"Callable"
+      ~kind:Symbol_visibility.Function ~function_call_shape:shape ()
+  in
+  (match Symbol_visibility.function_call_shape entry with
+  | Some retained ->
+      Alcotest.(check int)
+        "fixed parameter count" 2
+        (List.length retained.parameters);
+      Alcotest.(check bool) "variadic marker" true retained.variadic;
+      Alcotest.(check (option string))
+        "parameter name" (Some "first")
+        (List.hd retained.parameters).parameter_name;
+      Alcotest.(check bool)
+        "default availability" true (List.hd retained.parameters).has_default
+  | None -> Alcotest.fail "the function call shape was not retained");
+  Alcotest.check_raises "nonfunction call shape is rejected"
+    (Invalid_argument "only function symbols may carry a function call shape")
+    (fun () ->
+      ignore
+        (Symbol_visibility.Environment.add symbols ~name:"NotCallable"
+           ~kind:Symbol_visibility.Global_variable ~function_call_shape:shape ()))
+
 let deterministic_dump () =
   let session = Session.create () in
   let source = Session.add_source session ~path:"visibility.HC" ~contents:"X" in
@@ -183,5 +218,6 @@ let tests =
     Alcotest.test_case "session built-ins" `Quick session_builtins;
     Alcotest.test_case "import filtering" `Quick import_filtering;
     Alcotest.test_case "local shadowing" `Quick local_shadowing;
+    Alcotest.test_case "function call shapes" `Quick function_call_shapes;
     Alcotest.test_case "deterministic dump" `Quick deterministic_dump;
   ]

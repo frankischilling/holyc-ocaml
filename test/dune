@@ -79,6 +79,7 @@
   ../third_party/TempleOS/Kernel/Compress.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Kernel/Job.HC
+  ../third_party/TempleOS/Kernel/KExcept.HC
   ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/KLoad.HC
   ../third_party/TempleOS/Kernel/KMisc.HC
@@ -92,6 +93,7 @@
   ../third_party/TempleOS/Doc/PreProcessor.DD
   oracle/function-definitions.json
   oracle/local-declarations.json
+  oracle/parenthesis-free-calls.json
   (glob_files golden/*)
   (glob_files negative/*)))
 
@@ -1275,6 +1277,89 @@
      --format=json
      cli/parse-call-expression.hc))
    (diff cli/parse-call-expression.json parse-call-expression.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-parenthesis-free-call.human.actual)
+ (deps
+  cli/parse-parenthesis-free-call.hc
+  cli/parse-parenthesis-free-call.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-parenthesis-free-call.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-parenthesis-free-call.hc))
+   (diff
+    cli/parse-parenthesis-free-call.human
+    parse-parenthesis-free-call.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-parenthesis-free-call.json.actual)
+ (deps
+  cli/parse-parenthesis-free-call.hc
+  cli/parse-parenthesis-free-call.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-parenthesis-free-call.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-parenthesis-free-call.hc))
+   (diff
+    cli/parse-parenthesis-free-call.json
+    parse-parenthesis-free-call.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-parenthesis-free-call-error.human.actual
+  parse-parenthesis-free-call-error.human.stdout.actual)
+ (deps
+  cli/parse-parenthesis-free-call-error.hc
+  cli/parse-parenthesis-free-call-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-parenthesis-free-call-error.human.stdout.actual
+    (with-stderr-to
+     parse-parenthesis-free-call-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-parenthesis-free-call-error.hc))))
+   (diff
+    cli/parse-parenthesis-free-call-error.human
+    parse-parenthesis-free-call-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-parenthesis-free-call-error.json.actual
+  parse-parenthesis-free-call-error.json.stdout.actual)
+ (deps
+  cli/parse-parenthesis-free-call-error.hc
+  cli/parse-parenthesis-free-call-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-parenthesis-free-call-error.json.stdout.actual
+    (with-stderr-to
+     parse-parenthesis-free-call-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-parenthesis-free-call-error.hc))))
+   (diff
+    cli/parse-parenthesis-free-call-error.json
+    parse-parenthesis-free-call-error.json.actual))))
 
 (rule
  (alias runtest)

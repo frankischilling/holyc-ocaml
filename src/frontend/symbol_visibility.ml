@@ -22,12 +22,29 @@ type origin =
   | Source_span of Common.Span.t
   | Session_registration
 
-type entry = { id : int; name : string; kind : kind; origin : origin }
+type parameter_call_shape = {
+  parameter_name : string option;
+  has_default : bool;
+}
+
+type function_call_shape = {
+  parameters : parameter_call_shape list;
+  variadic : bool;
+}
+
+type entry = {
+  id : int;
+  name : string;
+  kind : kind;
+  origin : origin;
+  function_call_shape : function_call_shape option;
+}
 
 let id entry = entry.id
 let name entry = entry.name
 let kind entry = entry.kind
 let origin entry = entry.origin
+let function_call_shape entry = entry.function_call_shape
 
 let kind_name = function
   | Export_system_symbol -> "export-system-symbol"
@@ -91,11 +108,22 @@ module Environment = struct
       next_local_context_id = 0;
     }
 
-  let add ?(origin = Session_registration) environment ~name ~kind () =
+  let add ?(origin = Session_registration) ?function_call_shape environment
+      ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
+    if Option.is_some function_call_shape && kind <> Function then
+      invalid_arg "only function symbols may carry a function call shape";
     if environment.next_entry_id = max_int then
       invalid_arg "symbol visibility identity space is exhausted";
-    let entry = { id = environment.next_entry_id; name; kind; origin } in
+    let entry =
+      {
+        id = environment.next_entry_id;
+        name;
+        kind;
+        origin;
+        function_call_shape;
+      }
+    in
     environment.next_entry_id <- environment.next_entry_id + 1;
     let existing =
       Option.value

@@ -1958,12 +1958,61 @@ contexts = ["parameter defaults", "global array dimensions", "_intern targets", 
 definition_and_include_provenance = "preserved"
 missing_separator_diagnostic = "HCPARSE0024"
 missing_parenthesis_diagnostic = "HCPARSE0025"
-parentheses_free_call_status = "planned"
-callee_resolution_status = "planned"
+parentheses_free_call_status = "implemented in HC-PARSER-PARENTHESIS-FREE-DIRECT-CALLS"
+callee_resolution_status = "direct function identity implemented in HC-PARSER-PARENTHESIS-FREE-DIRECT-CALLS; semantic resolution is planned"
 argument_type_and_count_checking = "planned"
-default_availability_and_filling = "planned"
-varargs_validation_status = "planned"
+default_availability_and_filling = "availability retained for direct syntax; evaluation and filling are planned"
+varargs_validation_status = "parenthesis-free extras are suppressed; semantic validation is planned"
 lowering_status = "planned"
+
+[[feature]]
+id = "HC-PARSER-PARENTHESIS-FREE-DIRECT-CALLS"
+description = "A direct function name may call without parentheses, using retained fixed-parameter shape to distinguish defaults from adjacent required expressions."
+sources = [
+  "Compiler/PrsExp.HC:PrsUnaryTerm HTt_FUN and address-of branches",
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Kernel/KExcept.HC:throw",
+  "Doc/HolyC.DD:parenthesis-free call examples"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/symbol_visibility.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/test_symbol_visibility.ml",
+  "test/cli/parse-parenthesis-free-call.hc",
+  "test/cli/parse-parenthesis-free-call.human",
+  "test/cli/parse-parenthesis-free-call.json",
+  "test/cli/parse-parenthesis-free-call-error.hc",
+  "test/cli/parse-parenthesis-free-call-error.human",
+  "test/cli/parse-parenthesis-free-call-error.json",
+  "test/oracle/parenthesis-free-calls.json"
+]
+status = "implemented"
+issue = 123
+ast_schema = "holyc-ast-v1"
+accepted_form = "direct function identifier followed by no opening parenthesis"
+fixed_parameter_order = "declaration order"
+defaulted_parameter_behavior = "one omitted slot without consuming input"
+required_parameter_behavior = "one adjacent expression"
+variadic_extra_behavior = "not read without parentheses"
+address_of_behavior = "a direct function name remains an identifier operand"
+binary_continuation = "implemented"
+recursive_visibility = "function shape is published before body parsing"
+shadowing = "a local or newer nonfunction entry suppresses the call"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_required_argument_diagnostic = "HCPARSE0105"
+missing_shape_diagnostic = "HCPARSE0106"
+native_oracle_status = "all seven checks matched the pinned TempleOS compiler"
+native_oracle_fixture = "test/oracle/parenthesis-free-calls.json"
+default_substitution = "planned"
+argument_type_checking = "planned"
+lowering_status = "planned"
+execution_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-BRACKET-INDEX-EXPRESSIONS"
