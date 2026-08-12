@@ -974,6 +974,48 @@ previous_argument_class_tracking = "planned"
 call_time_class_name_substitution = "planned"
 
 [[feature]]
+id = "HC-PARSER-STATEMENT-OUTPUT-LITERALS"
+description = "A top-level string or character literal keeps the implicit Print or PutChars call shape required by HolyC statement parsing."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt TK_STR and TK_CHAR_CONST branch",
+  "Compiler/PrsExp.HC:PrsFunCall literal entry path",
+  "Doc/HolyC.DD:statement-position string and character examples",
+  "Kernel/KExts.HC:Print and PutChars prototypes"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-implicit-output.hc",
+  "test/cli/parse-implicit-output.human",
+  "test/cli/parse-implicit-output.json",
+  "test/cli/parse-implicit-output-error.hc",
+  "test/cli/parse-implicit-output-error.human",
+  "test/cli/parse-implicit-output-error.json"
+]
+status = "implemented"
+issue = 93
+ast_schema = "holyc-ast-v1"
+implemented_scope = "top-level statement position"
+targets = ["Print", "PutChars"]
+nonempty_marker_argument = "the complete expression beginning at the marker"
+empty_marker_argument = "the complete expression following the marker"
+print_varargs = "ordered expressions with source-positioned leading commas"
+putchars_varargs = "not applicable"
+top_level_source_order = "preserved with declarations and prototypes"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+malformed_form_diagnostics = ["HCPARSE0043", "HCPARSE0044", "HCPARSE0045", "HCPARSE0046"]
+block_statement_status = "planned"
+name_resolution_status = "planned"
+type_checking_status = "planned"
+lowering_status = "planned"
+execution_status = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 description = "Bound prototypes retain recursive function-pointer parameter declarators with separate return and indirection depths."
 sources = [

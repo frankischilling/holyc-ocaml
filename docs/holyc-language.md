@@ -56,6 +56,7 @@ The current parser grammar is deliberately narrow:
 ```text
 module             := item*
 item               := global-declaration | bound-function-prototype
+                    | top-level-output-statement
 global-declaration := declaration-modifier* declaration-binding? primitive declarator ("," declarator)* ";"
 bound-function-prototype := declaration-modifier* declaration-binding primitive return-declarator
                             "(" parameter-list? ")" ";"
@@ -75,7 +76,10 @@ parameter-declarator := identifier | function-pointer-declarator
 function-pointer-declarator := "(" pointer-star{1,4} identifier? ")"
                                "(" parameter-list? ")"
 array-dimension    := "[" core-expression? "]"
-parameter-default  := "=" core-expression
+parameter-default  := "=" (core-expression | "lastclass")
+top-level-output-statement := print-statement | put-chars-statement
+print-statement     := string-marker print-fixed-argument ("," core-expression)* ";"
+put-chars-statement := character-marker character-fixed-argument ";"
 core-expression    := postfix-expression
                     | prefix-operator core-expression
                     | core-expression binary-operator core-expression
@@ -157,6 +161,19 @@ This slice parses but does not execute default, dimension, `_intern`, call, inde
 
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
+## Statement-position output literals
+
+`PrsStmt` treats a string or character literal in statement position as a call shorthand. Strings select `Print`, and characters select `PutChars`. The current parser implements this syntax for top-level items, where HolyC permits executable statements without a conventional `main`.
+
+The marker determines how the fixed argument begins:
+
+- A nonempty marker starts the fixed expression. For example, `"value";` passes that string expression, while `'A'+1;` passes the complete addition expression.
+- An empty string marker is consumed before the format expression, as in `"" fmt,name;`.
+- An empty character marker is consumed before the character expression, as in `'' value;`.
+- A `Print` statement may retain further comma-led expressions. `PutChars` has one fixed argument; the broader comma-separated statement syntax is not part of this slice.
+
+The AST records an explicit `Print` or `PutChars` target, the original marker, whether the fixed expression began at or after that marker, every additional `Print` argument and comma, the semicolon, and all source origins. Top-level declarations, prototypes, and these statements remain in one source-ordered item list in JIT and AOT modes. This is syntax support only. Function-body statements, runtime symbol resolution, argument checking, call lowering, and top-level execution are not implemented yet.
+
 ## Operators and precedence
 
 The generated operator table follows `Compiler/CInit.HC:CmpFillTables`. The binary entries appear in these source bands:
@@ -209,4 +226,4 @@ HolyC's `Option(bit, state)` changes the current compile controller and returns 
 
 ## Current boundary
 
-The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for primitive globals and bound prototypes. It covers ordered declaration prefixes, ordinary, alternate-name, and `_intern` bindings, pointers through depth four, primitive global array suffixes, parameter qualifiers, recursive function-pointer parameters, varargs, and core expressions in `_intern` targets, dimensions, and parameter defaults. It enforces the source parser's AOT gate for both import spellings and accepts `_intern` in JIT and AOT modes. It does not resolve bindings, evaluate `_intern` addresses, apply internal-function or other linkage and storage effects, build semantic pointer or function types, evaluate other expressions, calculate array layout, fill call arguments, or support initializers, non-global arrays, function bodies, general expressions, statements, classes, unions, promotions, conversions, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
+The implemented language specification supplies immutable primitive type facts, operator tables, compiler-option facts, and syntax for primitive globals, bound prototypes, and top-level `Print` and `PutChars` shorthand statements. It covers ordered declaration prefixes, ordinary, alternate-name, and `_intern` bindings, pointers through depth four, primitive global array suffixes, parameter qualifiers, recursive function-pointer parameters, varargs, and core expressions in `_intern` targets, dimensions, parameter defaults, and output arguments. It enforces the source parser's AOT gate for both import spellings and accepts `_intern` and output statements in JIT and AOT modes. It does not resolve bindings, evaluate `_intern` addresses, apply internal-function or other linkage and storage effects, build semantic pointer or function types, evaluate expressions, calculate array layout, fill ordinary call arguments, resolve or lower implicit output calls, execute top-level code, or support initializers, non-global arrays, function bodies, other statements, classes, unions, promotions, conversions, aggregate layout, floating execution, compiler-option effects, or semantic diagnostics. Those claims remain absent from the compatibility report until their own source-grounded tests pass.
