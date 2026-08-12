@@ -42,6 +42,7 @@ type expression_context =
   | Call_argument_expression
   | Index_expression
   | Implicit_output_argument_expression
+  | If_condition_expression
   | Statement_expression
 
 type parsed_parameter_default = {
@@ -84,6 +85,7 @@ let max_pointer_depth = 4
 let max_function_pointer_depth = 32
 let max_expression_depth = 256
 let max_block_depth = 256
+let max_conditional_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -553,6 +555,7 @@ let expression_context_name = function
   | Call_argument_expression -> "call argument expression"
   | Index_expression -> "index expression"
   | Implicit_output_argument_expression -> "implicit output argument"
+  | If_condition_expression -> "if condition expression"
   | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
@@ -562,6 +565,7 @@ let expression_operand_name = function
   | Call_argument_expression -> "a call argument expression operand"
   | Index_expression -> "an index expression operand"
   | Implicit_output_argument_expression -> "an implicit output argument"
+  | If_condition_expression -> "an if condition expression operand"
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression cursor ~context ~depth ~minimum_binding_power :
@@ -2306,11 +2310,19 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           in
           Some { node = Ast.Expression_statement statement; tokens })
 
-let rec parse_statement_atom cursor ~boundary ~block_depth :
+let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth :
     parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
-  | Token_kind.Punctuation '{' -> parse_block_statement cursor ~block_depth
+  | Token_kind.Punctuation '{' ->
+      parse_block_statement cursor ~block_depth ~conditional_depth
+  | Token_kind.Keyword Keyword.If ->
+      parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
+  | Token_kind.Keyword Keyword.Else ->
+      report cursor item ~code:"HCPARSE0055"
+        ~message:"found 'else' without a matching 'if'";
+      recover_statement cursor ~boundary;
+      None
   | Token_kind.String | Token_kind.Character ->
       parse_implicit_output_statement cursor ~boundary
   | Token_kind.Punctuation ';' -> Some (parse_empty_statement cursor)
@@ -2346,7 +2358,128 @@ let rec parse_statement_atom cursor ~boundary ~block_depth :
       recover_statement cursor ~boundary;
       None
 
-and parse_block_statement cursor ~block_depth : parsed_statement option =
+and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth :
+    parsed_statement option =
+  let keyword_item = peek cursor in
+  if conditional_depth >= max_conditional_depth then (
+    report cursor keyword_item ~code:"HCPARSE0057"
+      ~message:
+        (Printf.sprintf "if-statement nesting exceeds the hosted limit of %d"
+           max_conditional_depth);
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let keyword_item = take cursor in
+    let opening_item = peek cursor in
+    if opening_item.token.kind <> Token_kind.Punctuation '(' then (
+      report cursor opening_item ~code:"HCPARSE0052"
+        ~message:
+          (Printf.sprintf "expected '(' after 'if', but found %s"
+             (token_description opening_item.token));
+      recover_statement cursor ~boundary;
+      None)
+    else
+      let opening_item = take cursor in
+      match
+        parse_expression cursor ~context:If_condition_expression ~depth:0
+          ~minimum_binding_power:0
+      with
+      | None ->
+          recover_statement cursor ~boundary;
+          None
+      | Some (condition : parsed_expression) -> (
+          let closing_item = peek cursor in
+          if closing_item.token.kind <> Token_kind.Punctuation ')' then (
+            report cursor closing_item ~code:"HCPARSE0053"
+              ~message:
+                (Printf.sprintf
+                   "expected ')' after the if condition, but found %s"
+                   (token_description closing_item.token));
+            recover_statement cursor ~boundary;
+            None)
+          else
+            let closing_item = take cursor in
+            let branch_depth = conditional_depth + 1 in
+            match
+              parse_required_if_branch cursor ~boundary ~block_depth
+                ~conditional_depth:branch_depth ~code:"HCPARSE0054"
+                ~description:"a statement after the if condition"
+            with
+            | None -> None
+            | Some then_branch -> (
+                let else_clause =
+                  let else_item = peek cursor in
+                  match else_item.token.kind with
+                  | Token_kind.Keyword Keyword.Else ->
+                      let else_item = take cursor in
+                      Option.map
+                        (fun (else_branch : parsed_statement) ->
+                          let tokens = else_item.token :: else_branch.tokens in
+                          let node =
+                            Ast.make_else_clause
+                              ~keyword:(token_location else_item.token)
+                              ~branch:else_branch.node
+                              ~location:(location_from_expression_tokens tokens)
+                          in
+                          (Some node, tokens))
+                        (parse_required_if_branch cursor ~boundary ~block_depth
+                           ~conditional_depth:branch_depth ~code:"HCPARSE0056"
+                           ~description:"a statement after 'else'")
+                  | _ -> Some (None, [])
+                in
+                match else_clause with
+                | None -> None
+                | Some (else_clause, else_tokens) ->
+                    let tokens =
+                      keyword_item.token :: opening_item.token
+                      :: condition.tokens
+                      @ (closing_item.token :: then_branch.tokens)
+                      @ else_tokens
+                    in
+                    let statement =
+                      Ast.make_if_statement
+                        ~keyword:(token_location keyword_item.token)
+                        ~opening_parenthesis:(token_location opening_item.token)
+                        ~condition:condition.node
+                        ~closing_parenthesis:(token_location closing_item.token)
+                        ~then_branch:then_branch.node ~else_clause
+                        ~location:(location_from_expression_tokens tokens)
+                    in
+                    Some { node = Ast.If_statement statement; tokens }))
+
+and parse_required_if_branch cursor ~boundary ~block_depth ~conditional_depth
+    ~code ~description : parsed_statement option =
+  let first_item = peek cursor in
+  let missing =
+    match first_item.token.kind with
+    | Token_kind.Eof
+    | Token_kind.Punctuation '}'
+    | Token_kind.Keyword Keyword.Else -> true
+    | _ -> false
+  in
+  if missing then (
+    report cursor first_item ~code
+      ~message:
+        (Printf.sprintf "expected %s, but found %s" description
+           (token_description first_item.token));
+    recover_statement cursor ~boundary;
+    None)
+  else
+    match
+      parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
+    with
+    | Some ({ node = Ast.Sequence_statement sequence; _ } : parsed_statement)
+      when sequence.sequence_elements = [] ->
+        report cursor first_item ~code
+          ~message:
+            (Printf.sprintf "expected %s, but found only statement commas"
+               description);
+        recover_statement cursor ~boundary;
+        None
+    | statement -> statement
+
+and parse_block_statement cursor ~block_depth ~conditional_depth :
+    parsed_statement option =
   let opening_item = peek cursor in
   if block_depth >= max_block_depth then (
     report cursor opening_item ~code:"HCPARSE0051"
@@ -2395,7 +2528,7 @@ and parse_block_statement cursor ~block_depth : parsed_statement option =
       | _ -> (
           match
             parse_statement_sequence cursor ~boundary:Block_boundary
-              ~block_depth:(block_depth + 1)
+              ~block_depth:(block_depth + 1) ~conditional_depth
           with
           | Some statement ->
               collect
@@ -2406,7 +2539,7 @@ and parse_block_statement cursor ~block_depth : parsed_statement option =
     in
     collect [] [] false
 
-and parse_statement_sequence cursor ~boundary ~block_depth :
+and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth :
     parsed_statement option =
   let leading_items = take_statement_commas cursor [] in
   let leading_commas =
@@ -2418,7 +2551,9 @@ and parse_statement_sequence cursor ~boundary ~block_depth :
     if item.token.kind = Token_kind.Eof then
       Some (List.rev elements_rev, List.rev tokens_rev)
     else
-      match parse_statement_atom cursor ~boundary ~block_depth with
+      match
+        parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
+      with
       | None -> None
       | Some (statement : parsed_statement) ->
           let comma_items = take_statement_commas cursor [] in
@@ -2500,7 +2635,7 @@ let parse ~sources ~definitions ~symbols ~config source =
     | _ -> (
         match
           parse_statement_sequence cursor ~boundary:Top_level_boundary
-            ~block_depth:0
+            ~block_depth:0 ~conditional_depth:0
         with
         | Some statement ->
             items_rev := Ast.Top_level_statement statement.node :: !items_rev

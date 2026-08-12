@@ -357,6 +357,7 @@ type statement =
   | Block_statement of block_statement
   | Empty_statement of empty_statement
   | Expression_statement of expression_statement
+  | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Sequence_statement of statement_sequence
 
@@ -365,6 +366,22 @@ and block_statement = {
   block_statements : statement list;
   block_closing_brace : location;
   block_location : location;
+}
+
+and else_clause = {
+  else_keyword : location;
+  else_branch : statement;
+  else_location : location;
+}
+
+and if_statement = {
+  if_keyword : location;
+  if_opening_parenthesis : location;
+  if_condition : expression;
+  if_closing_parenthesis : location;
+  if_then_branch : statement;
+  if_else_clause : else_clause option;
+  if_location : location;
 }
 
 and statement_sequence_element = {
@@ -695,6 +712,21 @@ let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
     block_location = location;
   }
 
+let make_else_clause ~keyword ~branch ~location =
+  { else_keyword = keyword; else_branch = branch; else_location = location }
+
+let make_if_statement ~keyword ~opening_parenthesis ~condition
+    ~closing_parenthesis ~then_branch ~else_clause ~location =
+  {
+    if_keyword = keyword;
+    if_opening_parenthesis = opening_parenthesis;
+    if_condition = condition;
+    if_closing_parenthesis = closing_parenthesis;
+    if_then_branch = then_branch;
+    if_else_clause = else_clause;
+    if_location = location;
+  }
+
 let make_statement_sequence_element ~statement ~following_commas ~location =
   {
     sequence_statement = statement;
@@ -713,6 +745,7 @@ let statement_location = function
   | Block_statement statement -> statement.block_location
   | Empty_statement statement -> statement.empty_statement_location
   | Expression_statement statement -> statement.expression_statement_location
+  | If_statement statement -> statement.if_location
   | Implicit_output_statement statement -> statement.location
   | Sequence_statement sequence -> sequence.sequence_location
 
