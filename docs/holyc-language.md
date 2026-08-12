@@ -81,10 +81,14 @@ top-level-statement := statement-sequence
 statement-sequence := comma* (statement (comma+ statement)* comma*)?
 statement          := ";" | statement-expression statement-terminator
                     | print-statement | put-chars-statement
-                    | compound-statement | if-statement
+                    | compound-statement | if-statement | while-statement
+                    | do-while-statement
 compound-statement := "{" statement-sequence* "}"
 if-statement       := "if" "(" core-expression ")" required-statement-sequence
                       ("else" required-statement-sequence)?
+while-statement    := "while" "(" core-expression ")" required-statement-sequence
+do-while-statement := "do" required-statement-sequence "while"
+                      "(" core-expression ")" ";"
 required-statement-sequence := statement-sequence containing at least one statement
 statement-expression := core-expression not beginning with a string or character literal
 statement-terminator := ";" | comma-boundary
@@ -203,7 +207,15 @@ This pass does not convert the condition to a Boolean, resolve names, validate b
 
 The AST records the `while` keyword, both parentheses, the condition, and the complete body. A body may use any currently supported statement form, including blocks, comma-linked sequences, nested loops, and conditionals. Recursive parsing keeps the usual dangling-`else` behavior: an `else` after an `if` whose body is a loop belongs to that `if`, while an `else` inside a loop body belongs to the nearest inner `if`. JIT and AOT modes share the node, and include or definition frames keep their normal provenance.
 
-`HCPARSE0058` and `HCPARSE0059` report missing condition parentheses, while `HCPARSE0060` reports a missing body. The hosted parser accepts at most 256 nested `while` statements and reports `HCPARSE0061` beyond that point. This is a denial-of-service guard, not a TempleOS language rule. Condition truth conversion, `break`, label creation, control-flow construction, semantic checks, IR lowering, and execution remain unimplemented.
+`HCPARSE0058` and `HCPARSE0059` report missing condition parentheses, while `HCPARSE0060` reports a missing body. The hosted parser accepts at most 256 nested loop statements and reports `HCPARSE0061` beyond that point. The count is shared with `do ... while` so mixed nesting cannot bypass the guard. This is a denial-of-service limit, not a TempleOS language rule. Condition truth conversion, `break`, label creation, control-flow construction, semantic checks, IR lowering, and execution remain unimplemented.
+
+## Do-while statements
+
+`Compiler/PrsStmt.HC:PrsDoWhile` emits the loop-entry label before it asks `PrsStmt` to parse the body. It then requires `while`, an opening parenthesis, one ordinary expression, a closing parenthesis, and a final semicolon. The source branches back to the entry label when the condition is nonzero, so the body precedes the condition both syntactically and at execution time.
+
+The AST records the `do` and `while` keywords separately, the complete body, both condition parentheses, the condition, and the required final semicolon. The body uses the common statement path and therefore accepts blocks, comma-linked sequences, pre-test or post-test loops, conditionals, output statements, ordinary expressions, and empty statements. Nearest-`if` else association remains unchanged across the loop boundary. JIT and AOT modes use the same syntax, and every token retains include or definition provenance.
+
+`HCPARSE0062` reports a missing or comma-only body. `HCPARSE0063` through `HCPARSE0066` cover a missing `while`, opening parenthesis, closing parenthesis, or final semicolon. An empty condition uses the shared `HCPARSE0018` expression diagnostic. Mixed `while` and `do ... while` nesting shares the 256-level `HCPARSE0061` guard. Condition truth conversion, `break`, label creation, `IC_BR_NOT_ZERO`, semantic checks, IR lowering, and execution remain unimplemented.
 
 ## Statement-position output literals
 
