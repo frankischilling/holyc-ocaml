@@ -8668,6 +8668,8 @@ let break_statement_source_behavior () =
       ("break uses the common terminator", "goto sm_semicolon;");
       ("the common terminator accepts a comma", "else if (cc->token!=',')");
       ("while supplies its break target", "PrsStmt(cc,try_cnt,lb_done);");
+      ( "switch supplies its current break target",
+        "PrsStmt(cc,try_cnt,head.last->lb_break);" );
     ];
   Alcotest.(check bool)
     "break keeps its pinned keyword ID" true
