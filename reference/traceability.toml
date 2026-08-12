@@ -829,7 +829,7 @@ extern_to_import_option_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
-description = "Bound declarations with primitive return and parameter types retain their complete prototype syntax and enter the streaming symbol environment as functions."
+description = "Bound declarations with primitive or published class return and parameter types retain their complete prototype syntax and enter the streaming symbol environment as functions."
 sources = [
   "Compiler/PrsStmt.HC:PrsGlblVarLst",
   "Compiler/PrsStmt.HC:PrsFunJoin",
@@ -863,7 +863,7 @@ issue = 61
 ast_schema = "holyc-ast-v1"
 accepted_bindings = ["extern", "_extern", "import", "_import", "_intern"]
 import_mode = "aot-only"
-parameter_type_status = "primitive types with zero through four pointer layers"
+parameter_type_status = "primitive or published class and union names with zero through four pointer layers"
 parameter_name_status = "optional"
 variadic_marker_status = "implemented"
 function_symbol_publication = "after the complete semicolon"
@@ -873,7 +873,7 @@ register_parameter_status = "implemented in HC-PARSER-PARAMETER-REGISTER-QUALIFI
 function_pointer_parameter_status = "implemented in HC-PARSER-FUNCTION-POINTER-PARAMETERS"
 array_parameter_status = "rejected to match PrsArrayDims"
 calling_modifier_syntax = "implemented in HC-PARSER-FUNCTION-CALLING-MODIFIERS"
-function_body_status = "implemented for unbound primitive forms in HC-PARSER-FUNCTION-DEFINITIONS"
+function_body_status = "implemented for unbound primitive or published class forms in HC-PARSER-FUNCTION-DEFINITIONS"
 linkage_resolution_status = "planned"
 abi_status = "planned"
 
@@ -911,7 +911,7 @@ tests = [
 status = "implemented"
 issue = 119
 ast_schema = "holyc-ast-v1"
-accepted_form = "unbound primitive return type with the shared parameter grammar"
+accepted_form = "unbound primitive or published class return type with the shared parameter grammar"
 bound_forms = "remain prototypes and require a semicolon"
 body_parser = "the common recursive statement parser"
 explicit_empty_body = "retained as an empty statement"
@@ -920,7 +920,7 @@ function_symbol_publication = "after the complete header and before the first bo
 body_error_symbol_publication = "retained because publication precedes body parsing"
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved independently for the header and body"
-local_declaration_status = "primitive automatic and static forms implemented in HC-PARSER-LOCAL-DECLARATIONS"
+local_declaration_status = "primitive or published class automatic and static forms implemented in HC-PARSER-LOCAL-DECLARATIONS"
 function_scope_status = "function-wide syntax lookup context implemented; semantic scope and storage are planned"
 type_checking_status = "planned"
 lowering_status = "planned"
@@ -930,7 +930,7 @@ native_oracle_fixture = "test/oracle/function-definitions.json"
 
 [[feature]]
 id = "HC-PARSER-LOCAL-DECLARATIONS"
-description = "Function bodies retain primitive automatic and static local declaration groups, including pointer layers, array dimensions, scalar initializers, and automatic per-declarator register requests."
+description = "Function bodies retain primitive or published class automatic and static local declaration groups, including pointer layers, array dimensions, scalar initializers, and automatic per-declarator register requests."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt local declaration dispatch",
   "Compiler/PrsVar.HC:PrsVarLst",
@@ -960,7 +960,7 @@ tests = [
 status = "implemented"
 issue = 121
 ast_schema = "holyc-ast-v1"
-accepted_type_status = "primitive types with zero through four pointer layers"
+accepted_type_status = "primitive or published class and union names with zero through four pointer layers"
 storage_status = ["automatic", "static"]
 register_qualifier_status = "reg and noreg after the type on automatic declarators"
 explicit_register_status = "canonical U64 register spellings on automatic reg declarators"
@@ -972,7 +972,7 @@ variadic_visibility = "argc and argv are visible in variadic bodies"
 statement_continuation = "after a local declaration, PrsStmt continues without a comma unless the next token is a closing brace"
 for_initializer_status = "rejected with HCPARSE0069, matching the native Missing ) result"
 static_register_qualifier_status = "rejected with HCPARSE0099"
-class_and_union_local_status = "planned"
+class_and_union_local_status = "syntax implemented; semantic identity, layout, and storage are planned"
 function_pointer_local_status = "planned"
 aggregate_initializer_status = "planned"
 semantic_scope_status = "planned"
@@ -2054,10 +2054,55 @@ missing_name_diagnostic = "HCPARSE0107"
 invalid_terminator_diagnostic = "HCPARSE0108"
 body_recovery = "tracks nested braces through the declaration semicolon"
 native_oracle_status = "not required; acceptance and publication order are explicit in pinned source"
-named_type_use = "planned"
+named_type_use = "implemented in HC-PARSER-NAMED-AGGREGATE-TYPES"
 aggregate_body_parsing = "planned"
 inheritance_members_layout_and_metadata = "planned"
 semantic_duplicate_and_linkage_checks = "planned"
+
+[[feature]]
+id = "HC-PARSER-NAMED-AGGREGATE-TYPES"
+description = "Published class and union names are source-spanned type specifiers across declarations, function signatures, locals, and postfix casts."
+sources = [
+  "Compiler/PrsStmt.HC:1028-1053",
+  "Compiler/PrsStmt.HC:1156-1172",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/CExts.HC:1-27",
+  "Kernel/KernelA.HH:4-17",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-named-types.hc",
+  "test/cli/parse-named-types.human",
+  "test/cli/parse-named-types.json",
+  "test/cli/parse-named-type-error.hc",
+  "test/cli/parse-named-type-error.human",
+  "test/cli/parse-named-type-error.json"
+]
+status = "implemented"
+issue = 127
+ast_schema = "holyc-ast-v1"
+accepted_type_symbols = "visible class symbols; class and union forwards both publish this category"
+accepted_contexts = ["global declaration groups", "function returns", "function parameters", "nested function-pointer parameters", "automatic locals", "static locals", "array declarators", "postfix casts"]
+compilation_modes = ["jit", "aot"]
+lookup_rule = "symbol-sensitive; capitalization alone does not make a type"
+local_shadowing = "a local entry suppresses class-name interpretation"
+reference_slice = "the unfiltered first 27 lines of Compiler/CExts.HC parse after 11 required forwards"
+definition_provenance = "invocation and definition sites retained"
+unresolved_type_diagnostic = "HCPARSE0001"
+rejected_name_publication = "disabled"
+primitive_dump_compatibility = "existing human and JSON forms remain unchanged"
+native_oracle_status = "not required; dispatch categories and source forms are explicit in the pinned parser"
+semantic_type_identity = "planned"
+aggregate_body_layout_members_and_metadata = "planned"
+cast_conversion_and_lowering = "planned"
 
 [[feature]]
 id = "HC-PARSER-BRACKET-INDEX-EXPRESSIONS"
@@ -2195,7 +2240,7 @@ ic_lowering_status = "planned"
 
 [[feature]]
 id = "HC-PARSER-PRIMITIVE-POSTFIX-CASTS"
-description = "Primitive HolyC casts follow their operand, retain zero through four pointer stars, and return to postfix modifier parsing."
+description = "Primitive and published class HolyC casts follow their operand, retain zero through four pointer stars, and return to postfix modifier parsing."
 sources = [
   "Compiler/PrsExp.HC:PrsExpression2 PE_MAYBE_MODIFIERS branch",
   "Compiler/PrsExp.HC:PrsUnaryTerm parenthesized-expression branch",
@@ -2226,17 +2271,18 @@ tests = [
 status = "implemented"
 issue = 83
 ast_schema = "holyc-ast-v1"
-accepted_targets = ["I0", "I8", "I16", "I32", "I64", "U0", "U8", "U16", "U32", "U64", "F64", "Bool"]
+accepted_primitive_targets = ["I0", "I8", "I16", "I32", "I64", "U0", "U8", "U16", "U32", "U64", "F64", "Bool"]
+accepted_named_targets = "visible class and union names"
 pointer_depths = [0, 1, 2, 3, 4]
 cast_precedence = "postfix cast binds before every audited binary operator"
-chain_behavior = "calls, indexes, members, and casts may precede or follow a primitive cast; one terminal postfix update may follow"
-call_disambiguation = "a checked primitive spelling immediately after the opening parenthesis selects a cast; other tokens select a call"
+chain_behavior = "calls, indexes, members, and casts may precede or follow a recognized cast; one terminal postfix update may follow"
+call_disambiguation = "a checked primitive spelling or visible class name immediately after the opening parenthesis selects a cast; other tokens select a call"
 prefix_cast_diagnostic = "HCPARSE0029"
 unclosed_cast_diagnostic = "HCPARSE0030"
 contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
-class_union_array_and_function_pointer_targets = "planned"
+array_and_function_pointer_targets = "planned"
 operand_type_checking = "planned"
 conversion_and_warning_behavior = "planned"
 ic_lowering_status = "planned"
@@ -2277,7 +2323,7 @@ wrapper_parentheses = "zero or more matched pairs"
 target_pointer_depth = "all trailing stars; the pinned branch does not apply PTR_STARS_NUM"
 member_documentation_difference = "the executable PrsSizeOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
 term_precedence = "PREC_TERM before every audited binary operator"
-direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+direct_suffix_rule = "a recognized postfix cast may follow the raw result; other postfix suffixes require that cast first"
 contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
@@ -2324,7 +2370,7 @@ wrapper_parentheses = "zero or more matched pairs"
 target_pointer_depth = "not accepted; PrsOffsetOf has no pointer-star loop"
 member_documentation_difference = "the executable PrsOffsetOf loop accepts repeated members despite the one-level statement in Doc/HolyC.DD"
 term_precedence = "PREC_TERM before every audited binary operator"
-direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+direct_suffix_rule = "a recognized postfix cast may follow the raw result; other postfix suffixes require that cast first"
 contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
@@ -2369,7 +2415,7 @@ operand_shape = "exactly one non-EOF token after the opening-wrapper run; it is 
 identifier_shape = "ordinary identifiers and language keywords model the pinned TK_IDENT case; all other tokens remain explicit non-name operands"
 wrapper_parentheses = "zero or more matched pairs"
 term_precedence = "PREC_TERM before every audited binary operator"
-direct_suffix_rule = "a primitive postfix cast may follow the raw result; other postfix suffixes require that cast first"
+direct_suffix_rule = "a recognized postfix cast may follow the raw result; other postfix suffixes require that cast first"
 contexts = ["parameter defaults", "global array dimensions", "call arguments", "indexes", "_intern targets"]
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
