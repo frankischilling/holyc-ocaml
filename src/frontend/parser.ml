@@ -42,6 +42,7 @@ type expression_context =
   | Call_argument_expression
   | Index_expression
   | Implicit_output_argument_expression
+  | Do_while_condition_expression
   | If_condition_expression
   | While_condition_expression
   | Statement_expression
@@ -557,6 +558,7 @@ let expression_context_name = function
   | Call_argument_expression -> "call argument expression"
   | Index_expression -> "index expression"
   | Implicit_output_argument_expression -> "implicit output argument"
+  | Do_while_condition_expression -> "do-while condition expression"
   | If_condition_expression -> "if condition expression"
   | While_condition_expression -> "while condition expression"
   | Statement_expression -> "statement expression"
@@ -568,6 +570,7 @@ let expression_operand_name = function
   | Call_argument_expression -> "a call argument expression operand"
   | Index_expression -> "an index expression operand"
   | Implicit_output_argument_expression -> "an implicit output argument"
+  | Do_while_condition_expression -> "a do-while condition expression operand"
   | If_condition_expression -> "an if condition expression operand"
   | While_condition_expression -> "a while condition expression operand"
   | Statement_expression -> "a statement expression operand"
@@ -2320,6 +2323,9 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   match item.token.kind with
   | Token_kind.Punctuation '{' ->
       parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
+  | Token_kind.Keyword Keyword.Do ->
+      parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
+        ~loop_depth
   | Token_kind.Keyword Keyword.If ->
       parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth
@@ -2365,6 +2371,99 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
       report cursor item ~code ~message;
       recover_statement cursor ~boundary;
       None
+
+and parse_do_while_statement cursor ~boundary ~block_depth ~conditional_depth
+    ~loop_depth : parsed_statement option =
+  let do_item = peek cursor in
+  if loop_depth >= max_loop_depth then (
+    report cursor do_item ~code:"HCPARSE0061"
+      ~message:
+        (Printf.sprintf "loop-statement nesting exceeds the hosted limit of %d"
+           max_loop_depth);
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let do_item = take cursor in
+    match
+      parse_required_statement cursor ~boundary ~block_depth ~conditional_depth
+        ~loop_depth:(loop_depth + 1) ~code:"HCPARSE0062"
+        ~description:"a statement after 'do'"
+    with
+    | None -> None
+    | Some body -> (
+        let while_item = peek cursor in
+        if while_item.token.kind <> Token_kind.Keyword Keyword.While then (
+          report cursor while_item ~code:"HCPARSE0063"
+            ~message:
+              (Printf.sprintf
+                 "expected 'while' after the do-while body, but found %s"
+                 (token_description while_item.token));
+          recover_statement cursor ~boundary;
+          None)
+        else
+          let while_item = take cursor in
+          let opening_item = peek cursor in
+          if opening_item.token.kind <> Token_kind.Punctuation '(' then (
+            report cursor opening_item ~code:"HCPARSE0064"
+              ~message:
+                (Printf.sprintf
+                   "expected '(' after the do-while keyword, but found %s"
+                   (token_description opening_item.token));
+            recover_statement cursor ~boundary;
+            None)
+          else
+            let opening_item = take cursor in
+            match
+              parse_expression cursor ~context:Do_while_condition_expression
+                ~depth:0 ~minimum_binding_power:0
+            with
+            | None ->
+                recover_statement cursor ~boundary;
+                None
+            | Some (condition : parsed_expression) ->
+                let closing_item = peek cursor in
+                if closing_item.token.kind <> Token_kind.Punctuation ')' then (
+                  report cursor closing_item ~code:"HCPARSE0065"
+                    ~message:
+                      (Printf.sprintf
+                         "expected ')' after the do-while condition, but found \
+                          %s"
+                         (token_description closing_item.token));
+                  recover_statement cursor ~boundary;
+                  None)
+                else
+                  let closing_item = take cursor in
+                  let semicolon_item = peek cursor in
+                  if semicolon_item.token.kind <> Token_kind.Punctuation ';'
+                  then (
+                    report cursor semicolon_item ~code:"HCPARSE0066"
+                      ~message:
+                        (Printf.sprintf
+                           "expected ';' after the do-while condition, but \
+                            found %s"
+                           (token_description semicolon_item.token));
+                    recover_statement cursor ~boundary;
+                    None)
+                  else
+                    let semicolon_item = take cursor in
+                    let tokens =
+                      (do_item.token :: body.tokens)
+                      @ while_item.token :: opening_item.token
+                        :: condition.tokens
+                      @ [ closing_item.token; semicolon_item.token ]
+                    in
+                    let statement =
+                      Ast.make_do_while_statement
+                        ~do_keyword:(token_location do_item.token)
+                        ~body:body.node
+                        ~while_keyword:(token_location while_item.token)
+                        ~opening_parenthesis:(token_location opening_item.token)
+                        ~condition:condition.node
+                        ~closing_parenthesis:(token_location closing_item.token)
+                        ~semicolon:(token_location semicolon_item.token)
+                        ~location:(location_from_expression_tokens tokens)
+                    in
+                    Some { node = Ast.Do_while_statement statement; tokens })
 
 and parse_if_statement cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth : parsed_statement option =
@@ -2462,7 +2561,7 @@ and parse_while_statement cursor ~boundary ~block_depth ~conditional_depth
   if loop_depth >= max_loop_depth then (
     report cursor keyword_item ~code:"HCPARSE0061"
       ~message:
-        (Printf.sprintf "while-statement nesting exceeds the hosted limit of %d"
+        (Printf.sprintf "loop-statement nesting exceeds the hosted limit of %d"
            max_loop_depth);
     recover_statement cursor ~boundary;
     None)

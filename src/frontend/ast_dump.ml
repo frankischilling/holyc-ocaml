@@ -446,6 +446,26 @@ let rec print_statement buffer sources ~indent = function
         statement.block_statements;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources statement.block_closing_brace)
+  | Ast.Do_while_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%sdo_while_statement span=%s\n" indent
+        (location_text sources statement.do_while_location);
+      Printf.bprintf buffer "%sdo_keyword span=%s\n" child_indent
+        (location_text sources statement.do_keyword);
+      Printf.bprintf buffer "%sbody\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.do_body;
+      Printf.bprintf buffer "%swhile_keyword span=%s\n" child_indent
+        (location_text sources statement.do_while_keyword);
+      Printf.bprintf buffer "%sopening_parenthesis span=%s\n" child_indent
+        (location_text sources statement.do_while_opening_parenthesis);
+      Printf.bprintf buffer "%scondition\n" child_indent;
+      print_expression buffer sources ~indent:(child_indent ^ "  ")
+        statement.do_while_condition;
+      Printf.bprintf buffer "%sclosing_parenthesis span=%s\n" child_indent
+        (location_text sources statement.do_while_closing_parenthesis);
+      Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+        (location_text sources statement.do_while_semicolon)
   | Ast.Empty_statement statement ->
       Printf.bprintf buffer "%sempty_statement span=%s\n" indent
         (location_text sources statement.empty_statement_location);
@@ -1259,6 +1279,23 @@ let rec statement_to_yojson sources = function
           ( "closing_brace",
             location_to_yojson sources statement.block_closing_brace );
           ("location", location_to_yojson sources statement.block_location);
+        ]
+  | Ast.Do_while_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "do_while_statement");
+          ("do_keyword", location_to_yojson sources statement.do_keyword);
+          ("body", statement_to_yojson sources statement.do_body);
+          ( "while_keyword",
+            location_to_yojson sources statement.do_while_keyword );
+          ( "opening_parenthesis",
+            location_to_yojson sources statement.do_while_opening_parenthesis );
+          ( "condition",
+            expression_to_yojson sources statement.do_while_condition );
+          ( "closing_parenthesis",
+            location_to_yojson sources statement.do_while_closing_parenthesis );
+          ("semicolon", location_to_yojson sources statement.do_while_semicolon);
+          ("location", location_to_yojson sources statement.do_while_location);
         ]
   | Ast.Empty_statement statement ->
       `Assoc
