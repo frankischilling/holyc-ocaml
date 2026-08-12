@@ -247,6 +247,19 @@ type declaration_binding = private {
   target : declaration_binding_target;
 }
 
+type aggregate_kind = Class_aggregate | Union_aggregate
+
+type aggregate_forward_declaration = private {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding;
+  aggregate_kind : aggregate_kind;
+  aggregate_keyword_spelling : string;
+  aggregate_keyword_location : location;
+  name : identifier;
+  semicolon : location;
+  location : location;
+}
+
 type array_dimension = private {
   opening_bracket : location;
   dimension_expression : expression option;
@@ -584,6 +597,7 @@ type function_definition = private {
 }
 
 type item =
+  | Aggregate_forward_declaration of aggregate_forward_declaration
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
@@ -616,6 +630,17 @@ val make_declaration_binding :
   location:location ->
   target:declaration_binding_target ->
   declaration_binding
+
+val make_aggregate_forward_declaration :
+  modifiers:declaration_modifier list ->
+  binding:declaration_binding ->
+  aggregate_kind:aggregate_kind ->
+  aggregate_keyword_spelling:string ->
+  aggregate_keyword_location:location ->
+  name:identifier ->
+  semicolon:location ->
+  location:location ->
+  aggregate_forward_declaration
 
 val make_primitive_type :
   primitive:Sema.Primitive_type.t ->

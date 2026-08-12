@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0108",
+    "severity": "error",
+    "message": "expected ';' after class forward declaration \"Body\", but found \"{\"",
+    "primary": {
+      "path": "cli/parse-aggregate-forward-error.hc",
+      "line": 1,
+      "column": 19,
+      "source_id": 0,
+      "start": 18,
+      "stop": 19
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

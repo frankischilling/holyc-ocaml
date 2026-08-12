@@ -1,0 +1,3 @@
+cli/parse-aggregate-forward-error.hc:1:19: error[HCPARSE0108]: expected ';' after class forward declaration "Body", but found "{"
+    1 | extern class Body { I64 field; };
+      |                   ^

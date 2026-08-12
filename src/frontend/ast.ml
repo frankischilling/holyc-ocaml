@@ -242,6 +242,19 @@ type declaration_binding = {
   target : declaration_binding_target;
 }
 
+type aggregate_kind = Class_aggregate | Union_aggregate
+
+type aggregate_forward_declaration = {
+  modifiers : declaration_modifier list;
+  binding : declaration_binding;
+  aggregate_kind : aggregate_kind;
+  aggregate_keyword_spelling : string;
+  aggregate_keyword_location : location;
+  name : identifier;
+  semicolon : location;
+  location : location;
+}
+
 type array_dimension = {
   opening_bracket : location;
   dimension_expression : expression option;
@@ -579,6 +592,7 @@ type function_definition = {
 }
 
 type item =
+  | Aggregate_forward_declaration of aggregate_forward_declaration
   | Global_variable of global_variable
   | Global_declaration of global_declaration
   | Function_prototype of function_prototype
@@ -606,6 +620,20 @@ let make_declaration_modifier ~(kind : declaration_modifier_kind) ~spelling
 let make_declaration_binding ~(kind : declaration_binding_kind) ~spelling
     ~location ~(target : declaration_binding_target) : declaration_binding =
   { kind; spelling; location; target }
+
+let make_aggregate_forward_declaration ~modifiers ~binding ~aggregate_kind
+    ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~semicolon
+    ~location =
+  {
+    modifiers;
+    binding;
+    aggregate_kind;
+    aggregate_keyword_spelling;
+    aggregate_keyword_location;
+    name;
+    semicolon;
+    location;
+  }
 
 let make_primitive_type ~primitive ~spelling ~location : primitive_type =
   { primitive; spelling; location }

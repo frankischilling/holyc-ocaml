@@ -76,6 +76,13 @@ let expect_one_global ast =
   | items ->
       Alcotest.failf "expected one global, got %d items" (List.length items)
 
+let expect_one_aggregate_forward ast =
+  match ast.Ast.items with
+  | [ Ast.Aggregate_forward_declaration declaration ] -> declaration
+  | items ->
+      Alcotest.failf "expected one aggregate forward declaration, got %d items"
+        (List.length items)
+
 let expect_one_declaration ast =
   match ast.Ast.items with
   | [ Ast.Global_declaration declaration ] -> declaration
@@ -347,6 +354,9 @@ let globals ast =
   List.map
     (function
       | Ast.Global_variable variable -> variable
+      | Ast.Aggregate_forward_declaration _ ->
+          Alcotest.fail
+            "expected singleton globals, got an aggregate forward declaration"
       | Ast.Global_declaration _ ->
           Alcotest.fail "expected singleton globals, got a declaration group"
       | Ast.Function_prototype _ ->
@@ -361,6 +371,9 @@ let prototypes ast =
   List.map
     (function
       | Ast.Function_prototype prototype -> prototype
+      | Ast.Aggregate_forward_declaration _ ->
+          Alcotest.fail
+            "expected function prototypes, got an aggregate forward declaration"
       | Ast.Global_variable _ ->
           Alcotest.fail "expected function prototypes, got a singleton global"
       | Ast.Global_declaration _ ->
@@ -377,6 +390,10 @@ let function_definitions ast =
   List.map
     (function
       | Ast.Function_definition definition -> definition
+      | Ast.Aggregate_forward_declaration _ ->
+          Alcotest.fail
+            "expected function definitions, got an aggregate forward \
+             declaration"
       | Ast.Global_variable _ ->
           Alcotest.fail "expected function definitions, got a singleton global"
       | Ast.Global_declaration _ ->
@@ -415,6 +432,10 @@ let supported_primitives () =
             "primitive spelling"
             (Primitive_type.to_string primitive)
             variable.type_specifier.spelling
+      | Ast.Aggregate_forward_declaration _ ->
+          Alcotest.fail
+            "primitive fixture unexpectedly formed an aggregate forward \
+             declaration"
       | Ast.Global_declaration _ ->
           Alcotest.fail "primitive fixture unexpectedly formed a group"
       | Ast.Function_prototype _ ->
@@ -1557,6 +1578,297 @@ let binding_failures () =
         "after declaration binding \"extern\"" );
     ]
 
+let aggregate_forward_source_behavior () =
+  let parser_source = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains parser_source fragment))
+    [
+      ("extern dispatch", "case KW_EXTERN:");
+      ("class and union split", "if (i==KW_CLASS||i==KW_UNION) {");
+      ("extern aggregate parser call", "PrsClass(cc,i,fsp_flags,TRUE);");
+      ("external class branch", "if (is_extern) {");
+      ("class hash publication", "HashAdd(tmpc,cc->htc.glbl_hash_table);");
+      ("external class flag", "LBts(&tmpc->flags,Cf_EXTERN);");
+      ("source attachment", "HashSrcFileSet(cc,tmpc);");
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  let declarations =
+    kernel_header |> String.split_on_char '\n'
+    |> List.filter (String.starts_with ~prefix:"extern class ")
+  in
+  Alcotest.(check int)
+    "pinned kernel forward declaration count" 14 (List.length declarations);
+  let scoping = pinned "Doc/ScopingLinkage.DD" in
+  Alcotest.(check bool)
+    "scoping documentation lists extern class" true
+    (contains scoping "$FG,2$extern     class$FG$")
+
+let direct_aggregate_forward_declarations () =
+  let source =
+    "public extern class Forward;\nextern union Payload;\nextern class Forward;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [
+   Ast.Aggregate_forward_declaration first;
+   Ast.Aggregate_forward_declaration payload;
+   Ast.Aggregate_forward_declaration repeated;
+  ] ->
+      Alcotest.(check bool)
+        "class kind" true
+        (first.aggregate_kind = Ast.Class_aggregate);
+      Alcotest.(check bool)
+        "union kind" true
+        (payload.aggregate_kind = Ast.Union_aggregate);
+      Alcotest.(check string)
+        "class keyword spelling" "class" first.aggregate_keyword_spelling;
+      Alcotest.(check string)
+        "union keyword spelling" "union" payload.aggregate_keyword_spelling;
+      Alcotest.(check string) "first name" "Forward" first.name.spelling;
+      Alcotest.(check string) "union name" "Payload" payload.name.spelling;
+      Alcotest.(check string)
+        "repeat name" first.name.spelling repeated.name.spelling;
+      Alcotest.(check bool)
+        "extern binding kind" true
+        (first.binding.kind = Ast.Extern);
+      Alcotest.(check string) "extern spelling" "extern" first.binding.spelling;
+      Alcotest.(check bool)
+        "extern has no alternate target" true
+        (first.binding.target = Ast.No_binding_target);
+      Alcotest.(check (list string))
+        "modifier stays attached" [ "public" ]
+        (List.map
+           (fun (modifier : Ast.declaration_modifier) -> modifier.spelling)
+           first.modifiers);
+      Alcotest.(check int)
+        "declaration begins at modifier" 0 first.location.span.start;
+      Alcotest.(check int)
+        "declaration ends at semicolon" first.semicolon.span.stop
+        first.location.span.stop;
+      Alcotest.(check bool)
+        "keyword precedes name" true
+        (first.aggregate_keyword_location.span.stop
+       <= first.name.location.span.start)
+  | items ->
+      Alcotest.failf "expected three aggregate forwards, got %d items"
+        (List.length items)
+
+let pinned_kernel_aggregate_forward_prefix () =
+  let source =
+    pinned "Kernel/KernelA.HH" |> String.split_on_char '\n'
+    |> List.filteri (fun index _ -> index < 17)
+    |> String.concat "\n"
+  in
+  let _, _, output = parse_string ~path:"Kernel/KernelA.HH" source in
+  let declarations =
+    (expect_ast output).items
+    |> List.map (function
+      | Ast.Aggregate_forward_declaration declaration -> declaration
+      | _ -> Alcotest.fail "kernel prefix produced a non-aggregate item")
+  in
+  Alcotest.(check (list string))
+    "pinned forward names"
+    [
+      "CAOT";
+      "CAOTHeapGlbl";
+      "CAOTImportExport";
+      "CCPU";
+      "CDC";
+      "CDirContext";
+      "CDoc";
+      "CFile";
+      "CHashClass";
+      "CHashFun";
+      "CHeapCtrl";
+      "CIntermediateCode";
+      "CJobCtrl";
+      "CTask";
+    ]
+    (List.map
+       (fun (declaration : Ast.aggregate_forward_declaration) ->
+         declaration.name.spelling)
+       declarations);
+  List.iter
+    (fun (declaration : Ast.aggregate_forward_declaration) ->
+      Alcotest.(check bool)
+        (declaration.name.spelling ^ " is a class")
+        true
+        (declaration.aggregate_kind = Ast.Class_aggregate))
+    declarations
+
+let aggregate_forward_modes_and_visibility () =
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode "extern class ModeVisible;"
+      in
+      let declaration = expect_ast output |> expect_one_aggregate_forward in
+      Alcotest.(check string)
+        "mode retains the name" "ModeVisible" declaration.name.spelling)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let source =
+    "extern class VisibleClass;\n\
+     #ifdef VisibleClass\n\
+     U8 selected;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif"
+  in
+  let session, _, output = parse_string source in
+  (match (expect_ast output).items with
+  | [
+   Ast.Aggregate_forward_declaration declaration; Ast.Global_variable selected;
+  ] ->
+      Alcotest.(check string)
+        "published class" "VisibleClass" declaration.name.spelling;
+      Alcotest.(check string)
+        "selected conditional branch" "selected" selected.name.spelling
+  | items ->
+      Alcotest.failf "expected a class and selected global, got %d items"
+        (List.length items));
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "VisibleClass"
+  with
+  | Symbol_visibility.Present entry ->
+      Alcotest.(check string)
+        "published symbol kind" "class"
+        (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "accepted forward declaration is not visible"
+
+let aggregate_forward_provenance () =
+  let source =
+    "#define LINK extern\n#define AGG class\nLINK AGG GeneratedClass;"
+  in
+  let session, root, output = parse_string source in
+  let ast = expect_ast output in
+  let declaration = expect_one_aggregate_forward ast in
+  Alcotest.(check bool)
+    "generated declaration uses another source frame" false
+    (Source_id.equal declaration.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "declaration retains its invocation" true
+    (Option.is_some declaration.location.generated_from);
+  Alcotest.(check bool)
+    "declaration retains its definition" true
+    (Option.is_some declaration.location.defined_at);
+  Alcotest.(check bool)
+    "aggregate keyword retains its invocation" true
+    (Option.is_some declaration.aggregate_keyword_location.generated_from);
+  let open Yojson.Safe.Util in
+  let item =
+    Ast_dump.to_yojson (Session.sources session) ast
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON retains composite invocation" true
+    (item |> member "location" |> member "generated_from" <> `Null);
+  Alcotest.(check bool)
+    "JSON retains keyword definition" true
+    (item |> member "aggregate_keyword" |> member "location"
+   |> member "defined_at" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "forward.HC" in
+      write_file root_file "#include \"forward\"";
+      write_file declaration_file "extern union IncludedPayload;";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_forward
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included declaration keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
+
+let aggregate_forward_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected aggregate %s became visible" name)
+        rejected_name)
+    [
+      ( "class name is missing",
+        "extern class ;",
+        None,
+        "HCPARSE0107",
+        "expected a name" );
+      ("union ends early", "extern union", None, "HCPARSE0107", "end of input");
+      ( "semicolon is missing",
+        "extern class Missing",
+        Some "Missing",
+        "HCPARSE0108",
+        "expected ';'" );
+      ( "declarator list is rejected",
+        "extern class First,Second;",
+        Some "First",
+        "HCPARSE0108",
+        "found \",\"" );
+      ( "class body is rejected",
+        "extern class Body { I64 field; };",
+        Some "Body",
+        "HCPARSE0108",
+        "found \"{\"" );
+    ]
+
+let deterministic_aggregate_forward_dumps () =
+  let session, _, output =
+    parse_string "public extern class Forward;\nextern union Payload;"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human aggregate dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON aggregate dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies class and union forwards" true
+    (contains human "aggregate_forward_declaration aggregate_kind=class"
+    && contains human "aggregate_forward_declaration aggregate_kind=union");
+  let open Yojson.Safe.Util in
+  let items =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+  in
+  Alcotest.(check (list string))
+    "JSON aggregate kinds" [ "class"; "union" ]
+    (List.map (fun item -> item |> member "aggregate_kind" |> to_string) items)
+
 let alternate_binding_source_behavior () =
   let parser_source = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -2219,6 +2531,9 @@ let parenthesis_free_call_shapes () =
     (expect_ast output).Ast.items
     |> List.filter_map (function
       | Ast.Top_level_statement statement -> Some statement
+      | Ast.Aggregate_forward_declaration _ ->
+          Alcotest.fail
+            "the call fixture contains an unexpected forward declaration"
       | Ast.Function_prototype _ -> None
       | Ast.Global_variable _
       | Ast.Global_declaration _
@@ -7827,6 +8142,10 @@ let order_and_spans () =
     List.map
       (function
         | Ast.Global_variable variable -> variable
+        | Ast.Aggregate_forward_declaration _ ->
+            Alcotest.fail
+              "independent declarations unexpectedly formed a forward \
+               declaration"
         | Ast.Global_declaration _ ->
             Alcotest.fail "independent declarations unexpectedly formed a group"
         | Ast.Function_prototype _ ->
@@ -7960,6 +8279,9 @@ let declarations_update_symbol_conditionals () =
     (List.map
        (function
          | Ast.Global_variable variable -> variable.Ast.name.spelling
+         | Ast.Aggregate_forward_declaration _ ->
+             Alcotest.fail
+               "conditional fixture unexpectedly formed a forward declaration"
          | Ast.Global_declaration _ ->
              Alcotest.fail "conditional fixture unexpectedly formed a group"
          | Ast.Function_prototype _ ->
@@ -8037,6 +8359,7 @@ let implicit_output_shapes () =
       (function
         | Ast.Top_level_statement (Ast.Implicit_output_statement statement) ->
             statement
+        | Ast.Aggregate_forward_declaration _
         | Ast.Global_variable _
         | Ast.Global_declaration _
         | Ast.Function_prototype _
@@ -12120,6 +12443,20 @@ let tests =
     Alcotest.test_case "import compilation mode boundary" `Quick
       import_mode_boundary;
     Alcotest.test_case "declaration binding failures" `Quick binding_failures;
+    Alcotest.test_case "pinned aggregate forward behavior" `Quick
+      aggregate_forward_source_behavior;
+    Alcotest.test_case "direct aggregate forward declarations" `Quick
+      direct_aggregate_forward_declarations;
+    Alcotest.test_case "pinned kernel aggregate forward prefix" `Quick
+      pinned_kernel_aggregate_forward_prefix;
+    Alcotest.test_case "aggregate forward modes and visibility" `Quick
+      aggregate_forward_modes_and_visibility;
+    Alcotest.test_case "aggregate forward provenance" `Quick
+      aggregate_forward_provenance;
+    Alcotest.test_case "aggregate forward failures" `Quick
+      aggregate_forward_failures;
+    Alcotest.test_case "deterministic aggregate forward dumps" `Quick
+      deterministic_aggregate_forward_dumps;
     Alcotest.test_case "pinned alternate-name binding behavior" `Quick
       alternate_binding_source_behavior;
     Alcotest.test_case "direct alternate-name bindings" `Quick

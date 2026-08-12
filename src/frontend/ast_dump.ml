@@ -127,6 +127,10 @@ let binding_kind_name = function
   | Ast.Import -> "import"
   | Ast.Intern -> "intern"
 
+let aggregate_kind_name = function
+  | Ast.Class_aggregate -> "class"
+  | Ast.Union_aggregate -> "union"
+
 let print_modifiers buffer sources ~indent modifiers =
   List.iter
     (fun (modifier : Ast.declaration_modifier) ->
@@ -1003,6 +1007,21 @@ let human sources module_ =
     (List.length module_.items);
   List.iter
     (function
+      | Ast.Aggregate_forward_declaration declaration ->
+          Printf.bprintf buffer
+            "  aggregate_forward_declaration aggregate_kind=%s span=%s\n"
+            (aggregate_kind_name declaration.aggregate_kind)
+            (location_text sources declaration.location);
+          print_modifiers buffer sources ~indent:"    " declaration.modifiers;
+          print_binding buffer sources ~indent:"    " (Some declaration.binding);
+          Printf.bprintf buffer "    aggregate_keyword spelling=%S span=%s\n"
+            declaration.aggregate_keyword_spelling
+            (location_text sources declaration.aggregate_keyword_location);
+          Printf.bprintf buffer "    name spelling=%S span=%s\n"
+            declaration.name.spelling
+            (location_text sources declaration.name.location);
+          Printf.bprintf buffer "    semicolon span=%s\n"
+            (location_text sources declaration.semicolon)
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
@@ -2093,6 +2112,28 @@ and function_pointer_to_yojson sources ~name
       ])
 
 let item_to_yojson sources = function
+  | Ast.Aggregate_forward_declaration declaration ->
+      `Assoc
+        ([
+           ("kind", `String "aggregate_forward_declaration");
+           ( "aggregate_kind",
+             `String (aggregate_kind_name declaration.aggregate_kind) );
+         ]
+        @ modifier_fields sources declaration.modifiers
+        @ [
+            ("binding", binding_to_yojson sources declaration.binding);
+            ( "aggregate_keyword",
+              `Assoc
+                [
+                  ("spelling", `String declaration.aggregate_keyword_spelling);
+                  ( "location",
+                    location_to_yojson sources
+                      declaration.aggregate_keyword_location );
+                ] );
+            ("name", identifier_to_yojson sources declaration.name);
+            ("semicolon", location_to_yojson sources declaration.semicolon);
+            ("location", location_to_yojson sources declaration.location);
+          ])
   | Ast.Global_variable variable ->
       `Assoc
         ([ ("kind", `String "global_variable") ]

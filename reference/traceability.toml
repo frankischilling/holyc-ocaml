@@ -2015,6 +2015,51 @@ lowering_status = "planned"
 execution_status = "planned"
 
 [[feature]]
+id = "HC-PARSER-EXTERN-AGGREGATE-FORWARDS"
+description = "Extern class and union forward declarations retain their source shape and publish a class symbol before preprocessing continues."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_EXTERN branch",
+  "Compiler/PrsStmt.HC:PrsClass extern branch",
+  "Compiler/PrsVar.HC:PrsType class lookup",
+  "Kernel/KernelA.HH:4-17",
+  "Doc/ScopingLinkage.DD:46 and 85"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/symbol_visibility.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-forward.hc",
+  "test/cli/parse-aggregate-forward.human",
+  "test/cli/parse-aggregate-forward.json",
+  "test/cli/parse-aggregate-forward-error.hc",
+  "test/cli/parse-aggregate-forward-error.human",
+  "test/cli/parse-aggregate-forward-error.json"
+]
+status = "implemented"
+issue = 125
+ast_schema = "holyc-ast-v1"
+accepted_forms = ["extern class identifier ;", "extern union identifier ;"]
+modifier_prefix = "ordered declaration modifiers are retained"
+aggregate_identity = "class and union remain distinct AST kinds; both publish a class symbol"
+publication_order = "after consuming the semicolon and before requesting the next token"
+reference_prefix = "all 14 declarations in Kernel/KernelA.HH:4-17 parse in their original prefix"
+repeat_behavior = "repeated forward names remain separate source-ordered items"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_name_diagnostic = "HCPARSE0107"
+invalid_terminator_diagnostic = "HCPARSE0108"
+body_recovery = "tracks nested braces through the declaration semicolon"
+native_oracle_status = "not required; acceptance and publication order are explicit in pinned source"
+named_type_use = "planned"
+aggregate_body_parsing = "planned"
+inheritance_members_layout_and_metadata = "planned"
+semantic_duplicate_and_linkage_checks = "planned"
+
+[[feature]]
 id = "HC-PARSER-BRACKET-INDEX-EXPRESSIONS"
 description = "Bracket indexes retain their base, delimiters, and subscript expression without rewriting the syntax as pointer arithmetic."
 sources = [
