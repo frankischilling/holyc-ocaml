@@ -3985,8 +3985,18 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
           in
           let elements_rev = element :: elements_rev in
           let tokens_rev = List.rev_append element_tokens tokens_rev in
-          if comma_items = [] then
-            Some (List.rev elements_rev, List.rev tokens_rev)
+          let local_continues =
+            match statement.node with
+            | Ast.Local_declaration_statement _ -> true
+            | _ -> false
+          in
+          let reaches_block_close =
+            match (peek cursor).token.kind with
+            | Token_kind.Punctuation '}' -> true
+            | _ -> false
+          in
+          if comma_items = [] && ((not local_continues) || reaches_block_close)
+          then Some (List.rev elements_rev, List.rev tokens_rev)
           else collect elements_rev tokens_rev
   in
   let next_item = peek cursor in

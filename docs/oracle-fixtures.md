@@ -2,6 +2,27 @@
 
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Local declarations
+
+[`test/oracle/local-declarations.json`](../test/oracle/local-declarations.json) records automatic, static, variadic, nested, pointer, array, register-qualified, and comma-following locals compiled by the native TempleOS compiler. The first two calls to one static-local function returned 42 and 43, confirming retained storage. A local name was visible in its own initializer, and a name declared inside a nested block remained visible later in the function.
+
+The fixture also captures a source-specific statement rule. After `PrsVarLst` returns, `PrsStmt` continues unless the next token is `}`. An unbraced false `if` containing a local declaration therefore consumed the following assignment and returned 0. The braced comparison returned 7. The same rule causes a primitive local declaration in a `for` initializer to fail with `Missing )`. Register-qualified static locals, a qualifier before the local type, and an unbraced `try` local were also rejected. The hosted parser matches these accepted and rejected shapes, but does not claim identical diagnostic wording.
+
+The ten labeled native outputs were:
+
+```text
+ORACLE_AUTO=9
+ORACLE_STATIC1=42
+ORACLE_STATIC2=43
+ORACLE_VAR=7
+ORACLE_NESTED=9
+ORACLE_SELF=1
+ORACLE_COMMA=3
+ORACLE_IF_LOCAL=0
+ORACLE_IF_BLOCK=7
+ORACLE_LOCK=8
+```
+
 ## Function definitions
 
 The native compiler accepted the function-definition fixture recorded in [`test/oracle/function-definitions.json`](../test/oracle/function-definitions.json). The source was passed to `ExePrint` as one buffer so the final signature reached the compiler at EOF and the `#ifdef` directive ran while the preceding function still awaited its body.
@@ -66,4 +87,4 @@ qemu-system-x86_64 -m 512 -smp 1 -accel tcg -cdrom TOS_Distro.ISO -boot d -no-re
 
 At the TempleOS prompt, run `AutoComplete(OFF);`, then enter the commands listed for each case in the JSON record. Ignore the shell's timing lines and compare the labeled output exactly. The direct lexer case must print both `GE_KIND=1` and `GE_TAIL=1:tail`.
 
-For the function-definition fixture, run its `compile_command` as one command, then run each entry under `checks` in order. The six labeled result lines must match the recorded output exactly.
+For the function-definition fixture, run its `compile_command` as one command, then run each entry under `checks` in order. The six labeled result lines must match the recorded output exactly. For the local-declaration fixture, run both `compile_commands`, then the accepted and rejected checks in their recorded order.

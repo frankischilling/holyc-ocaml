@@ -91,6 +91,7 @@
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
   oracle/function-definitions.json
+  oracle/local-declarations.json
   (glob_files golden/*)
   (glob_files negative/*)))
 
