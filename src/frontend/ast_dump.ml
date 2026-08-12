@@ -593,6 +593,15 @@ let rec print_statement buffer sources ~indent = function
         (location_text sources statement.label_name.location);
       Printf.bprintf buffer "%scolon span=%s\n" child_indent
         (location_text sources statement.label_colon)
+  | Ast.Lock_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%slock_statement span=%s\n" indent
+        (location_text sources statement.lock_location);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.lock_keyword);
+      Printf.bprintf buffer "%sbody\n" child_indent;
+      print_statement buffer sources ~indent:(child_indent ^ "  ")
+        statement.lock_body
   | Ast.Return_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sreturn_statement span=%s value=%b semicolon=%b\n"
@@ -1496,6 +1505,14 @@ let rec statement_to_yojson sources = function
           ("name", identifier_to_yojson sources statement.label_name);
           ("colon", location_to_yojson sources statement.label_colon);
           ("location", location_to_yojson sources statement.label_location);
+        ]
+  | Ast.Lock_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "lock_statement");
+          ("keyword", location_to_yojson sources statement.lock_keyword);
+          ("body", statement_to_yojson sources statement.lock_body);
+          ("location", location_to_yojson sources statement.lock_location);
         ]
   | Ast.Return_statement statement ->
       `Assoc

@@ -369,6 +369,7 @@ type statement =
   | If_statement of if_statement
   | Implicit_output_statement of implicit_output_statement
   | Label_statement of label_statement
+  | Lock_statement of lock_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | While_statement of while_statement
@@ -436,6 +437,12 @@ and label_statement = private {
   label_name : identifier;
   label_colon : location;
   label_location : location;
+}
+
+and lock_statement = private {
+  lock_keyword : location;
+  lock_body : statement;
+  lock_location : location;
 }
 
 and return_statement = private {
@@ -812,6 +819,9 @@ val make_if_statement :
 
 val make_label_statement :
   name:identifier -> colon:location -> location:location -> label_statement
+
+val make_lock_statement :
+  keyword:location -> body:statement -> location:location -> lock_statement
 
 val make_return_statement :
   keyword:location ->
