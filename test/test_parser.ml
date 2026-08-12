@@ -232,6 +232,10 @@ let expect_if_statement = function
   | Ast.If_statement statement -> statement
   | _ -> Alcotest.fail "expected an if statement"
 
+let expect_while_statement = function
+  | Ast.While_statement statement -> statement
+  | _ -> Alcotest.fail "expected a while statement"
+
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
@@ -7796,6 +7800,265 @@ let deterministic_if_dumps () =
     "JSON nested then branch keeps sequence" "statement_sequence"
     (nested |> member "then_branch" |> member "kind" |> to_string)
 
+let while_statement_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsWhile requires an opening parenthesis", "if (cc->token!='(')");
+      ("PrsWhile parses the condition", "if (!PrsExpression(cc,NULL,FALSE))");
+      ("PrsWhile requires a closing parenthesis", "if (cc->token!=')')");
+      ("PrsWhile parses a body statement", "PrsStmt(cc,try_cnt,lb_done);");
+      ("PrsWhile emits its back edge", "ICAdd(cc,IC_JMP,lb,0);");
+    ];
+  let compiler_header = pinned "Compiler/CompilerA.HH" in
+  Alcotest.(check bool)
+    "while keeps its pinned keyword ID" true
+    (contains compiler_header "#define KW_WHILE\t9");
+  Alcotest.(check bool)
+    "the kernel corpus uses compound while bodies" true
+    (contains (pinned "Kernel/Job.HC") "while (tmpc!=head) {")
+
+let while_statement_shapes () =
+  let source = "I64 value;while(value)value--;" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_while_statement statement
+        | items ->
+            Alcotest.failf "expected one declaration and one while, got %d"
+              (List.length items)
+      in
+      Alcotest.(check int)
+        "while keyword is five bytes" 5
+        (Span.length statement.while_keyword.span);
+      Alcotest.(check int)
+        "opening parenthesis is one byte" 1
+        (Span.length statement.while_opening_parenthesis.span);
+      Alcotest.(check int)
+        "closing parenthesis is one byte" 1
+        (Span.length statement.while_closing_parenthesis.span);
+      Alcotest.(check string)
+        "condition identifier" "value"
+        (expect_identifier_expression statement.while_condition).spelling;
+      let body = expect_expression_statement statement.while_body in
+      Alcotest.(check bool)
+        "while span covers its body" true
+        (statement.while_location.span.start
+         = statement.while_keyword.span.start
+        && statement.while_location.span.stop
+           = body.expression_statement_location.span.stop))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let while_body_shapes_and_else_binding () =
+  let source =
+    "I64 a;I64 \
+     b;while(a){while(b),b--,b++;}if(a)while(b);else;while(a)if(b);else;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Global_variable _;
+   Ast.Global_variable _;
+   Ast.Top_level_statement block_loop;
+   Ast.Top_level_statement outer_if;
+   Ast.Top_level_statement outer_loop;
+  ] ->
+      let block =
+        expect_while_statement block_loop |> fun loop ->
+        loop.while_body |> expect_block_statement
+      in
+      let nested_loop =
+        match block.block_statements with
+        | [ statement ] -> expect_while_statement statement
+        | statements ->
+            Alcotest.failf "expected one nested loop, got %d statements"
+              (List.length statements)
+      in
+      let sequence = expect_statement_sequence nested_loop.while_body in
+      Alcotest.(check int)
+        "loop body keeps its leading comma" 1
+        (List.length sequence.sequence_leading_commas);
+      Alcotest.(check int)
+        "loop body keeps two expressions" 2
+        (List.length sequence.sequence_elements);
+      let outer_if = expect_if_statement outer_if in
+      ignore (expect_while_statement outer_if.if_then_branch);
+      Alcotest.(check bool)
+        "else after a while body belongs to the outer if" true
+        (Option.is_some outer_if.if_else_clause);
+      let outer_loop = expect_while_statement outer_loop in
+      let inner_if = expect_if_statement outer_loop.while_body in
+      Alcotest.(check bool)
+        "else inside a while body belongs to the inner if" true
+        (Option.is_some inner_if.if_else_clause)
+  | items ->
+      Alcotest.failf
+        "expected two declarations and three control-flow statements, got %d"
+        (List.length items)
+
+let while_statement_provenance () =
+  let source =
+    "#define LOOP while\n\
+     #define OPEN (\n\
+     #define CLOSE )\n\
+     I64 value;\n\
+     LOOP OPEN value CLOSE value--;"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    match (expect_ast output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_while_statement statement
+    | _ -> Alcotest.fail "expected one definition-backed while statement"
+  in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("while keyword", statement.while_keyword);
+      ("opening parenthesis", statement.while_opening_parenthesis);
+      ("closing parenthesis", statement.while_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated while punctuation provenance" true
+    (statement_json
+    |> member "opening_parenthesis"
+    |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let loop_file = Filename.concat directory "loop.HC" in
+      write_file root_file "I64 value;\n#include \"loop\"";
+      write_file loop_file "while(value)value--;";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included_loop =
+        match (expect_ast include_output).Ast.items with
+        | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+            expect_while_statement statement
+        | _ -> Alcotest.fail "expected one included while statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_loop.while_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included while keeps its canonical path" (Unix.realpath loop_file)
+        (Source_file.path included_source))
+
+let while_statement_failures () =
+  List.iter
+    (fun (name, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ( "missing opening parenthesis",
+        "I64 value;while value)value--;",
+        "HCPARSE0058",
+        "expected '(' after 'while'" );
+      ( "missing condition",
+        "I64 value;while()value--;",
+        "HCPARSE0018",
+        "while condition expression operand" );
+      ( "missing closing parenthesis",
+        "I64 value;while(value value--;",
+        "HCPARSE0059",
+        "expected ')' after the while condition" );
+      ( "missing body",
+        "I64 value;while(value)",
+        "HCPARSE0060",
+        "statement after the while condition" );
+      ( "comma-only body",
+        "I64 value;while(value),,,",
+        "HCPARSE0060",
+        "found only statement commas" );
+    ];
+  let nested_source =
+    "I64 value;"
+    ^ String.concat ""
+        (List.init (Parser.max_loop_depth + 1) (fun _ -> "while(value)"))
+    ^ ";"
+  in
+  let _, _, nested = parse_string nested_source in
+  let diagnostic = first_diagnostic nested in
+  Alcotest.(check string)
+    "excessive loop nesting diagnostic" "HCPARSE0061" diagnostic.code;
+  Alcotest.(check (list string))
+    "loop recovery reports one depth error" [ "HCPARSE0061" ]
+    (List.map (fun item -> item.Diagnostic.code) nested.diagnostics);
+  Alcotest.(check bool)
+    "loop nesting message names the hosted limit" true
+    (contains diagnostic.message (string_of_int Parser.max_loop_depth))
+
+let deterministic_while_dumps () =
+  let session, _, output =
+    parse_string "I64 value;while(value){if(value)value--;else;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human while dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON while dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the while body" true
+    (contains human "while_statement");
+  let open Yojson.Safe.Util in
+  let loop =
+    Yojson.Safe.from_string json |> member "module" |> member "items" |> to_list
+    |> fun items -> List.nth items 1 |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON loop kind" "while_statement"
+    (loop |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON loop body keeps its block" "block_statement"
+    (loop |> member "body" |> member "kind" |> to_string);
+  let nested =
+    loop |> member "body" |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON loop block keeps its conditional" "if_statement"
+    (nested |> member "kind" |> to_string)
+
 let unsupported_forms () =
   let cases =
     [
@@ -8099,6 +8362,17 @@ let tests =
     Alcotest.test_case "if statement failures" `Quick if_statement_failures;
     Alcotest.test_case "deterministic if statement dumps" `Quick
       deterministic_if_dumps;
+    Alcotest.test_case "pinned while behavior" `Quick
+      while_statement_source_behavior;
+    Alcotest.test_case "while statement shapes" `Quick while_statement_shapes;
+    Alcotest.test_case "while bodies and else binding" `Quick
+      while_body_shapes_and_else_binding;
+    Alcotest.test_case "while statement provenance" `Quick
+      while_statement_provenance;
+    Alcotest.test_case "while statement failures" `Quick
+      while_statement_failures;
+    Alcotest.test_case "deterministic while statement dumps" `Quick
+      deterministic_while_dumps;
     Alcotest.test_case "pinned array dimension behavior" `Quick
       array_dimension_source_behavior;
     Alcotest.test_case "direct global array declarators" `Quick

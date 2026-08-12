@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0060",
+    "severity": "error",
+    "message": "expected a statement after the while condition, but found end of input",
+    "primary": {
+      "path": "cli/parse-while-error.hc",
+      "line": 3,
+      "column": 1,
+      "source_id": 0,
+      "start": 24,
+      "stop": 24
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
