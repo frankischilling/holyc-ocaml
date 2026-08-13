@@ -3703,6 +3703,58 @@ visibility_warnings_parent_tasks_and_loader_records = "not implemented"
 native_oracle_status = "not required for this record boundary; PrsGlblVarLst, PrsType, HashVal, HashDel, and the pinned hash routines state the allocation and alias transitions directly"
 
 [[feature]]
+id = "HC-SEMA-GLOBAL-RECORD-FLAGS"
+description = "Resolved global records receive the pinned hash and value flags plus explicit consumer-policy classifications."
+sources = [
+  "Kernel/KernelA.HH:HTt_GLBL_VAR and HTT_GLBL_VAR",
+  "Kernel/KernelA.HH:HTf_PRIVATE through HTf_LOCAL",
+  "Kernel/KernelA.HH:GVF_FUN through GVF_ARRAY",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsExp.HC:global variable expression path",
+  "Kernel/KHashB.HC:HashVal",
+  "Kernel/KHashB.HC:HashDel",
+  "Compiler/CHash.HC:HashEntrySize2",
+  "Compiler/CHash.HC:MapFileWrite",
+  "Compiler/AsmResolve.HC:imports and exports",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "tools/global_record_flag_source.ml",
+  "tools/global_record_flag_gen.ml",
+  "src/generated/global_record_flags.ml",
+  "src/sema/global_record_flag.ml",
+  "src/sema/global_record_classification.ml",
+  "src/driver/global_record_classification.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_global_record_flag_source.ml",
+  "test/test_global_record_flag.ml",
+  "test/test_global_record_classification.ml"
+]
+status = "implemented"
+issue = 189
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_checks = "the generator validates seven pinned file digests, the global hash type, all nine HTF flags, all six GVF flags, and 25 consumer anchors"
+hash_flag_domain = ["private", "public", "export", "import", "immediate", "goto label", "resolve", "unresolved", "local"]
+global_flag_domain = ["function pointer", "import", "extern", "data heap", "alias", "array"]
+parser_staging = "ordered public and static transitions use the checked function-flag staging table"
+compiler_option_state = "OPTf_KEEP_PRIVATE is captured in an explicit source-position record state; the low-level API accepts a different state for every global"
+high_level_option_boundary = "the driver currently applies one explicit option mask to the batch until compile-time option execution supplies source-position snapshots"
+jit_extern = "HTF_UNRESOLVED plus GVF_EXTERN selects access through the data-address slot"
+aot_import = "HTF_IMPORT plus GVF_IMPORT retains the local or alternate import spelling and reports import publication intent"
+aot_alternate_extern = "HTF_EXPORT plus GVF_ALIAS selects a bound address and preserves aliased storage during cleanup"
+aot_definition = "code-heap definitions and intern records carry HTF_EXPORT; data-heap definitions carry GVF_DATA_HEAP without HTF_EXPORT"
+shape_flags = "function-pointer globals carry GVF_FUN and array-shaped globals carry GVF_ARRAY"
+map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligible for map output"
+publication_scope = "classification reports AOT import or export intent; actual import emission still depends on a use and fixup"
+validation = "record count, checked global-resolution batch, ordered AST modifiers, binding legality, session ownership, and preserved symbol-table state"
+mutation = "none"
+address_allocation_target_resolution_and_record_emission = "not implemented"
+native_oracle_status = "not required for this classification boundary; the pinned definitions and named consumers state each mask and policy directly"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
 description = "Language gotos and language or structural assembly-block labels receive stable function-local identities."
 sources = [

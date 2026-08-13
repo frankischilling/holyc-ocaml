@@ -1,0 +1,1 @@
+include Generated.Global_record_flags

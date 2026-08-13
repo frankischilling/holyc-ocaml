@@ -1,4 +1,5 @@
 /_build/
+/test/_build/
 *.install
 *.merlin
 .merlin

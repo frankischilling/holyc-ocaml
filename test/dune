@@ -23,6 +23,7 @@
   test_global_type_resolution
   test_function_resolution
   test_global_resolution
+  test_global_record_classification
   test_diagnostic
   test_version
   test_corpus
@@ -37,6 +38,8 @@
   test_intermediate_code
   test_function_flag_source
   test_function_flag
+  test_global_record_flag_source
+  test_global_record_flag
   test_bin_record_source
   test_bin_record)
  (libraries
@@ -44,6 +47,7 @@
   bin_record_tools
   compiler_option_tools
   function_flag_tools
+  global_record_flag_tools
   holyc_lib
   intermediate_code_tools
   opcode_table_tools
@@ -56,6 +60,7 @@
   ../third_party/TempleOS/Compiler/CExts.HC
   ../third_party/TempleOS/Compiler/CExcept.HC
   ../third_party/TempleOS/Compiler/CMain.HC
+  ../third_party/TempleOS/Compiler/CHash.HC
   ../third_party/TempleOS/Compiler/CMisc.HC
   ../third_party/TempleOS/Compiler/CompilerA.HH
   ../third_party/TempleOS/Compiler/BackFA.HC
@@ -113,6 +118,7 @@
   ../third_party/TempleOS/Doc/HolyC.DD
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
+  ../third_party/TempleOS/Doc/ScopingLinkage.DD
   ../third_party/TempleOS/Doc/Asm.DD
   ../third_party/TempleOS/Compiler/AsmInit.HC
   ../third_party/TempleOS/Compiler/AsmLib.HC

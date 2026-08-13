@@ -10,6 +10,7 @@ module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type
 module Compiler_option = Sema.Compiler_option
 module Function_flag = Sema.Function_flag
+module Global_record_flag = Sema.Global_record_flag
 module Semantic_symbol = Sema.Symbol
 module Semantic_symbol_table = Sema.Symbol_table
 module Ir_opcode = Ir.Opcode
@@ -46,6 +47,7 @@ module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_global_resolution = Sema.Global_resolution
+module Semantic_global_record_classification = Sema.Global_record_classification
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -136,3 +138,7 @@ let resolve_global_records session ~declarations ~globals ~compilation_mode
   Driver.Global_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~globals ~compilation_mode module_
+
+let classify_global_records ?compiler_option_mask _session ~resolution module_ =
+  Driver.Global_record_classification.classify ?compiler_option_mask ~resolution
+    module_
