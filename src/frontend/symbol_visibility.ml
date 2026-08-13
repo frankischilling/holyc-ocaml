@@ -17,9 +17,17 @@ type kind =
   | Help_file
   | Frame_pointer
 
+type source_origin = {
+  span : Common.Span.t;
+  source_segments : Common.Span.t list;
+  generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
+}
+
 type origin =
   | Pinned_source of { path : string; line : int }
   | Source_span of Common.Span.t
+  | Source_location of source_origin
   | Session_registration
 
 type parameter_call_shape = {
@@ -206,16 +214,53 @@ module Environment = struct
   let origin_text sources = function
     | Pinned_source { path; line } -> Printf.sprintf "%s:%d" path line
     | Source_span span -> span_position sources span
+    | Source_location source -> span_position sources source.span
     | Session_registration -> "<session>"
 
-  let dump sources environment =
+  let print_source_origin sources buffer source =
+    List.iteri
+      (fun index span ->
+        Printf.bprintf buffer "  source-segment %d location=%s\n" index
+          (span_position sources span))
+      source.source_segments;
+    Option.iter
+      (fun span ->
+        Printf.bprintf buffer "  generated-from=%s\n"
+          (span_position sources span))
+      source.generated_from;
+    Option.iter
+      (fun span ->
+        Printf.bprintf buffer "  defined-at=%s\n" (span_position sources span))
+      source.defined_at
+
+  let print_call_shape buffer shape =
+    Printf.bprintf buffer "  call-shape fixed=%d variadic=%b\n"
+      (List.length shape.parameters) shape.variadic;
+    List.iteri
+      (fun index parameter ->
+        let name =
+          match parameter.parameter_name with
+          | None -> "none"
+          | Some name -> Printf.sprintf "%S" name
+        in
+        Printf.bprintf buffer "    parameter %d name=%s default=%b\n" index name
+          parameter.has_default)
+      shape.parameters
+
+  let human sources environment =
     let buffer = Buffer.create 512 in
-    Buffer.add_string buffer "holyc-symbol-visibility-v1\n";
+    Buffer.add_string buffer "holyc-symbol-visibility-v2\n";
+    Printf.bprintf buffer "reference_commit=%s\n"
+      Generated.Opcode_keywords.reference_commit;
     List.iter
       (fun entry ->
         Printf.bprintf buffer "symbol %d name=%S kind=%s origin=%s\n" entry.id
           entry.name (kind_name entry.kind)
-          (origin_text sources entry.origin))
+          (origin_text sources entry.origin);
+        (match entry.origin with
+        | Source_location source -> print_source_origin sources buffer source
+        | Pinned_source _ | Source_span _ | Session_registration -> ());
+        Option.iter (print_call_shape buffer) entry.function_call_shape)
       (all environment);
     List.rev environment.local_contexts
     |> List.iter (fun (context, names) ->
@@ -224,4 +269,122 @@ module Environment = struct
         |> List.iter (fun name ->
             Printf.bprintf buffer "  local name=%S\n" name));
     buffer |> Buffer.contents
+
+  let span_to_yojson sources span =
+    let fields =
+      [
+        ("source_id", `Int (Common.Source_id.to_int span.Common.Span.source));
+        ("start", `Int span.start);
+        ("stop", `Int span.stop);
+      ]
+    in
+    match Common.Source_manager.find sources span.source with
+    | None -> `Assoc fields
+    | Some source ->
+        let fields =
+          ("path", `String (Common.Source_file.display_path source)) :: fields
+        in
+        let position_fields prefix offset =
+          match Common.Source_file.position source offset with
+          | Error _ -> []
+          | Ok position ->
+              [
+                (prefix ^ "line", `Int position.line);
+                (prefix ^ "column", `Int position.column);
+              ]
+        in
+        `Assoc
+          (fields @ position_fields "" span.start
+         @ position_fields "end_" span.stop)
+
+  let option_span_to_yojson sources = function
+    | None -> `Null
+    | Some span -> span_to_yojson sources span
+
+  let origin_to_yojson sources = function
+    | Pinned_source { path; line } ->
+        `Assoc
+          [
+            ("kind", `String "pinned-source");
+            ("path", `String path);
+            ("line", `Int line);
+          ]
+    | Source_span span ->
+        `Assoc
+          [
+            ("kind", `String "source-span");
+            ("span", span_to_yojson sources span);
+          ]
+    | Source_location source ->
+        `Assoc
+          [
+            ("kind", `String "source-location");
+            ("span", span_to_yojson sources source.span);
+            ( "source_segments",
+              `List (List.map (span_to_yojson sources) source.source_segments) );
+            ( "generated_from",
+              option_span_to_yojson sources source.generated_from );
+            ("defined_at", option_span_to_yojson sources source.defined_at);
+          ]
+    | Session_registration ->
+        `Assoc [ ("kind", `String "session-registration") ]
+
+  let call_shape_to_yojson shape =
+    `Assoc
+      [
+        ( "parameters",
+          `List
+            (List.mapi
+               (fun position parameter ->
+                 `Assoc
+                   [
+                     ("position", `Int position);
+                     ( "name",
+                       match parameter.parameter_name with
+                       | None -> `Null
+                       | Some name -> `String name );
+                     ("has_default", `Bool parameter.has_default);
+                   ])
+               shape.parameters) );
+        ("variadic", `Bool shape.variadic);
+      ]
+
+  let entry_to_yojson sources entry =
+    `Assoc
+      [
+        ("id", `Int entry.id);
+        ("name", `String entry.name);
+        ("kind", `String (kind_name entry.kind));
+        ("origin", origin_to_yojson sources entry.origin);
+        ( "call_shape",
+          match entry.function_call_shape with
+          | None -> `Null
+          | Some shape -> call_shape_to_yojson shape );
+      ]
+
+  let to_yojson sources environment =
+    `Assoc
+      [
+        ("schema", `String "holyc-symbol-visibility-v2");
+        ( "reference_commit",
+          `String Generated.Opcode_keywords.reference_commit );
+        ("symbols", `List (List.map (entry_to_yojson sources) (all environment)));
+        ( "local_contexts",
+          `List
+            (List.rev environment.local_contexts
+            |> List.map (fun (context, names) ->
+                   `Assoc
+                     [
+                       ("id", `Int context);
+                       ( "names",
+                         `List
+                           (String_set.elements names
+                           |> List.map (fun name -> `String name)) );
+                     ])) );
+      ]
+
+  let json sources environment =
+    to_yojson sources environment |> Yojson.Safe.pretty_to_string
+
+  let dump = human
 end

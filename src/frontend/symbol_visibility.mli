@@ -17,9 +17,17 @@ type kind =
   | Help_file
   | Frame_pointer
 
+type source_origin = {
+  span : Common.Span.t;
+  source_segments : Common.Span.t list;
+  generated_from : Common.Span.t option;
+  defined_at : Common.Span.t option;
+}
+
 type origin =
   | Pinned_source of { path : string; line : int }
   | Source_span of Common.Span.t
+  | Source_location of source_origin
   | Session_registration
 
 type parameter_call_shape = {
@@ -64,5 +72,8 @@ module Environment : sig
   val begin_local_context : t -> local_context
   val add_local : t -> local_context -> name:string -> (unit, string) result
   val end_local_context : t -> local_context -> (unit, string) result
+  val to_yojson : Common.Source_manager.t -> t -> Yojson.Safe.t
+  val human : Common.Source_manager.t -> t -> string
+  val json : Common.Source_manager.t -> t -> string
   val dump : Common.Source_manager.t -> t -> string
 end

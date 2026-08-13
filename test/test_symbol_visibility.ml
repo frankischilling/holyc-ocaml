@@ -205,12 +205,79 @@ let deterministic_dump () =
   Alcotest.(check string) "repeatable dump" first second;
   Alcotest.(check bool)
     "versioned header" true
-    (contains_text first "holyc-symbol-visibility-v1\n");
+    (contains_text first "holyc-symbol-visibility-v2\n");
+  Alcotest.(check bool)
+    "reference commit" true
+    (contains_text first Version.reference_commit);
   Alcotest.(check bool)
     "source origin" true
     (contains_text first
        "symbol 570 name=\"UserFunction\" kind=function \
         origin=visibility.HC:1:1..1:2")
+
+let deterministic_json () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"visibility-json.HC" ~contents:"Callable"
+  in
+  let span =
+    Span.make ~source:(Source_file.id source) ~length:8 ~start:0 ~stop:8
+    |> Result.get_ok
+  in
+  let symbols = Session.symbols session in
+  let shape : Symbol_visibility.function_call_shape =
+    {
+      parameters =
+        [
+          { parameter_name = Some "first"; has_default = true };
+          { parameter_name = None; has_default = false };
+        ];
+      variadic = true;
+    }
+  in
+  ignore
+    (Symbol_visibility.Environment.add symbols ~name:"Callable"
+       ~kind:Symbol_visibility.Function ~function_call_shape:shape
+       ~origin:
+         (Symbol_visibility.Source_location
+            {
+              span;
+              source_segments = [ span ];
+              generated_from = Some span;
+              defined_at = Some span;
+            })
+       ());
+  let local = Symbol_visibility.Environment.begin_local_context symbols in
+  checked (Symbol_visibility.Environment.add_local symbols local ~name:"zeta");
+  checked (Symbol_visibility.Environment.add_local symbols local ~name:"alpha");
+  let first = Symbol_visibility.Environment.json (Session.sources session) symbols in
+  let second =
+    Symbol_visibility.Environment.json (Session.sources session) symbols
+  in
+  Alcotest.(check string) "repeatable JSON" first second;
+  let json = Yojson.Safe.from_string first in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "JSON schema" "holyc-symbol-visibility-v2"
+    (json |> member "schema" |> to_string);
+  Alcotest.(check string)
+    "JSON reference commit" Version.reference_commit
+    (json |> member "reference_commit" |> to_string);
+  let callable = json |> member "symbols" |> to_list |> List.rev |> List.hd in
+  Alcotest.(check string)
+    "source location origin" "source-location"
+    (callable |> member "origin" |> member "kind" |> to_string);
+  Alcotest.(check int)
+    "two fixed parameters" 2
+    (callable |> member "call_shape" |> member "parameters" |> to_list
+    |> List.length);
+  Alcotest.(check bool)
+    "variadic shape" true
+    (callable |> member "call_shape" |> member "variadic" |> to_bool);
+  Alcotest.(check (list string))
+    "local names are sorted" [ "alpha"; "zeta" ]
+    (json |> member "local_contexts" |> index 0 |> member "names" |> to_list
+    |> List.map to_string)
 
 let tests =
   [
@@ -220,4 +287,5 @@ let tests =
     Alcotest.test_case "local shadowing" `Quick local_shadowing;
     Alcotest.test_case "function call shapes" `Quick function_call_shapes;
     Alcotest.test_case "deterministic dump" `Quick deterministic_dump;
+    Alcotest.test_case "deterministic JSON" `Quick deterministic_json;
   ]
