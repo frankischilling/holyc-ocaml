@@ -1,4 +1,11 @@
-type scope_kind = Task | Module | Function | Block | Aggregate | Assembler_block
+type scope_kind =
+  | Task
+  | Module
+  | Function
+  | Block
+  | Aggregate
+  | Assembler_block
+
 type scope
 type t
 

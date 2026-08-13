@@ -56,7 +56,8 @@ type t = {
 }
 
 let create ~id ~scope_id ~name ~kind ~origin =
-  if String.equal name "" then invalid_arg "semantic symbol name cannot be empty";
+  if String.equal name "" then
+    invalid_arg "semantic symbol name cannot be empty";
   (match origin with
   | Pinned_source { path; line } ->
       if String.equal path "" then

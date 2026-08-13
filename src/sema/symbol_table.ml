@@ -1,4 +1,10 @@
-type scope_kind = Task | Module | Function | Block | Aggregate | Assembler_block
+type scope_kind =
+  | Task
+  | Module
+  | Function
+  | Block
+  | Aggregate
+  | Assembler_block
 
 type owner = unit ref
 
@@ -93,7 +99,8 @@ let add (table : t) ~(scope : scope) ~name ~kind ~origin =
   else
     try
       let symbol =
-        Symbol.create ~id:(Symbol.Id.of_int table.next_symbol_id)
+        Symbol.create
+          ~id:(Symbol.Id.of_int table.next_symbol_id)
           ~scope_id:scope.id ~name ~kind ~origin
       in
       table.next_symbol_id <- table.next_symbol_id + 1;
@@ -108,9 +115,7 @@ let add (table : t) ~(scope : scope) ~name ~kind ~origin =
 type local_search = Found of Symbol.t | Remaining of int
 
 let matches kinds symbol =
-  List.exists
-    (fun kind -> Symbol.equal_kind kind (Symbol.kind symbol))
-    kinds
+  List.exists (fun kind -> Symbol.equal_kind kind (Symbol.kind symbol)) kinds
 
 let search_entries entries ~kinds ~instance =
   let rec search remaining = function
@@ -280,14 +285,14 @@ let origin_to_yojson sources = function
           ("span", span_to_yojson sources source.span);
           ( "source_segments",
             `List (List.map (span_to_yojson sources) source.source_segments) );
-          ("generated_from", optional_span_to_yojson sources source.generated_from);
+          ( "generated_from",
+            optional_span_to_yojson sources source.generated_from );
           ("defined_at", optional_span_to_yojson sources source.defined_at);
         ]
   | Symbol.Synthesized description ->
       `Assoc
         [
-          ("kind", `String "synthesized");
-          ("description", `String description);
+          ("kind", `String "synthesized"); ("description", `String description);
         ]
 
 let scope_to_yojson scope =
@@ -296,7 +301,9 @@ let scope_to_yojson scope =
       ("id", `Int (Symbol.Scope_id.to_int scope.id));
       ("kind", `String (scope_kind_name scope.kind));
       ( "name",
-        match scope.name with None -> `Null | Some name -> `String name );
+        match scope.name with
+        | None -> `Null
+        | Some name -> `String name );
       ( "parent",
         match scope.parent with
         | None -> `Null
@@ -323,5 +330,4 @@ let to_yojson sources table =
         `List (List.map (symbol_to_yojson sources) (all_symbols table)) );
     ]
 
-let json sources table =
-  to_yojson sources table |> Yojson.Safe.pretty_to_string
+let json sources table = to_yojson sources table |> Yojson.Safe.pretty_to_string

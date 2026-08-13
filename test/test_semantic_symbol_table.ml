@@ -15,8 +15,7 @@ let contains_text text needle =
   in
   search 0
 
-let symbol_id symbol =
-  Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
+let symbol_id symbol = Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
 
 let scope_id scope =
   Semantic_symbol_table.scope_id scope |> Semantic_symbol.Scope_id.to_int
@@ -145,11 +144,13 @@ let chained_lookup () =
   let lookup instance =
     checked
       (Semantic_symbol_table.lookup table ~scope:function_scope ~name:"Value"
-         ~kinds:[ Semantic_symbol.Global_variable ] ~instance ())
+         ~kinds:[ Semantic_symbol.Global_variable ]
+         ~instance ())
     |> Option.get
   in
   Alcotest.(check int)
-    "child shadows parent" (symbol_id child_symbol) (lookup 1 |> symbol_id);
+    "child shadows parent" (symbol_id child_symbol)
+    (lookup 1 |> symbol_id);
   Alcotest.(check int)
     "nth match reaches parent" (symbol_id parent_symbol)
     (lookup 2 |> symbol_id);
@@ -157,7 +158,9 @@ let chained_lookup () =
     "local lookup does not walk parents" true
     (checked
        (Semantic_symbol_table.lookup_local table ~scope:function_scope
-          ~name:"Value" ~kinds:[ Semantic_symbol.Global_variable ] ())
+          ~name:"Value"
+          ~kinds:[ Semantic_symbol.Global_variable ]
+          ())
     |> Option.is_none)
 
 let rejected_lookup_is_nonmutating () =
@@ -177,18 +180,23 @@ let rejected_lookup_is_nonmutating () =
     |> Result.is_error);
   Alcotest.(check bool)
     "zero instance fails" true
-    (Semantic_symbol_table.lookup table ~scope:(Semantic_symbol_table.root table)
-       ~name:"Name" ~kinds:[ Semantic_symbol.Function ] ~instance:0 ()
+    (Semantic_symbol_table.lookup table
+       ~scope:(Semantic_symbol_table.root table)
+       ~name:"Name"
+       ~kinds:[ Semantic_symbol.Function ]
+       ~instance:0 ()
     |> Result.is_error);
   Alcotest.(check bool)
     "empty kind set fails" true
-    (Semantic_symbol_table.lookup table ~scope:(Semantic_symbol_table.root table)
+    (Semantic_symbol_table.lookup table
+       ~scope:(Semantic_symbol_table.root table)
        ~name:"Name" ~kinds:[] ()
     |> Result.is_error);
   Alcotest.(check bool)
     "foreign lookup fails" true
     (Semantic_symbol_table.lookup table ~scope:foreign_root ~name:"Name"
-       ~kinds:[ Semantic_symbol.Function ] ()
+       ~kinds:[ Semantic_symbol.Function ]
+       ()
     |> Result.is_error);
   let first_scope =
     checked
@@ -200,7 +208,8 @@ let rejected_lookup_is_nonmutating () =
     "failed scope creation did not consume an ID" 1 (scope_id first_scope);
   let first =
     checked
-      (Semantic_symbol_table.add table ~scope:(Semantic_symbol_table.root table)
+      (Semantic_symbol_table.add table
+         ~scope:(Semantic_symbol_table.root table)
          ~name:"Right" ~kind:Semantic_symbol.Function
          ~origin:(Semantic_symbol.Synthesized "valid"))
   in
@@ -254,11 +263,10 @@ let deterministic_dumps () =
   Alcotest.(check string)
     "JSON schema" "holyc-semantic-symbol-table-v1"
     (parsed |> member "schema" |> to_string);
-  let origin =
-    parsed |> member "symbols" |> index 0 |> member "origin"
-  in
+  let origin = parsed |> member "symbols" |> index 0 |> member "origin" in
   Alcotest.(check string)
-    "source origin" "source-location" (origin |> member "kind" |> to_string);
+    "source origin" "source-location"
+    (origin |> member "kind" |> to_string);
   Alcotest.(check string)
     "source path" "generated.HC"
     (origin |> member "span" |> member "path" |> to_string)
@@ -270,15 +278,16 @@ let session_seed () =
   let internal_types =
     Semantic_symbol_table.all_symbols table
     |> List.filter (fun symbol ->
-        Semantic_symbol.equal_kind (Semantic_symbol.kind symbol)
+        Semantic_symbol.equal_kind
+          (Semantic_symbol.kind symbol)
           Semantic_symbol.Internal_type)
   in
-  Alcotest.(check int)
-    "pinned internal types" 17 (List.length internal_types);
+  Alcotest.(check int) "pinned internal types" 17 (List.length internal_types);
   let i64 =
     checked
       (Semantic_symbol_table.lookup table ~scope:root ~name:"I64i"
-         ~kinds:[ Semantic_symbol.Internal_type ] ())
+         ~kinds:[ Semantic_symbol.Internal_type ]
+         ())
   in
   Alcotest.(check bool) "I64i is seeded" true (Option.is_some i64)
 
