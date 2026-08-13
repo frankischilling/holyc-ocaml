@@ -601,6 +601,27 @@ type inline_assembly_operation = {
   inline_assembly_operation_location : location;
 }
 
+type inline_assembly_directive_kind =
+  | Inline_assembly_import_directive
+  | Inline_assembly_data_directive of { element_width_bytes : int }
+  | Inline_assembly_binfile_directive
+  | Inline_assembly_list_directive
+  | Inline_assembly_nolist_directive
+  | Inline_assembly_use_directive of { segment_width_bits : int }
+
+type inline_assembly_directive = {
+  inline_assembly_directive_kind : inline_assembly_directive_kind;
+  inline_assembly_directive_token : assembly_token;
+  inline_assembly_directive_arguments : assembly_token list;
+  inline_assembly_directive_separators : location list;
+  inline_assembly_directive_semicolon : location option;
+  inline_assembly_directive_location : location;
+}
+
+type inline_assembly_item =
+  | Inline_assembly_instruction of inline_assembly_operation
+  | Inline_assembly_directive of inline_assembly_directive
+
 type statement =
   | Assembly_block_statement of assembly_block_statement
   | Inline_assembly_statement of inline_assembly_statement
@@ -631,7 +652,7 @@ and assembly_block_statement = {
 }
 
 and inline_assembly_statement = {
-  inline_assembly_operations : inline_assembly_operation list;
+  inline_assembly_items : inline_assembly_item list;
   inline_assembly_location : location;
 }
 
@@ -1339,11 +1360,19 @@ let make_inline_assembly_operation ~opcode ~operands ~separator ~semicolon
     inline_assembly_operation_location = location;
   }
 
-let make_inline_assembly_statement ~operations ~location =
+let make_inline_assembly_directive ~kind ~directive ~arguments ~separators
+    ~semicolon ~location =
   {
-    inline_assembly_operations = operations;
-    inline_assembly_location = location;
+    inline_assembly_directive_kind = kind;
+    inline_assembly_directive_token = directive;
+    inline_assembly_directive_arguments = arguments;
+    inline_assembly_directive_separators = separators;
+    inline_assembly_directive_semicolon = semicolon;
+    inline_assembly_directive_location = location;
   }
+
+let make_inline_assembly_statement ~items ~location =
+  { inline_assembly_items = items; inline_assembly_location = location }
 
 let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
   {
