@@ -9,7 +9,7 @@
       "column": 1,
       "source_id": 0,
       "start": 0,
-      "stop": 60
+      "stop": 96
     },
     "items": [
       {
@@ -159,6 +159,8 @@
                       ]
                     }
                   },
+                  "operands": [],
+                  "separator": null,
                   "semicolon": null,
                   "location": {
                     "span": {
@@ -211,6 +213,8 @@
                       ]
                     }
                   },
+                  "operands": [],
+                  "separator": null,
                   "semicolon": {
                     "span": {
                       "path": "cli/parse-inline-assembly.hc",
@@ -259,6 +263,560 @@
                       }
                     ]
                   }
+                },
+                {
+                  "opcode": {
+                    "category": "opcode",
+                    "spelling": "MOV",
+                    "lexical_kind": "identifier",
+                    "value": "MOV",
+                    "mode": "holyc",
+                    "canonical_spelling": "MOV",
+                    "source_is_alias": false,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 33
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-inline-assembly.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 33
+                        }
+                      ]
+                    }
+                  },
+                  "operands": [
+                    {
+                      "kind": "register",
+                      "size_prefix": null,
+                      "segment_prefix": null,
+                      "tokens": [
+                        {
+                          "category": "register",
+                          "spelling": "RAX",
+                          "lexical_kind": "identifier",
+                          "value": "RAX",
+                          "mode": "holyc",
+                          "register_kind": "r64",
+                          "register_number": 0,
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 7,
+                              "source_id": 0,
+                              "start": 34,
+                              "stop": 37
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 7,
+                                "source_id": 0,
+                                "start": 34,
+                                "stop": 37
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-inline-assembly.hc",
+                          "line": 4,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 34,
+                          "stop": 37
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 7,
+                            "source_id": 0,
+                            "start": 34,
+                            "stop": 37
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "kind": "memory",
+                      "size_prefix": {
+                        "category": "directive",
+                        "spelling": "U64",
+                        "lexical_kind": "identifier",
+                        "value": "U64",
+                        "mode": "holyc",
+                        "templeos_id": 75,
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 38,
+                            "stop": 41
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 38,
+                              "stop": 41
+                            }
+                          ]
+                        }
+                      },
+                      "segment_prefix": null,
+                      "tokens": [
+                        {
+                          "category": "directive",
+                          "spelling": "U64",
+                          "lexical_kind": "identifier",
+                          "value": "U64",
+                          "mode": "holyc",
+                          "templeos_id": 75,
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 38,
+                              "stop": 41
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 11,
+                                "source_id": 0,
+                                "start": 38,
+                                "stop": 41
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "category": "integer",
+                          "spelling": "8",
+                          "lexical_kind": "integer",
+                          "value": "0x0000000000000008",
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 15,
+                              "source_id": 0,
+                              "start": 42,
+                              "stop": 43
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 15,
+                                "source_id": 0,
+                                "start": 42,
+                                "stop": 43
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "category": "punctuation",
+                          "spelling": "[",
+                          "lexical_kind": "punctuation('[')",
+                          "value": null,
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 16,
+                              "source_id": 0,
+                              "start": 43,
+                              "stop": 44
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 16,
+                                "source_id": 0,
+                                "start": 43,
+                                "stop": 44
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "category": "register",
+                          "spelling": "RBP",
+                          "lexical_kind": "identifier",
+                          "value": "RBP",
+                          "mode": "holyc",
+                          "register_kind": "r64",
+                          "register_number": 5,
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 17,
+                              "source_id": 0,
+                              "start": 44,
+                              "stop": 47
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 17,
+                                "source_id": 0,
+                                "start": 44,
+                                "stop": 47
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "category": "punctuation",
+                          "spelling": "]",
+                          "lexical_kind": "punctuation(']')",
+                          "value": null,
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 47,
+                              "stop": 48
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 4,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 47,
+                                "stop": 48
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-inline-assembly.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 38,
+                          "stop": 48
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 38,
+                            "stop": 41
+                          },
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 15,
+                            "source_id": 0,
+                            "start": 42,
+                            "stop": 43
+                          },
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 43,
+                            "stop": 44
+                          },
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 44,
+                            "stop": 47
+                          },
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 4,
+                            "column": 20,
+                            "source_id": 0,
+                            "start": 47,
+                            "stop": 48
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "separator": {
+                    "span": {
+                      "path": "cli/parse-inline-assembly.hc",
+                      "line": 4,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 37,
+                      "stop": 38
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      }
+                    ]
+                  },
+                  "semicolon": null,
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-inline-assembly.hc",
+                      "line": 4,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 48
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 33
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 34,
+                        "stop": 37
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 38,
+                        "stop": 41
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 42,
+                        "stop": 43
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 43,
+                        "stop": 44
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 44,
+                        "stop": 47
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 4,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 47,
+                        "stop": 48
+                      }
+                    ]
+                  }
+                },
+                {
+                  "opcode": {
+                    "category": "opcode",
+                    "spelling": "CALL",
+                    "lexical_kind": "identifier",
+                    "value": "CALL",
+                    "mode": "holyc",
+                    "canonical_spelling": "CALL",
+                    "source_is_alias": false,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 51,
+                        "stop": 55
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-inline-assembly.hc",
+                          "line": 5,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 51,
+                          "stop": 55
+                        }
+                      ]
+                    }
+                  },
+                  "operands": [
+                    {
+                      "kind": "immediate",
+                      "size_prefix": null,
+                      "segment_prefix": null,
+                      "tokens": [
+                        {
+                          "category": "identifier",
+                          "spelling": "Target",
+                          "lexical_kind": "identifier",
+                          "value": "Target",
+                          "mode": "holyc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-inline-assembly.hc",
+                              "line": 5,
+                              "column": 8,
+                              "source_id": 0,
+                              "start": 56,
+                              "stop": 62
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-inline-assembly.hc",
+                                "line": 5,
+                                "column": 8,
+                                "source_id": 0,
+                                "start": 56,
+                                "stop": 62
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-inline-assembly.hc",
+                          "line": 5,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 56,
+                          "stop": 62
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-inline-assembly.hc",
+                            "line": 5,
+                            "column": 8,
+                            "source_id": 0,
+                            "start": 56,
+                            "stop": 62
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "separator": null,
+                  "semicolon": {
+                    "span": {
+                      "path": "cli/parse-inline-assembly.hc",
+                      "line": 5,
+                      "column": 14,
+                      "source_id": 0,
+                      "start": 62,
+                      "stop": 63
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 5,
+                        "column": 14,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 63
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-inline-assembly.hc",
+                      "line": 5,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 51,
+                      "stop": 63
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 5,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 51,
+                        "stop": 55
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 56,
+                        "stop": 62
+                      },
+                      {
+                        "path": "cli/parse-inline-assembly.hc",
+                        "line": 5,
+                        "column": 14,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 63
+                      }
+                    ]
+                  }
                 }
               ],
               "location": {
@@ -268,7 +826,7 @@
                   "column": 3,
                   "source_id": 0,
                   "start": 16,
-                  "stop": 27
+                  "stop": 63
                 },
                 "source_segments": [
                   {
@@ -294,6 +852,94 @@
                     "source_id": 0,
                     "start": 26,
                     "stop": 27
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 33
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 34,
+                    "stop": 37
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 41
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 43
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 43,
+                    "stop": 44
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 44,
+                    "stop": 47
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 4,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 47,
+                    "stop": 48
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 55
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 5,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 56,
+                    "stop": 62
+                  },
+                  {
+                    "path": "cli/parse-inline-assembly.hc",
+                    "line": 5,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 62,
+                    "stop": 63
                   }
                 ]
               }
@@ -303,40 +949,40 @@
               "keyword": {
                 "span": {
                   "path": "cli/parse-inline-assembly.hc",
-                  "line": 4,
+                  "line": 6,
                   "column": 3,
                   "source_id": 0,
-                  "start": 30,
-                  "stop": 32
+                  "start": 66,
+                  "stop": 68
                 },
                 "source_segments": [
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 3,
                     "source_id": 0,
-                    "start": 30,
-                    "stop": 32
+                    "start": 66,
+                    "stop": 68
                   }
                 ]
               },
               "opening_parenthesis": {
                 "span": {
                   "path": "cli/parse-inline-assembly.hc",
-                  "line": 4,
+                  "line": 6,
                   "column": 6,
                   "source_id": 0,
-                  "start": 33,
-                  "stop": 34
+                  "start": 69,
+                  "stop": 70
                 },
                 "source_segments": [
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 6,
                     "source_id": 0,
-                    "start": 33,
-                    "stop": 34
+                    "start": 69,
+                    "stop": 70
                   }
                 ]
               },
@@ -347,20 +993,20 @@
                 "location": {
                   "span": {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 7,
                     "source_id": 0,
-                    "start": 34,
-                    "stop": 35
+                    "start": 70,
+                    "stop": 71
                   },
                   "source_segments": [
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 7,
                       "source_id": 0,
-                      "start": 34,
-                      "stop": 35
+                      "start": 70,
+                      "stop": 71
                     }
                   ]
                 }
@@ -368,20 +1014,20 @@
               "closing_parenthesis": {
                 "span": {
                   "path": "cli/parse-inline-assembly.hc",
-                  "line": 4,
+                  "line": 6,
                   "column": 8,
                   "source_id": 0,
-                  "start": 35,
-                  "stop": 36
+                  "start": 71,
+                  "stop": 72
                 },
                 "source_segments": [
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 8,
                     "source_id": 0,
-                    "start": 35,
-                    "stop": 36
+                    "start": 71,
+                    "stop": 72
                   }
                 ]
               },
@@ -390,20 +1036,20 @@
                 "opening_brace": {
                   "span": {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 10,
                     "source_id": 0,
-                    "start": 37,
-                    "stop": 38
+                    "start": 73,
+                    "stop": 74
                   },
                   "source_segments": [
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 10,
                       "source_id": 0,
-                      "start": 37,
-                      "stop": 38
+                      "start": 73,
+                      "stop": 74
                     }
                   ]
                 },
@@ -423,42 +1069,44 @@
                           "location": {
                             "span": {
                               "path": "cli/parse-inline-assembly.hc",
-                              "line": 4,
+                              "line": 6,
                               "column": 11,
                               "source_id": 0,
-                              "start": 38,
-                              "stop": 43
+                              "start": 74,
+                              "stop": 79
                             },
                             "source_segments": [
                               {
                                 "path": "cli/parse-inline-assembly.hc",
-                                "line": 4,
+                                "line": 6,
                                 "column": 11,
                                 "source_id": 0,
-                                "start": 38,
-                                "stop": 43
+                                "start": 74,
+                                "stop": 79
                               }
                             ]
                           }
                         },
+                        "operands": [],
+                        "separator": null,
                         "semicolon": null,
                         "location": {
                           "span": {
                             "path": "cli/parse-inline-assembly.hc",
-                            "line": 4,
+                            "line": 6,
                             "column": 11,
                             "source_id": 0,
-                            "start": 38,
-                            "stop": 43
+                            "start": 74,
+                            "stop": 79
                           },
                           "source_segments": [
                             {
                               "path": "cli/parse-inline-assembly.hc",
-                              "line": 4,
+                              "line": 6,
                               "column": 11,
                               "source_id": 0,
-                              "start": 38,
-                              "stop": 43
+                              "start": 74,
+                              "stop": 79
                             }
                           ]
                         }
@@ -467,20 +1115,20 @@
                     "location": {
                       "span": {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 4,
+                        "line": 6,
                         "column": 11,
                         "source_id": 0,
-                        "start": 38,
-                        "stop": 43
+                        "start": 74,
+                        "stop": 79
                       },
                       "source_segments": [
                         {
                           "path": "cli/parse-inline-assembly.hc",
-                          "line": 4,
+                          "line": 6,
                           "column": 11,
                           "source_id": 0,
-                          "start": 38,
-                          "stop": 43
+                          "start": 74,
+                          "stop": 79
                         }
                       ]
                     }
@@ -489,56 +1137,56 @@
                 "closing_brace": {
                   "span": {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 16,
                     "source_id": 0,
-                    "start": 43,
-                    "stop": 44
+                    "start": 79,
+                    "stop": 80
                   },
                   "source_segments": [
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 16,
                       "source_id": 0,
-                      "start": 43,
-                      "stop": 44
+                      "start": 79,
+                      "stop": 80
                     }
                   ]
                 },
                 "location": {
                   "span": {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 10,
                     "source_id": 0,
-                    "start": 37,
-                    "stop": 44
+                    "start": 73,
+                    "stop": 80
                   },
                   "source_segments": [
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 10,
                       "source_id": 0,
-                      "start": 37,
-                      "stop": 38
+                      "start": 73,
+                      "stop": 74
                     },
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 11,
                       "source_id": 0,
-                      "start": 38,
-                      "stop": 43
+                      "start": 74,
+                      "stop": 79
                     },
                     {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 4,
+                      "line": 6,
                       "column": 16,
                       "source_id": 0,
-                      "start": 43,
-                      "stop": 44
+                      "start": 79,
+                      "stop": 80
                     }
                   ]
                 }
@@ -547,68 +1195,68 @@
               "location": {
                 "span": {
                   "path": "cli/parse-inline-assembly.hc",
-                  "line": 4,
+                  "line": 6,
                   "column": 3,
                   "source_id": 0,
-                  "start": 30,
-                  "stop": 44
+                  "start": 66,
+                  "stop": 80
                 },
                 "source_segments": [
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 3,
                     "source_id": 0,
-                    "start": 30,
-                    "stop": 32
+                    "start": 66,
+                    "stop": 68
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 6,
                     "source_id": 0,
-                    "start": 33,
-                    "stop": 34
+                    "start": 69,
+                    "stop": 70
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 7,
                     "source_id": 0,
-                    "start": 34,
-                    "stop": 35
+                    "start": 70,
+                    "stop": 71
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 8,
                     "source_id": 0,
-                    "start": 35,
-                    "stop": 36
+                    "start": 71,
+                    "stop": 72
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 10,
                     "source_id": 0,
-                    "start": 37,
-                    "stop": 38
+                    "start": 73,
+                    "stop": 74
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 11,
                     "source_id": 0,
-                    "start": 38,
-                    "stop": 43
+                    "start": 74,
+                    "stop": 79
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 4,
+                    "line": 6,
                     "column": 16,
                     "source_id": 0,
-                    "start": 43,
-                    "stop": 44
+                    "start": 79,
+                    "stop": 80
                   }
                 ]
               }
@@ -628,42 +1276,44 @@
                     "location": {
                       "span": {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 3,
                         "source_id": 0,
-                        "start": 47,
-                        "stop": 52
+                        "start": 83,
+                        "stop": 88
                       },
                       "source_segments": [
                         {
                           "path": "cli/parse-inline-assembly.hc",
-                          "line": 5,
+                          "line": 7,
                           "column": 3,
                           "source_id": 0,
-                          "start": 47,
-                          "stop": 52
+                          "start": 83,
+                          "stop": 88
                         }
                       ]
                     }
                   },
+                  "operands": [],
+                  "separator": null,
                   "semicolon": null,
                   "location": {
                     "span": {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 5,
+                      "line": 7,
                       "column": 3,
                       "source_id": 0,
-                      "start": 47,
-                      "stop": 52
+                      "start": 83,
+                      "stop": 88
                     },
                     "source_segments": [
                       {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 3,
                         "source_id": 0,
-                        "start": 47,
-                        "stop": 52
+                        "start": 83,
+                        "stop": 88
                       }
                     ]
                   }
@@ -680,69 +1330,71 @@
                     "location": {
                       "span": {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 9,
                         "source_id": 0,
-                        "start": 53,
-                        "stop": 56
+                        "start": 89,
+                        "stop": 92
                       },
                       "source_segments": [
                         {
                           "path": "cli/parse-inline-assembly.hc",
-                          "line": 5,
+                          "line": 7,
                           "column": 9,
                           "source_id": 0,
-                          "start": 53,
-                          "stop": 56
+                          "start": 89,
+                          "stop": 92
                         }
                       ]
                     }
                   },
+                  "operands": [],
+                  "separator": null,
                   "semicolon": {
                     "span": {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 5,
+                      "line": 7,
                       "column": 12,
                       "source_id": 0,
-                      "start": 56,
-                      "stop": 57
+                      "start": 92,
+                      "stop": 93
                     },
                     "source_segments": [
                       {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 12,
                         "source_id": 0,
-                        "start": 56,
-                        "stop": 57
+                        "start": 92,
+                        "stop": 93
                       }
                     ]
                   },
                   "location": {
                     "span": {
                       "path": "cli/parse-inline-assembly.hc",
-                      "line": 5,
+                      "line": 7,
                       "column": 9,
                       "source_id": 0,
-                      "start": 53,
-                      "stop": 57
+                      "start": 89,
+                      "stop": 93
                     },
                     "source_segments": [
                       {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 9,
                         "source_id": 0,
-                        "start": 53,
-                        "stop": 56
+                        "start": 89,
+                        "stop": 92
                       },
                       {
                         "path": "cli/parse-inline-assembly.hc",
-                        "line": 5,
+                        "line": 7,
                         "column": 12,
                         "source_id": 0,
-                        "start": 56,
-                        "stop": 57
+                        "start": 92,
+                        "stop": 93
                       }
                     ]
                   }
@@ -751,36 +1403,36 @@
               "location": {
                 "span": {
                   "path": "cli/parse-inline-assembly.hc",
-                  "line": 5,
+                  "line": 7,
                   "column": 3,
                   "source_id": 0,
-                  "start": 47,
-                  "stop": 57
+                  "start": 83,
+                  "stop": 93
                 },
                 "source_segments": [
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 5,
+                    "line": 7,
                     "column": 3,
                     "source_id": 0,
-                    "start": 47,
-                    "stop": 52
+                    "start": 83,
+                    "stop": 88
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 5,
+                    "line": 7,
                     "column": 9,
                     "source_id": 0,
-                    "start": 53,
-                    "stop": 56
+                    "start": 89,
+                    "stop": 92
                   },
                   {
                     "path": "cli/parse-inline-assembly.hc",
-                    "line": 5,
+                    "line": 7,
                     "column": 12,
                     "source_id": 0,
-                    "start": 56,
-                    "stop": 57
+                    "start": 92,
+                    "stop": 93
                   }
                 ]
               }
@@ -789,20 +1441,20 @@
           "closing_brace": {
             "span": {
               "path": "cli/parse-inline-assembly.hc",
-              "line": 6,
+              "line": 8,
               "column": 1,
               "source_id": 0,
-              "start": 58,
-              "stop": 59
+              "start": 94,
+              "stop": 95
             },
             "source_segments": [
               {
                 "path": "cli/parse-inline-assembly.hc",
-                "line": 6,
+                "line": 8,
                 "column": 1,
                 "source_id": 0,
-                "start": 58,
-                "stop": 59
+                "start": 94,
+                "stop": 95
               }
             ]
           },
@@ -813,7 +1465,7 @@
               "column": 1,
               "source_id": 0,
               "start": 12,
-              "stop": 59
+              "stop": 95
             },
             "source_segments": [
               {
@@ -854,15 +1506,7 @@
                 "column": 3,
                 "source_id": 0,
                 "start": 30,
-                "stop": 32
-              },
-              {
-                "path": "cli/parse-inline-assembly.hc",
-                "line": 4,
-                "column": 6,
-                "source_id": 0,
-                "start": 33,
-                "stop": 34
+                "stop": 33
               },
               {
                 "path": "cli/parse-inline-assembly.hc",
@@ -870,15 +1514,7 @@
                 "column": 7,
                 "source_id": 0,
                 "start": 34,
-                "stop": 35
-              },
-              {
-                "path": "cli/parse-inline-assembly.hc",
-                "line": 4,
-                "column": 8,
-                "source_id": 0,
-                "start": 35,
-                "stop": 36
+                "stop": 37
               },
               {
                 "path": "cli/parse-inline-assembly.hc",
@@ -894,6 +1530,14 @@
                 "column": 11,
                 "source_id": 0,
                 "start": 38,
+                "stop": 41
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 4,
+                "column": 15,
+                "source_id": 0,
+                "start": 42,
                 "stop": 43
               },
               {
@@ -906,35 +1550,131 @@
               },
               {
                 "path": "cli/parse-inline-assembly.hc",
+                "line": 4,
+                "column": 17,
+                "source_id": 0,
+                "start": 44,
+                "stop": 47
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 4,
+                "column": 20,
+                "source_id": 0,
+                "start": 47,
+                "stop": 48
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
                 "line": 5,
                 "column": 3,
                 "source_id": 0,
-                "start": 47,
-                "stop": 52
+                "start": 51,
+                "stop": 55
               },
               {
                 "path": "cli/parse-inline-assembly.hc",
                 "line": 5,
-                "column": 9,
-                "source_id": 0,
-                "start": 53,
-                "stop": 56
-              },
-              {
-                "path": "cli/parse-inline-assembly.hc",
-                "line": 5,
-                "column": 12,
+                "column": 8,
                 "source_id": 0,
                 "start": 56,
-                "stop": 57
+                "stop": 62
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 5,
+                "column": 14,
+                "source_id": 0,
+                "start": 62,
+                "stop": 63
               },
               {
                 "path": "cli/parse-inline-assembly.hc",
                 "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 66,
+                "stop": 68
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 6,
+                "source_id": 0,
+                "start": 69,
+                "stop": 70
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 7,
+                "source_id": 0,
+                "start": 70,
+                "stop": 71
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 8,
+                "source_id": 0,
+                "start": 71,
+                "stop": 72
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 10,
+                "source_id": 0,
+                "start": 73,
+                "stop": 74
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 11,
+                "source_id": 0,
+                "start": 74,
+                "stop": 79
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 6,
+                "column": 16,
+                "source_id": 0,
+                "start": 79,
+                "stop": 80
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 83,
+                "stop": 88
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 7,
+                "column": 9,
+                "source_id": 0,
+                "start": 89,
+                "stop": 92
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 7,
+                "column": 12,
+                "source_id": 0,
+                "start": 92,
+                "stop": 93
+              },
+              {
+                "path": "cli/parse-inline-assembly.hc",
+                "line": 8,
                 "column": 1,
                 "source_id": 0,
-                "start": 58,
-                "stop": 59
+                "start": 94,
+                "stop": 95
               }
             ]
           }
@@ -946,7 +1686,7 @@
             "column": 1,
             "source_id": 0,
             "start": 0,
-            "stop": 59
+            "stop": 95
           },
           "source_segments": [
             {
@@ -1019,15 +1759,7 @@
               "column": 3,
               "source_id": 0,
               "start": 30,
-              "stop": 32
-            },
-            {
-              "path": "cli/parse-inline-assembly.hc",
-              "line": 4,
-              "column": 6,
-              "source_id": 0,
-              "start": 33,
-              "stop": 34
+              "stop": 33
             },
             {
               "path": "cli/parse-inline-assembly.hc",
@@ -1035,15 +1767,7 @@
               "column": 7,
               "source_id": 0,
               "start": 34,
-              "stop": 35
-            },
-            {
-              "path": "cli/parse-inline-assembly.hc",
-              "line": 4,
-              "column": 8,
-              "source_id": 0,
-              "start": 35,
-              "stop": 36
+              "stop": 37
             },
             {
               "path": "cli/parse-inline-assembly.hc",
@@ -1059,6 +1783,14 @@
               "column": 11,
               "source_id": 0,
               "start": 38,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 4,
+              "column": 15,
+              "source_id": 0,
+              "start": 42,
               "stop": 43
             },
             {
@@ -1071,35 +1803,131 @@
             },
             {
               "path": "cli/parse-inline-assembly.hc",
+              "line": 4,
+              "column": 17,
+              "source_id": 0,
+              "start": 44,
+              "stop": 47
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 4,
+              "column": 20,
+              "source_id": 0,
+              "start": 47,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
               "line": 5,
               "column": 3,
               "source_id": 0,
-              "start": 47,
-              "stop": 52
+              "start": 51,
+              "stop": 55
             },
             {
               "path": "cli/parse-inline-assembly.hc",
               "line": 5,
-              "column": 9,
-              "source_id": 0,
-              "start": 53,
-              "stop": 56
-            },
-            {
-              "path": "cli/parse-inline-assembly.hc",
-              "line": 5,
-              "column": 12,
+              "column": 8,
               "source_id": 0,
               "start": 56,
-              "stop": 57
+              "stop": 62
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 5,
+              "column": 14,
+              "source_id": 0,
+              "start": 62,
+              "stop": 63
             },
             {
               "path": "cli/parse-inline-assembly.hc",
               "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 66,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 6,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 7,
+              "source_id": 0,
+              "start": 70,
+              "stop": 71
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 8,
+              "source_id": 0,
+              "start": 71,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 10,
+              "source_id": 0,
+              "start": 73,
+              "stop": 74
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 11,
+              "source_id": 0,
+              "start": 74,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 6,
+              "column": 16,
+              "source_id": 0,
+              "start": 79,
+              "stop": 80
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 83,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 7,
+              "column": 9,
+              "source_id": 0,
+              "start": 89,
+              "stop": 92
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 7,
+              "column": 12,
+              "source_id": 0,
+              "start": 92,
+              "stop": 93
+            },
+            {
+              "path": "cli/parse-inline-assembly.hc",
+              "line": 8,
               "column": 1,
               "source_id": 0,
-              "start": 58,
-              "stop": 59
+              "start": 94,
+              "stop": 95
             }
           ]
         }

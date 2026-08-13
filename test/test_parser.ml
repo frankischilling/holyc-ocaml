@@ -15243,8 +15243,21 @@ let inline_assembly_source_behavior () =
         "if (!(cmp_flags&CMPF_ONE_ASM_INS))" );
       ( "the first loaded form controls the first operand",
         "if (tmpo->ins[0].arg1)" );
+      ( "the first loaded form controls the second operand",
+        "if (tmpo->ins[0].arg2)" );
+      ("two operands require a comma", "if (cc->token!=',')");
       ( "the direct path may continue to another opcode",
         "tmpo->type&(HTT_OPCODE|HTT_ASM_KEYWORD)" );
+    ];
+  let operand_parser = pinned "Compiler/Asm.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains operand_parser fragment))
+    [
+      ("register operands return directly", "arg->reg1=tmpr->reg_num;");
+      ("size prefixes set an explicit width", "arg->size=8;");
+      ("brackets mark an indirect operand", "arg->indirect=TRUE;");
+      ("assembly immediates use expression parsing", "PrsAsmImm(cc,arg);");
     ];
   Alcotest.(check bool)
     "the direct assembly flag keeps its pinned bit" true
@@ -15375,6 +15388,11 @@ let inline_assembly_opcode_spellings (statement : Ast.inline_assembly_statement)
       operation.inline_assembly_opcode.assembly_source_token.raw)
     statement.inline_assembly_operations
 
+let inline_assembly_operand_spellings (operand : Ast.inline_assembly_operand) =
+  List.map
+    (fun (token : Ast.assembly_token) -> token.assembly_source_token.raw)
+    operand.inline_assembly_operand_tokens
+
 let inline_assembly_shapes () =
   let source = "U0 Inline()\n{\nPUSHFD CLI;\nif (1) {PAUSE}\nPOPFD BPT;\n}" in
   List.iter
@@ -15420,6 +15438,128 @@ let inline_assembly_shapes () =
           Alcotest.failf
             "expected two inline runs around an if statement, got %d statements"
             (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_operand_shapes () =
+  let source =
+    "U0 Operands(){\n\
+     MOV AL,0x41\n\
+     ADC AL,0\n\
+     CALL PUT_HEX_U8\n\
+     MOV RCX,cnts.time_stamp_freq>>5\n\
+     MOV RAX,U64 8[RBP]\n\
+     MOV RDX,FS:[RBP+(RAX*8)]\n\
+     LTR AX;\n\
+     }"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        expect_ast output |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_inline_assembly_statement
+      in
+      let operations = statement.inline_assembly_operations in
+      Alcotest.(check (list int))
+        "the first opcode forms control direct operand arity"
+        [ 2; 2; 1; 2; 2; 2; 1 ]
+        (List.map
+           (fun (operation : Ast.inline_assembly_operation) ->
+             List.length operation.inline_assembly_operands)
+           operations);
+      Alcotest.(check (list bool))
+        "two-operand operations retain their commas"
+        [ true; true; false; true; true; true; false ]
+        (List.map
+           (fun (operation : Ast.inline_assembly_operation) ->
+             Option.is_some operation.inline_assembly_separator)
+           operations);
+      let first = List.hd operations in
+      let destination, immediate =
+        match first.inline_assembly_operands with
+        | [ destination; immediate ] -> (destination, immediate)
+        | operands ->
+            Alcotest.failf "MOV retained %d operands" (List.length operands)
+      in
+      (match destination.inline_assembly_operand_kind with
+      | Ast.Inline_assembly_register_operand -> ()
+      | _ -> Alcotest.fail "AL did not remain a register operand");
+      (match immediate.inline_assembly_operand_kind with
+      | Ast.Inline_assembly_immediate_operand -> ()
+      | _ -> Alcotest.fail "0x41 did not remain an immediate operand");
+      Alcotest.(check (list string))
+        "the immediate spelling is lossless" [ "0x41" ]
+        (inline_assembly_operand_spellings immediate);
+      let sized_memory =
+        List.nth (List.nth operations 4).inline_assembly_operands 1
+      in
+      (match sized_memory.inline_assembly_operand_kind with
+      | Ast.Inline_assembly_memory_operand -> ()
+      | _ -> Alcotest.fail "U64 8[RBP] did not remain a memory operand");
+      Alcotest.(check (list string))
+        "a sized address keeps every token"
+        [ "U64"; "8"; "["; "RBP"; "]" ]
+        (inline_assembly_operand_spellings sized_memory);
+      Alcotest.(check string)
+        "the size prefix is classified" "U64"
+        (sized_memory.inline_assembly_size_prefix |> Option.get)
+          .assembly_source_token
+          .raw;
+      let segmented_memory =
+        List.nth (List.nth operations 5).inline_assembly_operands 1
+      in
+      (match segmented_memory.inline_assembly_operand_kind with
+      | Ast.Inline_assembly_memory_operand -> ()
+      | _ -> Alcotest.fail "FS:[...] did not remain a memory operand");
+      Alcotest.(check string)
+        "the segment prefix is classified" "FS"
+        (segmented_memory.inline_assembly_segment_prefix |> Option.get)
+          .assembly_source_token
+          .raw)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let pinned_inline_assembly_operand_snippets () =
+  let cases =
+    [
+      ( "assembler and C demo",
+        "Demo/Asm/AsmAndC3.HC",
+        "U0 Exact(){\n"
+        ^ pinned_lines "Demo/Asm/AsmAndC3.HC" ~first:13 ~last:18
+        ^ "\n}" );
+      ( "ring-three instructions",
+        "Demo/Lectures/Ring3.HC",
+        "U0 Exact(){\n"
+        ^ pinned_lines "Demo/Lectures/Ring3.HC" ~first:31 ~last:31
+        ^ "\n"
+        ^ pinned_lines "Demo/Lectures/Ring3.HC" ~first:36 ~last:36
+        ^ "\n}" );
+      ( "interrupt stack access",
+        "Kernel/KInts.HC",
+        "interrupt U0 Exact(){\n"
+        ^ pinned_lines "Kernel/KInts.HC" ~first:156 ~last:156
+        ^ "\n}" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, path, source) ->
+          let _, _, output = parse_string ~path ~compilation_mode:mode source in
+          let body =
+            expect_ast output |> expect_one_definition |> expect_function_body
+            |> expect_block_statement
+          in
+          Alcotest.(check bool)
+            (name ^ " keeps at least one direct assembly operation")
+            true
+            (List.exists
+               (function
+                 | Ast.Inline_assembly_statement _ -> true
+                 | _ -> false)
+               body.block_statements))
+        cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let inline_assembly_statement_contexts () =
@@ -15469,6 +15609,25 @@ let inline_assembly_provenance () =
   Alcotest.(check bool)
     "JSON keeps the generated inline operation" true
     (contains json "\"kind\": \"inline_assembly_statement\"");
+  let _, _, operand_output =
+    parse_string "#define DEST RBX\nU0 GeneratedOperand(){MOV RAX,DEST;}"
+  in
+  let generated_operand =
+    expect_ast operand_output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    List.hd block.block_statements |> expect_inline_assembly_statement
+    |> fun statement ->
+    List.hd statement.inline_assembly_operations |> fun operation ->
+    List.nth operation.inline_assembly_operands 1 |> fun operand ->
+    List.hd operand.inline_assembly_operand_tokens
+  in
+  Alcotest.(check bool)
+    "a generated operand keeps its expansion site" true
+    (Option.is_some generated_operand.assembly_token_location.generated_from);
+  Alcotest.(check bool)
+    "a generated operand keeps its definition site" true
+    (Option.is_some generated_operand.assembly_token_location.defined_at);
   with_temp_directory (fun directory ->
       let root_file = Filename.concat directory "root.HC" in
       let inline_file = Filename.concat directory "inline.HC" in
@@ -15508,13 +15667,24 @@ let inline_assembly_failures () =
   Alcotest.(check bool)
     "top-level diagnostic recommends a block" true
     (contains (first_diagnostic top_level).message "asm { ... }");
-  let _, _, operands = parse_string "U0 Bad(){MOV RAX,RBX}" in
-  Alcotest.(check string)
-    "operand-bearing direct opcode diagnostic" "HCPARSE0148"
-    (first_diagnostic operands).code;
-  Alcotest.(check bool)
-    "operand diagnostic reports the first-form arity" true
-    (contains (first_diagnostic operands).message "requires 2 operands");
+  List.iter
+    (fun (description, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string) description code (first_diagnostic output).code)
+    [
+      ("missing first operand diagnostic", "U0 Bad(){CALL;}", "HCPARSE0149");
+      ("missing second operand diagnostic", "U0 Bad(){MOV RAX,;}", "HCPARSE0149");
+      ( "missing operand comma diagnostic",
+        "U0 Bad(){MOV RAX RBX;}",
+        "HCPARSE0150" );
+      ( "unclosed memory operand diagnostic",
+        "U0 Bad(){MOV RAX,[RBP;}",
+        "HCPARSE0151" );
+      ( "mismatched memory delimiter diagnostic",
+        "U0 Bad(){MOV RAX,[(RBP];}",
+        "HCPARSE0151" );
+      ("extra operand diagnostic", "U0 Bad(){MOV RAX,RBX,RCX;}", "HCPARSE0152");
+    ];
   let _, _, local = parse_string "U0 Local(){I64 value;}" in
   ignore (expect_ast local);
   let _, _, shadow = parse_string "U0 Shadow(){I64 CLI;CLI;}" in
@@ -15551,7 +15721,7 @@ let inline_assembly_failures () =
     | statement -> [ statement ]
   in
   let statements = List.concat_map flatten_statement body.block_statements in
-  match statements with
+  (match statements with
   | [ declaration; direct; expression ] ->
       ignore (declaration |> expect_local_declaration);
       Alcotest.(check (list string))
@@ -15562,10 +15732,30 @@ let inline_assembly_failures () =
   | statements ->
       Alcotest.failf
         "an adjacent shadow should produce three ordered statements, got %d"
-        (List.length statements)
+        (List.length statements));
+  let _, _, register_shadow =
+    parse_string "U0 RegisterShadow(){I64 RAX;MOV RAX,RBX;}"
+  in
+  let operation =
+    expect_ast register_shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    List.concat_map flatten_statement block.block_statements
+    |> List.find_map (function
+      | Ast.Inline_assembly_statement statement ->
+          Some (List.hd statement.inline_assembly_operations)
+      | _ -> None)
+    |> Option.get
+  in
+  let first_operand = List.hd operation.inline_assembly_operands in
+  match first_operand.inline_assembly_operand_kind with
+  | Ast.Inline_assembly_immediate_operand -> ()
+  | _ -> Alcotest.fail "a local named RAX did not shadow the register spelling"
 
 let deterministic_inline_assembly_dumps () =
-  let session, _, output = parse_string "U0 Dump(){PUSHFD CLI;BPT;}" in
+  let session, _, output =
+    parse_string "U0 Dump(){PUSHFD MOV RAX,U64 8[RBP] CLI;BPT;}"
+  in
   let ast = expect_ast output in
   let sources = Session.sources session in
   let human = Ast_dump.human sources ast in
@@ -15584,7 +15774,13 @@ let deterministic_inline_assembly_dumps () =
     (contains human "canonical=\"INT3\" alias=true");
   Alcotest.(check bool)
     "JSON identifies inline assembly" true
-    (contains json "\"kind\": \"inline_assembly_statement\"")
+    (contains json "\"kind\": \"inline_assembly_statement\"");
+  Alcotest.(check bool)
+    "human dump identifies a sized memory operand" true
+    (contains human "kind=memory size_prefix=\"U64\"");
+  Alcotest.(check bool)
+    "JSON dump identifies a memory operand" true
+    (contains json "\"kind\": \"memory\"")
 
 let lock_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -17813,6 +18009,10 @@ let tests =
     Alcotest.test_case "pinned inline assembly snippets" `Quick
       pinned_inline_assembly_snippets;
     Alcotest.test_case "inline assembly shapes" `Quick inline_assembly_shapes;
+    Alcotest.test_case "inline assembly operand shapes" `Quick
+      inline_assembly_operand_shapes;
+    Alcotest.test_case "pinned inline assembly operand snippets" `Quick
+      pinned_inline_assembly_operand_snippets;
     Alcotest.test_case "inline assembly statement contexts" `Quick
       inline_assembly_statement_contexts;
     Alcotest.test_case "inline assembly provenance" `Quick

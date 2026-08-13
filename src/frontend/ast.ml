@@ -580,8 +580,23 @@ type assembly_line = {
   assembly_line_location : location;
 }
 
+type inline_assembly_operand_kind =
+  | Inline_assembly_register_operand
+  | Inline_assembly_immediate_operand
+  | Inline_assembly_memory_operand
+
+type inline_assembly_operand = {
+  inline_assembly_operand_kind : inline_assembly_operand_kind;
+  inline_assembly_size_prefix : assembly_token option;
+  inline_assembly_segment_prefix : assembly_token option;
+  inline_assembly_operand_tokens : assembly_token list;
+  inline_assembly_operand_location : location;
+}
+
 type inline_assembly_operation = {
   inline_assembly_opcode : assembly_token;
+  inline_assembly_operands : inline_assembly_operand list;
+  inline_assembly_separator : location option;
   inline_assembly_semicolon : location option;
   inline_assembly_operation_location : location;
 }
@@ -1304,9 +1319,22 @@ let make_assembly_block_statement ~keyword ~opening_brace ~lines ~closing_brace
     assembly_block_location = location;
   }
 
-let make_inline_assembly_operation ~opcode ~semicolon ~location =
+let make_inline_assembly_operand ~kind ~size_prefix ~segment_prefix ~tokens
+    ~location =
+  {
+    inline_assembly_operand_kind = kind;
+    inline_assembly_size_prefix = size_prefix;
+    inline_assembly_segment_prefix = segment_prefix;
+    inline_assembly_operand_tokens = tokens;
+    inline_assembly_operand_location = location;
+  }
+
+let make_inline_assembly_operation ~opcode ~operands ~separator ~semicolon
+    ~location =
   {
     inline_assembly_opcode = opcode;
+    inline_assembly_operands = operands;
+    inline_assembly_separator = separator;
     inline_assembly_semicolon = semicolon;
     inline_assembly_operation_location = location;
   }
