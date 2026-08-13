@@ -1,6 +1,9 @@
 module Flag = Holyc_lib.Function_flag
 
 let shared_registry () =
+  Alcotest.(check (pair int int64))
+    "function hash type" (6, 0x40L)
+    (Flag.function_type.type_index, Flag.function_type.type_mask);
   Alcotest.(check (list string))
     "shared names"
     [ "Cf_EXTERN"; "Cf_INTERNAL_TYPE" ]
@@ -147,7 +150,7 @@ let provenance () =
   Alcotest.(check string)
     "reference commit" "c26482bb6ad3f80106d28504ec5db3c6a360732c"
     Flag.reference_commit;
-  Alcotest.(check int) "source count" 9 (List.length Flag.sources);
+  Alcotest.(check int) "source count" 12 (List.length Flag.sources);
   Alcotest.(check (pair string int))
     "automatic RET1"
     ("Compiler/PrsStmt.HC", 116)
@@ -158,6 +161,20 @@ let provenance () =
     ("Compiler/PrsExp.HC", 572)
     ( Flag.behavior_sources.caller_cleanup.path,
       Flag.behavior_sources.caller_cleanup.line );
+  Alcotest.(check (pair string int))
+    "private source state" ("Kernel/KHashB.HC", 161)
+    ( Flag.behavior_sources.private_type_transfer.path,
+      Flag.behavior_sources.private_type_transfer.line );
+  Alcotest.(check (pair string int))
+    "external call dispatch"
+    ("Compiler/PrsExp.HC", 561)
+    ( Flag.behavior_sources.external_call_dispatch.path,
+      Flag.behavior_sources.external_call_dispatch.line );
+  Alcotest.(check (pair string int))
+    "AOT import precedence"
+    ("Compiler/AsmResolve.HC", 137)
+    ( Flag.behavior_sources.aot_import_precedence.path,
+      Flag.behavior_sources.aot_import_precedence.line );
   Alcotest.(check (pair string int))
     "interrupt save"
     ("Compiler/OptPass789A.HC", 704)

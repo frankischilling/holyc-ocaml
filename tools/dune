@@ -113,11 +113,14 @@
  (deps
   ../reference/manifest.json
   ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KHashB.HC
   ../third_party/TempleOS/Kernel/FunSeg.HC
   ../third_party/TempleOS/Compiler/CompilerA.HH
   ../third_party/TempleOS/Compiler/PrsStmt.HC
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Compiler/CHash.HC
+  ../third_party/TempleOS/Compiler/AsmResolve.HC
   ../third_party/TempleOS/Compiler/OptPass3.HC
   ../third_party/TempleOS/Compiler/OptPass6.HC
   ../third_party/TempleOS/Compiler/OptPass789A.HC

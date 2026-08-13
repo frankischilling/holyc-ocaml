@@ -8,6 +8,15 @@ type flag_entry = {
   consumers : source_reference list;
 }
 
+type function_type_entry = {
+  index_name : string;
+  mask_name : string;
+  type_index : int;
+  type_mask : int64;
+  index_definition_line : int;
+  mask_definition_line : int;
+}
+
 type group_entry = {
   name : string;
   mask : int64;
@@ -28,10 +37,23 @@ type transition_entry = {
 }
 
 type behavior = {
+  record_creation_extern : source_reference;
   symbol_flag_transfer : source_reference;
   public_type_transfer : source_reference;
+  private_type_transfer : source_reference;
   automatic_ret1 : source_reference;
   variadic_declaration : source_reference;
+  intern_transition : source_reference;
+  bound_extern_transition : source_reference;
+  bound_extern_aot_resolve : source_reference;
+  import_transition : source_reference;
+  definition_aot_publication : source_reference;
+  definition_resolves : source_reference;
+  external_call_dispatch : source_reference;
+  hash_value_dispatch : source_reference;
+  map_visibility : source_reference;
+  aot_import_precedence : source_reference;
+  aot_export_resolution : source_reference;
   variadic_optimizer : source_reference;
   caller_cleanup : source_reference;
   try_cleanup : source_reference;
@@ -46,6 +68,7 @@ type behavior = {
 }
 
 type tables = {
+  function_type : function_type_entry;
   shared_flags : flag_entry list;
   function_flags : flag_entry list;
   staging_flags : flag_entry list;
@@ -325,6 +348,9 @@ let parse_define line_number line =
 let relevant_kernel_name name =
   starts_with ~prefix:"Cf_" name || starts_with ~prefix:"Ff_" name
 
+let relevant_function_type_name name =
+  String.equal name "HTt_FUN" || String.equal name "HTT_FUN"
+
 let relevant_compiler_name name =
   starts_with ~prefix:"FSF_" name || starts_with ~prefix:"FSG_FUN_" name
 
@@ -354,6 +380,7 @@ let collect_definitions ~path ~relevant ~environment source =
   collect 1 environment [] lines
 
 let expected_shared = [ ("Cf_EXTERN", 0); ("Cf_INTERNAL_TYPE", 1) ]
+let expected_function_type = [ ("HTt_FUN", 6L); ("HTT_FUN", 0x40L) ]
 
 let expected_function =
   [
@@ -487,6 +514,50 @@ let validate_exact_masks ~path expected definitions =
         else compare expected definitions
   in
   compare expected definitions
+
+let function_type_of_definitions ~path = function
+  | [ index; mask ] ->
+      let expected_index = List.nth expected_function_type 0 in
+      let expected_mask = List.nth expected_function_type 1 in
+      if not (String.equal index.name (fst expected_index)) then
+        error ~path ~line:index.line
+          (Printf.sprintf "function hash type requires %s here, but found %s"
+             (fst expected_index) index.name)
+      else if not (Int64.equal index.value (snd expected_index)) then
+        error ~path ~line:index.line
+          (Printf.sprintf "%s must remain type index %Ld" index.name
+             (snd expected_index))
+      else if not (String.equal mask.name (fst expected_mask)) then
+        error ~path ~line:mask.line
+          (Printf.sprintf "function hash type requires %s here, but found %s"
+             (fst expected_mask) mask.name)
+      else if not (Int64.equal mask.value (snd expected_mask)) then
+        error ~path ~line:mask.line
+          (Printf.sprintf "%s must remain type mask 0x%Lx" mask.name
+             (snd expected_mask))
+      else if
+        not
+          (Int64.equal mask.value
+             (Int64.shift_left 1L (Int64.to_int index.value)))
+      then
+        error ~path ~line:mask.line "function hash type mask and index disagree"
+      else
+        Ok
+          {
+            index_name = index.name;
+            mask_name = mask.name;
+            type_index = Int64.to_int index.value;
+            type_mask = mask.value;
+            index_definition_line = index.line;
+            mask_definition_line = mask.line;
+          }
+  | [] -> error ~path "function hash type definitions are missing"
+  | [ definition ] ->
+      error ~path ~line:definition.line
+        "function hash type requires both its index and mask definitions"
+  | _ :: _ :: extra :: _ ->
+      error ~path ~line:extra.line
+        "function hash type contains an unexpected definition"
 
 let bit_index_of_mask ~path definition =
   let mask = definition.value in
@@ -651,12 +722,19 @@ let apply_transition transition mask =
   | Replace_preserving { keep_mask; add_mask } ->
       Int64.logor (Int64.logand mask keep_mask) add_mask
 
-let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
-    ~prs_exp_source ~opt_pass3_source ~opt_pass6_source ~opt_pass789a_source
-    ~fun_seg_source =
+let parse ~kernel_source ~khash_b_source ~compiler_source ~prs_stmt_source
+    ~prs_var_source ~prs_exp_source ~c_hash_source ~asm_resolve_source
+    ~opt_pass3_source ~opt_pass6_source ~opt_pass789a_source ~fun_seg_source =
   let ( let* ) result continuation = Result.bind result continuation in
   let kernel_path = "Kernel/KernelA.HH" in
   let compiler_path = "Compiler/CompilerA.HH" in
+  let* function_type_definitions =
+    collect_definitions ~path:kernel_path ~relevant:relevant_function_type_name
+      ~environment:[] kernel_source
+  in
+  let* function_type =
+    function_type_of_definitions ~path:kernel_path function_type_definitions
+  in
   let* kernel_definitions =
     collect_definitions ~path:kernel_path ~relevant:relevant_kernel_name
       ~environment:[] kernel_source
@@ -733,9 +811,12 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   in
   let consumer_sources =
     [
+      ("Kernel/KHashB.HC", khash_b_source);
       ("Compiler/PrsStmt.HC", prs_stmt_source);
       ("Compiler/PrsVar.HC", prs_var_source);
       ("Compiler/PrsExp.HC", prs_exp_source);
+      ("Compiler/CHash.HC", c_hash_source);
+      ("Compiler/AsmResolve.HC", asm_resolve_source);
       ("Compiler/OptPass3.HC", opt_pass3_source);
       ("Compiler/OptPass6.HC", opt_pass6_source);
       ("Compiler/OptPass789A.HC", opt_pass789a_source);
@@ -862,6 +943,11 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   let behavior_ref ~path ~anchor ~snippet source =
     require_compact ~path ~anchor ~snippet source
   in
+  let* record_creation_extern =
+    behavior_ref ~path:"Compiler/PrsStmt.HC"
+      ~anchor:"LBts(&tmpf->flags,Cf_EXTERN);"
+      ~snippet:"LBts(&tmpf->flags,Cf_EXTERN);" prs_stmt_source
+  in
   let* symbol_flag_transfer =
     behavior_ref ~path:"Compiler/PrsStmt.HC"
       ~anchor:"tmpf->flags|=fsp_flags&FSG_FUN_FLAGS1;"
@@ -872,6 +958,12 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
       ~anchor:"BEqu(&tmpf->type,HTf_PUBLIC,fsp_flags&FSF_PUBLIC);"
       ~snippet:"BEqu(&tmpf->type,HTf_PUBLIC,fsp_flags&FSF_PUBLIC);"
       prs_stmt_source
+  in
+  let* private_type_transfer =
+    behavior_ref ~path:"Kernel/KHashB.HC"
+      ~anchor:"if (Bt(&cc->opts,OPTf_KEEP_PRIVATE))"
+      ~snippet:"if(Bt(&cc->opts,OPTf_KEEP_PRIVATE))h->type|=HTF_PRIVATE;"
+      khash_b_source
   in
   let* automatic_ret1 =
     behavior_ref ~path:"Compiler/PrsStmt.HC"
@@ -884,6 +976,71 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
     behavior_ref ~path:"Compiler/PrsVar.HC"
       ~anchor:"Bts(&tmpf->flags,Ff_DOT_DOT_DOT);"
       ~snippet:"Bts(&tmpf->flags,Ff_DOT_DOT_DOT);" prs_var_source
+  in
+  let* intern_transition =
+    behavior_ref ~path:"Compiler/PrsStmt.HC"
+      ~anchor:"Bts(&tmpf->flags,Ff_INTERNAL);"
+      ~snippet:"Bts(&tmpf->flags,Ff_INTERNAL);LBtr(&tmpf->flags,Cf_EXTERN);"
+      prs_stmt_source
+  in
+  let* bound_extern_transition =
+    behavior_ref ~path:"Compiler/PrsStmt.HC"
+      ~anchor:"SysSymImportsResolve(tmpf->str);"
+      ~snippet:
+        "SysSymImportsResolve(tmpf->str);LBtr(&tmpf->flags,Cf_EXTERN);if(saved_mode&255==PRS0__EXTERN)LBts(&tmpf->flags,Ff__EXTERN);"
+      prs_stmt_source
+  in
+  let* bound_extern_aot_resolve =
+    behavior_ref ~path:"Compiler/PrsStmt.HC" ~anchor:"tmpf->type|=HTF_RESOLVE;"
+      ~snippet:"if(cc->flags&CCF_AOT_COMPILE)tmpf->type|=HTF_RESOLVE;"
+      prs_stmt_source
+  in
+  let* import_transition =
+    behavior_ref ~path:"Compiler/PrsStmt.HC" ~anchor:"tmpf->type|=HTF_IMPORT;"
+      ~snippet:
+        "tmpf->type|=HTF_IMPORT;if(mode&255==PRS0__IMPORT)tmpf->import_name=StrNew(val);elsetmpf->import_name=StrNew(st);"
+      prs_stmt_source
+  in
+  let* definition_aot_publication =
+    behavior_ref ~path:"Compiler/PrsStmt.HC"
+      ~anchor:"cc->htc.fun->type|=HTF_EXPORT|HTF_RESOLVE;"
+      ~snippet:"cc->htc.fun->type|=HTF_EXPORT|HTF_RESOLVE;" prs_stmt_source
+  in
+  let* definition_resolves =
+    behavior_ref ~path:"Compiler/PrsStmt.HC"
+      ~anchor:"LBtr(&cc->htc.fun->flags,Cf_EXTERN);"
+      ~snippet:"LBtr(&cc->htc.fun->flags,Cf_EXTERN);" prs_stmt_source
+  in
+  let* external_call_dispatch =
+    behavior_ref ~path:"Compiler/PrsExp.HC"
+      ~anchor:"else if (Bt(&tmpf->flags,Cf_EXTERN)) {"
+      ~snippet:
+        "elseif(Bt(&tmpf->flags,Cf_EXTERN)){cc->abs_cnts.externs++;if(cc->flags&CCF_AOT_COMPILE){if(tmpf->type&HTF_IMPORT)ICAdd(cc,IC_CALL_IMPORT,tmpf,tmpf->return_class);elseICAdd(cc,IC_CALL_EXTERN,tmpf,tmpf->return_class);}elseICAdd(cc,IC_CALL_INDIRECT2,&tmpf->exe_addr,tmpf->return_class);}elseICAdd(cc,IC_CALL,tmpf->exe_addr,tmpf->return_class);"
+      prs_exp_source
+  in
+  let* hash_value_dispatch =
+    behavior_ref ~path:"Kernel/KHashB.HC" ~anchor:"case HTt_FUN:"
+      ~snippet:
+        "caseHTt_FUN:if(Bt(&tmph(CHashFun*)->flags,Cf_EXTERN))returntmph;elsereturntmph(CHashFun*)->exe_addr;"
+      khash_b_source
+  in
+  let* map_visibility =
+    behavior_ref ~path:"Compiler/CHash.HC"
+      ~anchor:
+        "if (tmph->src_link && !(tmph->type & (HTF_IMPORT | HTF_PRIVATE)))"
+      ~snippet:"if(tmph->src_link&&!(tmph->type&(HTF_IMPORT|HTF_PRIVATE))){"
+      c_hash_source
+  in
+  let* aot_import_precedence =
+    behavior_ref ~path:"Compiler/AsmResolve.HC"
+      ~anchor:"if (tmpex->type & (HTF_IMPORT|HTF_GOTO_LABEL)) {"
+      ~snippet:"if(tmpex->type&(HTF_IMPORT|HTF_GOTO_LABEL)){" asm_resolve_source
+  in
+  let* aot_export_resolution =
+    behavior_ref ~path:"Compiler/AsmResolve.HC"
+      ~anchor:"else if (tmpex->type & (HTF_EXPORT|HTF_RESOLVE)) {"
+      ~snippet:"elseif(tmpex->type&(HTF_EXPORT|HTF_RESOLVE)){"
+      asm_resolve_source
   in
   let* variadic_optimizer =
     behavior_ref ~path:"Compiler/OptPass3.HC"
@@ -959,6 +1116,7 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
   in
   Ok
     {
+      function_type;
       shared_flags = List.map flag_from_index shared_definitions;
       function_flags = List.map flag_from_index function_definitions;
       staging_flags;
@@ -966,10 +1124,23 @@ let parse ~kernel_source ~compiler_source ~prs_stmt_source ~prs_var_source
       transitions;
       behavior =
         {
+          record_creation_extern;
           symbol_flag_transfer;
           public_type_transfer;
+          private_type_transfer;
           automatic_ret1;
           variadic_declaration;
+          intern_transition;
+          bound_extern_transition;
+          bound_extern_aot_resolve;
+          import_transition;
+          definition_aot_publication;
+          definition_resolves;
+          external_call_dispatch;
+          hash_value_dispatch;
+          map_visibility;
+          aot_import_precedence;
+          aot_export_resolution;
           variadic_optimizer;
           caller_cleanup;
           try_cleanup;

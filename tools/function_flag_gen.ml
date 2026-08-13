@@ -6,10 +6,13 @@ let expected_reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 let source_paths =
   [
     "Kernel/KernelA.HH";
+    "Kernel/KHashB.HC";
     "Compiler/CompilerA.HH";
     "Compiler/PrsStmt.HC";
     "Compiler/PrsVar.HC";
     "Compiler/PrsExp.HC";
+    "Compiler/CHash.HC";
+    "Compiler/AsmResolve.HC";
     "Compiler/OptPass3.HC";
     "Compiler/OptPass6.HC";
     "Compiler/OptPass789A.HC";
@@ -323,9 +326,26 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
     (fun (path, checksum) ->
       Printf.bprintf buffer "    { path = %S; sha256 = %S };\n" path checksum)
     checksums;
+  Buffer.add_string buffer "  ]\n\n";
   Buffer.add_string buffer
-    "  ]\n\n\
-     type flag_info = {\n\
+    "type function_type = {\n\
+    \  index_name : string;\n\
+    \  mask_name : string;\n\
+    \  type_index : int;\n\
+    \  type_mask : int64;\n\
+    \  index_definition_line : int;\n\
+    \  mask_definition_line : int;\n\
+     }\n\n";
+  let function_type = tables.function_type in
+  Printf.bprintf buffer
+    "let function_type =\n\
+    \  { index_name = %S; mask_name = %S; type_index = %d; type_mask = 0x%LxL; \
+     index_definition_line = %d; mask_definition_line = %d }\n\n"
+    function_type.index_name function_type.mask_name function_type.type_index
+    function_type.type_mask function_type.index_definition_line
+    function_type.mask_definition_line;
+  Buffer.add_string buffer
+    "type flag_info = {\n\
     \  source_name : string;\n\
     \  bit_index : int;\n\
     \  mask : int64;\n\
@@ -434,10 +454,23 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
      Stored.Internal\n\n";
   Buffer.add_string buffer
     "type behavior_sources = {\n\
+    \  record_creation_extern : source_reference;\n\
     \  symbol_flag_transfer : source_reference;\n\
     \  public_type_transfer : source_reference;\n\
+    \  private_type_transfer : source_reference;\n\
     \  automatic_ret1 : source_reference;\n\
     \  variadic_declaration : source_reference;\n\
+    \  intern_transition : source_reference;\n\
+    \  bound_extern_transition : source_reference;\n\
+    \  bound_extern_aot_resolve : source_reference;\n\
+    \  import_transition : source_reference;\n\
+    \  definition_aot_publication : source_reference;\n\
+    \  definition_resolves : source_reference;\n\
+    \  external_call_dispatch : source_reference;\n\
+    \  hash_value_dispatch : source_reference;\n\
+    \  map_visibility : source_reference;\n\
+    \  aot_import_precedence : source_reference;\n\
+    \  aot_export_resolution : source_reference;\n\
     \  variadic_optimizer : source_reference;\n\
     \  caller_cleanup : source_reference;\n\
     \  try_cleanup : source_reference;\n\
@@ -453,10 +486,31 @@ let render_ml ~commit ~checksums (tables : Source.tables) =
      let behavior_sources =\n\
     \  {\n";
   let behavior = tables.behavior in
+  add_behavior_field buffer "record_creation_extern"
+    behavior.record_creation_extern;
   add_behavior_field buffer "symbol_flag_transfer" behavior.symbol_flag_transfer;
   add_behavior_field buffer "public_type_transfer" behavior.public_type_transfer;
+  add_behavior_field buffer "private_type_transfer"
+    behavior.private_type_transfer;
   add_behavior_field buffer "automatic_ret1" behavior.automatic_ret1;
   add_behavior_field buffer "variadic_declaration" behavior.variadic_declaration;
+  add_behavior_field buffer "intern_transition" behavior.intern_transition;
+  add_behavior_field buffer "bound_extern_transition"
+    behavior.bound_extern_transition;
+  add_behavior_field buffer "bound_extern_aot_resolve"
+    behavior.bound_extern_aot_resolve;
+  add_behavior_field buffer "import_transition" behavior.import_transition;
+  add_behavior_field buffer "definition_aot_publication"
+    behavior.definition_aot_publication;
+  add_behavior_field buffer "definition_resolves" behavior.definition_resolves;
+  add_behavior_field buffer "external_call_dispatch"
+    behavior.external_call_dispatch;
+  add_behavior_field buffer "hash_value_dispatch" behavior.hash_value_dispatch;
+  add_behavior_field buffer "map_visibility" behavior.map_visibility;
+  add_behavior_field buffer "aot_import_precedence"
+    behavior.aot_import_precedence;
+  add_behavior_field buffer "aot_export_resolution"
+    behavior.aot_export_resolution;
   add_behavior_field buffer "variadic_optimizer" behavior.variadic_optimizer;
   add_behavior_field buffer "caller_cleanup" behavior.caller_cleanup;
   add_behavior_field buffer "try_cleanup" behavior.try_cleanup;
@@ -480,6 +534,14 @@ let render_mli (tables : Source.tables) =
      [@@@ocamlformat \"disable\"]\n\n\
      type source = { path : string; sha256 : string }\n\n\
      type source_reference = { path : string; line : int }\n\n\
+     type function_type = private {\n\
+    \  index_name : string;\n\
+    \  mask_name : string;\n\
+    \  type_index : int;\n\
+    \  type_mask : int64;\n\
+    \  index_definition_line : int;\n\
+    \  mask_definition_line : int;\n\
+     }\n\n\
      type flag_info = private {\n\
     \  source_name : string;\n\
     \  bit_index : int;\n\
@@ -488,7 +550,8 @@ let render_mli (tables : Source.tables) =
     \  consumers : source_reference list;\n\
      }\n\n\
      val reference_commit : string\n\
-     val sources : source list\n\n";
+     val sources : source list\n\
+     val function_type : function_type\n\n";
   add_flag_module_signature buffer ~name:"Shared"
     ~constructors:
       (List.map
@@ -557,10 +620,23 @@ let render_mli (tables : Source.tables) =
      val interrupt_discards_error_code : stored_mask:int64 -> bool\n\
      val is_internal : stored_mask:int64 -> bool\n\n\
      type behavior_sources = private {\n\
+    \  record_creation_extern : source_reference;\n\
     \  symbol_flag_transfer : source_reference;\n\
     \  public_type_transfer : source_reference;\n\
+    \  private_type_transfer : source_reference;\n\
     \  automatic_ret1 : source_reference;\n\
     \  variadic_declaration : source_reference;\n\
+    \  intern_transition : source_reference;\n\
+    \  bound_extern_transition : source_reference;\n\
+    \  bound_extern_aot_resolve : source_reference;\n\
+    \  import_transition : source_reference;\n\
+    \  definition_aot_publication : source_reference;\n\
+    \  definition_resolves : source_reference;\n\
+    \  external_call_dispatch : source_reference;\n\
+    \  hash_value_dispatch : source_reference;\n\
+    \  map_visibility : source_reference;\n\
+    \  aot_import_precedence : source_reference;\n\
+    \  aot_export_resolution : source_reference;\n\
     \  variadic_optimizer : source_reference;\n\
     \  caller_cleanup : source_reference;\n\
     \  try_cleanup : source_reference;\n\
@@ -602,10 +678,13 @@ let () =
     match
       Source.parse
         ~kernel_source:(source contents "Kernel/KernelA.HH")
+        ~khash_b_source:(source contents "Kernel/KHashB.HC")
         ~compiler_source:(source contents "Compiler/CompilerA.HH")
         ~prs_stmt_source:(source contents "Compiler/PrsStmt.HC")
         ~prs_var_source:(source contents "Compiler/PrsVar.HC")
         ~prs_exp_source:(source contents "Compiler/PrsExp.HC")
+        ~c_hash_source:(source contents "Compiler/CHash.HC")
+        ~asm_resolve_source:(source contents "Compiler/AsmResolve.HC")
         ~opt_pass3_source:(source contents "Compiler/OptPass3.HC")
         ~opt_pass6_source:(source contents "Compiler/OptPass6.HC")
         ~opt_pass789a_source:(source contents "Compiler/OptPass789A.HC")

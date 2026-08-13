@@ -26,6 +26,8 @@ let replace_once text ~needle ~replacement =
 let kernel_source =
   String.concat "\n"
     [
+      "#define HTt_FUN 6";
+      "#define HTT_FUN 0x00040";
       "#define Cf_EXTERN 0";
       "#define Cf_INTERNAL_TYPE 1";
       "public class CHashClass:CHashSrcSym";
@@ -43,6 +45,19 @@ let kernel_source =
       "public class CHashFun:CHashClass";
       "{";
       "};";
+      "";
+    ]
+
+let khash_b_source =
+  String.concat "\n"
+    [
+      "case HTt_FUN:";
+      "  if (Bt(&tmph(CHashFun *)->flags,Cf_EXTERN))";
+      "    return tmph;";
+      "  else";
+      "    return tmph(CHashFun *)->exe_addr;";
+      "if (Bt(&cc->opts,OPTf_KEEP_PRIVATE))";
+      "  h->type|=HTF_PRIVATE;";
       "";
     ]
 
@@ -66,6 +81,7 @@ let compiler_source =
 let prs_stmt_source =
   String.concat "\n"
     [
+      "LBts(&tmpf->flags,Cf_EXTERN);";
       "tmpf->flags|=fsp_flags&FSG_FUN_FLAGS1;";
       "BEqu(&tmpf->type,HTf_PUBLIC,fsp_flags&FSF_PUBLIC);";
       "if (0<tmpf->arg_cnt<<3<=I16_MAX && !Bt(&tmpf->flags,Ff_DOT_DOT_DOT))";
@@ -91,7 +107,20 @@ let prs_stmt_source =
       "if (*import_name=='_')";
       "  fsp_flags|=FSF__;";
       "Bts(&tmpf->flags,Ff_INTERNAL);";
-      "Bts(&tmpf->flags,Ff__EXTERN);";
+      "LBtr(&tmpf->flags,Cf_EXTERN);";
+      "SysSymImportsResolve(tmpf->str);";
+      "LBtr(&tmpf->flags,Cf_EXTERN);";
+      "if (saved_mode&255==PRS0__EXTERN)";
+      "  LBts(&tmpf->flags,Ff__EXTERN);";
+      "if (cc->flags&CCF_AOT_COMPILE)";
+      "  tmpf->type|=HTF_RESOLVE;";
+      "tmpf->type|=HTF_IMPORT;";
+      "if (mode&255==PRS0__IMPORT)";
+      "  tmpf->import_name=StrNew(val);";
+      "else";
+      "  tmpf->import_name=StrNew(st);";
+      "cc->htc.fun->type|=HTF_EXPORT|HTF_RESOLVE;";
+      "LBtr(&cc->htc.fun->flags,Cf_EXTERN);";
       "Bt(&tmpf->flags,Cf_EXTERN);";
       "";
     ]
@@ -107,7 +136,38 @@ let prs_exp_source =
       "    !Bt(&tmpf->flags,Ff_NOARGPOP)) {";
       "  use_cleanup();";
       "}";
+      "else if (Bt(&tmpf->flags,Cf_EXTERN)) {";
+      "  cc->abs_cnts.externs++;";
+      "  if (cc->flags&CCF_AOT_COMPILE) {";
+      "    if (tmpf->type&HTF_IMPORT)";
+      "      ICAdd(cc,IC_CALL_IMPORT,tmpf,tmpf->return_class);";
+      "    else";
+      "      ICAdd(cc,IC_CALL_EXTERN,tmpf,tmpf->return_class);";
+      "  } else";
+      "    ICAdd(cc,IC_CALL_INDIRECT2,&tmpf->exe_addr,tmpf->return_class);";
+      "} else";
+      "  ICAdd(cc,IC_CALL,tmpf->exe_addr,tmpf->return_class);";
       "Bt(&tmpc->flags,Cf_INTERNAL_TYPE);";
+      "";
+    ]
+
+let c_hash_source =
+  String.concat "\n"
+    [
+      "if (tmph->src_link && !(tmph->type & (HTF_IMPORT | HTF_PRIVATE))) {";
+      "  write_map_entry();";
+      "}";
+      "";
+    ]
+
+let asm_resolve_source =
+  String.concat "\n"
+    [
+      "if (tmpex->type & (HTF_IMPORT|HTF_GOTO_LABEL)) {";
+      "  publish_import();";
+      "} else if (tmpex->type & (HTF_EXPORT|HTF_RESOLVE)) {";
+      "  resolve_export();";
+      "}";
       "";
     ]
 
@@ -148,30 +208,33 @@ let fun_seg_source =
       "";
     ]
 
-let parse ?(kernel = kernel_source) ?(compiler = compiler_source)
-    ?(prs_stmt = prs_stmt_source) ?(prs_var = prs_var_source)
-    ?(prs_exp = prs_exp_source) ?(opt_pass3 = opt_pass3_source)
-    ?(opt_pass6 = opt_pass6_source) ?(opt_pass789a = opt_pass789a_source)
-    ?(fun_seg = fun_seg_source) () =
-  Source.parse ~kernel_source:kernel ~compiler_source:compiler
-    ~prs_stmt_source:prs_stmt ~prs_var_source:prs_var ~prs_exp_source:prs_exp
-    ~opt_pass3_source:opt_pass3 ~opt_pass6_source:opt_pass6
-    ~opt_pass789a_source:opt_pass789a ~fun_seg_source:fun_seg
+let parse ?(kernel = kernel_source) ?(khash_b = khash_b_source)
+    ?(compiler = compiler_source) ?(prs_stmt = prs_stmt_source)
+    ?(prs_var = prs_var_source) ?(prs_exp = prs_exp_source)
+    ?(c_hash = c_hash_source) ?(asm_resolve = asm_resolve_source)
+    ?(opt_pass3 = opt_pass3_source) ?(opt_pass6 = opt_pass6_source)
+    ?(opt_pass789a = opt_pass789a_source) ?(fun_seg = fun_seg_source) () =
+  Source.parse ~kernel_source:kernel ~khash_b_source:khash_b
+    ~compiler_source:compiler ~prs_stmt_source:prs_stmt ~prs_var_source:prs_var
+    ~prs_exp_source:prs_exp ~c_hash_source:c_hash
+    ~asm_resolve_source:asm_resolve ~opt_pass3_source:opt_pass3
+    ~opt_pass6_source:opt_pass6 ~opt_pass789a_source:opt_pass789a
+    ~fun_seg_source:fun_seg
 
-let parse_ok ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3 ?opt_pass6
-    ?opt_pass789a ?fun_seg () =
+let parse_ok ?kernel ?khash_b ?compiler ?prs_stmt ?prs_var ?prs_exp ?c_hash
+    ?asm_resolve ?opt_pass3 ?opt_pass6 ?opt_pass789a ?fun_seg () =
   match
-    parse ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3 ?opt_pass6
-      ?opt_pass789a ?fun_seg ()
+    parse ?kernel ?khash_b ?compiler ?prs_stmt ?prs_var ?prs_exp ?c_hash
+      ?asm_resolve ?opt_pass3 ?opt_pass6 ?opt_pass789a ?fun_seg ()
   with
   | Ok tables -> tables
   | Error problem -> Alcotest.fail (Source.error_to_string problem)
 
-let expect_error ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3
-    ?opt_pass6 ?opt_pass789a ?fun_seg needle =
+let expect_error ?kernel ?khash_b ?compiler ?prs_stmt ?prs_var ?prs_exp ?c_hash
+    ?asm_resolve ?opt_pass3 ?opt_pass6 ?opt_pass789a ?fun_seg needle =
   match
-    parse ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3 ?opt_pass6
-      ?opt_pass789a ?fun_seg ()
+    parse ?kernel ?khash_b ?compiler ?prs_stmt ?prs_var ?prs_exp ?c_hash
+      ?asm_resolve ?opt_pass3 ?opt_pass6 ?opt_pass789a ?fun_seg ()
   with
   | Ok _ -> Alcotest.failf "expected an error containing %S" needle
   | Error problem ->
@@ -180,6 +243,9 @@ let expect_error ?kernel ?compiler ?prs_stmt ?prs_var ?prs_exp ?opt_pass3
 
 let complete_registry () =
   let tables = parse_ok () in
+  Alcotest.(check (pair int int64))
+    "function hash type" (6, 0x40L)
+    (tables.function_type.type_index, tables.function_type.type_mask);
   Alcotest.(check int) "shared flag count" 2 (List.length tables.shared_flags);
   Alcotest.(check int) "stored flag count" 8 (List.length tables.function_flags);
   Alcotest.(check int) "staging flag count" 8 (List.length tables.staging_flags);
@@ -246,6 +312,27 @@ let rejects_changed_bit_index () =
       ~replacement:"#define Ff_RET1 16"
   in
   expect_error ~kernel:changed "must remain bit index 15"
+
+let rejects_changed_function_hash_type () =
+  let changed =
+    replace_once kernel_source ~needle:"#define HTt_FUN 6"
+      ~replacement:"#define HTt_FUN 5"
+  in
+  expect_error ~kernel:changed "HTt_FUN must remain type index 6"
+
+let rejects_changed_record_creation () =
+  let changed =
+    replace_once prs_stmt_source ~needle:"LBts(&tmpf->flags,Cf_EXTERN);"
+      ~replacement:"LBtr(&tmpf->flags,Cf_EXTERN);"
+  in
+  expect_error ~prs_stmt:changed "required source behavior"
+
+let rejects_changed_map_visibility () =
+  let changed =
+    replace_once c_hash_source ~needle:"HTF_IMPORT | HTF_PRIVATE"
+      ~replacement:"HTF_IMPORT | HTF_PUBLIC"
+  in
+  expect_error ~c_hash:changed "required source behavior"
 
 let rejects_changed_inheritance () =
   let changed =
@@ -357,10 +444,13 @@ let parses_pinned_sources () =
     match
       Source.parse
         ~kernel_source:(pinned "Kernel/KernelA.HH")
+        ~khash_b_source:(pinned "Kernel/KHashB.HC")
         ~compiler_source:(pinned "Compiler/CompilerA.HH")
         ~prs_stmt_source:(pinned "Compiler/PrsStmt.HC")
         ~prs_var_source:(pinned "Compiler/PrsVar.HC")
         ~prs_exp_source:(pinned "Compiler/PrsExp.HC")
+        ~c_hash_source:(pinned "Compiler/CHash.HC")
+        ~asm_resolve_source:(pinned "Compiler/AsmResolve.HC")
         ~opt_pass3_source:(pinned "Compiler/OptPass3.HC")
         ~opt_pass6_source:(pinned "Compiler/OptPass6.HC")
         ~opt_pass789a_source:(pinned "Compiler/OptPass789A.HC")
@@ -372,6 +462,9 @@ let parses_pinned_sources () =
   Alcotest.(check int)
     "pinned stored flags" 8
     (List.length tables.function_flags);
+  Alcotest.(check (pair int int64))
+    "pinned function hash type" (6, 0x40L)
+    (tables.function_type.type_index, tables.function_type.type_mask);
   let interrupt = List.hd tables.function_flags in
   Alcotest.(check (list (pair string int)))
     "interrupt consumers"
@@ -399,6 +492,10 @@ let tests =
     Alcotest.test_case "missing definition" `Quick rejects_missing_definition;
     Alcotest.test_case "definition order" `Quick rejects_reordered_definition;
     Alcotest.test_case "bit index" `Quick rejects_changed_bit_index;
+    Alcotest.test_case "function hash type" `Quick
+      rejects_changed_function_hash_type;
+    Alcotest.test_case "record creation" `Quick rejects_changed_record_creation;
+    Alcotest.test_case "map visibility" `Quick rejects_changed_map_visibility;
     Alcotest.test_case "function inheritance" `Quick rejects_changed_inheritance;
     Alcotest.test_case "flag storage" `Quick rejects_changed_flag_storage;
     Alcotest.test_case "unknown expression name" `Quick

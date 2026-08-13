@@ -12,15 +12,30 @@ type source_reference = { path : string; line : int }
 let sources =
   [
     { path = "Kernel/KernelA.HH"; sha256 = "1b4b6d8b6aeeaedfd2b11536b84557d9d2efc05ff38200020cd7a4a94dcd7d41" };
+    { path = "Kernel/KHashB.HC"; sha256 = "260e17f94bfddf8c5d3d5f95dbffd3b8e34bcfd0581167275ed4cf736bfab03d" };
     { path = "Compiler/CompilerA.HH"; sha256 = "9eca54eff7d1c0803172e45e5483a57262e24f7b759a6a727c29beaf660967b2" };
     { path = "Compiler/PrsStmt.HC"; sha256 = "6bccf67abed7cc634d07e6b7b0201f51ce00094a039b61a406e75de725c342af" };
     { path = "Compiler/PrsVar.HC"; sha256 = "a4d090d96e13f2358aa9914699aefd58f6b785ba5e444d6e9e59ffafcc28bae8" };
     { path = "Compiler/PrsExp.HC"; sha256 = "e1746e64e943f26d6d96179379ec8684f24ae908614b965ea4e01f2d5398dd73" };
+    { path = "Compiler/CHash.HC"; sha256 = "56d44aa0e437d69740a1eb401726833895762be973cf370ca9b399284344c9a1" };
+    { path = "Compiler/AsmResolve.HC"; sha256 = "0bd47938221100b8d4786979f84735f4fdd5aff8406cab75db77a05ee3226df9" };
     { path = "Compiler/OptPass3.HC"; sha256 = "64c3b74d073b2d482751b6129d99e9f4b3b563216ec70f4a17a79aa663a92eae" };
     { path = "Compiler/OptPass6.HC"; sha256 = "7d00fd544e845423da6c354cd11e0956f45bf3b7bb839b518e01a09afd676253" };
     { path = "Compiler/OptPass789A.HC"; sha256 = "7cae9bc11a863d2066df27894449dbb28afb0d550b6b3fae1eeb6bb1362addcc" };
     { path = "Kernel/FunSeg.HC"; sha256 = "e499763482dd544696cd9a1318cf366da50f9072440cdd8d4d926f4443819486" };
   ]
+
+type function_type = {
+  index_name : string;
+  mask_name : string;
+  type_index : int;
+  type_mask : int64;
+  index_definition_line : int;
+  mask_definition_line : int;
+}
+
+let function_type =
+  { index_name = "HTt_FUN"; mask_name = "HTT_FUN"; type_index = 6; type_mask = 0x40L; index_definition_line = 662; mask_definition_line = 692 }
 
 type flag_info = {
   source_name : string;
@@ -51,7 +66,7 @@ module Shared = struct
     | _ -> None
 
   let info = function
-    | Extern -> { source_name = "Cf_EXTERN"; bit_index = 0; mask = 0x1L; definition_line = 834; consumers = [ { path = "Compiler/PrsStmt.HC"; line = 11 }; { path = "Compiler/PrsStmt.HC"; line = 20 }; { path = "Compiler/PrsStmt.HC"; line = 36 }; { path = "Compiler/PrsStmt.HC"; line = 77 }; { path = "Compiler/PrsStmt.HC"; line = 105 }; { path = "Compiler/PrsStmt.HC"; line = 191 }; { path = "Compiler/PrsStmt.HC"; line = 248 }; { path = "Compiler/PrsStmt.HC"; line = 256 }; { path = "Compiler/PrsStmt.HC"; line = 861 }; { path = "Compiler/PrsStmt.HC"; line = 881 }; { path = "Compiler/PrsStmt.HC"; line = 1096 }; { path = "Compiler/PrsExp.HC"; line = 561 }; { path = "Compiler/PrsExp.HC"; line = 627 }; { path = "Kernel/FunSeg.HC"; line = 22 } ] }
+    | Extern -> { source_name = "Cf_EXTERN"; bit_index = 0; mask = 0x1L; definition_line = 834; consumers = [ { path = "Kernel/KHashB.HC"; line = 30 }; { path = "Compiler/PrsStmt.HC"; line = 11 }; { path = "Compiler/PrsStmt.HC"; line = 20 }; { path = "Compiler/PrsStmt.HC"; line = 36 }; { path = "Compiler/PrsStmt.HC"; line = 77 }; { path = "Compiler/PrsStmt.HC"; line = 105 }; { path = "Compiler/PrsStmt.HC"; line = 191 }; { path = "Compiler/PrsStmt.HC"; line = 248 }; { path = "Compiler/PrsStmt.HC"; line = 256 }; { path = "Compiler/PrsStmt.HC"; line = 861 }; { path = "Compiler/PrsStmt.HC"; line = 881 }; { path = "Compiler/PrsStmt.HC"; line = 1096 }; { path = "Compiler/PrsExp.HC"; line = 561 }; { path = "Compiler/PrsExp.HC"; line = 627 }; { path = "Compiler/AsmResolve.HC"; line = 101 }; { path = "Kernel/FunSeg.HC"; line = 22 } ] }
     | Internal_type -> { source_name = "Cf_INTERNAL_TYPE"; bit_index = 1; mask = 0x2L; definition_line = 835; consumers = [ { path = "Compiler/PrsExp.HC"; line = 205 } ] }
 
   let to_bit_index flag = (info flag).bit_index
@@ -297,10 +312,23 @@ let interrupt_discards_error_code ~stored_mask =
 let is_internal ~stored_mask = Stored.is_set ~mask:stored_mask Stored.Internal
 
 type behavior_sources = {
+  record_creation_extern : source_reference;
   symbol_flag_transfer : source_reference;
   public_type_transfer : source_reference;
+  private_type_transfer : source_reference;
   automatic_ret1 : source_reference;
   variadic_declaration : source_reference;
+  intern_transition : source_reference;
+  bound_extern_transition : source_reference;
+  bound_extern_aot_resolve : source_reference;
+  import_transition : source_reference;
+  definition_aot_publication : source_reference;
+  definition_resolves : source_reference;
+  external_call_dispatch : source_reference;
+  hash_value_dispatch : source_reference;
+  map_visibility : source_reference;
+  aot_import_precedence : source_reference;
+  aot_export_resolution : source_reference;
   variadic_optimizer : source_reference;
   caller_cleanup : source_reference;
   try_cleanup : source_reference;
@@ -316,10 +344,23 @@ type behavior_sources = {
 
 let behavior_sources =
   {
+    record_creation_extern = { path = "Compiler/PrsStmt.HC"; line = 105 };
     symbol_flag_transfer = { path = "Compiler/PrsStmt.HC"; line = 106 };
     public_type_transfer = { path = "Compiler/PrsStmt.HC"; line = 110 };
+    private_type_transfer = { path = "Kernel/KHashB.HC"; line = 161 };
     automatic_ret1 = { path = "Compiler/PrsStmt.HC"; line = 116 };
     variadic_declaration = { path = "Compiler/PrsVar.HC"; line = 378 };
+    intern_transition = { path = "Compiler/PrsStmt.HC"; line = 247 };
+    bound_extern_transition = { path = "Compiler/PrsStmt.HC"; line = 255 };
+    bound_extern_aot_resolve = { path = "Compiler/PrsStmt.HC"; line = 260 };
+    import_transition = { path = "Compiler/PrsStmt.HC"; line = 273 };
+    definition_aot_publication = { path = "Compiler/PrsStmt.HC"; line = 173 };
+    definition_resolves = { path = "Compiler/PrsStmt.HC"; line = 191 };
+    external_call_dispatch = { path = "Compiler/PrsExp.HC"; line = 561 };
+    hash_value_dispatch = { path = "Kernel/KHashB.HC"; line = 29 };
+    map_visibility = { path = "Compiler/CHash.HC"; line = 104 };
+    aot_import_precedence = { path = "Compiler/AsmResolve.HC"; line = 137 };
+    aot_export_resolution = { path = "Compiler/AsmResolve.HC"; line = 151 };
     variadic_optimizer = { path = "Compiler/OptPass3.HC"; line = 22 };
     caller_cleanup = { path = "Compiler/PrsExp.HC"; line = 572 };
     try_cleanup = { path = "Compiler/PrsStmt.HC"; line = 869 };
