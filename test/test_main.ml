@@ -23,6 +23,7 @@ let () =
       ("semantic function type resolution", Test_function_type_resolution.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
+      ("semantic global record resolution", Test_global_resolution.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("corpus", Test_corpus.tests);
