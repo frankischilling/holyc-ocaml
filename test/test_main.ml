@@ -18,6 +18,8 @@ let () =
       ("semantic aggregate resolution", Test_aggregate_resolution.tests);
       ( "semantic aggregate header resolution",
         Test_aggregate_header_resolution.tests );
+      ( "semantic aggregate member type resolution",
+        Test_member_type_resolution.tests );
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("corpus", Test_corpus.tests);
