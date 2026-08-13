@@ -33,6 +33,7 @@ module Preprocessor = Frontend.Preprocessor
 module Ast = Frontend.Ast
 module Ast_dump = Frontend.Ast_dump
 module Parser = Frontend.Parser
+module Semantic_declaration_collection = Sema.Declaration_collection
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -64,3 +65,8 @@ let parse session ~source =
     | Error message -> invalid_arg message
   in
   parse_with_config session ~config ~source
+
+let collect_declarations session module_ =
+  Driver.Semantic_collection.collect ~sources:(Session.sources session)
+    ~table:(Session.semantic_symbols session)
+    module_
