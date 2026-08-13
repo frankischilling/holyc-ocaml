@@ -14,11 +14,11 @@ type t = {
   predefined : Predefined.t option;
 }
 
-let root ~mode source =
+let root ?(nul_terminates = false) ~mode source =
   {
     kind = Root;
     source;
-    lexer = Lexer.create ~mode source;
+    lexer = Lexer.create ~nul_terminates ~mode source;
     caller = None;
     include_origin = None;
     include_spelling = None;
@@ -29,11 +29,13 @@ let root ~mode source =
     predefined = None;
   }
 
-let push_include ~caller ~source ~include_origin ~include_spelling =
+let push_include ~nul_terminates ~caller ~source ~include_origin
+    ~include_spelling =
   {
     kind = Included;
     source;
-    lexer = Lexer.create ~mode:Token.Holyc ~caller:caller.lexer source;
+    lexer =
+      Lexer.create ~nul_terminates ~mode:Token.Holyc ~caller:caller.lexer source;
     caller = Some caller;
     include_origin = Some include_origin;
     include_spelling = Some include_spelling;

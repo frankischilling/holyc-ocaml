@@ -1,9 +1,10 @@
 type kind = Root | Included | Definition | Predefined
 type t
 
-val root : mode:Token.mode -> Common.Source_file.t -> t
+val root : ?nul_terminates:bool -> mode:Token.mode -> Common.Source_file.t -> t
 
 val push_include :
+  nul_terminates:bool ->
   caller:t ->
   source:Common.Source_file.t ->
   include_origin:Common.Span.t ->
