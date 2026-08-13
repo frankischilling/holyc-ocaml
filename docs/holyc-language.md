@@ -29,7 +29,7 @@ The current semantic API recognizes these 12 spellings:
 
 `Compiler/CInit.HC` registers names ending in `i` as internal storage types. `I0`, `U0`, `I8`, `U8`, `F64`, and `Bool` also appear directly in that table. The larger public integer names do not. They are unions in `Kernel/KernelA.HH` whose leading type selects `I16i`, `U16i`, `I32i`, `U32i`, `I64i`, or `U64i` storage.
 
-Those unions expose subinteger members such as bytes and words. The current API records which primitive comes from a public union and preserves the storage spelling and declaration line. Member offsets and subinteger access semantics belong to the later aggregate-layout work and are not implemented yet.
+Those unions expose subinteger members such as bytes and words. The current API records which primitive comes from a public union and preserves the storage spelling and declaration line. Closed aggregate layouts now retain each member offset, and the aggregate index makes that layout available through direct and inherited lookup. Whole-value conversion and subinteger load or store semantics remain unimplemented.
 
 Internal spellings such as `I32i` remain outside `Primitive_type.of_spelling`, which is the public primitive lookup. `Primitive_type.of_storage_spelling` maps the 11 intrinsic `*i` names to their audited raw primitive identities. The parser represents those names with a distinct internal type specifier instead of rewriting them as public spellings. This records source identity only; it does not implement whole-value or subinteger access.
 

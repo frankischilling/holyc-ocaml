@@ -3268,7 +3268,7 @@ entry_position = ["module item index", "optional declarator index"]
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
 top_level_executable_statements = "no declaration entry"
 forward_definition_reconciliation = "implemented for aggregates in HC-SEMA-AGGREGATE-RECONCILIATION; functions and globals remain unresolved"
-duplicate_validation = "not implemented"
+duplicate_validation = "not implemented for top-level declarations; aggregate member duplicate validation is implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 nested_declaration_collection = "direct aggregate members are implemented in HC-SEMA-AGGREGATE-MEMBERS, parameters and locals in HC-SEMA-FUNCTION-BINDINGS, and function-local language plus structural assembly labels in HC-SEMA-FUNCTION-LABELS"
 jit_task_publication = "not implemented"
 linkage_and_reference_resolution = "not implemented"
@@ -3313,7 +3313,7 @@ compilation_modes = ["jit", "aot"]
 parent_task_lookup = "not implemented; AOT HashFind and JIT HashSingleTableFind differences remain separate work"
 named_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and top-level function signatures in HC-SEMA-FUNCTION-TYPES; other sites remain unresolved"
 unused_forward_warning = "not implemented"
-layout = "not implemented"
+layout = "not implemented by reconciliation; closed definitions are handled by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 linkage = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsClass and the pinned hash routines state creation, selection, and completion behavior directly"
 
@@ -3405,8 +3405,8 @@ compilation_modes = ["jit", "aot"]
 callback_parameter_resolution = "not implemented for member callbacks; top-level function and nested parameter callback signatures are implemented in HC-SEMA-FUNCTION-TYPES"
 array_extent_evaluation = "not implemented in this type-reference pass; closed extents are evaluated by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
-duplicate_validation = "not implemented"
-layout_storage_and_inherited_lookup = "closed byte layout is implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED; inherited name lookup and runtime storage are not implemented"
+duplicate_validation = "implemented for aggregate members by HC-SEMA-AGGREGATE-MEMBER-INDEX"
+layout_storage_and_inherited_lookup = "closed byte layout and inherited name lookup are implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED and HC-SEMA-AGGREGATE-MEMBER-INDEX; runtime storage is not implemented"
 other_type_use_sites = "top-level function signatures are implemented in HC-SEMA-FUNCTION-TYPES; globals, locals, casts, sizeof, offset, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
@@ -3454,10 +3454,52 @@ retained_layout = ["aggregate size", "alignment 1", "base prefix", "negative adj
 typed_dependencies = ["identifier", "call", "sizeof", "offset", "defined", "later aggregate", "by-value cycle"]
 diagnostic_codes = "HCSEMA0001 through HCSEMA0009"
 backing_storage = "not applied; fwd_class conversion semantics remain separate"
-member_metadata_duplicate_rules_inherited_lookup_subinteger_access_allocation_and_dump = "planned under epic 193"
+member_metadata_subinteger_access_allocation_and_dump = "planned under epic 193; duplicate rules and inherited lookup are implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 native_oracle_status = "not required for the direct layout state transitions; generated metadata and machine access still need later oracle fixtures"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-MEMBER-INDEX"
+description = "Completed aggregate layouts receive source-ordered direct and inherited member indexes with source-compatible duplicate validation."
+sources = [
+  "Compiler/LexLib.HC:MemberFind",
+  "Compiler/LexLib.HC:MemberAdd",
+  "Compiler/PrsExp.HC:PrsSizeOf",
+  "Compiler/PrsExp.HC:PrsOffsetOf",
+  "Compiler/PrsExp.HC:postfix member access",
+  "Compiler/PrsVar.HC:PrsVarLst anonymous-union recursion",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashClass",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/sema/aggregate_member_index.ml",
+  "src/driver/aggregate_member_index.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_aggregate_member_index.ml"
+]
+status = "implemented"
+issue = 196
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "aggregate definitions from one checked declaration, header, member-type, and closed-layout batch"
+search_order = "the queried aggregate before each base in its single inheritance chain"
+direct_member_order = "source order, including flattened anonymous-union paths"
+duplicate_check = "each new direct member is checked against earlier direct members and the complete indexed base chain"
+duplicate_exceptions = ["pad", "reserved", "_anon_"]
+duplicate_exception_case = "exact and case-sensitive"
+equal_name_lookup = "the earliest direct source occurrence, matching the existing tree root retained by MemberAdd"
+general_symbol_table_difference = "semantic lexical lookup remains newest-first and is not used for member compatibility lookup"
+retained_lookup = ["queried aggregate", "declaring aggregate", "inheritance depth", "stable member symbol", "resolved type", "callback marker", "byte layout", "anonymous-union path", "source origin"]
+inherited_offset = "unchanged because the sole base begins at byte zero"
+diagnostic_codes = "HCSEMA0010 through HCSEMA0013"
+validation = "table ownership, module and aggregate scopes, source order, symbol kinds, exact layout/member correspondence, type targets, base availability, and base layout size"
+mutation = "none"
+use_counting = "not implemented; lookup results are pure and later expression resolution must account for uses"
+expression_binding_metadata_subinteger_access_and_runtime_storage = "not implemented"
+native_oracle_status = "not required for this index boundary; MemberAdd and MemberFind state insertion, duplicate, and base-search behavior directly"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"
@@ -3489,11 +3531,11 @@ anonymous_unions = "named fields share the containing aggregate scope; the AST n
 ignored_member_forms = ["aggregate offset directive", "empty member separator", "metadata name"]
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
 repeated_names = "preserved as separate entries with newest-first lookup"
-duplicate_validation = "not implemented; the later pass must retain the pad, reserved, and _anon_ exceptions"
-base_class_lookup = "not implemented"
-layout = "not implemented"
+duplicate_validation = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX with the pad, reserved, and _anon_ exceptions"
+base_class_lookup = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
+layout = "implemented for closed definitions by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
-reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; member access and inherited lookup remain unresolved"
+reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and inherited name lookup in HC-SEMA-AGGREGATE-MEMBER-INDEX; AST member access remains unresolved"
 native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
 
 [[feature]]
