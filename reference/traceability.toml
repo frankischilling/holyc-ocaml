@@ -981,7 +981,7 @@ native_oracle_fixture = "test/oracle/function-definitions.json"
 
 [[feature]]
 id = "HC-PARSER-LOCAL-DECLARATIONS"
-description = "Function bodies retain primitive or published class automatic and static local declaration groups, including pointer layers, array dimensions, scalar initializers, and automatic per-declarator register requests."
+description = "Function bodies retain primitive or published class automatic and static local declaration groups, including pointer layers, array dimensions, scalar initializers, static recursive braced initializers, and automatic per-declarator register requests."
 sources = [
   "Compiler/PrsStmt.HC:PrsStmt local declaration dispatch",
   "Compiler/PrsVar.HC:PrsVarLst",
@@ -1015,7 +1015,7 @@ accepted_type_status = "primitive or published class and union names with zero t
 storage_status = ["automatic", "static"]
 register_qualifier_status = "reg and noreg after the type on automatic declarators"
 explicit_register_status = "canonical U64 register spellings on automatic reg declarators"
-declaration_group_status = "comma-separated declarators with independent register requests, pointer depths, array dimensions, and scalar initializers"
+declaration_group_status = "comma-separated declarators with independent register requests, pointer depths, array dimensions, and scalar initializers; static declarators may also carry recursive braced initializers"
 name_publication = "before parsing the declarator initializer, matching MemberAdd order"
 lookup_context = "function-wide syntax context shared by nested statements"
 parameter_visibility = "named parameters are visible before the body"
@@ -1025,7 +1025,8 @@ for_initializer_status = "rejected with HCPARSE0069, matching the native Missing
 static_register_qualifier_status = "rejected with HCPARSE0099"
 class_and_union_local_status = "syntax implemented; semantic identity, layout, and storage are planned"
 function_pointer_local_status = "implemented in HC-PARSER-FUNCTION-POINTER-LOCALS"
-aggregate_initializer_status = "planned"
+static_braced_initializer_status = "implemented in HC-PARSER-STATIC-LOCAL-BRACED-INITIALIZERS"
+automatic_braced_initializer_status = "rejected with HCPARSE0104, matching the PrsExpression automatic-local path"
 semantic_scope_status = "planned"
 storage_and_layout_status = "planned"
 type_checking_status = "planned"
@@ -1088,6 +1089,59 @@ hosted_nesting_limit = 32
 nesting_limit_diagnostic = "HCPARSE0017"
 native_oracle_status = "not required for this syntax slice; PrsType and PrsVarLst state the callback path directly"
 function_type_checking_storage_layout_indirect_call_lowering_and_execution = "planned"
+
+[[feature]]
+id = "HC-PARSER-STATIC-LOCAL-BRACED-INITIALIZERS"
+description = "Static local declarators retain recursive braced initializer trees through the PrsStaticInit and PrsVarInit2 path, while automatic local braced initializers remain rejected."
+sources = [
+  "Compiler/PrsVar.HC:1-204 PrsVarInit and PrsVarInit2",
+  "Compiler/PrsVar.HC:215-240 PrsStaticInit",
+  "Compiler/PrsVar.HC:534-589 static-local initialization branch",
+  "Compiler/PrsVar.HC:590-618 automatic-local expression branch",
+  "Adam/WinMgr.HC:38",
+  "Demo/GlblVars.HC:21-25",
+  "Demo/GlblVars.HC:62-66"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-static-local-initializers.hc",
+  "test/cli/parse-static-local-initializers.human",
+  "test/cli/parse-static-local-initializers.json",
+  "test/cli/parse-static-local-initializer-error.hc",
+  "test/cli/parse-static-local-initializer-error.human",
+  "test/cli/parse-static-local-initializer-error.json"
+]
+status = "implemented"
+issue = 143
+ast_schema = "holyc-ast-v1"
+accepted_storage = "static only"
+initializer_shape = "one scalar expression or a recursively braced initial_value tree"
+automatic_storage_status = "scalar expressions remain accepted; braced initializers are rejected with HCPARSE0104"
+compilation_modes = ["jit", "aot"]
+audited_static_line_start_declarations = 21
+audited_static_braced_forms = 3
+corpus_evidence = [
+  "Adam/WinMgr.HC:38",
+  "Demo/GlblVars.HC:21-25",
+  "Demo/GlblVars.HC:62-66"
+]
+corpus_scan_scope = "line-start static declarations in pinned Compiler, Kernel, Adam, and Demo .HC and .HH files; not a structural whole-corpus declarator census"
+definition_provenance = "opening and closing braces retain generated invocation and definition locations"
+scalar_dump_compatibility = "existing scalar local human and JSON forms remain unchanged"
+missing_value_diagnostic = "HCPARSE0138"
+missing_element_separator_diagnostic = "HCPARSE0139"
+unclosed_list_diagnostic = "HCPARSE0140"
+initializer_depth_diagnostic = "HCPARSE0141 at a fixed hosted limit of 256"
+global_initializer_diagnostics = "HCPARSE0127 through HCPARSE0130 remain unchanged"
+recovery = "tracks nested braces, then stops at the enclosing statement boundary so the following declaration remains available"
+native_oracle_status = "not required for this syntax slice; the pinned static and automatic branches call PrsStaticInit and PrsExpression explicitly"
+initializer_type_checking_evaluation_dimension_inference_storage_lowering_and_emission = "planned"
 
 [[feature]]
 id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
