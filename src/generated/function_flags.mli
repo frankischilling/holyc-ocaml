@@ -6,6 +6,15 @@ type source = { path : string; sha256 : string }
 
 type source_reference = { path : string; line : int }
 
+type function_type = private {
+  index_name : string;
+  mask_name : string;
+  type_index : int;
+  type_mask : int64;
+  index_definition_line : int;
+  mask_definition_line : int;
+}
+
 type flag_info = private {
   source_name : string;
   bit_index : int;
@@ -16,6 +25,7 @@ type flag_info = private {
 
 val reference_commit : string
 val sources : source list
+val function_type : function_type
 
 module Shared : sig
   type t =
@@ -136,10 +146,23 @@ val interrupt_discards_error_code : stored_mask:int64 -> bool
 val is_internal : stored_mask:int64 -> bool
 
 type behavior_sources = private {
+  record_creation_extern : source_reference;
   symbol_flag_transfer : source_reference;
   public_type_transfer : source_reference;
+  private_type_transfer : source_reference;
   automatic_ret1 : source_reference;
   variadic_declaration : source_reference;
+  intern_transition : source_reference;
+  bound_extern_transition : source_reference;
+  bound_extern_aot_resolve : source_reference;
+  import_transition : source_reference;
+  definition_aot_publication : source_reference;
+  definition_resolves : source_reference;
+  external_call_dispatch : source_reference;
+  hash_value_dispatch : source_reference;
+  map_visibility : source_reference;
+  aot_import_precedence : source_reference;
+  aot_export_resolution : source_reference;
   variadic_optimizer : source_reference;
   caller_cleanup : source_reference;
   try_cleanup : source_reference;

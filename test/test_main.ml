@@ -23,6 +23,8 @@ let () =
       ("semantic function type resolution", Test_function_type_resolution.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
+      ( "semantic function record classification",
+        Test_function_record_classification.tests );
       ("semantic global record resolution", Test_global_resolution.tests);
       ( "semantic global record classification",
         Test_global_record_classification.tests );

@@ -8,6 +8,15 @@ type flag_entry = {
   consumers : source_reference list;
 }
 
+type function_type_entry = {
+  index_name : string;
+  mask_name : string;
+  type_index : int;
+  type_mask : int64;
+  index_definition_line : int;
+  mask_definition_line : int;
+}
+
 type group_entry = {
   name : string;
   mask : int64;
@@ -28,10 +37,23 @@ type transition_entry = {
 }
 
 type behavior = {
+  record_creation_extern : source_reference;
   symbol_flag_transfer : source_reference;
   public_type_transfer : source_reference;
+  private_type_transfer : source_reference;
   automatic_ret1 : source_reference;
   variadic_declaration : source_reference;
+  intern_transition : source_reference;
+  bound_extern_transition : source_reference;
+  bound_extern_aot_resolve : source_reference;
+  import_transition : source_reference;
+  definition_aot_publication : source_reference;
+  definition_resolves : source_reference;
+  external_call_dispatch : source_reference;
+  hash_value_dispatch : source_reference;
+  map_visibility : source_reference;
+  aot_import_precedence : source_reference;
+  aot_export_resolution : source_reference;
   variadic_optimizer : source_reference;
   caller_cleanup : source_reference;
   try_cleanup : source_reference;
@@ -46,6 +68,7 @@ type behavior = {
 }
 
 type tables = {
+  function_type : function_type_entry;
   shared_flags : flag_entry list;
   function_flags : flag_entry list;
   staging_flags : flag_entry list;
@@ -62,10 +85,13 @@ val apply_transition : transition_entry -> int64 -> int64
 
 val parse :
   kernel_source:string ->
+  khash_b_source:string ->
   compiler_source:string ->
   prs_stmt_source:string ->
   prs_var_source:string ->
   prs_exp_source:string ->
+  c_hash_source:string ->
+  asm_resolve_source:string ->
   opt_pass3_source:string ->
   opt_pass6_source:string ->
   opt_pass789a_source:string ->
