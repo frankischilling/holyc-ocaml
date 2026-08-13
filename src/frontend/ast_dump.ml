@@ -2259,7 +2259,9 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
     @ (match declarator.global_initial_value with
       | None -> []
       | Some initial_value ->
-          [("initializer", global_initializer_to_yojson sources initial_value)])
+          [
+            ("initializer", global_initializer_to_yojson sources initial_value);
+          ])
     @ [
         ("delimiter", delimiter_to_yojson sources declarator.delimiter);
         ("location", location_to_yojson sources declarator.location);
