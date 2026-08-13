@@ -110,6 +110,12 @@ The `#ifdef` and `#ifndef` implementation follows identifier lookup and both dir
 
 `Frontend.Symbol_visibility` retains the 17 source hash kinds, stable entry identities, the default import exclusion, and the separate local-variable shadow result. `Driver.Session` seeds the generated language keywords, assembly keywords, internal type spellings, registers, canonical opcodes, and aliases. The live `.HC`, `.HH`, and `.PRJ` corpus has no active use of either directive, so compatibility evidence comes from the pinned implementation and focused fixtures rather than a corpus percentage.
 
+## Semantic symbol-scope audit
+
+The semantic table foundation uses complete reads of `Kernel/KHashA.HC`, `Kernel/KHashB.HC`, `Compiler/CHash.HC`, and `Doc/ScopingLinkage.DD`. It also follows hash-chain construction in `Compiler/CMain.HC`, declaration insertion in `Compiler/PrsStmt.HC`, member insertion in `Compiler/LexLib.HC`, and the 17 internal type records in `Compiler/CInit.HC`. Each source blob was already present in the pinned manifest.
+
+`Sema.Symbol_table` reproduces the audited prepend, masked lookup, instance-count, and explicit chain order as a safe OCaml data structure. The task, module, function, block, aggregate, and assembler-block scope names describe contexts required by the semantic pipeline; this slice does not claim that the parser constructs them from source. No TempleOS table or executable code is copied.
+
 ## Preprocessor-expression audit
 
 The constant `#if` and `#assert` implementation follows both directive cases in `Compiler/Lex.HC`; `PrsExpression2`, `PrsUnaryTerm`, `LexExpression2Bin`, and `LexExpression` in `Compiler/PrsExp.HC`; `LexWarn` in `Compiler/CExcept.HC`; the precedence constants in `Compiler/CompilerA.HH`; the binary operator and internal type tables in `Compiler/CInit.HC`; the constant-folding cases in `Compiler/OptPass012.HC`; and the wording in `Doc/PreProcessor.DD`. Every source file has a pinned checksum in the manifest.

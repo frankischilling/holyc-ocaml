@@ -4,6 +4,7 @@ val create : unit -> t
 val sources : t -> Common.Source_manager.t
 val definitions : t -> Frontend.Definition.Environment.t
 val symbols : t -> Frontend.Symbol_visibility.Environment.t
+val semantic_symbols : t -> Sema.Symbol_table.t
 val add_source : t -> path:string -> contents:string -> Common.Source_file.t
 
 val load_source :

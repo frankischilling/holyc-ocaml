@@ -3195,6 +3195,50 @@ encoding = "not implemented"
 execution = "not implemented"
 
 [[feature]]
+id = "HC-SEMA-SYMBOL-SCOPES"
+description = "Semantic symbols and scopes have stable identities, newest-first kind-filtered lookup, and deterministic provenance dumps."
+sources = [
+  "Kernel/KHashA.HC:SYS_HASH_SINGLE_TABLE_FIND",
+  "Kernel/KHashA.HC:SYS_HASH_FIND",
+  "Kernel/KHashA.HC:_HASH_ADD",
+  "Kernel/KHashB.HC:HashTypeNum",
+  "Kernel/KHashB.HC:HashSrcFileSet",
+  "Compiler/CMain.HC:CmpJoin",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/LexLib.HC:MemberAdd",
+  "Compiler/CInit.HC:CmpFillTables",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/symbol.ml",
+  "src/sema/symbol_table.ml",
+  "src/driver/session.ml"
+]
+tests = [
+  "test/test_semantic_symbol_table.ml"
+]
+status = "implemented"
+issue = 164
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+dump_schema = "holyc-semantic-symbol-table-v1"
+scope_kinds = ["task", "module", "function", "block", "aggregate", "assembler-block"]
+symbol_kinds = ["internal-type", "aggregate-type", "function", "global-variable", "parameter", "local-variable", "member", "label", "assembler-symbol", "module", "generated"]
+same_scope_order = "newest matching entry first; older entries remain selectable"
+parent_order = "current scope followed by each explicit parent"
+nth_match = "continues through the parent chain"
+session_seed = "17 Compiler/CInit.HC internal type spellings"
+provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
+foreign_scope_mutation = "rejected"
+ast_declaration_collection = "not implemented"
+reference_resolution = "not implemented"
+duplicate_policy = "not implemented"
+jit_aot_linkage = "not implemented"
+import_export_records = "not implemented"
+native_oracle_status = "not required for this data-structure boundary; insertion and lookup order are explicit in the pinned hash routines"
+
+[[feature]]
 id = "HC-PARSER-CORPUS"
 description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
 sources = [
