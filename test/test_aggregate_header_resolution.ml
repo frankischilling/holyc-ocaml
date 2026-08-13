@@ -432,6 +432,25 @@ let low_level_validation () =
     "a global cannot become an aggregate type" true
     (Semantic_type.make_aggregate ~symbol:global ~pointer_depth:0
     |> Result.is_error);
+  Alcotest.(check bool)
+    "a global cannot become an aggregate base" true
+    (Semantic_aggregate_header_resolution.make_base_site ~spelling:"value"
+       ~origin:(Semantic_symbol.Synthesized "base site")
+       ~colon_origin:(Semantic_symbol.Synthesized "base colon")
+       ~name_origin:(Semantic_symbol.Synthesized "base name") ~symbol:global
+    |> Result.is_error);
+  let pointer_type =
+    checked
+      (Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+         ~primitive:Primitive_type.I64 ~pointer_depth:1)
+  in
+  Alcotest.(check bool)
+    "pointer provenance must match pointer depth" true
+    (Semantic_aggregate_header_resolution.make_backing_site ~spelling:"I64"
+       ~origin:(Semantic_symbol.Synthesized "pointer backing")
+       ~spelling_origin:(Semantic_symbol.Synthesized "pointer type")
+       ~pointer_origins:[] ~resolved_type:pointer_type
+    |> Result.is_error);
   let foreign_table = Semantic_symbol_table.create () in
   let foreign_scope =
     checked
