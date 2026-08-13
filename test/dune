@@ -1182,10 +1182,7 @@
   (progn
    (with-stdout-to
     parse-function-pointer-global.human.actual
-    (run
-     %{exe:../bin/holyc.exe}
-     parse
-     cli/parse-function-pointer-global.hc))
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-pointer-global.hc))
    (diff
     cli/parse-function-pointer-global.human
     parse-function-pointer-global.human.actual))))
