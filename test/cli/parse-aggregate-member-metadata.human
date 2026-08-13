@@ -1,0 +1,89 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-member-metadata.hc:1:1..9:1 items=1
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-member-metadata.hc:1:1..8:3 members=5
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-member-metadata.hc:1:1..1:6
+    name spelling="MetadataBox" span=cli/parse-aggregate-member-metadata.hc:1:7..1:18
+    opening_brace span=cli/parse-aggregate-member-metadata.hc:2:1..2:2
+    member_declaration index=0 span=cli/parse-aggregate-member-metadata.hc:3:3..3:41 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-member-metadata.hc:3:3..3:6
+      declarator index=0 span=cli/parse-aggregate-member-metadata.hc:3:7..3:41
+        name spelling="age" span=cli/parse-aggregate-member-metadata.hc:3:7..3:10
+        metadata index=0 span=cli/parse-aggregate-member-metadata.hc:3:11..3:29
+          name spelling="print_str" span=cli/parse-aggregate-member-metadata.hc:3:11..3:20
+          value kind=extended_string value="%2d" segments=2 span=cli/parse-aggregate-member-metadata.hc:3:21..3:29
+            segment index=0 spelling="\"%2\"" value="%2" span=cli/parse-aggregate-member-metadata.hc:3:21..3:25
+            segment index=1 spelling="\"d\"" value="d" span=cli/parse-aggregate-member-metadata.hc:3:26..3:29
+        metadata index=1 span=cli/parse-aggregate-member-metadata.hc:3:30..3:40
+          name spelling="dft_val" span=cli/parse-aggregate-member-metadata.hc:3:30..3:37
+          value kind=expression
+            expression kind=integer_literal spelling="38" value="0x0000000000000026" span=cli/parse-aggregate-member-metadata.hc:3:38..3:40
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-member-metadata.hc:3:40..3:41
+    member_declaration index=1 span=cli/parse-aggregate-member-metadata.hc:4:3..4:39 declarators=2
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-member-metadata.hc:4:3..4:6
+      declarator index=0 span=cli/parse-aggregate-member-metadata.hc:4:7..4:19
+        name spelling="first" span=cli/parse-aggregate-member-metadata.hc:4:7..4:12
+        metadata index=0 span=cli/parse-aggregate-member-metadata.hc:4:13..4:18
+          name spelling="tag" span=cli/parse-aggregate-member-metadata.hc:4:13..4:16
+          value kind=expression
+            expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-aggregate-member-metadata.hc:4:17..4:18
+        delimiter kind=comma spelling="," span=cli/parse-aggregate-member-metadata.hc:4:18..4:19
+      declarator index=1 span=cli/parse-aggregate-member-metadata.hc:4:20..4:39
+        name spelling="second" span=cli/parse-aggregate-member-metadata.hc:4:20..4:26
+        metadata index=0 span=cli/parse-aggregate-member-metadata.hc:4:27..4:32
+          name spelling="tag" span=cli/parse-aggregate-member-metadata.hc:4:27..4:30
+          value kind=expression
+            expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-aggregate-member-metadata.hc:4:31..4:32
+        metadata index=1 span=cli/parse-aggregate-member-metadata.hc:4:33..4:38
+          name spelling="tag" span=cli/parse-aggregate-member-metadata.hc:4:33..4:36
+          value kind=expression
+            expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-aggregate-member-metadata.hc:4:37..4:38
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-member-metadata.hc:4:38..4:39
+    member_declaration index=2 span=cli/parse-aggregate-member-metadata.hc:5:3..5:43 declarators=1
+      type primitive=U0 spelling="U0" span=cli/parse-aggregate-member-metadata.hc:5:3..5:5
+      declarator index=0 span=cli/parse-aggregate-member-metadata.hc:5:6..5:43
+        function_pointer span=cli/parse-aggregate-member-metadata.hc:5:6..5:28 parameters=1 variadic=false
+          opening_parenthesis span=cli/parse-aggregate-member-metadata.hc:5:6..5:7
+          pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-member-metadata.hc:5:7..5:8
+          name spelling="callback" span=cli/parse-aggregate-member-metadata.hc:5:8..5:16
+          closing_parenthesis span=cli/parse-aggregate-member-metadata.hc:5:16..5:17
+          signature_opening_parenthesis span=cli/parse-aggregate-member-metadata.hc:5:17..5:18
+          parameter index=0 span=cli/parse-aggregate-member-metadata.hc:5:18..5:27
+            type primitive=I64 spelling="I64" span=cli/parse-aggregate-member-metadata.hc:5:18..5:21
+            name spelling="value" span=cli/parse-aggregate-member-metadata.hc:5:22..5:27
+          signature_closing_parenthesis span=cli/parse-aggregate-member-metadata.hc:5:27..5:28
+        metadata index=0 span=cli/parse-aggregate-member-metadata.hc:5:29..5:42
+          name spelling="doc" span=cli/parse-aggregate-member-metadata.hc:5:29..5:32
+          value kind=extended_string value="handler" segments=1 span=cli/parse-aggregate-member-metadata.hc:5:33..5:42
+            segment index=0 spelling="\"handler\"" value="handler" span=cli/parse-aggregate-member-metadata.hc:5:33..5:42
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-member-metadata.hc:5:42..5:43
+    member_declaration index=3 span=cli/parse-aggregate-member-metadata.hc:6:3..6:25 declarators=1
+      type primitive=U8 spelling="U8" span=cli/parse-aggregate-member-metadata.hc:6:3..6:5
+      declarator index=0 span=cli/parse-aggregate-member-metadata.hc:6:6..6:25
+        pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-member-metadata.hc:6:6..6:7
+        name spelling="names" span=cli/parse-aggregate-member-metadata.hc:6:7..6:12
+        array_dimension index=0 sized=true span=cli/parse-aggregate-member-metadata.hc:6:12..6:15
+          opening_bracket span=cli/parse-aggregate-member-metadata.hc:6:12..6:13
+          expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-aggregate-member-metadata.hc:6:13..6:14
+          closing_bracket span=cli/parse-aggregate-member-metadata.hc:6:14..6:15
+        metadata index=0 span=cli/parse-aggregate-member-metadata.hc:6:16..6:24
+          name spelling="public" span=cli/parse-aggregate-member-metadata.hc:6:16..6:22
+          value kind=expression
+            expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-aggregate-member-metadata.hc:6:23..6:24
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-member-metadata.hc:6:24..6:25
+    anonymous_union index=4 span=cli/parse-aggregate-member-metadata.hc:7:3..7:44 members=1
+      keyword spelling="union" span=cli/parse-aggregate-member-metadata.hc:7:3..7:8
+      opening_brace span=cli/parse-aggregate-member-metadata.hc:7:9..7:10
+        member_declaration index=0 span=cli/parse-aggregate-member-metadata.hc:7:11..7:41 declarators=1
+          type primitive=F64 spelling="F64" span=cli/parse-aggregate-member-metadata.hc:7:11..7:14
+          declarator index=0 span=cli/parse-aggregate-member-metadata.hc:7:15..7:41
+            name spelling="percentile" span=cli/parse-aggregate-member-metadata.hc:7:15..7:25
+            metadata index=0 span=cli/parse-aggregate-member-metadata.hc:7:26..7:40
+              name spelling="format" span=cli/parse-aggregate-member-metadata.hc:7:26..7:32
+              value kind=extended_string value="%5.2f" segments=1 span=cli/parse-aggregate-member-metadata.hc:7:33..7:40
+                segment index=0 spelling="\"%5.2f\"" value="%5.2f" span=cli/parse-aggregate-member-metadata.hc:7:33..7:40
+            delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-member-metadata.hc:7:40..7:41
+      closing_brace span=cli/parse-aggregate-member-metadata.hc:7:42..7:43
+      semicolon span=cli/parse-aggregate-member-metadata.hc:7:43..7:44
+    closing_brace span=cli/parse-aggregate-member-metadata.hc:8:1..8:2
+    semicolon span=cli/parse-aggregate-member-metadata.hc:8:2..8:3

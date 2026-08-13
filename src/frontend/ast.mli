@@ -362,8 +362,25 @@ and aggregate_member_declarator = private {
   member_name : identifier;
   member_function_pointer : function_pointer_declarator option;
   member_array_dimensions : array_dimension list;
+  member_metadata : aggregate_member_metadata list;
   member_delimiter : declaration_delimiter;
   member_declarator_location : location;
+}
+
+and aggregate_member_metadata = private {
+  member_metadata_name : identifier;
+  member_metadata_value : aggregate_member_metadata_value;
+  member_metadata_location : location;
+}
+
+and aggregate_member_metadata_value =
+  | Member_metadata_string of aggregate_member_metadata_string
+  | Member_metadata_expression of expression
+
+and aggregate_member_metadata_string = private {
+  member_metadata_string_segments : expression_literal list;
+  member_metadata_string_value : string;
+  member_metadata_string_location : location;
 }
 
 and aggregate_member_declaration = private {
@@ -780,11 +797,24 @@ val make_array_dimension :
   location:location ->
   array_dimension
 
+val make_aggregate_member_metadata_string :
+  segments:expression_literal list ->
+  value:string ->
+  location:location ->
+  aggregate_member_metadata_string
+
+val make_aggregate_member_metadata :
+  name:identifier ->
+  value:aggregate_member_metadata_value ->
+  location:location ->
+  aggregate_member_metadata
+
 val make_aggregate_member_declarator :
   pointer_layers:pointer_layer list ->
   name:identifier ->
   function_pointer:function_pointer_declarator option ->
   array_dimensions:array_dimension list ->
+  metadata:aggregate_member_metadata list ->
   delimiter:declaration_delimiter ->
   location:location ->
   aggregate_member_declarator

@@ -1,0 +1,3 @@
+cli/parse-aggregate-member-metadata-error.hc:3:16: error[HCPARSE0144]: expected a string or expression value after aggregate member metadata name "tag", but found ";"
+    3 |   I64 value tag;
+      |                ^

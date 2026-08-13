@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0144",
+    "severity": "error",
+    "message": "expected a string or expression value after aggregate member metadata name \"tag\", but found \";\"",
+    "primary": {
+      "path": "cli/parse-aggregate-member-metadata-error.hc",
+      "line": 3,
+      "column": 16,
+      "source_id": 0,
+      "start": 38,
+      "stop": 39
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

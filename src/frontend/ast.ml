@@ -357,8 +357,25 @@ and aggregate_member_declarator = {
   member_name : identifier;
   member_function_pointer : function_pointer_declarator option;
   member_array_dimensions : array_dimension list;
+  member_metadata : aggregate_member_metadata list;
   member_delimiter : declaration_delimiter;
   member_declarator_location : location;
+}
+
+and aggregate_member_metadata = {
+  member_metadata_name : identifier;
+  member_metadata_value : aggregate_member_metadata_value;
+  member_metadata_location : location;
+}
+
+and aggregate_member_metadata_value =
+  | Member_metadata_string of aggregate_member_metadata_string
+  | Member_metadata_expression of expression
+
+and aggregate_member_metadata_string = {
+  member_metadata_string_segments : expression_literal list;
+  member_metadata_string_value : string;
+  member_metadata_string_location : location;
 }
 
 and aggregate_member_declaration = {
@@ -769,13 +786,28 @@ let make_array_dimension ~opening_bracket ~dimension_expression ~closing_bracket
     ~location =
   { opening_bracket; dimension_expression; closing_bracket; location }
 
+let make_aggregate_member_metadata_string ~segments ~value ~location =
+  {
+    member_metadata_string_segments = segments;
+    member_metadata_string_value = value;
+    member_metadata_string_location = location;
+  }
+
+let make_aggregate_member_metadata ~name ~value ~location =
+  {
+    member_metadata_name = name;
+    member_metadata_value = value;
+    member_metadata_location = location;
+  }
+
 let make_aggregate_member_declarator ~pointer_layers ~name ~function_pointer
-    ~array_dimensions ~delimiter ~location =
+    ~array_dimensions ~metadata ~delimiter ~location =
   {
     member_pointer_layers = pointer_layers;
     member_name = name;
     member_function_pointer = function_pointer;
     member_array_dimensions = array_dimensions;
+    member_metadata = metadata;
     member_delimiter = delimiter;
     member_declarator_location = location;
   }

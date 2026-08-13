@@ -76,6 +76,7 @@
   ../third_party/TempleOS/Adam/ABlkDev/FileMgr.HC
   ../third_party/TempleOS/Demo/Asm/AsmAndC1.HC
   ../third_party/TempleOS/Demo/Asm/AsmAndC2.HC
+  ../third_party/TempleOS/Demo/ClassMeta.HC
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
   ../third_party/TempleOS/Demo/MultiCore/Lock.HC
   ../third_party/TempleOS/Demo/Exceptions.HC
@@ -3613,3 +3614,89 @@
    (diff
     cli/parse-contextual-member-names.json
     parse-contextual-member-names.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-member-metadata.human.actual)
+ (deps
+  cli/parse-aggregate-member-metadata.hc
+  cli/parse-aggregate-member-metadata.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-member-metadata.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     cli/parse-aggregate-member-metadata.hc))
+   (diff
+    cli/parse-aggregate-member-metadata.human
+    parse-aggregate-member-metadata.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-member-metadata.json.actual)
+ (deps
+  cli/parse-aggregate-member-metadata.hc
+  cli/parse-aggregate-member-metadata.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-member-metadata.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-member-metadata.hc))
+   (diff
+    cli/parse-aggregate-member-metadata.json
+    parse-aggregate-member-metadata.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-member-metadata-error.human.actual
+  parse-aggregate-member-metadata-error.human.stdout.actual)
+ (deps
+  cli/parse-aggregate-member-metadata-error.hc
+  cli/parse-aggregate-member-metadata-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-member-metadata-error.human.stdout.actual
+    (with-stderr-to
+     parse-aggregate-member-metadata-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-aggregate-member-metadata-error.hc))))
+   (diff
+    cli/parse-aggregate-member-metadata-error.human
+    parse-aggregate-member-metadata-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-aggregate-member-metadata-error.json.actual
+  parse-aggregate-member-metadata-error.json.stdout.actual)
+ (deps
+  cli/parse-aggregate-member-metadata-error.hc
+  cli/parse-aggregate-member-metadata-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-member-metadata-error.json.stdout.actual
+    (with-stderr-to
+     parse-aggregate-member-metadata-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-aggregate-member-metadata-error.hc))))
+   (diff
+    cli/parse-aggregate-member-metadata-error.json
+    parse-aggregate-member-metadata-error.json.actual))))

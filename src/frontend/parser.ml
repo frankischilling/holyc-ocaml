@@ -74,6 +74,11 @@ type parsed_aggregate_member_declarator = {
   tokens : Token.t list;
 }
 
+type parsed_aggregate_member_metadata = {
+  metadata_nodes : Ast.aggregate_member_metadata list;
+  metadata_tokens : Token.t list;
+}
+
 type parsed_aggregate_member = {
   node : Ast.aggregate_member;
   tokens : Token.t list;
@@ -114,6 +119,7 @@ type expression_context =
   | Local_initializer_expression
   | Global_initializer_expression
   | Aggregate_offset_expression
+  | Aggregate_member_metadata_expression
   | Statement_expression
 
 type direct_function_resolution =
@@ -983,6 +989,8 @@ let expression_context_name = function
   | Local_initializer_expression -> "local initializer expression"
   | Global_initializer_expression -> "global initializer expression"
   | Aggregate_offset_expression -> "aggregate offset expression"
+  | Aggregate_member_metadata_expression ->
+      "aggregate member metadata expression"
   | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
@@ -1002,6 +1010,8 @@ let expression_operand_name = function
   | Local_initializer_expression -> "a local initializer expression operand"
   | Global_initializer_expression -> "a global initializer expression operand"
   | Aggregate_offset_expression -> "an aggregate offset expression operand"
+  | Aggregate_member_metadata_expression ->
+      "an aggregate member metadata expression operand"
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
@@ -2692,15 +2702,10 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
           match parse_array_dimensions cursor 0 [] [] with
           | None -> Error { recovery_depth }
           | Some (array_dimensions, array_tokens) -> (
-              let delimiter_item = peek cursor in
-              match delimiter_item.token.kind with
-              | Token_kind.Identifier ->
-                  aggregate_member_failure cursor delimiter_item ~recovery_depth
-                    ~code:"HCPARSE0118"
-                    ~message:
-                      "aggregate member metadata is not implemented in this \
-                       parser slice"
-              | _ -> (
+              match parse_aggregate_member_metadata cursor ~recovery_depth with
+              | Error failure -> Error failure
+              | Ok metadata -> (
+                  let delimiter_item = peek cursor in
                   match delimiter_kind delimiter_item.token with
                   | None ->
                       aggregate_member_failure cursor delimiter_item
@@ -2719,14 +2724,90 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
                           ~location:(token_location delimiter_item.token)
                       in
                       let tokens =
-                        core_tokens @ array_tokens @ [ delimiter_item.token ]
+                        core_tokens @ array_tokens @ metadata.metadata_tokens
+                        @ [ delimiter_item.token ]
                       in
                       let node =
                         Ast.make_aggregate_member_declarator ~pointer_layers
-                          ~name ~function_pointer ~array_dimensions ~delimiter
+                          ~name ~function_pointer ~array_dimensions
+                          ~metadata:metadata.metadata_nodes ~delimiter
                           ~location:(location_from_expression_tokens tokens)
                       in
                       Ok { node; tokens }))))
+
+and parse_aggregate_member_metadata cursor ~recovery_depth :
+    (parsed_aggregate_member_metadata, aggregate_parse_failure) result =
+  let rec collect nodes_rev tokens_rev =
+    let name_item = peek cursor in
+    if not (token_is_aggregate_member_identifier name_item.token) then
+      Ok
+        {
+          metadata_nodes = List.rev nodes_rev;
+          metadata_tokens = List.rev tokens_rev;
+        }
+    else
+      let name_item = take cursor in
+      let name =
+        Ast.make_identifier ~spelling:name_item.token.raw
+          ~location:(token_location name_item.token)
+      in
+      let finish value value_tokens =
+        let tokens = name_item.token :: value_tokens in
+        let node =
+          Ast.make_aggregate_member_metadata ~name ~value
+            ~location:(location_from_expression_tokens tokens)
+        in
+        collect (node :: nodes_rev) (List.rev_append tokens tokens_rev)
+      in
+      let value_item = peek cursor in
+      match (value_item.token.kind, value_item.token.value) with
+      | Token_kind.String, Token.Bytes _ ->
+          let rec take_segments segments_rev items_rev values_rev =
+            let item = peek cursor in
+            match (item.token.kind, item.token.value) with
+            | Token_kind.String, Token.Bytes value ->
+                let item = take cursor in
+                let segment =
+                  Ast.make_expression_literal ~spelling:item.token.raw
+                    ~value:(Ast.Bytes_value value)
+                    ~location:(token_location item.token)
+                in
+                take_segments (segment :: segments_rev) (item :: items_rev)
+                  (value :: values_rev)
+            | _ ->
+                ( List.rev segments_rev,
+                  List.rev items_rev,
+                  String.concat "" (List.rev values_rev) )
+          in
+          let segments, items, value = take_segments [] [] [] in
+          let value_tokens = List.map (fun item -> item.token) items in
+          let string =
+            Ast.make_aggregate_member_metadata_string ~segments ~value
+              ~location:(location_from_expression_tokens value_tokens)
+          in
+          finish (Ast.Member_metadata_string string) value_tokens
+      | ( (Token_kind.Punctuation (',' | ')' | ']' | ';' | '}') | Token_kind.Eof),
+          _ ) ->
+          aggregate_member_failure cursor value_item ~recovery_depth
+            ~code:"HCPARSE0144"
+            ~message:
+              (Printf.sprintf
+                 "expected a string or expression value after aggregate member \
+                  metadata name %S, but found %s"
+                 name.spelling
+                 (token_description value_item.token))
+      | _ -> (
+          match
+            parse_expression cursor
+              ~context:Aggregate_member_metadata_expression ~depth:0
+              ~minimum_binding_power:0
+          with
+          | None -> Error { recovery_depth }
+          | Some expression ->
+              finish (Ast.Member_metadata_expression expression.node)
+                expression.tokens)
+  in
+  collect [] []
 
 let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
     ~aggregate_kind ~parse_function_pointer ~parse_member_function_pointer =
