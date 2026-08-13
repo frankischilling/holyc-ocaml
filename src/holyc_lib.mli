@@ -43,6 +43,7 @@ module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_function_type_resolution = Sema.Function_type_resolution
+module Semantic_function_resolution = Sema.Function_resolution
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
