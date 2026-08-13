@@ -31,6 +31,7 @@ type label = {
   symbol : Symbol.t;
   definition_kind : definition_kind;
   first_occurrence_index : int;
+  definition_count : int;
   goto_count : int;
   use_count : int;
 }
@@ -54,6 +55,7 @@ let function_occurrences (function_ : resolved_function) = function_.occurrences
 let label_symbol (label : label) = label.symbol
 let label_definition_kind (label : label) = label.definition_kind
 let label_first_occurrence_index (label : label) = label.first_occurrence_index
+let label_definition_count (label : label) = label.definition_count
 let label_goto_count (label : label) = label.goto_count
 let label_use_count (label : label) = label.use_count
 let occurrence_symbol (occurrence : resolved_occurrence) = occurrence.symbol
@@ -190,6 +192,7 @@ type pending_label = {
   name : string;
   first_occurrence_index : int;
   definition : (definition_kind * Symbol.origin) option;
+  definition_count : int;
   goto_count : int;
   use_count : int;
 }
@@ -199,6 +202,7 @@ type prepared_label = {
   first_occurrence_index : int;
   definition_kind : definition_kind;
   definition_origin : Symbol.origin;
+  definition_count : int;
   goto_count : int;
   use_count : int;
 }
@@ -225,6 +229,7 @@ let add_new_pending (occurrence : occurrence) =
           name = occurrence.name;
           first_occurrence_index = occurrence.index;
           definition = None;
+          definition_count = 0;
           goto_count = 1;
           use_count = 1;
         }
@@ -234,6 +239,7 @@ let add_new_pending (occurrence : occurrence) =
           name = occurrence.name;
           first_occurrence_index = occurrence.index;
           definition = Some (kind, occurrence.origin);
+          definition_count = 1;
           goto_count = 0;
           use_count = (if assembly_definition kind then 1 else 0);
         }
@@ -251,6 +257,12 @@ let update_pending function_name (pending : pending_label)
       )
   | Definition kind -> (
       match pending.definition with
+      | Some (previous_kind, _)
+        when assembly_definition previous_kind && assembly_definition kind ->
+          Result.map
+            (fun definition_count -> { pending with definition_count })
+            (increment pending.definition_count
+               "semantic assembly label definition count is exhausted")
       | Some _ ->
           Error
             (Printf.sprintf "label %S is defined more than once in function %S"
@@ -262,11 +274,18 @@ let update_pending function_name (pending : pending_label)
                 {
                   pending with
                   definition = Some (kind, occurrence.origin);
+                  definition_count = 1;
                   use_count;
                 })
               (increment pending.use_count
                  "semantic label use count is exhausted")
-          else Ok { pending with definition = Some (kind, occurrence.origin) })
+          else
+            Ok
+              {
+                pending with
+                definition = Some (kind, occurrence.origin);
+                definition_count = 1;
+              })
 
 let collect_pending function_name (occurrences : occurrence list) =
   let rec collect (pending : pending_label String_map.t) order_rev = function
@@ -311,6 +330,7 @@ let prepare_labels function_name (occurrences : occurrence list) =
                      first_occurrence_index = label.first_occurrence_index;
                      definition_kind;
                      definition_origin;
+                     definition_count = label.definition_count;
                      goto_count = label.goto_count;
                      use_count = label.use_count;
                    }
@@ -376,6 +396,7 @@ let add_labels table scope labels =
                 symbol;
                 definition_kind = label.definition_kind;
                 first_occurrence_index = label.first_occurrence_index;
+                definition_count = label.definition_count;
                 goto_count = label.goto_count;
                 use_count = label.use_count;
               }

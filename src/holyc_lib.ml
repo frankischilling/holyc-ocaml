@@ -83,3 +83,8 @@ let collect_functions session ~declarations module_ =
   Driver.Function_collection.collect
     ~table:(Session.semantic_symbols session)
     ~declarations module_
+
+let resolve_labels session ~functions module_ =
+  Driver.Label_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~functions module_

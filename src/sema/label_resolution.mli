@@ -46,6 +46,11 @@ val function_occurrences : resolved_function -> resolved_occurrence list
 val label_symbol : label -> Symbol.t
 val label_definition_kind : label -> definition_kind
 val label_first_occurrence_index : label -> int
+
+val label_definition_count : label -> int
+(** Count retained definition occurrences. Repeated assembly definitions still
+    need an assembler address check before they can be accepted. *)
+
 val label_goto_count : label -> int
 
 val label_use_count : label -> int
