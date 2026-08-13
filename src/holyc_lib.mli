@@ -46,6 +46,10 @@ module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
+
+module Semantic_function_record_classification =
+  Sema.Function_record_classification
+
 module Semantic_global_resolution = Sema.Global_resolution
 module Semantic_global_record_classification = Sema.Global_record_classification
 
@@ -179,6 +183,17 @@ val resolve_function_identities :
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
     Header comparison, task-parent lookup, alternate target resolution, and
     linkage remain separate passes. *)
+
+val classify_function_records :
+  ?compiler_option_mask:int64 ->
+  Session.t ->
+  resolution:Semantic_function_resolution.t ->
+  Ast.module_ ->
+  (Semantic_function_record_classification.t, string) result
+(** Replay source-grounded function record mutations and expose raw flags, call
+    access, lookup visibility, and AOT linkage intent. The optional option mask
+    is explicit because compile-time option snapshots are not executed yet;
+    addresses, header comparison, and record emission remain separate. *)
 
 val resolve_global_records :
   Session.t ->
