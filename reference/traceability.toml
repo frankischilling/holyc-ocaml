@@ -3647,10 +3647,60 @@ mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 array_extent_evaluation_and_inference = "not implemented"
 initializer_checking_and_evaluation = "not implemented"
-global_identity_and_linkage = "not implemented"
+global_identity_and_linkage = "record reconciliation is implemented by HC-SEMA-GLOBAL-RECORDS; target addresses and linkage are not implemented"
 storage_layout_and_relocations = "not implemented"
 compiler_options_and_alternate_targets = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsClass, PrsGlblVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained shape directly"
+
+[[feature]]
+id = "HC-SEMA-GLOBAL-RECORDS"
+description = "Every global declarator retains a separate record and the pinned JIT or AOT rule may attach one immediate alias edge to an older record."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsExp.HC:global variable expression path",
+  "Compiler/CHash.HC:HashEntrySize2",
+  "Compiler/CHash.HC:MapFileWrite",
+  "Kernel/KHashB.HC:HashVal",
+  "Kernel/KHashB.HC:HashDel",
+  "Kernel/KLoad.HC:SysSymImportsResolve",
+  "Kernel/KernelA.HH:CHashGlblVar",
+  "Kernel/KernelA.HH:GVF_ALIAS, GVF_EXTERN, and GVF_IMPORT",
+  "Kernel/KernelA.HH:HTF_IMPORT and HTF_UNRESOLVED",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/sema/global_resolution.ml",
+  "src/driver/global_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_global_resolution.ml"
+]
+status = "implemented"
+issue = 187
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary, grouped, bound, and aggregate-attached globals from one checked module"
+record_creation = "every declarator remains a distinct source-ordered record"
+source_forms = ["definition", "extern", "_extern", "import", "_import", "_intern"]
+target_provenance = "alternate symbol names and intern expression ranges are retained without address evaluation"
+jit_extern_state = "plain extern records are unresolved; AOT plain extern records are declared but do not carry the unresolved state"
+jit_alias = "a definition redirects only the newest same-name plain extern record"
+jit_barriers = ["definition", "_extern", "import-like record"]
+aot_code_heap_alias = "a definition redirects the newest prior same-name global regardless of binding state"
+alias_direction = "the older selected record points to the later definition record"
+alias_transitivity = "none; a later definition does not rewrite an older edge"
+alias_type_check = "none"
+aot_data_heap = "a repeated same-name definition is rejected because the pinned source reports this case as unimplemented"
+high_level_storage = "code heap until source compiler-option execution supplies OPTf_GLBLS_ON_DATA_HEAP per declaration"
+validation = "session ownership, module scope, AST and global-type association, source and grouped order, unique declaration symbols, exact binding target shape, and mode legality"
+mutation = "none"
+address_and_target_resolution = "not implemented"
+storage_allocation_and_initializer_evaluation = "not implemented"
+visibility_warnings_parent_tasks_and_loader_records = "not implemented"
+native_oracle_status = "not required for this record boundary; PrsGlblVarLst, PrsType, HashVal, HashDel, and the pinned hash routines state the allocation and alias transitions directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
