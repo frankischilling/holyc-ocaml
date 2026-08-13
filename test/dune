@@ -15,6 +15,7 @@
   test_declaration_collection
   test_member_collection
   test_function_collection
+  test_label_resolution
   test_diagnostic
   test_version
   test_corpus

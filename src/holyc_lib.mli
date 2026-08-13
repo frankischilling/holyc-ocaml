@@ -36,6 +36,7 @@ module Parser = Frontend.Parser
 module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
 module Semantic_function_collection = Sema.Function_collection
+module Semantic_label_resolution = Sema.Label_resolution
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -94,5 +95,14 @@ val collect_functions :
   (Semantic_function_collection.t, string) result
 (** Create function scopes beneath [declarations] and collect named parameters,
     variadic [argc] and [argv], and function-wide locals. Type resolution,
-    storage, duplicate checks, labels, and reference resolution remain separate
-    semantic passes. *)
+    storage, duplicate checks, and reference resolution remain separate semantic
+    passes. *)
+
+val resolve_labels :
+  Session.t ->
+  functions:Semantic_function_collection.t ->
+  Ast.module_ ->
+  (Semantic_label_resolution.t, string) result
+(** Bind function-local [goto] occurrences to language and assembly-block label
+    definitions from the same AST. Assembly operand references and control-flow
+    lowering remain separate passes. *)
