@@ -36,6 +36,7 @@ module Parser = Frontend.Parser
 module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
 module Semantic_function_collection = Sema.Function_collection
+module Semantic_label_resolution = Sema.Label_resolution
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
