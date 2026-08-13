@@ -3231,7 +3231,7 @@ nth_match = "continues through the parent chain"
 session_seed = "17 Compiler/CInit.HC internal type spellings"
 provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
 foreign_scope_mutation = "rejected"
-ast_declaration_collection = "top-level declarations implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS; nested declarations are not implemented"
+ast_declaration_collection = "top-level declarations implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS and direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS; parameters, locals, labels, and assembler symbols are not implemented"
 reference_resolution = "not implemented"
 duplicate_policy = "not implemented"
 jit_aot_linkage = "not implemented"
@@ -3269,10 +3269,47 @@ provenance = ["primary span", "source segments", "generated source origin", "def
 top_level_executable_statements = "no declaration entry"
 forward_definition_merging = "not implemented"
 duplicate_validation = "not implemented"
-nested_declaration_collection = "not implemented"
+nested_declaration_collection = "direct aggregate members implemented in HC-SEMA-AGGREGATE-MEMBERS; parameters, locals, labels, and assembler symbols are not implemented"
 jit_task_publication = "not implemented"
 linkage_and_reference_resolution = "not implemented"
 native_oracle_status = "not required for this collection boundary; insertion order is explicit in PrsClass, PrsGlblVarLst, and PrsFunJoin"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-MEMBERS"
+description = "Accepted class and union definitions receive aggregate scopes with source-ordered direct-member identities."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/LexLib.HC:MemberAdd",
+  "Compiler/LexLib.HC:MemberFind",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashClass",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/member_collection.ml",
+  "src/driver/member_collection.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_member_collection.ml"
+]
+status = "implemented"
+issue = 168
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope_parent = "the module scope from the matching top-level declaration collection"
+source_order = "aggregate definitions by module item; member declarations by recursive source path; grouped declarators left to right"
+anonymous_unions = "named fields share the containing aggregate scope; the AST nesting path remains on each entry"
+ignored_member_forms = ["aggregate offset directive", "empty member separator", "metadata name"]
+provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
+repeated_names = "preserved as separate entries with newest-first lookup"
+duplicate_validation = "not implemented; the later pass must retain the pad, reserved, and _anon_ exceptions"
+base_class_lookup = "not implemented"
+layout = "not implemented"
+member_metadata_evaluation = "not implemented"
+reference_resolution = "not implemented"
+native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"

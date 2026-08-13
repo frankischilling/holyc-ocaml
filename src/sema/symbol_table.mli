@@ -50,6 +50,7 @@ val scope_id : scope -> Symbol.Scope_id.t
 val scope_kind : scope -> scope_kind
 val scope_name : scope -> string option
 val parent : scope -> scope option
+val owns_scope : t -> scope -> bool
 val scope_kind_name : scope_kind -> string
 val all_scopes : t -> scope list
 val all_symbols : t -> Symbol.t list
