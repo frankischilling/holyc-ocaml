@@ -38,6 +38,8 @@ let () =
       ("intermediate code", Test_intermediate_code.tests);
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);
+      ("global record flag source", Test_global_record_flag_source.tests);
+      ("global record flag", Test_global_record_flag.tests);
       ("BIN record source", Test_bin_record_source.tests);
       ("BIN record", Test_bin_record.tests);
     ]

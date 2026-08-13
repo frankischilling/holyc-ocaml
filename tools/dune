@@ -40,6 +40,12 @@
  (libraries digestif))
 
 (library
+ (name global_record_flag_tools)
+ (wrapped false)
+ (modules global_record_flag_source)
+ (libraries digestif))
+
+(library
  (name bin_record_tools)
  (wrapped false)
  (modules bin_record_source)
@@ -74,6 +80,11 @@
  (name function_flag_gen)
  (modules function_flag_gen)
  (libraries function_flag_tools yojson))
+
+(executable
+ (name global_record_flag_gen)
+ (modules global_record_flag_gen)
+ (libraries global_record_flag_tools yojson))
 
 (executable
  (name bin_record_gen)
@@ -125,6 +136,34 @@
     src/generated/function_flags.ml
     --output-mli
     src/generated/function_flags.mli
+    --check))))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Kernel/KHashB.HC
+  ../third_party/TempleOS/Compiler/PrsStmt.HC
+  ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../third_party/TempleOS/Compiler/CHash.HC
+  ../third_party/TempleOS/Compiler/AsmResolve.HC
+  ../third_party/TempleOS/Doc/ScopingLinkage.DD
+  ../src/generated/global_record_flags.ml
+  ../src/generated/global_record_flags.mli)
+ (action
+  (chdir
+   %{workspace_root}
+   (run
+    %{exe:global_record_flag_gen.exe}
+    --reference-root
+    third_party/TempleOS
+    --manifest
+    reference/manifest.json
+    --output-ml
+    src/generated/global_record_flags.ml
+    --output-mli
+    src/generated/global_record_flags.mli
     --check))))
 
 (rule
