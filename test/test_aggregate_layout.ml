@@ -30,7 +30,14 @@ type semantic_results = {
   layouts : Semantic_aggregate_layout.t;
 }
 
-let resolve session ast =
+type prepared = {
+  prepared_declarations : Semantic_declaration_collection.t;
+  prepared_aggregates : Semantic_aggregate_resolution.t;
+  prepared_headers : Semantic_aggregate_header_resolution.t;
+  prepared_member_types : Semantic_member_type_resolution.t;
+}
+
+let prepare session ast =
   let declarations = checked (Holyc_lib.collect_declarations session ast) in
   let aggregates =
     checked (Holyc_lib.resolve_aggregates session ~declarations ast)
@@ -45,12 +52,30 @@ let resolve session ast =
       (Holyc_lib.resolve_member_types session ~declarations ~aggregates ~headers
          ~members ast)
   in
+  {
+    prepared_declarations = declarations;
+    prepared_aggregates = aggregates;
+    prepared_headers = headers;
+    prepared_member_types = member_types;
+  }
+
+let resolve session ast =
+  let prepared = prepare session ast in
   let layouts =
     checked
-      (Holyc_lib.layout_aggregates session ~declarations ~aggregates ~headers
-         ~members:member_types ast)
+      (Holyc_lib.layout_aggregates session
+         ~declarations:prepared.prepared_declarations
+         ~aggregates:prepared.prepared_aggregates
+         ~headers:prepared.prepared_headers
+         ~members:prepared.prepared_member_types ast)
   in
-  { declarations; aggregates; headers; member_types; layouts }
+  {
+    declarations = prepared.prepared_declarations;
+    aggregates = prepared.prepared_aggregates;
+    headers = prepared.prepared_headers;
+    member_types = prepared.prepared_member_types;
+    layouts;
+  }
 
 let layout_named results name =
   Semantic_aggregate_layout.layouts results.layouts
@@ -218,6 +243,9 @@ let closed_expression_operators () =
   Alcotest.(check int64) "current position" 13L
     (evaluate
        (Semantic_aggregate_layout.Current_position_expression expression_origin));
+  Alcotest.(check int64) "target addition wraps" Int64.min_int
+    (evaluate
+       (binary Add (integer Int64.max_int) (integer 1L)));
   let skipped_division =
     binary Logical_and (integer 0L)
       (binary Divide (integer 1L) (integer 0L))
@@ -283,23 +311,13 @@ let expression_failures_are_typed () =
 let layout_error source =
   let session = Session.create () in
   let ast = parse session ~path:"bad-layout.HC" source in
-  let declarations = checked (Holyc_lib.collect_declarations session ast) in
-  let aggregates =
-    checked (Holyc_lib.resolve_aggregates session ~declarations ast)
-  in
-  let headers =
-    checked
-      (Holyc_lib.resolve_aggregate_headers session ~declarations ~aggregates ast)
-  in
-  let members = checked (Holyc_lib.collect_members session ~declarations ast) in
-  let member_types =
-    checked
-      (Holyc_lib.resolve_member_types session ~declarations ~aggregates ~headers
-         ~members ast)
-  in
+  let prepared = prepare session ast in
   match
-    Holyc_lib.layout_aggregates session ~declarations ~aggregates ~headers
-      ~members:member_types ast
+    Holyc_lib.layout_aggregates session
+      ~declarations:prepared.prepared_declarations
+      ~aggregates:prepared.prepared_aggregates
+      ~headers:prepared.prepared_headers
+      ~members:prepared.prepared_member_types ast
   with
   | Ok _ -> Alcotest.fail "expected aggregate layout to fail"
   | Error message -> message
@@ -317,7 +335,38 @@ let layout_failures_stay_visible () =
   check_prefix "HCSEMA0002:"
     (layout_error "class Node { Node value; };");
   check_prefix "HCSEMA0008:"
+    (layout_error "class Huge { I8 values[0x7fffffffffffffff][2]; };");
+  check_prefix "HCSEMA0008:"
     (layout_error "class Huge { $$=0x7fffffffffffffff; I64 value; };")
+
+let mismatched_inputs_are_rejected () =
+  let session = Session.create () in
+  let first_ast =
+    parse session ~path:"first-layout.HC" "class First { I64 value; };"
+  in
+  let second_ast =
+    parse session ~path:"second-layout.HC" "class Second { U8 value; };"
+  in
+  let first = prepare session first_ast in
+  let second = prepare session second_ast in
+  let mismatched_members =
+    Holyc_lib.layout_aggregates session
+      ~declarations:first.prepared_declarations
+      ~aggregates:first.prepared_aggregates ~headers:first.prepared_headers
+      ~members:second.prepared_member_types first_ast
+  in
+  let mismatched_ast =
+    Holyc_lib.layout_aggregates session
+      ~declarations:first.prepared_declarations
+      ~aggregates:first.prepared_aggregates ~headers:first.prepared_headers
+      ~members:first.prepared_member_types second_ast
+  in
+  let message = function
+    | Ok _ -> Alcotest.fail "expected mismatched layout inputs to fail"
+    | Error message -> message
+  in
+  check_prefix "HCSEMA0001:" (message mismatched_members);
+  check_prefix "HCSEMA0001:" (message mismatched_ast)
 
 let modes_and_repeat_runs_are_deterministic () =
   let signatures =
@@ -374,6 +423,8 @@ let tests =
       expression_failures_are_typed;
     Alcotest.test_case "visible layout failures" `Quick
       layout_failures_stay_visible;
+    Alcotest.test_case "mismatched inputs" `Quick
+      mismatched_inputs_are_rejected;
     Alcotest.test_case "modes and deterministic repeats" `Quick
       modes_and_repeat_runs_are_deterministic;
   ]
