@@ -3311,7 +3311,7 @@ ordering = "identities by creation site and declarations by source item"
 mutation = "none after validated declaration collection input"
 compilation_modes = ["jit", "aot"]
 parent_task_lookup = "not implemented; AOT HashFind and JIT HashSingleTableFind differences remain separate work"
-named_type_use_resolution = "not implemented"
+named_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; other sites remain unresolved"
 unused_forward_warning = "not implemented"
 layout = "not implemented"
 linkage = "not implemented"
@@ -3356,9 +3356,58 @@ mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 cycle_validation = "not implemented"
 layout_and_inherited_lookup = "not implemented"
-ordinary_type_use_resolution = "not implemented"
+ordinary_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; other sites remain unresolved"
 parent_task_lookup = "not implemented"
 native_oracle_status = "not required for this header boundary; PrsType, PrsClass, PrsClassNew, and OptClassFwd state the lookup order and retained relation directly"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-MEMBER-TYPES"
+description = "Direct aggregate members bind source type references at the canonical publication point while retaining declarator shape for later semantic passes."
+sources = [
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/OptLib.HC:OptClassFwd",
+  "Compiler/CInit.HC:internal_types_table",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CArrayDim",
+  "Kernel/KernelA.HH:MLF_FUN",
+  "Kernel/KernelA.HH:PTR_STARS_NUM",
+  "Kernel/KernelA.HH:HTT_CLASS and HTT_INTERNAL_TYPE"
+]
+implementation = [
+  "src/sema/type.ml",
+  "src/sema/member_type_resolution.ml",
+  "src/driver/member_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_member_type_resolution.ml"
+]
+status = "implemented"
+issue = 179
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct members from one checked AST, declaration collection, aggregate reconciliation, aggregate-header result, and member collection"
+type_bases = ["public primitive spelling", "intrinsic storage spelling", "canonical aggregate identity"]
+publication = "the current canonical aggregate identity is visible before its direct members are resolved"
+source_order = "aggregate definitions by module item; recursive anonymous-union paths; grouped declarators left to right"
+ordinary_pointer_depth = "zero through four, reset for each comma declarator"
+callback_head = "return type and ordinary return pointers are separate from one through four callback indirection layers"
+arrays = "rank and dimension origins retained; extent expressions are not evaluated"
+provenance = ["type spelling", "each ordinary pointer", "declarator", "callback head", "each callback indirection", "each array dimension", "member symbol"]
+canonical_identity = "earlier definitions, self references, completed forwards, repeated forwards, and shadowing definitions use HC-SEMA-AGGREGATE-RECONCILIATION"
+validation = "session ownership, module and aggregate scopes, AST association, declaration association, header association, member paths, source order, symbol kinds, and provenance"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+callback_parameter_resolution = "not implemented"
+array_extent_evaluation = "not implemented"
+member_metadata_evaluation = "not implemented"
+duplicate_validation = "not implemented"
+layout_storage_and_inherited_lookup = "not implemented"
+other_type_use_sites = "not implemented"
+native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"
@@ -3394,7 +3443,7 @@ duplicate_validation = "not implemented; the later pass must retain the pad, res
 base_class_lookup = "not implemented"
 layout = "not implemented"
 member_metadata_evaluation = "not implemented"
-reference_resolution = "not implemented"
+reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; member access and inherited lookup remain unresolved"
 native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
 
 [[feature]]
