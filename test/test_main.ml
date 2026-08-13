@@ -13,6 +13,7 @@ let () =
       ("semantic symbol table", Test_semantic_symbol_table.tests);
       ("semantic declaration collection", Test_declaration_collection.tests);
       ("semantic member collection", Test_member_collection.tests);
+      ("semantic function collection", Test_function_collection.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("corpus", Test_corpus.tests);
