@@ -823,8 +823,8 @@ let make_global_initializer ~equals ~value ~location =
     global_initializer_location = location;
   }
 
-let make_global_declarator ~pointer_layers ~name ~array_dimensions ~initial_value
-    ~delimiter ~location =
+let make_global_declarator ~pointer_layers ~name ~array_dimensions
+    ~initial_value ~delimiter ~location =
   {
     pointer_layers;
     name;

@@ -962,7 +962,8 @@ let rec print_initializer buffer sources ~indent = function
         (location_text sources braced.initializer_opening_brace);
       List.iteri
         (fun index (element : Ast.initializer_element) ->
-          Printf.bprintf buffer "%selement index=%d span=%s\n" child_indent index
+          Printf.bprintf buffer "%selement index=%d span=%s\n" child_indent
+            index
             (location_text sources element.initializer_element_location);
           print_initializer buffer sources ~indent:(child_indent ^ "  ")
             element.initializer_element_value;
@@ -1014,8 +1015,7 @@ let print_global_declarator buffer sources ~indent ~label index
       print_initializer buffer sources ~indent:(child_indent ^ "  ")
         initial_value.global_initializer_value)
     declarator.global_initial_value;
-  Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
-    child_indent
+  Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n" child_indent
     (delimiter_kind_name declarator.delimiter.kind)
     declarator.delimiter.spelling
     (location_text sources declarator.delimiter.location)
@@ -2224,12 +2224,10 @@ let rec initializer_to_yojson sources = function
                  braced.initializer_elements) );
           ( "closing_brace",
             location_to_yojson sources braced.initializer_closing_brace );
-          ( "location",
-            location_to_yojson sources braced.initializer_location );
+          ("location", location_to_yojson sources braced.initializer_location);
         ]
 
-and initializer_element_to_yojson sources
-    (element : Ast.initializer_element) =
+and initializer_element_to_yojson sources (element : Ast.initializer_element) =
   `Assoc
     [
       ("value", initializer_to_yojson sources element.initializer_element_value);
@@ -2261,10 +2259,7 @@ let declarator_to_yojson sources (declarator : Ast.global_declarator) =
     @ (match declarator.global_initial_value with
       | None -> []
       | Some initial_value ->
-          [
-            ( "initializer",
-              global_initializer_to_yojson sources initial_value );
-          ])
+          [("initializer", global_initializer_to_yojson sources initial_value)])
     @ [
         ("delimiter", delimiter_to_yojson sources declarator.delimiter);
         ("location", location_to_yojson sources declarator.location);

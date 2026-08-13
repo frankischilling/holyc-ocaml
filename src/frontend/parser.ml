@@ -2187,8 +2187,7 @@ and parse_braced_initializer cursor ~depth : parsed_initializer option =
     | Token_kind.Punctuation '}' ->
         let closing_item = take cursor in
         let tokens =
-          opening_item.token
-          :: (List.rev token_groups_rev |> List.concat)
+          (opening_item.token :: (List.rev token_groups_rev |> List.concat))
           @ [ closing_item.token ]
         in
         let node =
@@ -2251,8 +2250,10 @@ let parse_global_initializer cursor =
     | Some value ->
         let tokens = equals_item.token :: value.tokens in
         let initial_value =
-          Ast.make_global_initializer ~equals:(token_location equals_item.token)
-            ~value:value.node ~location:(location_from_expression_tokens tokens)
+          Ast.make_global_initializer
+            ~equals:(token_location equals_item.token)
+            ~value:value.node
+            ~location:(location_from_expression_tokens tokens)
         in
         Some (Some initial_value, tokens)
 
@@ -2572,7 +2573,7 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
           | Error failure ->
               recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
               None
-          | Ok parsed_members -> (
+          | Ok parsed_members ->
               let following_item = peek cursor in
               let parsed_tail =
                 match following_item.token.kind with
@@ -2601,50 +2602,50 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     report cursor following_item ~code:"HCPARSE0115"
                       ~message:
                         (Printf.sprintf
-                           "expected ';' or a global declarator after aggregate \
-                            definition %S, but found %s"
+                           "expected ';' or a global declarator after \
+                            aggregate definition %S, but found %s"
                            name.spelling
                            (token_description following_item.token));
                     None
               in
               Option.map
                 (fun (attached_declarators, tail_tokens, semicolon) ->
-                let tokens =
-                  modifier_tokens
-                  @ (match backing with
-                    | None -> []
-                    | Some (backing : parsed_aggregate_backing) ->
-                        backing.tokens)
-                  @ [ aggregate_item.token; name_item.token ]
-                  @ (match base with
-                    | None -> []
-                    | Some (base : parsed_aggregate_base) -> base.tokens)
-                  @ (opening_item.token :: parsed_members.tokens)
-                  @ tail_tokens
-                in
-                let definition =
-                  Ast.make_aggregate_definition ~modifiers
-                    ~backing:
-                      (Option.map
-                         (fun (backing : parsed_aggregate_backing) ->
-                           backing.node)
-                         backing)
-                    ~aggregate_kind
-                    ~aggregate_keyword_spelling:aggregate_item.token.raw
-                    ~aggregate_keyword_location:
-                      (token_location aggregate_item.token)
-                    ~name
-                    ~base:
-                      (Option.map
-                         (fun (base : parsed_aggregate_base) -> base.node)
-                         base)
-                    ~opening_brace ~members:parsed_members.members
-                    ~closing_brace:parsed_members.closing_brace
-                    ~attached_declarators ~semicolon
-                    ~location:(location_from_expression_tokens tokens)
-                in
-                Ast.Aggregate_definition definition)
-                parsed_tail))
+                  let tokens =
+                    modifier_tokens
+                    @ (match backing with
+                      | None -> []
+                      | Some (backing : parsed_aggregate_backing) ->
+                          backing.tokens)
+                    @ [ aggregate_item.token; name_item.token ]
+                    @ (match base with
+                      | None -> []
+                      | Some (base : parsed_aggregate_base) -> base.tokens)
+                    @ (opening_item.token :: parsed_members.tokens)
+                    @ tail_tokens
+                  in
+                  let definition =
+                    Ast.make_aggregate_definition ~modifiers
+                      ~backing:
+                        (Option.map
+                           (fun (backing : parsed_aggregate_backing) ->
+                             backing.node)
+                           backing)
+                      ~aggregate_kind
+                      ~aggregate_keyword_spelling:aggregate_item.token.raw
+                      ~aggregate_keyword_location:
+                        (token_location aggregate_item.token)
+                      ~name
+                      ~base:
+                        (Option.map
+                           (fun (base : parsed_aggregate_base) -> base.node)
+                           base)
+                      ~opening_brace ~members:parsed_members.members
+                      ~closing_brace:parsed_members.closing_brace
+                      ~attached_declarators ~semicolon
+                      ~location:(location_from_expression_tokens tokens)
+                  in
+                  Ast.Aggregate_definition definition)
+                parsed_tail)
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
