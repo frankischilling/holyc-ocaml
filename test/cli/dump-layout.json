@@ -1,0 +1,144 @@
+{
+  "schema": "holyc-aggregate-layout-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "aggregates": [
+    {
+      "symbol_id": 17,
+      "name": "Byte",
+      "kind": "class",
+      "item_index": 0,
+      "size": 1,
+      "alignment": 1,
+      "negative_offset": 0,
+      "base": null,
+      "origin": {
+        "kind": "source",
+        "span": {
+          "path": "cli/dump-layout.hc",
+          "line": 1,
+          "column": 1,
+          "source_id": 0,
+          "start": 0,
+          "stop": 27
+        },
+        "source_segments": [
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 5
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 1,
+            "column": 7,
+            "source_id": 0,
+            "start": 6,
+            "stop": 10
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 1,
+            "column": 12,
+            "source_id": 0,
+            "start": 11,
+            "stop": 12
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 2,
+            "column": 3,
+            "source_id": 0,
+            "start": 15,
+            "stop": 17
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 2,
+            "column": 6,
+            "source_id": 0,
+            "start": 18,
+            "stop": 23
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 2,
+            "column": 11,
+            "source_id": 0,
+            "start": 23,
+            "stop": 24
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 25,
+            "stop": 26
+          },
+          {
+            "path": "cli/dump-layout.hc",
+            "line": 3,
+            "column": 2,
+            "source_id": 0,
+            "start": 26,
+            "stop": 27
+          }
+        ]
+      },
+      "members": [
+        {
+          "symbol_id": 18,
+          "name": "value",
+          "declaring_aggregate_id": 17,
+          "path": [ 0 ],
+          "declarator_index": 0,
+          "type": {
+            "kind": "primitive",
+            "name": "U8",
+            "form": "public-spelling",
+            "pointer_depth": 0
+          },
+          "function_pointer": false,
+          "offset": 0,
+          "size": 1,
+          "element_size": 1,
+          "dimensions": [],
+          "signedness": "unsigned",
+          "alignment": 1,
+          "origin": {
+            "kind": "source",
+            "span": {
+              "path": "cli/dump-layout.hc",
+              "line": 2,
+              "column": 6,
+              "source_id": 0,
+              "start": 18,
+              "stop": 24
+            },
+            "source_segments": [
+              {
+                "path": "cli/dump-layout.hc",
+                "line": 2,
+                "column": 6,
+                "source_id": 0,
+                "start": 18,
+                "stop": 23
+              },
+              {
+                "path": "cli/dump-layout.hc",
+                "line": 2,
+                "column": 11,
+                "source_id": 0,
+                "start": 23,
+                "stop": 24
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

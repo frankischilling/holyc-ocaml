@@ -45,6 +45,7 @@ module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
 module Semantic_aggregate_member_index = Sema.Aggregate_member_index
+module Semantic_aggregate_layout_dump = Sema.Aggregate_layout_dump
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
@@ -132,6 +133,25 @@ let index_aggregate_members session ~declarations ~headers ~members ~layouts =
   Driver.Aggregate_member_index.build
     ~table:(Session.semantic_symbols session)
     ~declarations ~headers ~members ~layouts
+
+let analyze_aggregate_layouts session module_ =
+  Result.bind (collect_declarations session module_) (fun declarations ->
+      Result.bind (resolve_aggregates session ~declarations module_)
+        (fun aggregates ->
+          Result.bind
+            (resolve_aggregate_headers session ~declarations ~aggregates module_)
+            (fun headers ->
+              Result.bind (collect_members session ~declarations module_)
+                (fun collected_members ->
+                  Result.bind
+                    (resolve_member_types session ~declarations ~aggregates
+                       ~headers ~members:collected_members module_)
+                    (fun members ->
+                      Result.bind
+                        (layout_aggregates session ~declarations ~aggregates
+                           ~headers ~members module_) (fun layouts ->
+                          index_aggregate_members session ~declarations ~headers
+                            ~members ~layouts))))))
 
 let resolve_function_types session ~declarations ~aggregates ~functions module_
     =

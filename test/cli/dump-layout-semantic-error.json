@@ -1,0 +1,6 @@
+{
+  "schema": "holyc-command-error-v1",
+  "command": "dump-layout",
+  "message": "HCSEMA0002: aggregate layout needs the unresolved identifier `Missing`",
+  "code": "HCSEMA0002"
+}

@@ -54,7 +54,7 @@ The layout expression evaluator accepts integer and multi-character constants, `
 
 An offset directive replaces the active class cursor or union base. Negative cursors update `CHashClass.neg_offset`; `PrsClass` adds the largest negative magnitude to the final allocation size without rewriting the recorded member offsets. `Demo/Lectures/NegDisp.HC` supplies the direct source example. Layout results retain total size, the fixed packing alignment of one, base prefix, negative adjustment, each stable member identity, source path, byte offset, storage size, element size, dimensions, and signedness.
 
-This is a closed-layout boundary, not complete class semantics. An identifier, call, `sizeof`, `offset`, `defined`, later by-value definition, or cyclic by-value reference returns a typed dependency instead of zero. Member metadata evaluation, backing conversions, subinteger access, complete callback signatures, runtime allocation, and `dump-layout` remain open work under epic #193.
+This is a closed-layout boundary, not complete class semantics. An identifier, call, `sizeof`, `offset`, `defined`, later by-value definition, or cyclic by-value reference returns a typed dependency instead of zero. Member metadata evaluation, backing conversions, subinteger access, complete callback signatures, and runtime allocation remain open work.
 
 ## Direct and inherited member lookup
 
@@ -66,6 +66,14 @@ Lookup checks the queried aggregate before following its one base. A successful 
 
 The index is immutable and lookup is pure. TempleOS increments `CMemberLst.use_cnt` in `MemberFind`; the later expression-resolution pass will account for uses from its retained lookup results. AST member binding, `sizeof`, `offset`, metadata lookup, backing conversion, and subinteger access are not part of this index.
 
+## Deterministic layout reports
+
+`holyc dump-layout FILE` runs declaration collection, aggregate reconciliation, header and direct-member type resolution, closed layout, and member-index validation as one checked pipeline. It emits schema `holyc-aggregate-layout-v1` as human text or JSON. Both forms record the exact TempleOS reference commit and keep aggregates and direct members in source order.
+
+Each aggregate record contains its stable symbol ID, spelling, class or union kind, module-item position, byte size, packing alignment, negative-offset adjustment, optional base, and source origin. Each direct member contains its stable ID, anonymous-union path, comma-declarator position, resolved type, callback marker, byte offset, storage and element sizes, array dimensions, signedness, alignment, and provenance. The base remains a separate record; inherited members are available through `Sema.Aggregate_member_index.lookup` and are not duplicated into the direct-member list.
+
+The command does not print a partial report. A parser failure uses the ordinary `HCPARSE` diagnostics. A semantic failure exits with status 1 and reports the stable `HCSEMA` message; JSON mode wraps that message in `holyc-command-error-v1`. Warnings may still accompany a successful report on stderr. The library exposes `analyze_aggregate_layouts` for the same checked pipeline and `Sema.Aggregate_layout_dump` for deterministic rendering of a completed index.
+
 ## Reproducible checks
 
 `test/test_aggregate_resolution.ml` covers simple completion, repeated forwards, repeated definitions, a late forward, class/union spelling changes, unresolved identities, JIT and AOT inputs, generated and included provenance, invalid ownership or ordering, and deterministic repeated resolution without table mutation. `test/test_aggregate_header_resolution.ml` covers public and intrinsic backings, pointer depths zero through four, prepublication shadowing, postpublication bases, repeated forwards, later completion, source provenance, both compilation modes, and rejected foreign facts. `test/test_member_collection.ml` separately covers direct and grouped members, nested anonymous unions, repeated names, source provenance, ownership validation, the inheritance boundary, and deterministic symbol dumps. `test/test_member_type_resolution.ml` adds public, intrinsic, named, self, forward, repeated-forward, shadowed, callback, array, anonymous-union, generated, included, JIT, AOT, deterministic, pure, and rejected-association cases.
@@ -73,3 +81,5 @@ The index is immutable and lookup is pure. TempleOS increments `CMemberLst.use_c
 `test/test_aggregate_layout.ml` covers packed fields, base prefixes, named and nested union overlap, multidimensional arrays, pointer and callback storage, zero-sized fields, empty first dimensions, explicit alignment, negative offsets, the complete closed operator set, short-circuiting, stable typed failures, JIT/AOT agreement, and deterministic repeat evaluation. These are source-level calculations against the pinned parser routines. They do not yet constitute a native metadata or generated-code oracle.
 
 `test/test_aggregate_member_index.ml` covers direct and missing lookups, anonymous-union paths, one-level and chained inheritance, absolute inherited offsets, direct and inherited duplicate rejection, the three exact duplicate exceptions, first-in-source selection, stable type and layout facts, invalid and cross-session inputs, pure failures, both compilation modes, and deterministic repeated indexing. These checks establish the `MemberAdd` and `MemberFind` semantic boundary; expression use counting and native field access still need later fixtures.
+
+`test/test_aggregate_layout_dump.ml` checks source-order human and JSON rendering, bases, anonymous unions, multidimensional arrays, callbacks, named unions, negative offsets, values larger than 32 bits, generated-source ancestry, empty input, repeated rendering, and JIT/AOT agreement. CLI goldens cover both output formats plus parser and semantic failures, including the requirement that failed commands leave stdout empty.

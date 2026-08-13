@@ -1,0 +1,2 @@
+cli/dump-layout-parse-error.hc:3:1: error[HCPARSE0111]: expected '}' to close the aggregate body
+cli/dump-layout-parse-error.hc:1:14: note: aggregate body starts here

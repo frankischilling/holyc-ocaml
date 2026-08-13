@@ -3454,7 +3454,8 @@ retained_layout = ["aggregate size", "alignment 1", "base prefix", "negative adj
 typed_dependencies = ["identifier", "call", "sizeof", "offset", "defined", "later aggregate", "by-value cycle"]
 diagnostic_codes = "HCSEMA0001 through HCSEMA0009"
 backing_storage = "not applied; fwd_class conversion semantics remain separate"
-member_metadata_subinteger_access_allocation_and_dump = "planned under epic 193; duplicate rules and inherited lookup are implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
+member_metadata_subinteger_access_and_allocation = "not implemented; duplicate rules and inherited lookup are implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
+layout_dump = "implemented by HC-SEMA-AGGREGATE-LAYOUT-DUMP"
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 native_oracle_status = "not required for the direct layout state transitions; generated metadata and machine access still need later oracle fixtures"
@@ -3500,6 +3501,51 @@ mutation = "none"
 use_counting = "not implemented; lookup results are pure and later expression resolution must account for uses"
 expression_binding_metadata_subinteger_access_and_runtime_storage = "not implemented"
 native_oracle_status = "not required for this index boundary; MemberAdd and MemberFind state insertion, duplicate, and base-search behavior directly"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-LAYOUT-DUMP"
+description = "A checked aggregate semantic pipeline emits deterministic, versioned human and JSON layout reports without partial success output."
+sources = [
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/LexLib.HC:MemberAdd",
+  "Compiler/LexLib.HC:MemberFind",
+  "Kernel/KernelA.HH:CArrayDim",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashClass"
+]
+implementation = [
+  "src/sema/aggregate_layout_dump.ml",
+  "src/holyc_lib.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_aggregate_layout_dump.ml",
+  "test/cli/dump-layout.hc",
+  "test/cli/dump-layout-semantic-error.hc",
+  "test/cli/dump-layout-parse-error.hc",
+  "test/dune"
+]
+status = "implemented"
+issue = 198
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+command = "holyc dump-layout FILE"
+success_schema = "holyc-aggregate-layout-v1"
+semantic_failure_schema = "holyc-command-error-v1"
+formats = ["human", "json"]
+pipeline = ["declaration collection", "aggregate reconciliation", "aggregate header resolution", "direct member collection", "member type resolution", "closed layout", "member index validation"]
+aggregate_order = "module source order"
+member_order = "direct source order, including flattened anonymous-union paths"
+reported_aggregate_facts = ["stable identity", "spelling", "kind", "module item", "size", "alignment", "negative offset", "base", "origin"]
+reported_member_facts = ["stable identity", "declaring aggregate", "path", "declarator index", "resolved type", "callback marker", "offset", "size", "element size", "dimensions", "signedness", "alignment", "origin"]
+inherited_members = "not flattened into the report; query through HC-SEMA-AGGREGATE-MEMBER-INDEX"
+target_values = "signed 64-bit values are rendered without narrowing"
+failure_output = "parse or semantic failure exits with status 1 and leaves stdout empty"
+compilation_modes = ["jit", "aot"]
+determinism = "repeated renders and mode-independent JIT/AOT inputs are byte-identical"
+metadata_subinteger_access_allocation_expression_binding_and_native_oracle = "not implemented or claimed by this report"
+native_oracle_status = "not required for deterministic inspection of already checked semantic facts; native metadata and field-access behavior remain separate oracle work"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"

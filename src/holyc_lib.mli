@@ -45,6 +45,7 @@ module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
 module Semantic_aggregate_member_index = Sema.Aggregate_member_index
+module Semantic_aggregate_layout_dump = Sema.Aggregate_layout_dump
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
@@ -176,6 +177,12 @@ val index_aggregate_members :
 (** Validate direct and inherited duplicate names, then build the immutable
     source-ordered member index used by later member, [sizeof], and [offset]
     resolution. Lookup itself does not update use counts. *)
+
+val analyze_aggregate_layouts :
+  Session.t -> Ast.module_ -> (Semantic_aggregate_member_index.t, string) result
+(** Run the checked declaration, aggregate, header, member-type, closed-layout,
+    and member-index passes needed by layout tooling. This does not resolve
+    symbol-dependent layout expressions or allocate runtime storage. *)
 
 val resolve_function_types :
   Session.t ->
