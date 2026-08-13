@@ -279,6 +279,40 @@ let print_symbols format source_only session =
       Holyc_lib.Symbol_visibility.Environment.json ~source_only sources symbols
       |> print_endline
 
+let print_aggregate_layouts format session layouts =
+  let sources = Holyc_lib.Session.sources session in
+  match format with
+  | Human ->
+      Holyc_lib.Semantic_aggregate_layout_dump.human sources layouts
+      |> output_string stdout
+  | Json ->
+      Holyc_lib.Semantic_aggregate_layout_dump.json sources layouts
+      |> print_endline
+
+let compiler_error_code message =
+  match String.index_opt message ':' with
+  | Some separator ->
+      let candidate = String.sub message 0 separator in
+      if String.starts_with ~prefix:"HC" candidate then Some candidate else None
+  | None -> None
+
+let print_command_error format ~command message =
+  match format with
+  | Human -> Printf.eprintf "holyc: %s: %s\n" command message
+  | Json ->
+      `Assoc
+        ([
+           ("schema", `String "holyc-command-error-v1");
+           ("command", `String command);
+           ("message", `String message);
+         ]
+        @
+        match compiler_error_code message with
+        | None -> []
+        | Some code -> [ ("code", `String code) ])
+      |> Yojson.Safe.pretty_to_string |> output_string stderr;
+      output_char stderr '\n'
+
 let parse_file format include_roots templeos_root max_include_depth
     max_source_bytes max_definition_depth max_generated_bytes
     max_conditional_depth max_expression_nodes compilation_mode predefined_date
@@ -375,6 +409,56 @@ let dump_symbols_command =
      source file. This is not a semantic name-resolution result."
   in
   Cmd.v (Cmd.info "dump-symbols" ~doc:documentation) dump_symbols_term
+
+let dump_layout_file format include_roots templeos_root max_include_depth
+    max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source path =
+  let session = Holyc_lib.Session.create () in
+  match Holyc_lib.Session.load_source session ~path with
+  | Error message ->
+      print_command_error format ~command:"dump-layout"
+        (Printf.sprintf "could not read %s: %s" path message);
+      1
+  | Ok source -> (
+      match
+        make_preprocessor_config include_roots templeos_root max_include_depth
+          max_source_bytes max_definition_depth max_generated_bytes
+          max_conditional_depth max_expression_nodes compilation_mode
+          predefined_date predefined_time command_line_source
+      with
+      | Error message ->
+          print_command_error format ~command:"dump-layout"
+            ("invalid preprocessor configuration: " ^ message);
+          1
+      | Ok config ->
+          let output = Holyc_lib.parse_detailed session ~config ~source in
+          if output.diagnostics <> [] then
+            print_diagnostics format session output.diagnostics;
+          match output.ast with
+          | None -> 1
+          | Some ast -> (
+              match Holyc_lib.analyze_aggregate_layouts session ast with
+              | Error message ->
+                  print_command_error format ~command:"dump-layout" message;
+                  1
+              | Ok layouts ->
+                  print_aggregate_layouts format session layouts;
+                  0))
+
+let dump_layout_command =
+  let documentation =
+    "Calculate every closed aggregate layout and print its stable identities, \
+     base, direct members, target byte facts, resolved types, and provenance."
+  in
+  let exits =
+    Cmd.Exit.info 1
+      ~doc:
+        "on a source-read, preprocessing, parsing, or aggregate semantic error"
+    :: Cmd.Exit.defaults
+  in
+  Cmd.v (Cmd.info "dump-layout" ~doc:documentation ~exits)
+    (source_parser_term dump_layout_file)
 
 let corpus_root_argument =
   let documentation =
@@ -516,6 +600,7 @@ let root_command =
       parse_command;
       dump_ast_command;
       dump_symbols_command;
+      dump_layout_command;
       corpus_command;
       version_command;
     ]
