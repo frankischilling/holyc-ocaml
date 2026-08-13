@@ -1,9 +1,4 @@
-type type_reference = {
-  spelling : string;
-  spelling_origin : Symbol.origin;
-  pointer_origins : Symbol.origin list;
-  resolved_type : Type.t;
-}
+type type_reference = Type_reference.t
 
 type function_pointer = {
   origin : Symbol.origin;
@@ -46,41 +41,16 @@ let member_declarator_kind (member : member) = member.declarator_kind
 let member_array_dimension_origins (member : member) =
   member.array_dimension_origins
 
-let type_reference_spelling (reference : type_reference) = reference.spelling
-
-let type_reference_spelling_origin (reference : type_reference) =
-  reference.spelling_origin
-
-let type_reference_pointer_origins (reference : type_reference) =
-  reference.pointer_origins
-
-let type_reference_type (reference : type_reference) = reference.resolved_type
+let type_reference_spelling = Type_reference.spelling
+let type_reference_spelling_origin = Type_reference.spelling_origin
+let type_reference_pointer_origins = Type_reference.pointer_origins
+let type_reference_type = Type_reference.resolved_type
 let function_pointer_origin (pointer : function_pointer) = pointer.origin
 
 let function_pointer_indirection_origins (pointer : function_pointer) =
   pointer.indirection_origins
 
-let expected_spelling resolved_type =
-  match Type.base resolved_type with
-  | Type.Primitive (Type.Public_spelling, primitive) ->
-      Primitive_type.to_string primitive
-  | Type.Primitive (Type.Internal_storage, primitive) ->
-      (Primitive_type.info primitive).storage_spelling
-  | Type.Aggregate symbol -> Symbol.name symbol
-
-let make_type_reference ~spelling ~spelling_origin ~pointer_origins
-    ~resolved_type =
-  if String.equal spelling "" then
-    Error "semantic member type spelling cannot be empty"
-  else if List.length pointer_origins <> Type.pointer_depth resolved_type then
-    Error "semantic member pointer provenance does not match its type"
-  else
-    let expected = expected_spelling resolved_type in
-    if not (String.equal spelling expected) then
-      Error
-        (Printf.sprintf "semantic member type spelling %S does not match %S"
-           spelling expected)
-    else Ok { spelling; spelling_origin; pointer_origins; resolved_type }
+let make_type_reference = Type_reference.make
 
 let make_function_pointer ~origin ~indirection_origins =
   let depth = List.length indirection_origins in
@@ -158,7 +128,7 @@ let scope_equal left right =
     (Symbol_table.scope_id right)
 
 let validate_type_reference ~table ~parent reference =
-  match Type.base reference.resolved_type with
+  match Type.base (Type_reference.resolved_type reference) with
   | Type.Primitive _ -> Ok ()
   | Type.Aggregate symbol ->
       if not (Symbol_table.owns_symbol table symbol) then

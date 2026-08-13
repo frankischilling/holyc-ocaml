@@ -39,8 +39,10 @@ module Semantic_function_collection = Sema.Function_collection
 module Semantic_label_resolution = Sema.Label_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
+module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
+module Semantic_function_type_resolution = Sema.Function_type_resolution
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -140,3 +142,14 @@ val resolve_member_types :
 (** Resolve aggregate member type references at their source publication points.
     Array extents, callback signatures, layout, inherited lookup, and linkage
     remain separate passes. *)
+
+val resolve_function_types :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  aggregates:Semantic_aggregate_resolution.t ->
+  functions:Semantic_function_collection.t ->
+  Ast.module_ ->
+  (Semantic_function_type_resolution.t, string) result
+(** Resolve function return and recursive parameter types at each declaration's
+    source position. Default evaluation, declaration reconciliation, call
+    checking, storage, and linkage remain separate passes. *)

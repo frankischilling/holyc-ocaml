@@ -4,7 +4,7 @@ All compatibility findings in this document use TempleOS commit `c26482bb6ad3f80
 
 ## Retained syntax
 
-The current AST distinguishes class and union definitions, an optional backing type, one optional base class, grouped member declarators, pointer and array suffixes, function-pointer members, recursive anonymous unions, explicit `$$ = expression;` offset directives, empty separators, member metadata, and globals attached after the closing brace. Parsing keeps source segments and generated-input origins. Semantic passes assign source-ordered identities to aggregate declarations, bind definition backings and bases at their source lookup points, and resolve the base and pointer portion of each direct member type. Type uses outside aggregate member heads and storage layout remain unresolved.
+The current AST distinguishes class and union definitions, an optional backing type, one optional base class, grouped member declarators, pointer and array suffixes, function-pointer members, recursive anonymous unions, explicit `$$ = expression;` offset directives, empty separators, member metadata, and globals attached after the closing brace. Parsing keeps source segments and generated-input origins. Semantic passes assign source-ordered identities to aggregate declarations, bind definition backings and bases at their source lookup points, and resolve the base and pointer portion of each direct member type. A separate pass resolves top-level function signatures. Other type uses and storage layout remain unresolved.
 
 ## Forward and definition identity
 
