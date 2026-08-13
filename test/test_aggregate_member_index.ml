@@ -303,6 +303,29 @@ let low_level_failures_are_typed_and_pure () =
   in
   check_error "HCSEMA0010"
     (Semantic_aggregate_member_index.build ~table ~parent [ reversed ]);
+  let foreign_session = Session.create () in
+  let foreign_ast =
+    parse foreign_session ~path:"member-index-foreign.HC"
+      "class Foreign { I8 member; };"
+  in
+  let foreign = resolve foreign_session foreign_ast in
+  let foreign_symbol = (aggregate_named foreign "Foreign").symbol in
+  let foreign_type =
+    checked
+      (Semantic_type.make_aggregate ~symbol:foreign_symbol ~pointer_depth:0)
+  in
+  let foreign_member_type =
+    match base.aggregate_members with
+    | [] -> Alcotest.fail "expected a base member"
+    | member :: rest ->
+        {
+          base with
+          aggregate_members = { member with member_type = foreign_type } :: rest;
+        }
+  in
+  check_error "HCSEMA0010"
+    (Semantic_aggregate_member_index.build ~table ~parent
+       [ foreign_member_type ]);
   Alcotest.(check int)
     "failed indexes do not add symbols" symbol_count
     (Semantic_symbol_table.all_symbols table |> List.length);
@@ -330,16 +353,31 @@ let mismatched_high_level_inputs_are_rejected () =
     parse other_session ~path:"member-index-other.HC" "class Other { I8 two; };"
   in
   let other = resolve other_session other_ast in
-  let message =
-    match
-      Holyc_lib.index_aggregate_members first_session
-        ~declarations:other.declarations ~headers:first.headers
-        ~members:first.member_types ~layouts:first.layouts
-    with
-    | Ok _ -> Alcotest.fail "expected mismatched member index inputs to fail"
+  let rejected label result =
+    match result with
+    | Ok _ -> Alcotest.failf "expected mismatched %s to fail" label
     | Error message -> message
   in
-  check_prefix "HCSEMA0010:" message
+  check_prefix "HCSEMA0010:"
+    (rejected "declarations"
+       (Holyc_lib.index_aggregate_members first_session
+          ~declarations:other.declarations ~headers:first.headers
+          ~members:first.member_types ~layouts:first.layouts));
+  check_prefix "HCSEMA0010:"
+    (rejected "headers"
+       (Holyc_lib.index_aggregate_members first_session
+          ~declarations:first.declarations ~headers:other.headers
+          ~members:first.member_types ~layouts:first.layouts));
+  check_prefix "HCSEMA0010:"
+    (rejected "member types"
+       (Holyc_lib.index_aggregate_members first_session
+          ~declarations:first.declarations ~headers:first.headers
+          ~members:other.member_types ~layouts:first.layouts));
+  check_prefix "HCSEMA0010:"
+    (rejected "layouts"
+       (Holyc_lib.index_aggregate_members first_session
+          ~declarations:first.declarations ~headers:first.headers
+          ~members:first.member_types ~layouts:other.layouts))
 
 let modes_and_repeat_runs_are_deterministic () =
   let source =

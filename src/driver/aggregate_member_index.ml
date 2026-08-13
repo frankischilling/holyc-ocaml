@@ -20,13 +20,45 @@ let same_optional_symbol left right =
   | Some left, Some right -> same_symbol left right
   | None, Some _ | Some _, None -> false
 
-let validate_aggregate header aggregate
+let type_belongs_to table type_ =
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive _ -> true
+  | Sema.Type.Aggregate symbol -> Sema.Symbol_table.owns_symbol table symbol
+
+let option_satisfies predicate = function
+  | None -> true
+  | Some value -> predicate value
+
+let validate_aggregate table header aggregate
     (layout : Sema.Aggregate_layout.aggregate_layout) =
   let header_symbol = Sema.Aggregate_header_resolution.header_symbol header in
   let aggregate_symbol =
     Sema.Member_type_resolution.aggregate_symbol aggregate
   in
-  if not (same_symbol header_symbol aggregate_symbol) then
+  let header_base = header_base_symbol header in
+  let layout_base = layout_base_symbol layout in
+  if not (Sema.Symbol_table.owns_symbol table header_symbol) then
+    Error "aggregate member index header belongs to another symbol table"
+  else if not (Sema.Symbol_table.owns_symbol table aggregate_symbol) then
+    Error "aggregate member index members belong to another symbol table"
+  else if not (Sema.Symbol_table.owns_symbol table layout.symbol) then
+    Error "aggregate member index layout belongs to another symbol table"
+  else if
+    not
+      (option_satisfies
+         (fun backing ->
+           Sema.Aggregate_header_resolution.backing_type backing
+           |> type_belongs_to table)
+         (Sema.Aggregate_header_resolution.header_backing header))
+  then Error "aggregate member index backing belongs to another symbol table"
+  else if
+    not (option_satisfies (Sema.Symbol_table.owns_symbol table) header_base)
+  then Error "aggregate member index base belongs to another symbol table"
+  else if
+    not (option_satisfies (Sema.Symbol_table.owns_symbol table) layout_base)
+  then
+    Error "aggregate member index base layout belongs to another symbol table"
+  else if not (same_symbol header_symbol aggregate_symbol) then
     Error "aggregate member index header and member owner do not match"
   else if not (same_symbol header_symbol layout.symbol) then
     Error "aggregate member index header and layout owner do not match"
@@ -40,17 +72,17 @@ let validate_aggregate header aggregate
     layout_kind (Sema.Aggregate_header_resolution.header_aggregate_kind header)
     <> layout.kind
   then Error "aggregate member index inputs have different aggregate kinds"
-  else if
-    not
-      (same_optional_symbol
-         (header_base_symbol header)
-         (layout_base_symbol layout))
-  then Error "aggregate member index inputs have different base classes"
+  else if not (same_optional_symbol header_base layout_base) then
+    Error "aggregate member index inputs have different base classes"
   else Ok ()
 
-let validate_member fact (layout : Sema.Aggregate_layout.member_layout) =
+let validate_member table fact (layout : Sema.Aggregate_layout.member_layout) =
   let symbol = Sema.Member_type_resolution.member_symbol fact in
-  if not (same_symbol symbol layout.symbol) then
+  if not (Sema.Symbol_table.owns_symbol table symbol) then
+    Error "aggregate member index member type belongs to another symbol table"
+  else if not (Sema.Symbol_table.owns_symbol table layout.symbol) then
+    Error "aggregate member index member layout belongs to another symbol table"
+  else if not (same_symbol symbol layout.symbol) then
     Error "aggregate member index member and layout identities do not match"
   else if Sema.Member_type_resolution.member_path fact <> layout.path then
     Error "aggregate member index member and layout paths do not match"
@@ -63,7 +95,7 @@ let validate_member fact (layout : Sema.Aggregate_layout.member_layout) =
   then Error "aggregate member index member and layout origins do not match"
   else Ok ()
 
-let member_input fact layout =
+let member_input table fact layout =
   Result.map
     (fun () ->
       let reference = Sema.Member_type_resolution.member_type_reference fact in
@@ -78,22 +110,22 @@ let member_input fact layout =
         member_is_function_pointer;
         member_layout = layout;
       })
-    (validate_member fact layout)
+    (validate_member table fact layout)
 
-let member_inputs facts layouts =
+let member_inputs table facts layouts =
   let rec loop inputs_rev facts layouts =
     match (facts, layouts) with
     | [], [] -> Ok (List.rev inputs_rev)
     | fact :: fact_rest, layout :: layout_rest ->
-        Result.bind (member_input fact layout) (fun input ->
+        Result.bind (member_input table fact layout) (fun input ->
             loop (input :: inputs_rev) fact_rest layout_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error "aggregate member index inputs contain different member counts"
   in
   loop [] facts layouts
 
-let aggregate_input header aggregate layout =
-  Result.bind (validate_aggregate header aggregate layout) (fun () ->
+let aggregate_input table header aggregate layout =
+  Result.bind (validate_aggregate table header aggregate layout) (fun () ->
       Result.map
         (fun aggregate_members ->
           {
@@ -102,17 +134,18 @@ let aggregate_input header aggregate layout =
             aggregate_layout = layout;
             aggregate_members;
           })
-        (member_inputs
+        (member_inputs table
            (Sema.Member_type_resolution.aggregate_members aggregate)
            layout.Sema.Aggregate_layout.members))
 
-let inputs headers aggregates layouts =
+let inputs table headers aggregates layouts =
   let rec loop inputs_rev headers aggregates layouts =
     match (headers, aggregates, layouts) with
     | [], [], [] -> Ok (List.rev inputs_rev)
     | header :: header_rest, aggregate :: aggregate_rest, layout :: layout_rest
       ->
-        Result.bind (aggregate_input header aggregate layout) (fun input ->
+        Result.bind (aggregate_input table header aggregate layout)
+          (fun input ->
             loop (input :: inputs_rev) header_rest aggregate_rest layout_rest)
     | [], _, _ | _, [], _ | _, _, [] ->
         Error "aggregate member index inputs contain different aggregate counts"
@@ -130,7 +163,7 @@ let build ~table ~declarations ~headers ~members ~layouts =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "aggregate member index needs a module scope"
     else
-      Result.bind (inputs headers members layouts) (fun inputs ->
+      Result.bind (inputs table headers members layouts) (fun inputs ->
           Sema.Aggregate_member_index.build ~table ~parent inputs
           |> Result.map_error Sema.Aggregate_member_index.error_to_string)
   in
