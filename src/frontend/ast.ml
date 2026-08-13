@@ -479,6 +479,7 @@ type local_declarator = {
   local_register_qualifiers : register_qualifier list;
   local_pointer_layers : pointer_layer list;
   local_name : identifier;
+  local_function_pointer : function_pointer_declarator option;
   local_array_dimensions : array_dimension list;
   local_initializer : local_initializer option;
   local_delimiter : declaration_delimiter;
@@ -1129,11 +1130,12 @@ let make_local_initializer ~equals ~value ~location =
   }
 
 let make_local_declarator ~register_qualifiers ~pointer_layers ~name
-    ~array_dimensions ~initial_value ~delimiter ~location =
+    ~function_pointer ~array_dimensions ~initial_value ~delimiter ~location =
   {
     local_register_qualifiers = register_qualifiers;
     local_pointer_layers = pointer_layers;
     local_name = name;
+    local_function_pointer = function_pointer;
     local_array_dimensions = array_dimensions;
     local_initializer = initial_value;
     local_delimiter = delimiter;

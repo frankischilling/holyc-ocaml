@@ -143,6 +143,7 @@ type function_pointer_declarator_context =
   | Function_parameter_declarator
   | Global_variable_declarator
   | Aggregate_member_declarator
+  | Local_variable_declarator of statement_boundary
 
 type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
 
@@ -762,6 +763,27 @@ let declaration_failure ?(secondary = []) cursor item ~code ~message =
   report ~secondary cursor item ~code ~message;
   recover_declaration cursor;
   None
+
+let local_declaration_failure cursor ~boundary item ~code ~message =
+  report cursor item ~code ~message;
+  recover_statement cursor ~boundary;
+  None
+
+let function_pointer_declaration_failure cursor ~declarator_context item ~code
+    ~message =
+  match declarator_context with
+  | Local_variable_declarator boundary ->
+      local_declaration_failure cursor ~boundary item ~code ~message
+  | Function_parameter_declarator
+  | Global_variable_declarator
+  | Aggregate_member_declarator ->
+      declaration_failure cursor item ~code ~message
+
+let recover_function_pointer_declaration cursor = function
+  | Local_variable_declarator boundary -> recover_statement cursor ~boundary
+  | Function_parameter_declarator
+  | Global_variable_declarator
+  | Aggregate_member_declarator -> recover_declaration cursor
 
 let unsupported_parameter_form cursor item ~code description =
   declaration_failure cursor item ~code
@@ -2820,7 +2842,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
     ~declarator_context =
   let opening_item = peek cursor in
   if function_pointer_depth >= max_function_pointer_depth then
-    declaration_failure cursor opening_item ~code:"HCPARSE0017"
+    function_pointer_declaration_failure cursor ~declarator_context opening_item
+      ~code:"HCPARSE0017"
       ~message:
         (Printf.sprintf
            "function-pointer type nesting exceeds the hosted limit of %d"
@@ -2829,12 +2852,13 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
     let opening_item = take cursor in
     let first_star = peek cursor in
     if first_star.token.kind <> Token_kind.Punctuation '*' then
-      declaration_failure cursor first_star
+      function_pointer_declaration_failure cursor ~declarator_context first_star
         ~code:
           (match declarator_context with
           | Function_parameter_declarator -> "HCPARSE0014"
           | Global_variable_declarator -> "HCPARSE0131"
-          | Aggregate_member_declarator -> "HCPARSE0133")
+          | Aggregate_member_declarator -> "HCPARSE0133"
+          | Local_variable_declarator _ -> "HCPARSE0135")
         ~message:
           (match declarator_context with
           | Function_parameter_declarator ->
@@ -2851,9 +2875,19 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
               Printf.sprintf
                 "expected '*' after '(' in aggregate function-pointer member, \
                  but found %s"
+                (token_description first_star.token)
+          | Local_variable_declarator _ ->
+              Printf.sprintf
+                "expected '*' after '(' in local function-pointer declarator, \
+                 but found %s"
                 (token_description first_star.token))
     else
-      match parse_pointer_layers cursor 0 [] [] with
+      match
+        parse_pointer_layers_with_recovery cursor
+          ~recover:(fun cursor ->
+            recover_function_pointer_declaration cursor declarator_context)
+          0 [] []
+      with
       | None -> None
       | Some (pointer_layers, pointer_items) -> (
           let pointer_tokens =
@@ -2876,7 +2910,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                     (match declarator_context with
                     | Function_parameter_declarator -> "HCPARSE0014"
                     | Global_variable_declarator -> "HCPARSE0132"
-                    | Aggregate_member_declarator -> "HCPARSE0134")
+                    | Aggregate_member_declarator -> "HCPARSE0134"
+                    | Local_variable_declarator _ -> "HCPARSE0136")
                   ~message:
                     (match declarator_context with
                     | Function_parameter_declarator ->
@@ -2893,8 +2928,13 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                         Printf.sprintf
                           "expected an aggregate member name after \
                            function-pointer stars, but found %s"
+                          (token_description name_item.token)
+                    | Local_variable_declarator _ ->
+                        Printf.sprintf
+                          "expected a local variable name after \
+                           function-pointer stars, but found %s"
                           (token_description name_item.token));
-                recover_declaration cursor;
+                recover_function_pointer_declaration cursor declarator_context;
                 None
           in
           if
@@ -2908,12 +2948,14 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
             let name_tokens = Option.to_list (Option.map snd parsed_name) in
             let closing_item = peek cursor in
             if closing_item.token.kind <> Token_kind.Punctuation ')' then
-              declaration_failure cursor closing_item
+              function_pointer_declaration_failure cursor ~declarator_context
+                closing_item
                 ~code:
                   (match declarator_context with
                   | Function_parameter_declarator -> "HCPARSE0014"
                   | Global_variable_declarator -> "HCPARSE0131"
-                  | Aggregate_member_declarator -> "HCPARSE0133")
+                  | Aggregate_member_declarator -> "HCPARSE0133"
+                  | Local_variable_declarator _ -> "HCPARSE0135")
                 ~message:
                   (Printf.sprintf
                      "expected ')' after function-pointer name, but found %s"
@@ -2922,12 +2964,14 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
               let closing_item = take cursor in
               let signature_opening = peek cursor in
               if signature_opening.token.kind <> Token_kind.Punctuation '(' then
-                declaration_failure cursor signature_opening
+                function_pointer_declaration_failure cursor ~declarator_context
+                  signature_opening
                   ~code:
                     (match declarator_context with
                     | Function_parameter_declarator -> "HCPARSE0014"
                     | Global_variable_declarator -> "HCPARSE0131"
-                    | Aggregate_member_declarator -> "HCPARSE0133")
+                    | Aggregate_member_declarator -> "HCPARSE0133"
+                    | Local_variable_declarator _ -> "HCPARSE0135")
                   ~message:
                     (Printf.sprintf
                        "expected '(' for function-pointer signature, but found \
@@ -3782,11 +3826,6 @@ let parse_expression_statement cursor ~boundary : parsed_statement option =
           in
           Some { node = Ast.Expression_statement statement; tokens })
 
-let local_declaration_failure cursor ~boundary item ~code ~message =
-  report cursor item ~code ~message;
-  recover_statement cursor ~boundary;
-  None
-
 let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
   let item = peek cursor in
   match item.token.kind with
@@ -3802,107 +3841,137 @@ let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
 
 let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
     ~qualifier_tokens : parsed_local_declarator option =
-  match parse_pointer_layers cursor 0 [] [] with
+  match
+    parse_pointer_layers_with_recovery cursor
+      ~recover:(fun cursor -> recover_statement cursor ~boundary)
+      0 [] []
+  with
   | None -> None
-  | Some (pointer_layers, pointer_items) -> (
+  | Some (pointer_layers, pointer_items) ->
       let pointer_tokens = List.map (fun item -> item.token) pointer_items in
       let name_item = peek cursor in
-      if name_item.token.kind = Token_kind.Punctuation '(' then
-        local_declaration_failure cursor ~boundary name_item ~code:"HCPARSE0103"
-          ~message:
-            "local function-pointer declarators are not implemented in this \
-             parser slice"
-      else if name_item.token.kind <> Token_kind.Identifier then
-        local_declaration_failure cursor ~boundary name_item ~code:"HCPARSE0100"
-          ~message:
-            (Printf.sprintf
-               "expected a local variable name after type %S, but found %s"
-               (type_spelling base_spelling pointer_layers)
-               (token_description name_item.token))
-      else
-        let name_item = take cursor in
-        let name =
-          Ast.make_identifier ~spelling:name_item.token.raw
-            ~location:(token_location name_item.token)
-        in
-        match parse_array_dimensions cursor 0 [] [] with
-        | None -> None
-        | Some (array_dimensions, array_tokens) ->
-            publish_local cursor name;
-            let equals_item = peek cursor in
-            let parsed_initializer =
-              if equals_item.token.kind <> Token_kind.Punctuation '=' then
-                Some (None, [])
-              else
-                let equals_item = take cursor in
-                let value_item = peek cursor in
-                match value_item.token.kind with
-                | Token_kind.Punctuation (';' | ',')
-                | Token_kind.Punctuation '}'
-                | Token_kind.Eof ->
-                    local_declaration_failure cursor ~boundary value_item
-                      ~code:"HCPARSE0101"
-                      ~message:
-                        (Printf.sprintf
-                           "expected a scalar initializer for local variable \
-                            %S, but found %s"
-                           name.spelling
-                           (token_description value_item.token))
-                | Token_kind.Punctuation '{' ->
-                    local_declaration_failure cursor ~boundary value_item
-                      ~code:"HCPARSE0104"
-                      ~message:
-                        "aggregate local initializers are not implemented in \
-                         this parser slice"
-                | _ -> (
-                    match
-                      parse_expression cursor
-                        ~context:Local_initializer_expression ~depth:0
-                        ~minimum_binding_power:0
-                    with
-                    | None -> None
-                    | Some (value : parsed_expression) ->
-                        let tokens = equals_item.token :: value.tokens in
-                        let initial_value =
-                          Ast.make_local_initializer
-                            ~equals:(token_location equals_item.token)
-                            ~value:value.node
-                            ~location:(location_from_expression_tokens tokens)
-                        in
-                        Some (Some initial_value, tokens))
+      let parsed_name =
+        match name_item.token.kind with
+        | Token_kind.Punctuation '(' ->
+            Option.map
+              (fun parsed ->
+                let name =
+                  match parsed.name with
+                  | Some name -> name
+                  | None ->
+                      invalid_arg
+                        "local function-pointer parser returned an unnamed \
+                         declarator"
+                in
+                (name, Some parsed.node, parsed.tokens))
+              (parse_function_pointer_declarator cursor
+                 ~function_pointer_depth:0
+                 ~declarator_context:(Local_variable_declarator boundary))
+        | Token_kind.Identifier ->
+            let name_item = take cursor in
+            let name =
+              Ast.make_identifier ~spelling:name_item.token.raw
+                ~location:(token_location name_item.token)
             in
-            Option.bind parsed_initializer
-              (fun (initial_value, initializer_tokens) ->
-                let delimiter_item = peek cursor in
-                match delimiter_kind delimiter_item.token with
-                | None ->
-                    local_declaration_failure cursor ~boundary delimiter_item
-                      ~code:"HCPARSE0102"
-                      ~message:
-                        (Printf.sprintf
-                           "expected ',' or ';' after local variable %S, but \
-                            found %s"
-                           name.spelling
-                           (token_description delimiter_item.token))
-                | Some kind ->
-                    let delimiter_item = take cursor in
-                    let delimiter =
-                      Ast.make_declaration_delimiter ~kind
-                        ~spelling:delimiter_item.token.raw
-                        ~location:(token_location delimiter_item.token)
-                    in
-                    let tokens =
-                      qualifier_tokens @ pointer_tokens @ [ name_item.token ]
-                      @ array_tokens @ initializer_tokens
-                      @ [ delimiter_item.token ]
-                    in
-                    let node =
-                      Ast.make_local_declarator ~register_qualifiers
-                        ~pointer_layers ~name ~array_dimensions ~initial_value
-                        ~delimiter
-                        ~location:(location_from_expression_tokens tokens)
-                    in
-                    Some ({ node; tokens } : parsed_local_declarator)))
+            Some (name, None, [ name_item.token ])
+        | _ ->
+            local_declaration_failure cursor ~boundary name_item
+              ~code:"HCPARSE0100"
+              ~message:
+                (Printf.sprintf
+                   "expected a local variable name after type %S, but found %s"
+                   (type_spelling base_spelling pointer_layers)
+                   (token_description name_item.token))
+      in
+      Option.bind parsed_name
+        (fun (name, function_pointer, declarator_tokens) ->
+          match parse_array_dimensions cursor 0 [] [] with
+          | None -> None
+          | Some (array_dimensions, array_tokens) ->
+              publish_local cursor name;
+              let equals_item = peek cursor in
+              let parsed_initializer =
+                if equals_item.token.kind <> Token_kind.Punctuation '=' then
+                  Some (None, [])
+                else if Option.is_some function_pointer then
+                  local_declaration_failure cursor ~boundary equals_item
+                    ~code:"HCPARSE0137"
+                    ~message:
+                      (Printf.sprintf
+                         "function-pointer local %S cannot be initialized in \
+                          its declaration; declare it first and assign it in a \
+                          following statement"
+                         name.spelling)
+                else
+                  let equals_item = take cursor in
+                  let value_item = peek cursor in
+                  match value_item.token.kind with
+                  | Token_kind.Punctuation (';' | ',')
+                  | Token_kind.Punctuation '}'
+                  | Token_kind.Eof ->
+                      local_declaration_failure cursor ~boundary value_item
+                        ~code:"HCPARSE0101"
+                        ~message:
+                          (Printf.sprintf
+                             "expected a scalar initializer for local variable \
+                              %S, but found %s"
+                             name.spelling
+                             (token_description value_item.token))
+                  | Token_kind.Punctuation '{' ->
+                      local_declaration_failure cursor ~boundary value_item
+                        ~code:"HCPARSE0104"
+                        ~message:
+                          "aggregate local initializers are not implemented in \
+                           this parser slice"
+                  | _ -> (
+                      match
+                        parse_expression cursor
+                          ~context:Local_initializer_expression ~depth:0
+                          ~minimum_binding_power:0
+                      with
+                      | None -> None
+                      | Some (value : parsed_expression) ->
+                          let tokens = equals_item.token :: value.tokens in
+                          let initial_value =
+                            Ast.make_local_initializer
+                              ~equals:(token_location equals_item.token)
+                              ~value:value.node
+                              ~location:(location_from_expression_tokens tokens)
+                          in
+                          Some (Some initial_value, tokens))
+              in
+              Option.bind parsed_initializer
+                (fun (initial_value, initializer_tokens) ->
+                  let delimiter_item = peek cursor in
+                  match delimiter_kind delimiter_item.token with
+                  | None ->
+                      local_declaration_failure cursor ~boundary delimiter_item
+                        ~code:"HCPARSE0102"
+                        ~message:
+                          (Printf.sprintf
+                             "expected ',' or ';' after local variable %S, but \
+                              found %s"
+                             name.spelling
+                             (token_description delimiter_item.token))
+                  | Some kind ->
+                      let delimiter_item = take cursor in
+                      let delimiter =
+                        Ast.make_declaration_delimiter ~kind
+                          ~spelling:delimiter_item.token.raw
+                          ~location:(token_location delimiter_item.token)
+                      in
+                      let tokens =
+                        qualifier_tokens @ pointer_tokens @ declarator_tokens
+                        @ array_tokens @ initializer_tokens
+                        @ [ delimiter_item.token ]
+                      in
+                      let node =
+                        Ast.make_local_declarator ~register_qualifiers
+                          ~pointer_layers ~name ~function_pointer
+                          ~array_dimensions ~initial_value ~delimiter
+                          ~location:(location_from_expression_tokens tokens)
+                      in
+                      Some ({ node; tokens } : parsed_local_declarator)))
 
 let parse_local_declaration cursor ~boundary : parsed_statement option =
   let first_item = peek cursor in

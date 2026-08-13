@@ -683,9 +683,14 @@ let rec print_statement buffer sources ~indent = function
             ~position:Ast.After_type declarator.local_register_qualifiers;
           print_pointer_layers buffer sources ~indent:declarator_indent
             declarator.local_pointer_layers;
-          Printf.bprintf buffer "%sname spelling=%S span=%s\n" declarator_indent
-            declarator.local_name.spelling
-            (location_text sources declarator.local_name.location);
+          (match declarator.local_function_pointer with
+          | None ->
+              Printf.bprintf buffer "%sname spelling=%S span=%s\n"
+                declarator_indent declarator.local_name.spelling
+                (location_text sources declarator.local_name.location)
+          | Some function_pointer ->
+              print_function_pointer buffer sources ~indent:declarator_indent
+                ~name:(Some declarator.local_name) function_pointer);
           List.iteri
             (fun dimension_index (dimension : Ast.array_dimension) ->
               let dimension_indent = declarator_indent ^ "  " in
@@ -931,7 +936,7 @@ and print_implicit_output_statement buffer sources ~indent
       Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
         (location_text sources semicolon)
 
-let print_binding buffer sources ~indent = function
+and print_binding buffer sources ~indent = function
   | None -> ()
   | Some (binding : Ast.declaration_binding) -> (
       Printf.bprintf buffer "%sbinding kind=%s spelling=%S span=%s\n" indent
@@ -948,7 +953,7 @@ let print_binding buffer sources ~indent = function
           Printf.bprintf buffer "%s  target_expression\n" indent;
           print_expression buffer sources ~indent:(indent ^ "    ") expression)
 
-let rec print_initializer buffer sources ~indent = function
+and print_initializer buffer sources ~indent = function
   | Ast.Scalar_initializer expression ->
       Printf.bprintf buffer "%svalue kind=scalar span=%s\n" indent
         (location_text sources (Ast.expression_location expression));
@@ -976,7 +981,7 @@ let rec print_initializer buffer sources ~indent = function
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources braced.initializer_closing_brace)
 
-let print_array_dimensions buffer sources ~indent dimensions =
+and print_array_dimensions buffer sources ~indent dimensions =
   List.iteri
     (fun index (dimension : Ast.array_dimension) ->
       let child_indent = indent ^ "  " in
@@ -994,7 +999,7 @@ let print_array_dimensions buffer sources ~indent dimensions =
         (location_text sources dimension.closing_bracket))
     dimensions
 
-let rec print_aggregate_member buffer sources ~indent index = function
+and print_aggregate_member buffer sources ~indent index = function
   | Ast.Aggregate_member_declaration declaration ->
       Printf.bprintf buffer
         "%smember_declaration index=%d span=%s declarators=%d\n" indent index
@@ -1982,7 +1987,15 @@ let rec statement_to_yojson sources = function
           (register_qualifier_fields sources
              declarator.local_register_qualifiers
           @ pointer_layer_fields sources declarator.local_pointer_layers
-          @ [ ("name", identifier_to_yojson sources declarator.local_name) ]
+          @ (match declarator.local_function_pointer with
+            | None ->
+                [ ("name", identifier_to_yojson sources declarator.local_name) ]
+            | Some function_pointer ->
+                [
+                  ( "function_pointer",
+                    function_pointer_to_yojson sources
+                      ~name:(Some declarator.local_name) function_pointer );
+                ])
           @ (match declarator.local_array_dimensions with
             | [] -> []
             | dimensions ->
@@ -2172,7 +2185,7 @@ and switch_element_to_yojson sources = function
           ("statement", statement_to_yojson sources statement);
         ]
 
-let binding_to_yojson sources (binding : Ast.declaration_binding) =
+and binding_to_yojson sources (binding : Ast.declaration_binding) =
   `Assoc
     ([
        ("kind", `String (binding_kind_name binding.kind));
@@ -2187,11 +2200,11 @@ let binding_to_yojson sources (binding : Ast.declaration_binding) =
     | Ast.Expression_binding_target expression ->
         [ ("target_expression", expression_to_yojson sources expression) ])
 
-let binding_fields sources = function
+and binding_fields sources = function
   | None -> []
   | Some binding -> [ ("binding", binding_to_yojson sources binding) ]
 
-let array_dimension_to_yojson sources (dimension : Ast.array_dimension) =
+and array_dimension_to_yojson sources (dimension : Ast.array_dimension) =
   `Assoc
     [
       ("opening_bracket", location_to_yojson sources dimension.opening_bracket);
@@ -2203,7 +2216,7 @@ let array_dimension_to_yojson sources (dimension : Ast.array_dimension) =
       ("location", location_to_yojson sources dimension.location);
     ]
 
-let array_dimension_fields sources dimensions =
+and array_dimension_fields sources dimensions =
   match dimensions with
   | [] -> []
   | dimensions ->
@@ -2212,7 +2225,7 @@ let array_dimension_fields sources dimensions =
           `List (List.map (array_dimension_to_yojson sources) dimensions) );
       ]
 
-let rec initializer_to_yojson sources = function
+and initializer_to_yojson sources = function
   | Ast.Scalar_initializer expression ->
       `Assoc
         [
@@ -2249,7 +2262,7 @@ and initializer_element_to_yojson sources (element : Ast.initializer_element) =
         location_to_yojson sources element.initializer_element_location );
     ]
 
-let global_initializer_to_yojson sources
+and global_initializer_to_yojson sources
     (initial_value : Ast.global_initializer) =
   `Assoc
     [
@@ -2261,7 +2274,7 @@ let global_initializer_to_yojson sources
         location_to_yojson sources initial_value.global_initializer_location );
     ]
 
-let rec aggregate_member_declarator_to_yojson sources
+and aggregate_member_declarator_to_yojson sources
     (declarator : Ast.aggregate_member_declarator) =
   `Assoc
     (pointer_layer_fields sources declarator.member_pointer_layers

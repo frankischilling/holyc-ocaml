@@ -1024,7 +1024,7 @@ statement_continuation = "after a local declaration, PrsStmt continues without a
 for_initializer_status = "rejected with HCPARSE0069, matching the native Missing ) result"
 static_register_qualifier_status = "rejected with HCPARSE0099"
 class_and_union_local_status = "syntax implemented; semantic identity, layout, and storage are planned"
-function_pointer_local_status = "planned"
+function_pointer_local_status = "implemented in HC-PARSER-FUNCTION-POINTER-LOCALS"
 aggregate_initializer_status = "planned"
 semantic_scope_status = "planned"
 storage_and_layout_status = "planned"
@@ -1033,6 +1033,61 @@ lowering_status = "planned"
 execution_status = "planned"
 native_oracle_status = "matched the pinned TempleOS compiler for accepted forms, rejected forms, and statement continuation"
 native_oracle_fixture = "test/oracle/local-declarations.json"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-POINTER-LOCALS"
+description = "Automatic and static local declarators retain recursive function-pointer signatures while entering the function-local parser environment as variables."
+sources = [
+  "Compiler/PrsVar.HC:408-524 PrsVarLst shared PrsType and MLF_FUN path",
+  "Compiler/PrsVar.HC:590-618 automatic local storage and initializer branch",
+  "Compiler/PrsVar.HC:691-714 comma restart and termination",
+  "Demo/Games/Stadium/StadiumGen.HC:5",
+  "Demo/Graphics/Grid.HC:13"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-pointer-local.hc",
+  "test/cli/parse-function-pointer-local.human",
+  "test/cli/parse-function-pointer-local.json",
+  "test/cli/parse-function-pointer-local-error.hc",
+  "test/cli/parse-function-pointer-local-error.human",
+  "test/cli/parse-function-pointer-local-error.json"
+]
+status = "implemented"
+issue = 141
+ast_schema = "holyc-ast-v1"
+accepted_form = "type register-qualifier* return-pointer-star{0,4} '(' callback-pointer-star{1,4} identifier ')' '(' parameter-list? ')' array-dimension* delimiter"
+return_pointer_depth = "zero through four"
+declarator_pointer_depth = "one through four"
+name_status = "required"
+signature_status = ["empty", "fixed", "variadic", "nested"]
+storage_status = ["automatic", "static"]
+register_qualifier_status = "retained on automatic callback declarators; rejected on static callbacks by the shared local rule"
+comma_group_status = "callbacks and ordinary declarators may share the saved base type"
+symbol_category = "function-local variable, not direct function"
+publication_order = "before requesting the following token"
+parenthesis_free_direct_call = "suppressed by local-variable shadowing"
+audited_automatic_line_forms = 2
+corpus_evidence = [
+  "Demo/Games/Stadium/StadiumGen.HC:5",
+  "Demo/Graphics/Grid.HC:13"
+]
+static_corpus_status = "no pinned occurrence found; syntax follows the shared PrsVarLst path and has focused coverage"
+direct_initializer_status = "rejected with HCPARSE0137 at the source boundary recorded by Demo/Graphics/Grid.HC:13"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved for both parenthesis pairs, pointer layers, name, signature, array suffixes, qualifiers, and delimiters"
+missing_punctuation_diagnostic = "HCPARSE0135"
+missing_name_diagnostic = "HCPARSE0136"
+hosted_nesting_limit = 32
+nesting_limit_diagnostic = "HCPARSE0017"
+native_oracle_status = "not required for this syntax slice; PrsType and PrsVarLst state the callback path directly"
+function_type_checking_storage_layout_indirect_call_lowering_and_execution = "planned"
 
 [[feature]]
 id = "HC-PARSER-DEFAULT-PARAMETER-EXPRESSIONS"
