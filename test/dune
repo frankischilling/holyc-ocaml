@@ -3779,30 +3779,24 @@
        --format=json
        cli/parse-assembly-block-error.hc))))
    (diff
-   cli/parse-assembly-block-error.json
-   parse-assembly-block-error.json.actual))))
+    cli/parse-assembly-block-error.json
+    parse-assembly-block-error.json.actual))))
 
 (rule
  (alias runtest)
  (targets parse-inline-assembly.human.actual)
- (deps
-  cli/parse-inline-assembly.hc
-  cli/parse-inline-assembly.human)
+ (deps cli/parse-inline-assembly.hc cli/parse-inline-assembly.human)
  (action
   (progn
    (with-stdout-to
     parse-inline-assembly.human.actual
     (run %{exe:../bin/holyc.exe} parse cli/parse-inline-assembly.hc))
-   (diff
-    cli/parse-inline-assembly.human
-    parse-inline-assembly.human.actual))))
+   (diff cli/parse-inline-assembly.human parse-inline-assembly.human.actual))))
 
 (rule
  (alias runtest)
  (targets parse-inline-assembly.json.actual)
- (deps
-  cli/parse-inline-assembly.hc
-  cli/parse-inline-assembly.json)
+ (deps cli/parse-inline-assembly.hc cli/parse-inline-assembly.json)
  (action
   (progn
    (with-stdout-to
@@ -3812,6 +3806,4 @@
      dump-ast
      --format=json
      cli/parse-inline-assembly.hc))
-   (diff
-    cli/parse-inline-assembly.json
-    parse-inline-assembly.json.actual))))
+   (diff cli/parse-inline-assembly.json parse-inline-assembly.json.actual))))

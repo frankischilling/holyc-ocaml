@@ -4446,8 +4446,10 @@ let assembly_lines cursor tokens =
   collect [] None None [] tokens
 
 let classified_assembly_token source_token =
-  Ast.make_assembly_token ~kind:(assembly_token_kind source_token)
-    ~source_token ~location:(token_location source_token)
+  Ast.make_assembly_token
+    ~kind:(assembly_token_kind source_token)
+    ~source_token
+    ~location:(token_location source_token)
 
 let parse_assembly_block_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
@@ -4498,8 +4500,8 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
     report cursor first_item ~code:"HCPARSE0147"
       ~message:
         (Printf.sprintf
-           "inline assembly operation %S requires a function body; use an \
-            'asm { ... }' block at top level"
+           "inline assembly operation %S requires a function body; use an 'asm \
+            { ... }' block at top level"
            first_item.token.raw);
     recover_statement cursor ~boundary;
     None)
@@ -4516,8 +4518,7 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
                   parsing is not implemented yet"
                  item.token.raw argument_count
                  (if argument_count = 1 then "" else "s"))
-      | None ->
-          invalid_arg "unsupported inline assembly token is not an opcode"
+      | None -> invalid_arg "unsupported inline assembly token is not an opcode"
     in
     let rec collect operations_rev tokens_rev =
       let item = peek cursor in
@@ -4549,7 +4550,8 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
                      semicolon_item)
                 ~location:(location_from_expression_tokens operation_tokens)
             in
-            collect (operation :: operations_rev)
+            collect
+              (operation :: operations_rev)
               (List.rev_append operation_tokens tokens_rev)
       | None ->
           let operations = List.rev operations_rev in
@@ -5787,8 +5789,8 @@ let parse ~sources ~definitions ~symbols ~config source =
         | Some statement ->
             items_rev := Ast.Top_level_statement statement.node :: !items_rev
         | None -> ())
-    | Token_kind.Identifier
-      when token_starts_inline_assembly cursor item.token -> (
+    | Token_kind.Identifier when token_starts_inline_assembly cursor item.token
+      -> (
         match
           parse_statement_sequence cursor ~boundary:Top_level_boundary
             ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0

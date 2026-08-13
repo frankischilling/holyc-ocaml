@@ -619,8 +619,8 @@ let rec print_statement buffer sources ~indent = function
       List.iteri
         (fun index (operation : Ast.inline_assembly_operation) ->
           let operation_indent = child_indent ^ "  " in
-          Printf.bprintf buffer
-            "%soperation index=%d span=%s semicolon=%b\n" child_indent index
+          Printf.bprintf buffer "%soperation index=%d span=%s semicolon=%b\n"
+            child_indent index
             (location_text sources operation.inline_assembly_operation_location)
             (Option.is_some operation.inline_assembly_semicolon);
           print_assembly_token buffer sources ~indent:operation_indent 0
@@ -2057,7 +2057,8 @@ let inline_assembly_operation_to_yojson sources
     (operation : Ast.inline_assembly_operation) =
   `Assoc
     [
-      ("opcode", assembly_token_to_yojson sources operation.inline_assembly_opcode);
+      ( "opcode",
+        assembly_token_to_yojson sources operation.inline_assembly_opcode );
       ( "semicolon",
         match operation.inline_assembly_semicolon with
         | None -> `Null

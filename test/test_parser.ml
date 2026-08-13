@@ -15237,9 +15237,7 @@ let inline_assembly_source_behavior () =
   let assembly_parser = pinned "Compiler/Asm.HC" in
   List.iter
     (fun (description, fragment) ->
-      Alcotest.(check bool)
-        description true
-        (contains assembly_parser fragment))
+      Alcotest.(check bool) description true (contains assembly_parser fragment))
     [
       ( "the direct path omits the opening brace",
         "if (!(cmp_flags&CMPF_ONE_ASM_INS))" );
@@ -15250,12 +15248,12 @@ let inline_assembly_source_behavior () =
     ];
   Alcotest.(check bool)
     "the direct assembly flag keeps its pinned bit" true
-    (contains (pinned "Compiler/CompilerA.HH")
-       "#define CMPF_ONE_ASM_INS\t2");
+    (contains (pinned "Compiler/CompilerA.HH") "#define CMPF_ONE_ASM_INS\t2");
   List.iter
     (fun (path, fragments) ->
       Alcotest.(check bool)
-        (path ^ " contains the audited inline assembly") true
+        (path ^ " contains the audited inline assembly")
+        true
         (List.for_all (contains (pinned path)) fragments))
     [
       ("Adam/AMem.HC", [ "  PUSHFD"; "  CLI"; "    PAUSE" ]);
@@ -15321,7 +15319,9 @@ let pinned_inline_assembly_snippets () =
                 Alcotest.failf "%s produced %d trailing items" name
                   (List.length items)
           in
-          let body = definition |> expect_function_body |> expect_block_statement in
+          let body =
+            definition |> expect_function_body |> expect_block_statement
+          in
           let rec inline_count = function
             | Ast.Inline_assembly_statement _ -> 1
             | Ast.Block_statement statement ->
@@ -15340,7 +15340,8 @@ let pinned_inline_assembly_snippets () =
                 + inline_count statement.for_body
             | Ast.Lock_statement statement -> inline_count statement.lock_body
             | Ast.Try_catch_statement statement ->
-                inline_count statement.try_body + inline_count statement.catch_body
+                inline_count statement.try_body
+                + inline_count statement.catch_body
             | Ast.Sequence_statement sequence ->
                 List.fold_left
                   (fun count element ->
@@ -15358,7 +15359,8 @@ let pinned_inline_assembly_snippets () =
             | Ast.Return_statement _ -> 0
           in
           Alcotest.(check bool)
-            (name ^ " retains inline assembly nodes") true
+            (name ^ " retains inline assembly nodes")
+            true
             (List.fold_left
                (fun count statement -> count + inline_count statement)
                0 body.block_statements
@@ -15366,22 +15368,15 @@ let pinned_inline_assembly_snippets () =
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let inline_assembly_opcode_spellings
-    (statement : Ast.inline_assembly_statement) =
+let inline_assembly_opcode_spellings (statement : Ast.inline_assembly_statement)
+    =
   List.map
     (fun (operation : Ast.inline_assembly_operation) ->
       operation.inline_assembly_opcode.assembly_source_token.raw)
     statement.inline_assembly_operations
 
 let inline_assembly_shapes () =
-  let source =
-    "U0 Inline()\n\
-     {\n\
-       PUSHFD CLI;\n\
-       if (1) {PAUSE}\n\
-       POPFD BPT;\n\
-     }"
-  in
+  let source = "U0 Inline()\n{\nPUSHFD CLI;\nif (1) {PAUSE}\nPOPFD BPT;\n}" in
   List.iter
     (fun mode ->
       let _, _, output = parse_string ~compilation_mode:mode source in
@@ -15390,11 +15385,10 @@ let inline_assembly_shapes () =
         |> expect_block_statement
       in
       match body.block_statements with
-      | [ first; conditional; last ] ->
+      | [ first; conditional; last ] -> (
           let first = expect_inline_assembly_statement first in
           Alcotest.(check (list string))
-            "adjacent operand-free opcodes stay together"
-            [ "PUSHFD"; "CLI" ]
+            "adjacent operand-free opcodes stay together" [ "PUSHFD"; "CLI" ]
             (inline_assembly_opcode_spellings first);
           Alcotest.(check (list bool))
             "only the source semicolon is retained" [ false; true ]
@@ -15415,10 +15409,10 @@ let inline_assembly_shapes () =
           Alcotest.(check (list string))
             "an alias stays in the same opcode run" [ "POPFD"; "BPT" ]
             (inline_assembly_opcode_spellings last);
-          (match
-             (List.nth last.inline_assembly_operations 1)
-               .inline_assembly_opcode.assembly_token_kind
-           with
+          match
+            (List.nth last.inline_assembly_operations 1).inline_assembly_opcode
+              .assembly_token_kind
+          with
           | Ast.Assembly_opcode_token
               { canonical_spelling = "INT3"; source_is_alias = true } -> ()
           | _ -> Alcotest.fail "BPT did not retain its INT3 alias identity")
@@ -15431,8 +15425,8 @@ let inline_assembly_shapes () =
 let inline_assembly_statement_contexts () =
   let _, _, output =
     parse_string
-      "U0 Contexts(){while(1) PAUSE;do CLI while(0);for(;1;STI) \
-       PAUSE;lock PUSHFD;}"
+      "U0 Contexts(){while(1) PAUSE;do CLI while(0);for(;1;STI) PAUSE;lock \
+       PUSHFD;}"
   in
   let body =
     expect_ast output |> expect_one_definition |> expect_function_body
@@ -15445,8 +15439,7 @@ let inline_assembly_statement_contexts () =
       let do_while = expect_do_while_statement do_while in
       ignore (expect_inline_assembly_statement do_while.do_body);
       let for_ = expect_for_statement for_ in
-      ignore
-        (for_.for_update |> Option.get |> expect_inline_assembly_statement);
+      ignore (for_.for_update |> Option.get |> expect_inline_assembly_statement);
       ignore (expect_inline_assembly_statement for_.for_body);
       let lock = expect_lock_statement lock in
       ignore (expect_inline_assembly_statement lock.lock_body)
@@ -15461,8 +15454,8 @@ let inline_assembly_provenance () =
   let generated =
     expect_ast output |> expect_one_definition |> expect_function_body
     |> expect_block_statement
-    |> fun block -> List.hd block.block_statements
-    |> expect_inline_assembly_statement
+    |> fun block ->
+    List.hd block.block_statements |> expect_inline_assembly_statement
     |> fun statement -> List.hd statement.inline_assembly_operations
   in
   let location = generated.inline_assembly_opcode.assembly_token_location in
@@ -15492,8 +15485,8 @@ let inline_assembly_provenance () =
       let included =
         expect_ast include_output |> expect_one_definition
         |> expect_function_body |> expect_block_statement
-        |> fun block -> List.hd block.block_statements
-        |> expect_inline_assembly_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_inline_assembly_statement
         |> fun statement -> List.hd statement.inline_assembly_operations
       in
       let included_source =
@@ -15533,9 +15526,7 @@ let inline_assembly_failures () =
   | [ Ast.Sequence_statement sequence ] -> (
       match sequence.sequence_elements with
       | [ first; second ] -> (
-          match
-            (first.sequence_statement, second.sequence_statement)
-          with
+          match (first.sequence_statement, second.sequence_statement) with
           | Ast.Local_declaration_statement _, Ast.Expression_statement _ -> ()
           | _ -> Alcotest.fail "CLI shadow did not remain an expression")
       | elements ->
@@ -15560,19 +15551,18 @@ let inline_assembly_failures () =
     | statement -> [ statement ]
   in
   let statements = List.concat_map flatten_statement body.block_statements in
-  (match statements with
+  match statements with
   | [ declaration; direct; expression ] ->
       ignore (declaration |> expect_local_declaration);
       Alcotest.(check (list string))
-        "a shadowed adjacent spelling ends the direct assembly run"
-        [ "PUSHFD" ]
+        "a shadowed adjacent spelling ends the direct assembly run" [ "PUSHFD" ]
         (direct |> expect_inline_assembly_statement
-        |> inline_assembly_opcode_spellings);
+       |> inline_assembly_opcode_spellings);
       ignore (expression |> expect_expression_statement)
   | statements ->
       Alcotest.failf
         "an adjacent shadow should produce three ordered statements, got %d"
-        (List.length statements))
+        (List.length statements)
 
 let deterministic_inline_assembly_dumps () =
   let session, _, output = parse_string "U0 Dump(){PUSHFD CLI;BPT;}" in
