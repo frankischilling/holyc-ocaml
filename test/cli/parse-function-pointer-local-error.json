@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0137",
+    "severity": "error",
+    "message": "function-pointer local \"callback\" cannot be initialized in its declaration; declare it first and assign it in a following statement",
+    "primary": {
+      "path": "cli/parse-function-pointer-local-error.hc",
+      "line": 3,
+      "column": 19,
+      "source_id": 0,
+      "start": 32,
+      "stop": 33
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

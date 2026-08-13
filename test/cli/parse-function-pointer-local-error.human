@@ -1,0 +1,3 @@
+cli/parse-function-pointer-local-error.hc:3:19: error[HCPARSE0137]: function-pointer local "callback" cannot be initialized in its declaration; declare it first and assign it in a following statement
+    3 |   U0 (*callback)()=0;
+      |                   ^

@@ -484,6 +484,7 @@ type local_declarator = private {
   local_register_qualifiers : register_qualifier list;
   local_pointer_layers : pointer_layer list;
   local_name : identifier;
+  local_function_pointer : function_pointer_declarator option;
   local_array_dimensions : array_dimension list;
   local_initializer : local_initializer option;
   local_delimiter : declaration_delimiter;
@@ -1084,6 +1085,7 @@ val make_local_declarator :
   register_qualifiers:register_qualifier list ->
   pointer_layers:pointer_layer list ->
   name:identifier ->
+  function_pointer:function_pointer_declarator option ->
   array_dimensions:array_dimension list ->
   initial_value:local_initializer option ->
   delimiter:declaration_delimiter ->

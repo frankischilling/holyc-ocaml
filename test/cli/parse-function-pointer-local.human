@@ -1,0 +1,41 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-function-pointer-local.hc:1:1..8:1 items=2
+  aggregate_forward_declaration aggregate_kind=class span=cli/parse-function-pointer-local.hc:1:1..1:18
+    binding kind=extern spelling="extern" span=cli/parse-function-pointer-local.hc:1:1..1:7
+    aggregate_keyword spelling="class" span=cli/parse-function-pointer-local.hc:1:8..1:13
+    name spelling="CDC" span=cli/parse-function-pointer-local.hc:1:14..1:17
+    semicolon span=cli/parse-function-pointer-local.hc:1:17..1:18
+  function_definition span=cli/parse-function-pointer-local.hc:3:1..7:2 parameters=0 variadic=false body=present
+    return_type primitive=U0 spelling="U0" span=cli/parse-function-pointer-local.hc:3:1..3:3
+    name spelling="Configure" span=cli/parse-function-pointer-local.hc:3:4..3:13
+    opening_parenthesis span=cli/parse-function-pointer-local.hc:3:13..3:14
+    closing_parenthesis span=cli/parse-function-pointer-local.hc:3:14..3:15
+    body span=cli/parse-function-pointer-local.hc:4:1..7:2
+      block_statement span=cli/parse-function-pointer-local.hc:4:1..7:2 statements=1
+        opening_brace span=cli/parse-function-pointer-local.hc:4:1..4:2
+        statement index=0
+          statement_sequence span=cli/parse-function-pointer-local.hc:5:3..6:12 leading_commas=0 elements=2
+            element index=0 span=cli/parse-function-pointer-local.hc:5:3..5:35 following_commas=0
+              local_declaration span=cli/parse-function-pointer-local.hc:5:3..5:35 storage=automatic declarators=1
+                type primitive=U0 spelling="U0" span=cli/parse-function-pointer-local.hc:5:3..5:5
+                declarator index=0 span=cli/parse-function-pointer-local.hc:5:6..5:35
+                  register_qualifier kind=reg position=after_type spelling="reg" span=cli/parse-function-pointer-local.hc:5:6..5:9
+                    explicit_register spelling="R15" span=cli/parse-function-pointer-local.hc:5:10..5:13
+                  function_pointer span=cli/parse-function-pointer-local.hc:5:14..5:34 parameters=1 variadic=false
+                    opening_parenthesis span=cli/parse-function-pointer-local.hc:5:14..5:15
+                    pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-local.hc:5:15..5:16
+                    name spelling="callback" span=cli/parse-function-pointer-local.hc:5:16..5:24
+                    closing_parenthesis span=cli/parse-function-pointer-local.hc:5:24..5:25
+                    signature_opening_parenthesis span=cli/parse-function-pointer-local.hc:5:25..5:26
+                    parameter index=0 span=cli/parse-function-pointer-local.hc:5:26..5:33
+                      type named spelling="CDC" span=cli/parse-function-pointer-local.hc:5:26..5:29
+                      pointer_layer depth=1 spelling="*" span=cli/parse-function-pointer-local.hc:5:30..5:31
+                      name spelling="dc" span=cli/parse-function-pointer-local.hc:5:31..5:33
+                    signature_closing_parenthesis span=cli/parse-function-pointer-local.hc:5:33..5:34
+                  delimiter kind=semicolon spelling=";" span=cli/parse-function-pointer-local.hc:5:34..5:35
+            element index=1 span=cli/parse-function-pointer-local.hc:6:3..6:12 following_commas=0
+              expression_statement span=cli/parse-function-pointer-local.hc:6:3..6:12 semicolon=true
+                expression kind=identifier spelling="callback" span=cli/parse-function-pointer-local.hc:6:3..6:11
+                semicolon span=cli/parse-function-pointer-local.hc:6:11..6:12
+        closing_brace span=cli/parse-function-pointer-local.hc:7:1..7:2

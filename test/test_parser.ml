@@ -203,6 +203,11 @@ let expect_member_function_pointer
   | Some function_pointer -> function_pointer
   | None -> Alcotest.fail "expected an aggregate function-pointer member"
 
+let expect_local_function_pointer (declarator : Ast.local_declarator) =
+  match declarator.local_function_pointer with
+  | Some function_pointer -> function_pointer
+  | None -> Alcotest.fail "expected a local function-pointer declarator"
+
 let expect_parameter_default (parameter : Ast.function_parameter) =
   match parameter.default with
   | Some default -> default
@@ -10066,6 +10071,358 @@ let local_declaration_source_behavior () =
         "static I64 time_stamp_start=0,timer_start=0,HPET_start=0;" );
     ]
 
+let function_pointer_local_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ( "automatic locals use the shared type parser",
+        "tmpm->member_class=PrsType(cc,&tmpc1,&mode,tmpm,&tmpm->str," );
+      ( "the shared parser returns callback metadata",
+        "&tmpm->fun_ptr,NULL,&tmpm->dim,0" );
+      ("callback locals receive the member flag", "tmpm->flags|=MLF_FUN;");
+      ( "automatic local storage follows callback parsing",
+        "case PRS1B_LOCAL_VAR:" );
+    ];
+  let audited_declarations =
+    [
+      ( "Demo/Games/Stadium/StadiumGen.HC:5",
+        pinned_lines "Demo/Games/Stadium/StadiumGen.HC" ~first:5 ~last:5,
+        "U0 (*fp_old_update)(CDC *dc);" );
+      ( "Demo/Graphics/Grid.HC:13",
+        pinned_lines "Demo/Graphics/Grid.HC" ~first:13 ~last:13,
+        "U0 (*old_draw_ms)(CDC *dc,I64 x,I64 y);" );
+    ]
+  in
+  Alcotest.(check int)
+    "two automatic callback declarations were audited" 2
+    (List.length audited_declarations);
+  List.iter
+    (fun (location, line, declaration) ->
+      Alcotest.(check bool)
+        (location ^ " retains its declaration")
+        true
+        (contains line declaration))
+    audited_declarations;
+  Alcotest.(check bool)
+    "Grid records the declaration-time initializer boundary" true
+    (contains (pinned "Demo/Graphics/Grid.HC") "//Can't init this type of var.")
+
+let function_body_statements (definition : Ast.function_definition) =
+  let body = expect_function_body definition |> expect_block_statement in
+  List.concat_map
+    (function
+      | Ast.Sequence_statement sequence ->
+          List.map
+            (fun element -> element.Ast.sequence_statement)
+            sequence.sequence_elements
+      | statement -> [ statement ])
+    body.block_statements
+
+let pinned_function_pointer_locals () =
+  let source =
+    "extern class CDC;\nU0 StadiumSlice(){\n"
+    ^ pinned_lines "Demo/Games/Stadium/StadiumGen.HC" ~first:5 ~last:5
+    ^ "\n}\nU0 GridSlice(){\n"
+    ^ pinned_lines "Demo/Graphics/Grid.HC" ~first:13 ~last:13
+    ^ "\n}"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~path:"Demo/function-pointer-locals.HC" ~compilation_mode
+          source
+      in
+      let definitions =
+        (expect_ast output).items
+        |> List.filter_map (function
+          | Ast.Function_definition definition -> Some definition
+          | Ast.Aggregate_forward_declaration _ -> None
+          | _ -> Alcotest.fail "pinned local slice produced another item")
+      in
+      let declarators =
+        List.map
+          (fun definition ->
+            match function_body_statements definition with
+            | [ statement ] ->
+                let declaration = expect_local_declaration statement in
+                List.hd declaration.local_declarators
+            | statements ->
+                Alcotest.failf "pinned local body produced %d statements"
+                  (List.length statements))
+          definitions
+      in
+      Alcotest.(check (list string))
+        "pinned callback local names"
+        [ "fp_old_update"; "old_draw_ms" ]
+        (List.map
+           (fun declarator -> declarator.Ast.local_name.spelling)
+           declarators);
+      let pointers = List.map expect_local_function_pointer declarators in
+      Alcotest.(check (list int))
+        "pinned callback local arities" [ 1; 3 ]
+        (List.map
+           (fun (pointer : Ast.function_pointer_declarator) ->
+             List.length pointer.signature_parameters)
+           pointers);
+      Alcotest.(check (list int))
+        "pinned locals use one callback indirection" [ 1; 1 ]
+        (List.map
+           (fun (pointer : Ast.function_pointer_declarator) ->
+             List.length pointer.indirection_layers)
+           pointers))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let direct_function_pointer_locals () =
+  let source =
+    "extern class CDC;\n\
+     U0 Shapes(I64 arg,...){\n\
+     U8 *(*convert)(I64 value=1,U0 (*done)(I64 result)),noreg \
+     (**empty)(),**ordinary;\n\
+     U0 reg R15 (*table)(CDC *dc,...)[2];\n\
+     static U0 (*cached)();\n\
+     convert; table(arg); cached;\n\
+     }"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let definition =
+        (expect_ast output).items
+        |> List.find_map (function
+          | Ast.Function_definition definition -> Some definition
+          | _ -> None)
+        |> Option.get
+      in
+      let statements = function_body_statements definition in
+      let first = List.nth statements 0 |> expect_local_declaration in
+      let convert, empty, ordinary =
+        match first.local_declarators with
+        | [ convert; empty; ordinary ] -> (convert, empty, ordinary)
+        | declarators ->
+            Alcotest.failf "expected three grouped locals, got %d"
+              (List.length declarators)
+      in
+      Alcotest.(check int)
+        "return pointer stays outside the callback" 1
+        (List.length convert.local_pointer_layers);
+      let convert_pointer = expect_local_function_pointer convert in
+      Alcotest.(check int)
+        "callback keeps two fixed parameters" 2
+        (List.length convert_pointer.signature_parameters);
+      ignore
+        (List.hd convert_pointer.signature_parameters
+        |> expect_parameter_default);
+      ignore
+        (List.nth convert_pointer.signature_parameters 1
+        |> expect_function_pointer);
+      let empty_pointer = expect_local_function_pointer empty in
+      Alcotest.(check int)
+        "second callback keeps double indirection" 2
+        (List.length empty_pointer.indirection_layers);
+      Alcotest.(check bool)
+        "comma restart keeps noreg" true
+        ((List.hd empty.local_register_qualifiers).kind = Ast.Noreg);
+      Alcotest.(check bool)
+        "ordinary local in the group stays ordinary" true
+        (Option.is_none ordinary.local_function_pointer);
+      Alcotest.(check int)
+        "ordinary local keeps two pointer layers" 2
+        (List.length ordinary.local_pointer_layers);
+      let table =
+        List.nth statements 1 |> expect_local_declaration |> fun declaration ->
+        List.hd declaration.local_declarators
+      in
+      let table_pointer = expect_local_function_pointer table in
+      Alcotest.(check bool)
+        "callback signature keeps varargs" true
+        (Option.is_some table_pointer.signature_variadic);
+      Alcotest.(check int)
+        "array follows the callback signature" 1
+        (List.length table.local_array_dimensions);
+      Alcotest.(check string)
+        "explicit register request is retained" "R15"
+        ( (List.hd table.local_register_qualifiers).explicit_register
+          |> Option.get
+        |> fun register -> register.spelling );
+      let cached =
+        List.nth statements 2 |> expect_local_declaration |> fun declaration ->
+        Alcotest.(check bool)
+          "static callback storage is retained" true
+          (declaration.local_storage = Ast.Static_local);
+        List.hd declaration.local_declarators
+      in
+      ignore (expect_local_function_pointer cached))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_pointer_local_visibility_and_provenance () =
+  let source =
+    "extern U0 callback();\n\
+     extern class Widget;\n\
+     #define OPEN (\n\
+     #define STAR *\n\
+     #define CLOSE )\n\
+     #define SIGNATURE ()\n\
+     U0 Generated(){\n\
+     U0 OPEN STAR callback CLOSE SIGNATURE;\n\
+     U0 (*Widget)();\n\
+     callback; Widget;\n\
+     }"
+  in
+  let session, root, output = parse_string source in
+  let definition =
+    (expect_ast output).items
+    |> List.find_map (function
+      | Ast.Function_definition definition -> Some definition
+      | _ -> None)
+    |> Option.get
+  in
+  let statements = function_body_statements definition in
+  let generated =
+    List.nth statements 0 |> expect_local_declaration |> fun declaration ->
+    List.hd declaration.local_declarators
+  in
+  let pointer = expect_local_function_pointer generated in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("opening parenthesis", pointer.declarator_opening_parenthesis);
+      ("star", (List.hd pointer.indirection_layers).location);
+      ("declarator close", pointer.declarator_closing_parenthesis);
+      ("signature open", pointer.signature_opening_parenthesis);
+      ("signature close", pointer.signature_closing_parenthesis);
+    ];
+  List.iter2
+    (fun expected statement ->
+      let expression =
+        expect_expression_statement statement |> fun statement ->
+        statement.expression_statement_expression
+        |> expect_identifier_expression
+      in
+      Alcotest.(check string)
+        (expected ^ " is routed as a local expression")
+        expected expression.spelling)
+    [ "callback"; "Widget" ]
+    [ List.nth statements 2; List.nth statements 3 ];
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human callback-local dump repeats byte for byte" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON callback-local dump repeats byte for byte" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies the local callback" true
+    (contains human "function_pointer");
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list
+    |> (fun items -> List.nth items 2)
+    |> member "body" |> member "statements" |> to_list |> List.hd
+    |> member "elements" |> to_list |> List.hd |> member "statement"
+    |> member "declarators" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check string)
+    "JSON callback-local kind" "function_pointer"
+    (json_pointer |> member "kind" |> to_string);
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "callback"
+  with
+  | Symbol_visibility.Present entry ->
+      Alcotest.(check string)
+        "the direct function is visible after local scope ends" "function"
+        (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "the outer callback function did not reappear"
+
+let function_pointer_local_failures () =
+  List.iter
+    (fun (description, declaration, code, message_fragment) ->
+      let session, _, output =
+        parse_string (Printf.sprintf "U0 Broken(){%s} I64 after;" declaration)
+      in
+      Alcotest.(check bool)
+        (description ^ " has no public AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present _ -> ()
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not recover to the following global"
+            description)
+    [
+      ( "missing local star",
+        "U0 (missing_star)();",
+        "HCPARSE0135",
+        "expected '*' after '('" );
+      ( "missing local name",
+        "U0 (*)();",
+        "HCPARSE0136",
+        "expected a local variable name" );
+      ( "missing local declarator close",
+        "U0 (*missing_close();",
+        "HCPARSE0135",
+        "expected ')' after function-pointer name" );
+      ( "missing local signature opening",
+        "U0 (*missing_signature);",
+        "HCPARSE0135",
+        "expected '(' for function-pointer signature" );
+      ( "fifth local declarator star",
+        "U0 (*****too_deep)();",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+      ( "direct callback initializer",
+        "U0 (*initialized)()=0;",
+        "HCPARSE0137",
+        "declare it first and assign it" );
+    ];
+  let rec nested depth =
+    if depth = 0 then "I64 value"
+    else Printf.sprintf "I64 (*level%d)(%s)" depth (nested (depth - 1))
+  in
+  let source =
+    Printf.sprintf "U0 Broken(){U0 (*too_nested)(%s);} I64 after;" (nested 32)
+  in
+  let session, _, output = parse_string source in
+  Alcotest.(check bool)
+    "excessively nested local has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check string)
+    "local nesting diagnostic" "HCPARSE0017" (first_diagnostic output).code;
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "after"
+  with
+  | Symbol_visibility.Present _ -> ()
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "nested-local recovery lost the following global"
+
 let local_declaration_oracle_fixture () =
   let open Yojson.Safe.Util in
   let fixture_path =
@@ -10498,7 +10855,6 @@ let local_declaration_failures () =
       ("U0 Bad(){I64 ;}", "HCPARSE0100");
       ("U0 Bad(){I64 value=;}", "HCPARSE0101");
       ("U0 Bad(){I64 value 1;}", "HCPARSE0102");
-      ("U0 Bad(){I64 (*callback)(I64);}", "HCPARSE0103");
       ("U0 Bad(){I64 values={1};}", "HCPARSE0104");
       ("U0 Bad(){for(I64 index=0;index<2;index++);}", "HCPARSE0069");
       ("U0 Bad(){try I64 attempted=0; catch ;}", "HCPARSE0082");
@@ -15353,6 +15709,16 @@ let tests =
       deterministic_function_definition_dumps;
     Alcotest.test_case "pinned local declaration behavior" `Quick
       local_declaration_source_behavior;
+    Alcotest.test_case "pinned function-pointer local behavior" `Quick
+      function_pointer_local_source_behavior;
+    Alcotest.test_case "pinned function-pointer locals" `Quick
+      pinned_function_pointer_locals;
+    Alcotest.test_case "function-pointer local shapes" `Quick
+      direct_function_pointer_locals;
+    Alcotest.test_case "function-pointer local visibility and provenance" `Quick
+      function_pointer_local_visibility_and_provenance;
+    Alcotest.test_case "function-pointer local failures" `Quick
+      function_pointer_local_failures;
     Alcotest.test_case "local declaration native oracle fixture" `Quick
       local_declaration_oracle_fixture;
     Alcotest.test_case "local declaration shapes" `Quick
