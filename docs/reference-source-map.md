@@ -118,6 +118,12 @@ Shift assignments are not ordinary entries in those arrays. After recognizing `<
 
 `reference/assembly-blocks.json` records a raw-token audit of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. The pinned tree has 45 brace-delimited blocks in 40 files, including six blocks inside another source block. Tests rescan those roots with the streaming lexer and compare every path, source line, and context with the checked inventory. They also parse the top-level and nested blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC` in both compilation modes. Operand grammar, directive semantics, `CMPF_ONE_ASM_INS`, fixups, encoding, and execution are not part of this slice.
 
+## Whole-tree parser measurement
+
+`Compiler/Compiler.PRJ` fixes the source order for the original compiler, and `Compiler/PrsLib.HC`, `PrsExp.HC`, `PrsVar.HC`, and `PrsStmt.HC` provide the parser behavior against which individual syntax slices are audited. The corpus measurement does not reinterpret those files as a formal grammar. It runs the current OCaml parser over every committed `.HC`, `.HH`, and `.PRJ` object so unsupported source stays visible between focused audits.
+
+`Driver.Corpus.Parse` verifies the checkout and exact commit, reads each root from its Git blob, starts a fresh session for that root, and confines includes to the verified checkout. It enables the `LexGetChar` physical-NUL boundary for root and included files but leaves the ordinary hosted parser and generated input strict. The AOT report records all 528 objects at `c26482bb6ad3f80106d28504ec5db3c6a360732c`: 20 parse without an error, 16 have a lexer or preprocessor first error, 492 have a parser first error, and none fail to read or raise an internal exception. [`reference/parser-corpus-aot.json`](../reference/parser-corpus-aot.json) retains every path and first error. This is a coverage baseline for parser work, not evidence that the 20 accepted files type-check, lower, or run.
+
 ## Primitive raw types and internal names
 
 `Kernel/KernelA.HH` assigns raw IDs 2 through 15. The low bit is `RTF_UNSIGNED`; `RT_PTR` deliberately aliases signed `RT_I64` at ID 10. The same block marks `RT_F32` as unimplemented, `RT_UF32` as unimplemented and fictitious, and `RT_UF64` as fictitious. These slots remain visible in generated audit data but are not semantic HolyC primitive constructors.
