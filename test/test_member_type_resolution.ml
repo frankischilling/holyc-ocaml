@@ -528,6 +528,23 @@ let mismatched_inputs_do_not_mutate () =
   Alcotest.(check bool)
     "semantic inputs cannot cross sessions" true
     (resolve_inputs foreign_session first first.ast |> Result.is_error);
+  let clone_session = Session.create () in
+  let clone_ast =
+    parse clone_session ~path:"first-member-types.HC" "class A { I64 a; };"
+  in
+  let clone = inputs clone_session clone_ast in
+  Alcotest.(check bool)
+    "colliding header IDs cannot cross sessions" true
+    (Holyc_lib.resolve_member_types session ~declarations:first.declarations
+       ~aggregates:first.aggregates ~headers:clone.headers
+       ~members:first.members first.ast
+    |> Result.is_error);
+  Alcotest.(check bool)
+    "colliding member IDs cannot cross sessions" true
+    (Holyc_lib.resolve_member_types session ~declarations:first.declarations
+       ~aggregates:first.aggregates ~headers:first.headers
+       ~members:clone.members first.ast
+    |> Result.is_error);
   Alcotest.(check int)
     "rejected inputs create no scope" scope_count
     (Semantic_symbol_table.all_scopes table |> List.length);

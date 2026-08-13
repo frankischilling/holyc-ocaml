@@ -233,9 +233,14 @@ let rec ast_members ~path_prefix members =
       | Frontend.Ast.Empty_aggregate_member _ -> [])
   |> List.concat
 
-let validate_header_source event header
+let validate_header_source ~table event header
     (definition : Frontend.Ast.aggregate_definition) =
   if
+    not
+      (Sema.Symbol_table.owns_symbol table
+         (Sema.Aggregate_header_resolution.header_symbol header))
+  then Error "semantic member type header belongs to a different symbol table"
+  else if
     not
       (same_symbol
          (Sema.Aggregate_header_resolution.header_symbol header)
@@ -259,7 +264,12 @@ let validate_header_source event header
   then Error "semantic member type header has the wrong keyword origin"
   else Ok ()
 
-let validate_backing visible header
+let type_belongs_to table type_ =
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive _ -> true
+  | Sema.Type.Aggregate symbol -> Sema.Symbol_table.owns_symbol table symbol
+
+let validate_backing ~table visible header
     (definition : Frontend.Ast.aggregate_definition) =
   match
     ( definition.Frontend.Ast.backing,
@@ -267,49 +277,53 @@ let validate_backing visible header
   with
   | None, None -> Ok ()
   | Some backing, Some resolved -> (
-      match
-        resolve_type visible backing.backing_type_specifier
-          backing.backing_pointer_layers
-      with
-      | Error _ as error -> error
-      | Ok expected_type ->
-          if
-            not
-              (String.equal
-                 (Frontend.Ast.type_specifier_spelling
-                    backing.backing_type_specifier)
-                 (Sema.Aggregate_header_resolution.backing_spelling resolved))
-          then Error "semantic member type header has the wrong backing name"
-          else if
-            Sema.Aggregate_header_resolution.backing_origin resolved
-            <> origin backing.backing_location
-          then Error "semantic member type header has the wrong backing origin"
-          else if
-            Sema.Aggregate_header_resolution.backing_spelling_origin resolved
-            <> origin
-                 (Frontend.Ast.type_specifier_location
-                    backing.backing_type_specifier)
-          then
-            Error
-              "semantic member type header has the wrong backing spelling \
-               origin"
-          else if
-            Sema.Aggregate_header_resolution.backing_pointer_origins resolved
-            <> pointer_origins backing.backing_pointer_layers
-          then
-            Error
-              "semantic member type header has the wrong backing pointer \
-               origins"
-          else if
-            not
-              (type_equal expected_type
-                 (Sema.Aggregate_header_resolution.backing_type resolved))
-          then Error "semantic member type header has the wrong backing type"
-          else Ok ())
+      let actual_type =
+        Sema.Aggregate_header_resolution.backing_type resolved
+      in
+      if not (type_belongs_to table actual_type) then
+        Error "semantic member type backing belongs to a different symbol table"
+      else
+        match
+          resolve_type visible backing.backing_type_specifier
+            backing.backing_pointer_layers
+        with
+        | Error _ as error -> error
+        | Ok expected_type ->
+            if
+              not
+                (String.equal
+                   (Frontend.Ast.type_specifier_spelling
+                      backing.backing_type_specifier)
+                   (Sema.Aggregate_header_resolution.backing_spelling resolved))
+            then Error "semantic member type header has the wrong backing name"
+            else if
+              Sema.Aggregate_header_resolution.backing_origin resolved
+              <> origin backing.backing_location
+            then
+              Error "semantic member type header has the wrong backing origin"
+            else if
+              Sema.Aggregate_header_resolution.backing_spelling_origin resolved
+              <> origin
+                   (Frontend.Ast.type_specifier_location
+                      backing.backing_type_specifier)
+            then
+              Error
+                "semantic member type header has the wrong backing spelling \
+                 origin"
+            else if
+              Sema.Aggregate_header_resolution.backing_pointer_origins resolved
+              <> pointer_origins backing.backing_pointer_layers
+            then
+              Error
+                "semantic member type header has the wrong backing pointer \
+                 origins"
+            else if not (type_equal expected_type actual_type) then
+              Error "semantic member type header has the wrong backing type"
+            else Ok ())
   | None, Some _ | Some _, None ->
       Error "semantic member type header has the wrong backing shape"
 
-let validate_base visible header
+let validate_base ~table visible header
     (definition : Frontend.Ast.aggregate_definition) =
   match
     ( definition.Frontend.Ast.base,
@@ -317,37 +331,40 @@ let validate_base visible header
   with
   | None, None -> Ok ()
   | Some base, Some resolved -> (
-      match String_map.find_opt base.base_name.spelling visible with
-      | None ->
-          Error
-            (Printf.sprintf
-               "aggregate base %S is not visible while resolving member types"
-               base.base_name.spelling)
-      | Some expected_symbol ->
-          if
-            not
-              (String.equal base.base_name.spelling
-                 (Sema.Aggregate_header_resolution.base_spelling resolved))
-          then Error "semantic member type header has the wrong base name"
-          else if
-            Sema.Aggregate_header_resolution.base_origin resolved
-            <> origin base.base_location
-          then Error "semantic member type header has the wrong base origin"
-          else if
-            Sema.Aggregate_header_resolution.base_colon_origin resolved
-            <> origin base.base_colon_location
-          then Error "semantic member type header has the wrong colon origin"
-          else if
-            Sema.Aggregate_header_resolution.base_name_origin resolved
-            <> origin base.base_name.location
-          then
-            Error "semantic member type header has the wrong base-name origin"
-          else if
-            not
-              (same_symbol expected_symbol
-                 (Sema.Aggregate_header_resolution.base_symbol resolved))
-          then Error "semantic member type header has the wrong base identity"
-          else Ok ())
+      let actual_symbol =
+        Sema.Aggregate_header_resolution.base_symbol resolved
+      in
+      if not (Sema.Symbol_table.owns_symbol table actual_symbol) then
+        Error "semantic member type base belongs to a different symbol table"
+      else
+        match String_map.find_opt base.base_name.spelling visible with
+        | None ->
+            Error
+              (Printf.sprintf
+                 "aggregate base %S is not visible while resolving member types"
+                 base.base_name.spelling)
+        | Some expected_symbol ->
+            if
+              not
+                (String.equal base.base_name.spelling
+                   (Sema.Aggregate_header_resolution.base_spelling resolved))
+            then Error "semantic member type header has the wrong base name"
+            else if
+              Sema.Aggregate_header_resolution.base_origin resolved
+              <> origin base.base_location
+            then Error "semantic member type header has the wrong base origin"
+            else if
+              Sema.Aggregate_header_resolution.base_colon_origin resolved
+              <> origin base.base_colon_location
+            then Error "semantic member type header has the wrong colon origin"
+            else if
+              Sema.Aggregate_header_resolution.base_name_origin resolved
+              <> origin base.base_name.location
+            then
+              Error "semantic member type header has the wrong base-name origin"
+            else if not (same_symbol expected_symbol actual_symbol) then
+              Error "semantic member type header has the wrong base identity"
+            else Ok ())
   | None, Some _ | Some _, None ->
       Error "semantic member type header has the wrong base shape"
 
@@ -458,17 +475,17 @@ let member_facts visible pairs =
 
 let resolve_definition ~table ~scope visible event header collected
     (definition : Frontend.Ast.aggregate_definition) =
-  match validate_header_source event header definition with
+  match validate_header_source ~table event header definition with
   | Error _ as error -> error
   | Ok () -> (
-      match validate_backing visible header definition with
+      match validate_backing ~table visible header definition with
       | Error _ as error -> error
       | Ok () -> (
           let visible =
             String_map.add event.ast.identifier.spelling event.identity_symbol
               visible
           in
-          match validate_base visible header definition with
+          match validate_base ~table visible header definition with
           | Error _ as error -> error
           | Ok () -> (
               match
