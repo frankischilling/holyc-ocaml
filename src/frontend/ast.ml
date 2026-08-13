@@ -471,7 +471,7 @@ type local_storage = Automatic_local | Static_local
 
 type local_initializer = {
   local_initializer_equals : location;
-  local_initializer_value : expression;
+  local_initializer_value : initial_value;
   local_initializer_location : location;
 }
 
