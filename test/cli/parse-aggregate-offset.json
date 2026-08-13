@@ -1,0 +1,1529 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-aggregate-offset.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 92
+    },
+    "items": [
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 5
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Offset",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 12
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 13,
+            "stop": 14
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "empty_member",
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 17,
+                "stop": 18
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 17,
+                  "stop": 18
+                }
+              ]
+            }
+          },
+          {
+            "kind": "offset_directive",
+            "marker": {
+              "spelling": "$$",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 20
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 18,
+                    "stop": 20
+                  }
+                ]
+              }
+            },
+            "equals": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 3,
+                "column": 6,
+                "source_id": 0,
+                "start": 20,
+                "stop": 21
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 21
+                }
+              ]
+            },
+            "expression": {
+              "kind": "binary",
+              "left": {
+                "kind": "parenthesized",
+                "opening_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 22
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 22
+                    }
+                  ]
+                },
+                "expression": {
+                  "kind": "binary",
+                  "left": {
+                    "kind": "current_position",
+                    "spelling": "$$",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 22,
+                        "stop": 24
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-offset.hc",
+                          "line": 3,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 22,
+                          "stop": 24
+                        }
+                      ]
+                    }
+                  },
+                  "operator": {
+                    "spelling": "+",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 25
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-offset.hc",
+                          "line": 3,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 24,
+                          "stop": 25
+                        }
+                      ]
+                    }
+                  },
+                  "precedence": "PREC_ADD",
+                  "precedence_value": 36,
+                  "association": "unspecified",
+                  "ic": "IC_ADD",
+                  "source_line": 302,
+                  "right": {
+                    "kind": "integer_literal",
+                    "spelling": "15",
+                    "value": "0x000000000000000f",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 27
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-offset.hc",
+                          "line": 3,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 25,
+                          "stop": 27
+                        }
+                      ]
+                    }
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 27
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 22,
+                        "stop": 24
+                      },
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 24,
+                        "stop": 25
+                      },
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 25,
+                        "stop": 27
+                      }
+                    ]
+                  }
+                },
+                "closing_parenthesis": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 27,
+                      "stop": 28
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 28
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 21,
+                      "stop": 22
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 22,
+                      "stop": 24
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 24,
+                      "stop": 25
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 25,
+                      "stop": 27
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 27,
+                      "stop": 28
+                    }
+                  ]
+                }
+              },
+              "operator": {
+                "spelling": "&",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 14,
+                      "source_id": 0,
+                      "start": 28,
+                      "stop": 29
+                    }
+                  ]
+                }
+              },
+              "precedence": "PREC_AND",
+              "precedence_value": 24,
+              "association": "unspecified",
+              "ic": "IC_AND",
+              "source_line": 296,
+              "right": {
+                "kind": "prefix",
+                "operator_kind": "unary_minus",
+                "operator": {
+                  "spelling": "-",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 29,
+                      "stop": 30
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 29,
+                        "stop": 30
+                      }
+                    ]
+                  }
+                },
+                "operand": {
+                  "kind": "integer_literal",
+                  "spelling": "16",
+                  "value": "0x0000000000000010",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 32
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 3,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 32
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 29,
+                    "stop": 32
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 29,
+                      "stop": 30
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 3,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 32
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 32
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 21,
+                    "stop": 22
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 8,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 24
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 24,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 25,
+                    "stop": 27
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 27,
+                    "stop": 28
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 28,
+                    "stop": 29
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 29,
+                    "stop": 30
+                  },
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 3,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 32
+                  }
+                ]
+              }
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 3,
+                "column": 18,
+                "source_id": 0,
+                "start": 32,
+                "stop": 33
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 3,
+                "column": 4,
+                "source_id": 0,
+                "start": 18,
+                "stop": 33
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 18,
+                  "stop": 20
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 20,
+                  "stop": 21
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 21,
+                  "stop": 22
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 24
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 24,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 25,
+                  "stop": 27
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 27,
+                  "stop": 28
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 28,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 29,
+                  "stop": 30
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 32
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 3,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 32,
+                  "stop": 33
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 39
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 39
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "value",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 45
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 4,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 45
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 4,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 45,
+                      "stop": 46
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 4,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 45,
+                        "stop": 46
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 46
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 45
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 4,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 45,
+                      "stop": 46
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 36,
+                "stop": 46
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 4,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 45
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 4,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 46
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 5,
+            "column": 1,
+            "source_id": 0,
+            "start": 47,
+            "stop": 48
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 47,
+              "stop": 48
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 5,
+            "column": 2,
+            "source_id": 0,
+            "start": 48,
+            "stop": 49
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 5,
+              "column": 2,
+              "source_id": 0,
+              "start": 48,
+              "stop": 49
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 49
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 17,
+              "stop": 18
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 4,
+              "source_id": 0,
+              "start": 18,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 6,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 21,
+              "stop": 22
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 8,
+              "source_id": 0,
+              "start": 22,
+              "stop": 24
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 10,
+              "source_id": 0,
+              "start": 24,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 11,
+              "source_id": 0,
+              "start": 25,
+              "stop": 27
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 13,
+              "source_id": 0,
+              "start": 27,
+              "stop": 28
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 28,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 15,
+              "source_id": 0,
+              "start": 29,
+              "stop": 30
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 16,
+              "source_id": 0,
+              "start": 30,
+              "stop": 32
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 3,
+              "column": 18,
+              "source_id": 0,
+              "start": 32,
+              "stop": 33
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 36,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 4,
+              "column": 7,
+              "source_id": 0,
+              "start": 40,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 4,
+              "column": 12,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 47,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 5,
+              "column": 2,
+              "source_id": 0,
+              "start": 48,
+              "stop": 49
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "union",
+        "aggregate_keyword": {
+          "spelling": "union",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 51,
+              "stop": 56
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 7,
+                "column": 1,
+                "source_id": 0,
+                "start": 51,
+                "stop": 56
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Overlay",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 7,
+              "column": 7,
+              "source_id": 0,
+              "start": 57,
+              "stop": 64
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 7,
+                "column": 7,
+                "source_id": 0,
+                "start": 57,
+                "stop": 64
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 8,
+            "column": 1,
+            "source_id": 0,
+            "start": 65,
+            "stop": 66
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 65,
+              "stop": 66
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "offset_directive",
+            "marker": {
+              "spelling": "$$",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 69,
+                  "stop": 71
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 9,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 69,
+                    "stop": 71
+                  }
+                ]
+              }
+            },
+            "equals": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 9,
+                "column": 5,
+                "source_id": 0,
+                "start": 71,
+                "stop": 72
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 71,
+                  "stop": 72
+                }
+              ]
+            },
+            "expression": {
+              "kind": "integer_literal",
+              "spelling": "64",
+              "value": "0x0000000000000040",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 72,
+                  "stop": 74
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 9,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 72,
+                    "stop": 74
+                  }
+                ]
+              }
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 9,
+                "column": 8,
+                "source_id": 0,
+                "start": 74,
+                "stop": 75
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 75
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 9,
+                "column": 3,
+                "source_id": 0,
+                "start": 69,
+                "stop": 75
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 69,
+                  "stop": 71
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 71,
+                  "stop": 72
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 72,
+                  "stop": 74
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 9,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 75
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 10,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 78,
+                  "stop": 81
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 10,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 78,
+                    "stop": 81
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "whole",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 10,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 82,
+                      "stop": 87
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 10,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 82,
+                        "stop": 87
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 10,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 87,
+                      "stop": 88
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-offset.hc",
+                        "line": 10,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 87,
+                        "stop": 88
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-offset.hc",
+                    "line": 10,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 82,
+                    "stop": 88
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 10,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 82,
+                      "stop": 87
+                    },
+                    {
+                      "path": "cli/parse-aggregate-offset.hc",
+                      "line": 10,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 87,
+                      "stop": 88
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-offset.hc",
+                "line": 10,
+                "column": 3,
+                "source_id": 0,
+                "start": 78,
+                "stop": 88
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 10,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 78,
+                  "stop": 81
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 10,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 82,
+                  "stop": 87
+                },
+                {
+                  "path": "cli/parse-aggregate-offset.hc",
+                  "line": 10,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 87,
+                  "stop": 88
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 11,
+            "column": 1,
+            "source_id": 0,
+            "start": 89,
+            "stop": 90
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 11,
+              "column": 1,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 11,
+            "column": 2,
+            "source_id": 0,
+            "start": 90,
+            "stop": 91
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 11,
+              "column": 2,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-offset.hc",
+            "line": 7,
+            "column": 1,
+            "source_id": 0,
+            "start": 51,
+            "stop": 91
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 51,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 7,
+              "column": 7,
+              "source_id": 0,
+              "start": 57,
+              "stop": 64
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 65,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 9,
+              "column": 3,
+              "source_id": 0,
+              "start": 69,
+              "stop": 71
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 9,
+              "column": 5,
+              "source_id": 0,
+              "start": 71,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 9,
+              "column": 6,
+              "source_id": 0,
+              "start": 72,
+              "stop": 74
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 9,
+              "column": 8,
+              "source_id": 0,
+              "start": 74,
+              "stop": 75
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 10,
+              "column": 3,
+              "source_id": 0,
+              "start": 78,
+              "stop": 81
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 10,
+              "column": 7,
+              "source_id": 0,
+              "start": 82,
+              "stop": 87
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 10,
+              "column": 12,
+              "source_id": 0,
+              "start": 87,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 11,
+              "column": 1,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-aggregate-offset.hc",
+              "line": 11,
+              "column": 2,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

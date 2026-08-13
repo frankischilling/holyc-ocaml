@@ -68,7 +68,9 @@ let expect_ast output =
       Alcotest.failf "expected an AST, got diagnostics: %s"
         (String.concat ", "
            (List.map
-              (fun diagnostic -> diagnostic.Diagnostic.code)
+              (fun diagnostic ->
+                Printf.sprintf "%s: %s" diagnostic.Diagnostic.code
+                  diagnostic.message)
               output.diagnostics))
 
 let expect_one_global ast =
@@ -105,13 +107,24 @@ let expect_aggregate_base expected (definition : Ast.aggregate_definition) =
 
 let expect_aggregate_member_declaration = function
   | Ast.Aggregate_member_declaration declaration -> declaration
-  | Ast.Anonymous_union_member _ | Ast.Empty_aggregate_member _ ->
+  | Ast.Aggregate_offset_directive _
+  | Ast.Anonymous_union_member _
+  | Ast.Empty_aggregate_member _ ->
       Alcotest.fail "expected an aggregate member declaration"
 
 let expect_anonymous_union_member = function
   | Ast.Anonymous_union_member anonymous_union -> anonymous_union
-  | Ast.Aggregate_member_declaration _ | Ast.Empty_aggregate_member _ ->
+  | Ast.Aggregate_member_declaration _
+  | Ast.Aggregate_offset_directive _
+  | Ast.Empty_aggregate_member _ ->
       Alcotest.fail "expected an anonymous union member"
+
+let expect_aggregate_offset_directive = function
+  | Ast.Aggregate_offset_directive directive -> directive
+  | Ast.Aggregate_member_declaration _
+  | Ast.Anonymous_union_member _
+  | Ast.Empty_aggregate_member _ ->
+      Alcotest.fail "expected an aggregate offset directive"
 
 let expect_primitive_specifier = function
   | Ast.Primitive_type_specifier primitive -> primitive
@@ -266,6 +279,14 @@ let expect_braced_initial_value = function
 let expect_binary_expression = function
   | Ast.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a binary expression"
+
+let expect_parenthesized_expression = function
+  | Ast.Parenthesized_expression parenthesized -> parenthesized
+  | _ -> Alcotest.fail "expected a parenthesized expression"
+
+let expect_current_position_expression = function
+  | Ast.Current_position_expression operator -> operator
+  | _ -> Alcotest.fail "expected a current-position expression"
 
 let expect_prefix_expression = function
   | Ast.Prefix_expression prefix -> prefix
@@ -2552,10 +2573,6 @@ let aggregate_definition_failures () =
         "class Outer { union Named { I64 value; }; };",
         "HCPARSE0116",
         "nested named" );
-      ( "explicit offset is excluded",
-        "class Offset { $$=8; I64 value; };",
-        "HCPARSE0117",
-        "offsets" );
       ( "member metadata is excluded",
         "class Meta { I64 value format 3; };",
         "HCPARSE0118",
@@ -2621,6 +2638,345 @@ let deterministic_aggregate_definition_dumps () =
     "JSON aggregate member kinds"
     [ "member_declaration"; "anonymous_union"; "empty_member" ]
     (List.map (fun item -> item |> member "kind" |> to_string) members)
+
+let aggregate_offset_source_behavior () =
+  let variables = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variables fragment))
+    [
+      ( "class parsing enables current-offset expressions",
+        "cc->flags|=CCF_CLASS_DOL_OFFSET;" );
+      ("empty aggregate members are skipped", "while (cc->token==';')");
+      ("offset directives may repeat", "while (cc->token=='$$')");
+      ("offset directives require an equals sign", "if (Lex(cc)!='=') //skip $$");
+      ( "offset values use the ordinary expression parser",
+        "cc->class_dol_offset=LexExpression(cc);" );
+      ( "negative offsets update aggregate metadata",
+        "tmpc->neg_offset=-cc->class_dol_offset;" );
+      ("unions retain their own offset base", "union_base=cc->class_dol_offset;");
+      ("classes advance their stored size", "tmpc->size=cc->class_dol_offset;");
+    ];
+  let language = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "the language guide defines the class-offset meaning" true
+    (contains language "the inst's address or the offset in a $FG,2$class");
+  let source_lines =
+    [ pinned "Demo/Lectures/NegDisp.HC"; pinned "Kernel/KernelA.HH" ]
+    |> List.concat_map (fun source -> String.split_on_char '\n' source)
+    |> List.filter (fun line ->
+        let line = String.trim line in
+        String.starts_with ~prefix:"$$=" line
+        || String.starts_with ~prefix:";$$=" line
+        || contains line "{ $$=")
+  in
+  Alcotest.(check int)
+    "four direct aggregate-offset directives" 4 (List.length source_lines)
+
+let pinned_aggregate_offset_directives () =
+  let fixtures =
+    [
+      ( "Demo/Lectures/NegDisp.HC:34-42",
+        "",
+        pinned_lines "Demo/Lectures/NegDisp.HC" ~first:34 ~last:42,
+        "Person",
+        "-" );
+      ( "Kernel/KernelA.HH:447-449",
+        "extern class CGDT;\nclass CKernel {\n",
+        pinned_lines "Kernel/KernelA.HH" ~first:447 ~last:449,
+        "CKernel",
+        "&" );
+      ( "Kernel/KernelA.HH:3415-3423",
+        "extern class CFPU; extern class CCPU; extern class CTask; extern \
+         class CBlkPool; extern class CHeapCtrl;\n",
+        pinned_lines "Kernel/KernelA.HH" ~first:3415 ~last:3423,
+        "CSysFixedArea",
+        "&" );
+      ( "Kernel/KernelA.HH:3801-3807",
+        "",
+        pinned_lines "Kernel/KernelA.HH" ~first:3801 ~last:3807,
+        "CFunSegCache",
+        "integer" );
+    ]
+  in
+  List.iter
+    (fun compilation_mode ->
+      List.iter
+        (fun (path, prefix, source, expected_name, expected_shape) ->
+          let _, _, output =
+            parse_string ~path ~compilation_mode (prefix ^ source)
+          in
+          let definition =
+            (expect_ast output).items
+            |> List.find_map (function
+              | Ast.Aggregate_definition definition
+                when String.equal definition.name.spelling expected_name ->
+                  Some definition
+              | _ -> None)
+            |> Option.get
+          in
+          let directive =
+            definition.members
+            |> List.find_map (function
+              | Ast.Aggregate_offset_directive directive -> Some directive
+              | _ -> None)
+            |> Option.get
+          in
+          let shape =
+            match directive.aggregate_offset_expression with
+            | Ast.Prefix_expression prefix ->
+                prefix.prefix_operator.operator_spelling
+            | Ast.Binary_expression binary ->
+                binary.binary_operator.operator_spelling
+            | Ast.Integer_literal _ -> "integer"
+            | _ -> "other"
+          in
+          Alcotest.(check string)
+            (path ^ " aggregate name") expected_name definition.name.spelling;
+          Alcotest.(check string)
+            (path ^ " offset expression shape")
+            expected_shape shape)
+        fixtures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_offset_shapes_and_context () =
+  let source =
+    "class Direct { ; $$=-128; $$=($$+15)&-16; I64 value; };\n\
+     union Overlay { $$=64; I64 whole; };\n\
+     class Nested { union { $$=8; I64 part; }; };"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let definitions =
+        (expect_ast output).items
+        |> List.map (function
+          | Ast.Aggregate_definition definition -> definition
+          | _ -> Alcotest.fail "offset fixture produced another item kind")
+      in
+      let direct = List.nth definitions 0 in
+      Alcotest.(check int)
+        "empty, two offsets, and a member" 4
+        (List.length direct.members);
+      (match List.nth direct.members 0 with
+      | Ast.Empty_aggregate_member _ -> ()
+      | _ -> Alcotest.fail "the leading empty member was not retained");
+      let negative =
+        List.nth direct.members 1 |> expect_aggregate_offset_directive
+      in
+      let negative_prefix =
+        expect_prefix_expression negative.aggregate_offset_expression
+      in
+      Alcotest.(check string)
+        "negative offset operator" "-"
+        negative_prefix.prefix_operator.operator_spelling;
+      Alcotest.(check int64)
+        "negative offset magnitude" 128L
+        (expect_integer_expression negative_prefix.prefix_operand);
+      let aligned =
+        List.nth direct.members 2 |> expect_aggregate_offset_directive
+      in
+      Alcotest.(check string)
+        "offset marker spelling" "$$"
+        aligned.aggregate_offset_marker.operator_spelling;
+      Alcotest.(check int)
+        "offset marker width" 2
+        (Span.length aligned.aggregate_offset_marker.operator_location.span);
+      Alcotest.(check int)
+        "offset equals width" 1
+        (Span.length aligned.aggregate_offset_equals.span);
+      Alcotest.(check int)
+        "offset semicolon width" 1
+        (Span.length aligned.aggregate_offset_semicolon.span);
+      Alcotest.(check int)
+        "directive starts at the marker"
+        aligned.aggregate_offset_marker.operator_location.span.start
+        aligned.aggregate_offset_location.span.start;
+      Alcotest.(check int)
+        "directive ends at the semicolon"
+        aligned.aggregate_offset_semicolon.span.stop
+        aligned.aggregate_offset_location.span.stop;
+      let bit_and =
+        expect_binary_expression aligned.aggregate_offset_expression
+      in
+      Alcotest.(check string)
+        "alignment root operator" "&" bit_and.binary_operator.operator_spelling;
+      let grouped =
+        expect_parenthesized_expression bit_and.binary_left |> fun expression ->
+        expression.grouped_expression |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        "grouped addition operator" "+"
+        grouped.binary_operator.operator_spelling;
+      ignore (expect_current_position_expression grouped.binary_left);
+      let overlay = List.nth definitions 1 in
+      Alcotest.(check bool)
+        "the top-level union keeps its kind" true
+        (overlay.aggregate_kind = Ast.Union_aggregate);
+      ignore (List.hd overlay.members |> expect_aggregate_offset_directive);
+      let nested = List.nth definitions 2 in
+      let anonymous = List.hd nested.members |> expect_anonymous_union_member in
+      ignore
+        (List.hd anonymous.anonymous_union_members
+        |> expect_aggregate_offset_directive))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, output = parse_string "$$=8;" in
+  match (expect_ast output).items with
+  | [ Ast.Top_level_statement statement ] ->
+      let assignment =
+        expect_expression_statement statement |> fun expression ->
+        expect_binary_expression expression.expression_statement_expression
+      in
+      Alcotest.(check string)
+        "outside an aggregate, the syntax remains an ordinary assignment" "="
+        assignment.binary_operator.operator_spelling;
+      ignore (expect_current_position_expression assignment.binary_left)
+  | items ->
+      Alcotest.failf "expected one top-level expression, got %d items"
+        (List.length items)
+
+let aggregate_offset_provenance_and_dumps () =
+  let source =
+    "#define PLACE $$=($$+15)&-16;\nclass Generated { PLACE I64 value; };"
+  in
+  let session, root, output = parse_string source in
+  let definition = expect_ast output |> expect_one_aggregate_definition in
+  let directive =
+    List.hd definition.members |> expect_aggregate_offset_directive
+  in
+  Alcotest.(check bool)
+    "generated marker uses its definition frame" false
+    (Source_id.equal
+       directive.aggregate_offset_marker.operator_location.span.source
+       (Source_file.id root));
+  Alcotest.(check bool)
+    "generated marker keeps its invocation" true
+    (Option.is_some
+       directive.aggregate_offset_marker.operator_location.generated_from);
+  Alcotest.(check bool)
+    "generated marker keeps its definition" true
+    (Option.is_some
+       directive.aggregate_offset_marker.operator_location.defined_at);
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human offset dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON offset dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names the offset directive" true
+    (contains human "offset_directive index=0"
+    && contains human "marker spelling=\"$$\"");
+  let open Yojson.Safe.Util in
+  let json_directive =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "members" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON offset kind" "offset_directive"
+    (json_directive |> member "kind" |> to_string);
+  Alcotest.(check string)
+    "JSON marker spelling" "$$"
+    (json_directive |> member "marker" |> member "spelling" |> to_string);
+  Alcotest.(check bool)
+    "JSON marker keeps provenance" true
+    (json_directive |> member "marker" |> member "location"
+   |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "offset.HC" in
+      write_file root_file "#include \"offset\"";
+      write_file definition_file "class Included { $$=64; I64 value; };";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_definition
+      in
+      let included_directive =
+        List.hd included.members |> expect_aggregate_offset_directive
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_directive.aggregate_offset_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included offset keeps its canonical path"
+        (Unix.realpath definition_file)
+        (Source_file.path included_source))
+
+let aggregate_offset_failures_recover () =
+  List.iter
+    (fun (description, source, expected_code, message_fragment) ->
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no public AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string)
+        (description ^ " diagnostic")
+        expected_code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check string)
+            (description ^ " resumes after the aggregate")
+            "global-variable"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not reach the following declaration"
+            description)
+    [
+      ( "missing equals",
+        "class Bad { $$ 8; I64 lost; }; I64 after;",
+        "HCPARSE0142",
+        "after the '$$' aggregate offset marker" );
+      ( "missing expression",
+        "class Bad { $$=; I64 lost; }; I64 after;",
+        "HCPARSE0018",
+        "aggregate offset expression operand" );
+      ( "missing semicolon",
+        "class Bad { $$=8 I64 lost; }; I64 after;",
+        "HCPARSE0143",
+        "after the aggregate offset expression" );
+      ( "nested union missing semicolon",
+        "class Bad { union { $$=8 I64 lost; }; I64 tail; }; I64 after;",
+        "HCPARSE0143",
+        "after the aggregate offset expression" );
+    ];
+  let nesting = Parser.max_expression_depth + 1 in
+  let source =
+    "class Bad { $$=" ^ String.make nesting '(' ^ "0" ^ String.make nesting ')'
+    ^ "; }; I64 after;"
+  in
+  let session, _, output = parse_string source in
+  Alcotest.(check string)
+    "offset nesting diagnostic" "HCPARSE0021" (first_diagnostic output).code;
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "after"
+  with
+  | Symbol_visibility.Present _ -> ()
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "offset nesting recovery did not reach the next global"
 
 let aggregate_backing_source_behavior () =
   let variables = pinned "Compiler/PrsVar.HC" in
@@ -7385,6 +7741,7 @@ let pinned_function_pointer_members () =
               declaration.member_declarators
         | Ast.Anonymous_union_member anonymous_union ->
             callback_declarators anonymous_union.anonymous_union_members
+        | Ast.Aggregate_offset_directive _ -> []
         | Ast.Empty_aggregate_member _ -> [])
       members
   in
@@ -15570,6 +15927,16 @@ let tests =
       aggregate_definition_failures;
     Alcotest.test_case "deterministic aggregate definition dumps" `Quick
       deterministic_aggregate_definition_dumps;
+    Alcotest.test_case "pinned aggregate offset behavior" `Quick
+      aggregate_offset_source_behavior;
+    Alcotest.test_case "pinned aggregate offset directives" `Quick
+      pinned_aggregate_offset_directives;
+    Alcotest.test_case "aggregate offset shapes and context" `Quick
+      aggregate_offset_shapes_and_context;
+    Alcotest.test_case "aggregate offset provenance and dumps" `Quick
+      aggregate_offset_provenance_and_dumps;
+    Alcotest.test_case "aggregate offset failures recover" `Quick
+      aggregate_offset_failures_recover;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick
       aggregate_backing_source_behavior;
     Alcotest.test_case "internal type specifiers" `Quick

@@ -1037,6 +1037,20 @@ and print_aggregate_member buffer sources ~indent index = function
             declarator.member_delimiter.spelling
             (location_text sources declarator.member_delimiter.location))
         declaration.member_declarators
+  | Ast.Aggregate_offset_directive directive ->
+      Printf.bprintf buffer "%soffset_directive index=%d span=%s\n" indent index
+        (location_text sources directive.aggregate_offset_location);
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%smarker spelling=%S span=%s\n" child_indent
+        directive.aggregate_offset_marker.operator_spelling
+        (location_text sources
+           directive.aggregate_offset_marker.operator_location);
+      Printf.bprintf buffer "%sequals span=%s\n" child_indent
+        (location_text sources directive.aggregate_offset_equals);
+      print_expression buffer sources ~indent:child_indent
+        directive.aggregate_offset_expression;
+      Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+        (location_text sources directive.aggregate_offset_semicolon)
   | Ast.Anonymous_union_member anonymous_union -> (
       Printf.bprintf buffer "%sanonymous_union index=%d span=%s members=%d\n"
         indent index
@@ -2318,6 +2332,29 @@ and aggregate_member_to_yojson sources = function
           ( "location",
             location_to_yojson sources declaration.member_declaration_location
           );
+        ]
+  | Ast.Aggregate_offset_directive directive ->
+      `Assoc
+        [
+          ("kind", `String "offset_directive");
+          ( "marker",
+            `Assoc
+              [
+                ( "spelling",
+                  `String directive.aggregate_offset_marker.operator_spelling );
+                ( "location",
+                  location_to_yojson sources
+                    directive.aggregate_offset_marker.operator_location );
+              ] );
+          ( "equals",
+            location_to_yojson sources directive.aggregate_offset_equals );
+          ( "expression",
+            expression_to_yojson sources directive.aggregate_offset_expression
+          );
+          ( "semicolon",
+            location_to_yojson sources directive.aggregate_offset_semicolon );
+          ( "location",
+            location_to_yojson sources directive.aggregate_offset_location );
         ]
   | Ast.Anonymous_union_member anonymous_union ->
       `Assoc

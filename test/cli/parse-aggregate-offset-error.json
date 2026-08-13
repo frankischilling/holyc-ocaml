@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0142",
+    "severity": "error",
+    "message": "expected '=' after the '$$' aggregate offset marker, but found \"8\"",
+    "primary": {
+      "path": "cli/parse-aggregate-offset-error.hc",
+      "line": 3,
+      "column": 6,
+      "source_id": 0,
+      "start": 20,
+      "stop": 21
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

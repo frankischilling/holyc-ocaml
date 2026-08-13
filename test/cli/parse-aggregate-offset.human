@@ -1,0 +1,51 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-offset.hc:1:1..12:1 items=2
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-offset.hc:1:1..5:3 members=3
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-offset.hc:1:1..1:6
+    name spelling="Offset" span=cli/parse-aggregate-offset.hc:1:7..1:13
+    opening_brace span=cli/parse-aggregate-offset.hc:2:1..2:2
+    empty_member index=0 semicolon=cli/parse-aggregate-offset.hc:3:3..3:4
+    offset_directive index=1 span=cli/parse-aggregate-offset.hc:3:4..3:19
+      marker spelling="$$" span=cli/parse-aggregate-offset.hc:3:4..3:6
+      equals span=cli/parse-aggregate-offset.hc:3:6..3:7
+      expression kind=binary precedence=PREC_AND precedence_value=0x18 association=unspecified ic=IC_AND source_line=296 span=cli/parse-aggregate-offset.hc:3:7..3:18
+        left
+          expression kind=parenthesized span=cli/parse-aggregate-offset.hc:3:7..3:14
+            opening_parenthesis span=cli/parse-aggregate-offset.hc:3:7..3:8
+            expression kind=binary precedence=PREC_ADD precedence_value=0x24 association=unspecified ic=IC_ADD source_line=302 span=cli/parse-aggregate-offset.hc:3:8..3:13
+              left
+                expression kind=current_position spelling="$$" span=cli/parse-aggregate-offset.hc:3:8..3:10
+              operator spelling="+" span=cli/parse-aggregate-offset.hc:3:10..3:11
+              right
+                expression kind=integer_literal spelling="15" value="0x000000000000000f" span=cli/parse-aggregate-offset.hc:3:11..3:13
+            closing_parenthesis span=cli/parse-aggregate-offset.hc:3:13..3:14
+        operator spelling="&" span=cli/parse-aggregate-offset.hc:3:14..3:15
+        right
+          expression kind=prefix operator_kind=unary_minus span=cli/parse-aggregate-offset.hc:3:15..3:18
+            operator spelling="-" span=cli/parse-aggregate-offset.hc:3:15..3:16
+            expression kind=integer_literal spelling="16" value="0x0000000000000010" span=cli/parse-aggregate-offset.hc:3:16..3:18
+      semicolon span=cli/parse-aggregate-offset.hc:3:18..3:19
+    member_declaration index=2 span=cli/parse-aggregate-offset.hc:4:3..4:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-offset.hc:4:3..4:6
+      declarator index=0 span=cli/parse-aggregate-offset.hc:4:7..4:13
+        name spelling="value" span=cli/parse-aggregate-offset.hc:4:7..4:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-offset.hc:4:12..4:13
+    closing_brace span=cli/parse-aggregate-offset.hc:5:1..5:2
+    semicolon span=cli/parse-aggregate-offset.hc:5:2..5:3
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-offset.hc:7:1..11:3 members=2
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-offset.hc:7:1..7:6
+    name spelling="Overlay" span=cli/parse-aggregate-offset.hc:7:7..7:14
+    opening_brace span=cli/parse-aggregate-offset.hc:8:1..8:2
+    offset_directive index=0 span=cli/parse-aggregate-offset.hc:9:3..9:9
+      marker spelling="$$" span=cli/parse-aggregate-offset.hc:9:3..9:5
+      equals span=cli/parse-aggregate-offset.hc:9:5..9:6
+      expression kind=integer_literal spelling="64" value="0x0000000000000040" span=cli/parse-aggregate-offset.hc:9:6..9:8
+      semicolon span=cli/parse-aggregate-offset.hc:9:8..9:9
+    member_declaration index=1 span=cli/parse-aggregate-offset.hc:10:3..10:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-offset.hc:10:3..10:6
+      declarator index=0 span=cli/parse-aggregate-offset.hc:10:7..10:13
+        name spelling="whole" span=cli/parse-aggregate-offset.hc:10:7..10:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-offset.hc:10:12..10:13
+    closing_brace span=cli/parse-aggregate-offset.hc:11:1..11:2
+    semicolon span=cli/parse-aggregate-offset.hc:11:2..11:3
