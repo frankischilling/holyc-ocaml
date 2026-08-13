@@ -1031,6 +1031,38 @@ and print_aggregate_member buffer sources ~indent index = function
                 ~name:(Some declarator.member_name) function_pointer);
           print_array_dimensions buffer sources ~indent:declarator_indent
             declarator.member_array_dimensions;
+          List.iteri
+            (fun metadata_index (metadata : Ast.aggregate_member_metadata) ->
+              let metadata_indent = declarator_indent ^ "  " in
+              Printf.bprintf buffer "%smetadata index=%d span=%s\n"
+                declarator_indent metadata_index
+                (location_text sources metadata.member_metadata_location);
+              Printf.bprintf buffer "%sname spelling=%S span=%s\n"
+                metadata_indent metadata.member_metadata_name.spelling
+                (location_text sources metadata.member_metadata_name.location);
+              match metadata.member_metadata_value with
+              | Ast.Member_metadata_string string ->
+                  Printf.bprintf buffer
+                    "%svalue kind=extended_string value=%S segments=%d span=%s\n"
+                    metadata_indent
+                    (escaped_bytes string.member_metadata_string_value)
+                    (List.length string.member_metadata_string_segments)
+                    (location_text sources
+                       string.member_metadata_string_location);
+                  List.iteri
+                    (fun segment_index (segment : Ast.expression_literal) ->
+                      Printf.bprintf buffer
+                        "%s  segment index=%d spelling=%S value=%S span=%s\n"
+                        metadata_indent segment_index segment.literal_spelling
+                        (literal_value_text segment.literal_value)
+                        (location_text sources segment.literal_location))
+                    string.member_metadata_string_segments
+              | Ast.Member_metadata_expression expression ->
+                  Printf.bprintf buffer "%svalue kind=expression\n"
+                    metadata_indent;
+                  print_expression buffer sources
+                    ~indent:(metadata_indent ^ "  ") expression)
+            declarator.member_metadata;
           Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
             declarator_indent
             (delimiter_kind_name declarator.member_delimiter.kind)
@@ -2298,6 +2330,39 @@ and global_initializer_to_yojson sources
         location_to_yojson sources initial_value.global_initializer_location );
     ]
 
+and aggregate_member_metadata_to_yojson sources
+    (metadata : Ast.aggregate_member_metadata) =
+  let value =
+    match metadata.member_metadata_value with
+    | Ast.Member_metadata_string string ->
+        `Assoc
+          [
+            ("kind", `String "extended_string");
+            ( "value",
+              `String (escaped_bytes string.member_metadata_string_value) );
+            ( "segments",
+              `List
+                (List.map
+                   (literal_to_yojson sources ~kind:"string_literal")
+                   string.member_metadata_string_segments) );
+            ( "location",
+              location_to_yojson sources string.member_metadata_string_location
+            );
+          ]
+    | Ast.Member_metadata_expression expression ->
+        `Assoc
+          [
+            ("kind", `String "expression");
+            ("expression", expression_to_yojson sources expression);
+          ]
+  in
+  `Assoc
+    [
+      ("name", identifier_to_yojson sources metadata.member_metadata_name);
+      ("value", value);
+      ("location", location_to_yojson sources metadata.member_metadata_location);
+    ]
+
 and aggregate_member_declarator_to_yojson sources
     (declarator : Ast.aggregate_member_declarator) =
   `Assoc
@@ -2312,6 +2377,16 @@ and aggregate_member_declarator_to_yojson sources
                 ~name:(Some declarator.member_name) function_pointer );
           ])
     @ array_dimension_fields sources declarator.member_array_dimensions
+    @ (match declarator.member_metadata with
+      | [] -> []
+      | metadata ->
+          [
+            ( "metadata",
+              `List
+                (List.map
+                   (aggregate_member_metadata_to_yojson sources)
+                   metadata) );
+          ])
     @ [
         ("delimiter", delimiter_to_yojson sources declarator.member_delimiter);
         ( "location",

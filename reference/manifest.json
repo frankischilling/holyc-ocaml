@@ -63,6 +63,7 @@
     {"path": "StartOS.HC", "sha256": "501a463128ce77b66668a9ed8adbcfdc7da71db2bbf3d857534378da71990346"},
     {"path": "Demo/Asm/AsmAndC1.HC", "sha256": "8956514483014dfa90edc9ef962383bbf5f8eae852f36180b5b52c712771ebe3"},
     {"path": "Demo/Asm/AsmAndC2.HC", "sha256": "cc172e68d31a836722a1a2e2833da0efd7cfe2c2ef51dacd3da16f0bbed391c5"},
+    {"path": "Demo/ClassMeta.HC", "sha256": "be318d9ee4d65bf850946b7caf26f4a7461fc965a36e3debb583db7b503948e2"},
     {"path": "Demo/Exceptions.HC", "sha256": "f7c89a3834e2a7a9daaf44da6f318e98a2abaee7626666caee3032bd60373146"},
     {"path": "Demo/GlblVars.HC", "sha256": "70d2ef4e34378455ddf42dcf62a77093e3f415f8e73623cca0b3dd68ba8f2d21"},
     {"path": "Demo/MultiCore/LoadTest.HC", "sha256": "09f23ac0a4cd204e95127274fb6902223ec96bef1dc951de440b661a92f01ca5"},

@@ -1,0 +1,3167 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-aggregate-member-metadata.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 215
+    },
+    "items": [
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 5
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "MetadataBox",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 17
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 17
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-member-metadata.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 18,
+            "stop": 19
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 25
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 22,
+                    "stop": 25
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "age",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 29
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 3,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 29
+                      }
+                    ]
+                  }
+                },
+                "metadata": [
+                  {
+                    "name": {
+                      "spelling": "print_str",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 39
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 3,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 30,
+                            "stop": 39
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "extended_string",
+                      "value": "%2d",
+                      "segments": [
+                        {
+                          "kind": "string_literal",
+                          "spelling": "\"%2\"",
+                          "value": "%2",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 3,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 40,
+                              "stop": 44
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-member-metadata.hc",
+                                "line": 3,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 40,
+                                "stop": 44
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "kind": "string_literal",
+                          "spelling": "\"d\"",
+                          "value": "d",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 3,
+                              "column": 26,
+                              "source_id": 0,
+                              "start": 45,
+                              "stop": 48
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-member-metadata.hc",
+                                "line": 3,
+                                "column": 26,
+                                "source_id": 0,
+                                "start": 45,
+                                "stop": 48
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 40,
+                          "stop": 48
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 3,
+                            "column": 21,
+                            "source_id": 0,
+                            "start": 40,
+                            "stop": 44
+                          },
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 3,
+                            "column": 26,
+                            "source_id": 0,
+                            "start": 45,
+                            "stop": 48
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 3,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 48
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 39
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 40,
+                          "stop": 44
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 26,
+                          "source_id": 0,
+                          "start": 45,
+                          "stop": 48
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": {
+                      "spelling": "dft_val",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 30,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 56
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 3,
+                            "column": 30,
+                            "source_id": 0,
+                            "start": 49,
+                            "stop": 56
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "38",
+                        "value": "0x0000000000000026",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 3,
+                            "column": 38,
+                            "source_id": 0,
+                            "start": 57,
+                            "stop": 59
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 3,
+                              "column": 38,
+                              "source_id": 0,
+                              "start": 57,
+                              "stop": 59
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 3,
+                        "column": 30,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 59
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 30,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 56
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 3,
+                          "column": 38,
+                          "source_id": 0,
+                          "start": 57,
+                          "stop": 59
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 59,
+                      "stop": 60
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 3,
+                        "column": 40,
+                        "source_id": 0,
+                        "start": 59,
+                        "stop": 60
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 60
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 29
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 39
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 40,
+                      "stop": 44
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 45,
+                      "stop": 48
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 30,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 56
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 57,
+                      "stop": 59
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 3,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 59,
+                      "stop": 60
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 22,
+                "stop": 60
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 22,
+                  "stop": 25
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 40,
+                  "stop": 44
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 45,
+                  "stop": 48
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 56
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 57,
+                  "stop": 59
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 3,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 59,
+                  "stop": 60
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 63,
+                  "stop": 66
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 63,
+                    "stop": 66
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "first",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 67,
+                      "stop": 72
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 67,
+                        "stop": 72
+                      }
+                    ]
+                  }
+                },
+                "metadata": [
+                  {
+                    "name": {
+                      "spelling": "tag",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 73,
+                          "stop": 76
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 13,
+                            "source_id": 0,
+                            "start": 73,
+                            "stop": 76
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "1",
+                        "value": "0x0000000000000001",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 77,
+                            "stop": 78
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 4,
+                              "column": 17,
+                              "source_id": 0,
+                              "start": 77,
+                              "stop": 78
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 73,
+                        "stop": 78
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 73,
+                          "stop": 76
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 77,
+                          "stop": 78
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "comma",
+                  "spelling": ",",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 78,
+                      "stop": 79
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 78,
+                        "stop": 79
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 4,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 67,
+                    "stop": 79
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 67,
+                      "stop": 72
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 73,
+                      "stop": 76
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 77,
+                      "stop": 78
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 78,
+                      "stop": 79
+                    }
+                  ]
+                }
+              },
+              {
+                "name": {
+                  "spelling": "second",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 80,
+                      "stop": 86
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 80,
+                        "stop": 86
+                      }
+                    ]
+                  }
+                },
+                "metadata": [
+                  {
+                    "name": {
+                      "spelling": "tag",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 87,
+                          "stop": 90
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 27,
+                            "source_id": 0,
+                            "start": 87,
+                            "stop": 90
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "2",
+                        "value": "0x0000000000000002",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 31,
+                            "source_id": 0,
+                            "start": 91,
+                            "stop": 92
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 4,
+                              "column": 31,
+                              "source_id": 0,
+                              "start": 91,
+                              "stop": 92
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 87,
+                        "stop": 92
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 87,
+                          "stop": 90
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 91,
+                          "stop": 92
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "name": {
+                      "spelling": "tag",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 93,
+                          "stop": 96
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 33,
+                            "source_id": 0,
+                            "start": 93,
+                            "stop": 96
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "3",
+                        "value": "0x0000000000000003",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 4,
+                            "column": 37,
+                            "source_id": 0,
+                            "start": 97,
+                            "stop": 98
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 4,
+                              "column": 37,
+                              "source_id": 0,
+                              "start": 97,
+                              "stop": 98
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 33,
+                        "source_id": 0,
+                        "start": 93,
+                        "stop": 98
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 93,
+                          "stop": 96
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 4,
+                          "column": 37,
+                          "source_id": 0,
+                          "start": 97,
+                          "stop": 98
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 98,
+                      "stop": 99
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 4,
+                        "column": 38,
+                        "source_id": 0,
+                        "start": 98,
+                        "stop": 99
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 4,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 80,
+                    "stop": 99
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 80,
+                      "stop": 86
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 87,
+                      "stop": 90
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 91,
+                      "stop": 92
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 93,
+                      "stop": 96
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 37,
+                      "source_id": 0,
+                      "start": 97,
+                      "stop": 98
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 4,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 98,
+                      "stop": 99
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 63,
+                "stop": 99
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 63,
+                  "stop": 66
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 67,
+                  "stop": 72
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 73,
+                  "stop": 76
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 77,
+                  "stop": 78
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 78,
+                  "stop": 79
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 80,
+                  "stop": 86
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 87,
+                  "stop": 90
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 91,
+                  "stop": 92
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 93,
+                  "stop": 96
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 37,
+                  "source_id": 0,
+                  "start": 97,
+                  "stop": 98
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 4,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 98,
+                  "stop": 99
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "U0",
+              "spelling": "U0",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 104
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 102,
+                    "stop": 104
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "function_pointer": {
+                  "kind": "function_pointer",
+                  "opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 105,
+                      "stop": 106
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 105,
+                        "stop": 106
+                      }
+                    ]
+                  },
+                  "pointer_layers": [
+                    {
+                      "depth": 1,
+                      "spelling": "*",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 106,
+                          "stop": 107
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 7,
+                            "source_id": 0,
+                            "start": 106,
+                            "stop": 107
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "name": {
+                    "spelling": "callback",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 107,
+                        "stop": 115
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 107,
+                          "stop": 115
+                        }
+                      ]
+                    }
+                  },
+                  "closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 115,
+                      "stop": 116
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 116
+                      }
+                    ]
+                  },
+                  "signature_opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 116,
+                      "stop": 117
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 116,
+                        "stop": 117
+                      }
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "type": {
+                        "kind": "primitive",
+                        "primitive": "I64",
+                        "spelling": "I64",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 18,
+                            "source_id": 0,
+                            "start": 117,
+                            "stop": 120
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 5,
+                              "column": 18,
+                              "source_id": 0,
+                              "start": 117,
+                              "stop": 120
+                            }
+                          ]
+                        }
+                      },
+                      "name": {
+                        "spelling": "value",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 22,
+                            "source_id": 0,
+                            "start": 121,
+                            "stop": 126
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 5,
+                              "column": 22,
+                              "source_id": 0,
+                              "start": 121,
+                              "stop": 126
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 18,
+                          "source_id": 0,
+                          "start": 117,
+                          "stop": 126
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 18,
+                            "source_id": 0,
+                            "start": 117,
+                            "stop": 120
+                          },
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 22,
+                            "source_id": 0,
+                            "start": 121,
+                            "stop": 126
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "signature_closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 126,
+                      "stop": 127
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 126,
+                        "stop": 127
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 105,
+                      "stop": 127
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 105,
+                        "stop": 106
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 106,
+                        "stop": 107
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 107,
+                        "stop": 115
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 115,
+                        "stop": 116
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 116,
+                        "stop": 117
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 117,
+                        "stop": 120
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 121,
+                        "stop": 126
+                      },
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 126,
+                        "stop": 127
+                      }
+                    ]
+                  }
+                },
+                "metadata": [
+                  {
+                    "name": {
+                      "spelling": "doc",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 128,
+                          "stop": 131
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 29,
+                            "source_id": 0,
+                            "start": 128,
+                            "stop": 131
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "extended_string",
+                      "value": "handler",
+                      "segments": [
+                        {
+                          "kind": "string_literal",
+                          "spelling": "\"handler\"",
+                          "value": "handler",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 5,
+                              "column": 33,
+                              "source_id": 0,
+                              "start": 132,
+                              "stop": 141
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-member-metadata.hc",
+                                "line": 5,
+                                "column": 33,
+                                "source_id": 0,
+                                "start": 132,
+                                "stop": 141
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 132,
+                          "stop": 141
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 5,
+                            "column": 33,
+                            "source_id": 0,
+                            "start": 132,
+                            "stop": 141
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 29,
+                        "source_id": 0,
+                        "start": 128,
+                        "stop": 141
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 128,
+                          "stop": 131
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 5,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 132,
+                          "stop": 141
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 42,
+                      "source_id": 0,
+                      "start": 141,
+                      "stop": 142
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 5,
+                        "column": 42,
+                        "source_id": 0,
+                        "start": 141,
+                        "stop": 142
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 5,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 105,
+                    "stop": 142
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 105,
+                      "stop": 106
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 106,
+                      "stop": 107
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 107,
+                      "stop": 115
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 115,
+                      "stop": 116
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 116,
+                      "stop": 117
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 117,
+                      "stop": 120
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 121,
+                      "stop": 126
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 126,
+                      "stop": 127
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 29,
+                      "source_id": 0,
+                      "start": 128,
+                      "stop": 131
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 132,
+                      "stop": 141
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 5,
+                      "column": 42,
+                      "source_id": 0,
+                      "start": 141,
+                      "stop": 142
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 102,
+                "stop": 142
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 104
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 105,
+                  "stop": 106
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 106,
+                  "stop": 107
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 107,
+                  "stop": 115
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 115,
+                  "stop": 116
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 116,
+                  "stop": 117
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 117,
+                  "stop": 120
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 121,
+                  "stop": 126
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 126,
+                  "stop": 127
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 128,
+                  "stop": 131
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 132,
+                  "stop": 141
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 5,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 141,
+                  "stop": 142
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "U8",
+              "spelling": "U8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 145,
+                  "stop": 147
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 145,
+                    "stop": 147
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "pointer_layers": [
+                  {
+                    "depth": 1,
+                    "spelling": "*",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 148,
+                        "stop": 149
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 6,
+                          "source_id": 0,
+                          "start": 148,
+                          "stop": 149
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "name": {
+                  "spelling": "names",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 149,
+                      "stop": 154
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 149,
+                        "stop": 154
+                      }
+                    ]
+                  }
+                },
+                "array_dimensions": [
+                  {
+                    "opening_bracket": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 154,
+                        "stop": 155
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 154,
+                          "stop": 155
+                        }
+                      ]
+                    },
+                    "expression": {
+                      "kind": "integer_literal",
+                      "spelling": "2",
+                      "value": "0x0000000000000002",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 156
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 6,
+                            "column": 13,
+                            "source_id": 0,
+                            "start": 155,
+                            "stop": 156
+                          }
+                        ]
+                      }
+                    },
+                    "closing_bracket": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 14,
+                        "source_id": 0,
+                        "start": 156,
+                        "stop": 157
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 156,
+                          "stop": 157
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 154,
+                        "stop": 157
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 154,
+                          "stop": 155
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 13,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 156
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 156,
+                          "stop": 157
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "metadata": [
+                  {
+                    "name": {
+                      "spelling": "public",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 158,
+                          "stop": 164
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 6,
+                            "column": 16,
+                            "source_id": 0,
+                            "start": 158,
+                            "stop": 164
+                          }
+                        ]
+                      }
+                    },
+                    "value": {
+                      "kind": "expression",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "1",
+                        "value": "0x0000000000000001",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 6,
+                            "column": 23,
+                            "source_id": 0,
+                            "start": 165,
+                            "stop": 166
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 6,
+                              "column": 23,
+                              "source_id": 0,
+                              "start": 165,
+                              "stop": 166
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 158,
+                        "stop": 166
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 16,
+                          "source_id": 0,
+                          "start": 158,
+                          "stop": 164
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 6,
+                          "column": 23,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 166
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 166,
+                      "stop": 167
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 6,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 166,
+                        "stop": 167
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 6,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 148,
+                    "stop": 167
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 148,
+                      "stop": 149
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 149,
+                      "stop": 154
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 154,
+                      "stop": 155
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 155,
+                      "stop": 156
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 14,
+                      "source_id": 0,
+                      "start": 156,
+                      "stop": 157
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 158,
+                      "stop": 164
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 23,
+                      "source_id": 0,
+                      "start": 165,
+                      "stop": 166
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 6,
+                      "column": 24,
+                      "source_id": 0,
+                      "start": 166,
+                      "stop": 167
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 145,
+                "stop": 167
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 145,
+                  "stop": 147
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 148,
+                  "stop": 149
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 149,
+                  "stop": 154
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 154,
+                  "stop": 155
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 155,
+                  "stop": 156
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 156,
+                  "stop": 157
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 158,
+                  "stop": 164
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 23,
+                  "source_id": 0,
+                  "start": 165,
+                  "stop": 166
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 6,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 166,
+                  "stop": 167
+                }
+              ]
+            }
+          },
+          {
+            "kind": "anonymous_union",
+            "keyword": {
+              "spelling": "union",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 170,
+                  "stop": 175
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 7,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 170,
+                    "stop": 175
+                  }
+                ]
+              }
+            },
+            "opening_brace": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 7,
+                "column": 9,
+                "source_id": 0,
+                "start": 176,
+                "stop": 177
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 176,
+                  "stop": 177
+                }
+              ]
+            },
+            "members": [
+              {
+                "kind": "member_declaration",
+                "type": {
+                  "kind": "primitive",
+                  "primitive": "F64",
+                  "spelling": "F64",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 178,
+                      "stop": 181
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 7,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 178,
+                        "stop": 181
+                      }
+                    ]
+                  }
+                },
+                "declarators": [
+                  {
+                    "name": {
+                      "spelling": "percentile",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 182,
+                          "stop": 192
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 7,
+                            "column": 15,
+                            "source_id": 0,
+                            "start": 182,
+                            "stop": 192
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": [
+                      {
+                        "name": {
+                          "spelling": "format",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 7,
+                              "column": 26,
+                              "source_id": 0,
+                              "start": 193,
+                              "stop": 199
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-member-metadata.hc",
+                                "line": 7,
+                                "column": 26,
+                                "source_id": 0,
+                                "start": 193,
+                                "stop": 199
+                              }
+                            ]
+                          }
+                        },
+                        "value": {
+                          "kind": "extended_string",
+                          "value": "%5.2f",
+                          "segments": [
+                            {
+                              "kind": "string_literal",
+                              "spelling": "\"%5.2f\"",
+                              "value": "%5.2f",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-aggregate-member-metadata.hc",
+                                  "line": 7,
+                                  "column": 33,
+                                  "source_id": 0,
+                                  "start": 200,
+                                  "stop": 207
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-aggregate-member-metadata.hc",
+                                    "line": 7,
+                                    "column": 33,
+                                    "source_id": 0,
+                                    "start": 200,
+                                    "stop": 207
+                                  }
+                                ]
+                              }
+                            }
+                          ],
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 7,
+                              "column": 33,
+                              "source_id": 0,
+                              "start": 200,
+                              "stop": 207
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-member-metadata.hc",
+                                "line": 7,
+                                "column": 33,
+                                "source_id": 0,
+                                "start": 200,
+                                "stop": 207
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 7,
+                            "column": 26,
+                            "source_id": 0,
+                            "start": 193,
+                            "stop": 207
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 7,
+                              "column": 26,
+                              "source_id": 0,
+                              "start": 193,
+                              "stop": 199
+                            },
+                            {
+                              "path": "cli/parse-aggregate-member-metadata.hc",
+                              "line": 7,
+                              "column": 33,
+                              "source_id": 0,
+                              "start": 200,
+                              "stop": 207
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "delimiter": {
+                      "kind": "semicolon",
+                      "spelling": ";",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 40,
+                          "source_id": 0,
+                          "start": 207,
+                          "stop": 208
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-member-metadata.hc",
+                            "line": 7,
+                            "column": 40,
+                            "source_id": 0,
+                            "start": 207,
+                            "stop": 208
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-member-metadata.hc",
+                        "line": 7,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 182,
+                        "stop": 208
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 182,
+                          "stop": 192
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 26,
+                          "source_id": 0,
+                          "start": 193,
+                          "stop": 199
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 33,
+                          "source_id": 0,
+                          "start": 200,
+                          "stop": 207
+                        },
+                        {
+                          "path": "cli/parse-aggregate-member-metadata.hc",
+                          "line": 7,
+                          "column": 40,
+                          "source_id": 0,
+                          "start": 207,
+                          "stop": 208
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-member-metadata.hc",
+                    "line": 7,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 178,
+                    "stop": 208
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 178,
+                      "stop": 181
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 182,
+                      "stop": 192
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 193,
+                      "stop": 199
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 33,
+                      "source_id": 0,
+                      "start": 200,
+                      "stop": 207
+                    },
+                    {
+                      "path": "cli/parse-aggregate-member-metadata.hc",
+                      "line": 7,
+                      "column": 40,
+                      "source_id": 0,
+                      "start": 207,
+                      "stop": 208
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_brace": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 7,
+                "column": 42,
+                "source_id": 0,
+                "start": 209,
+                "stop": 210
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 209,
+                  "stop": 210
+                }
+              ]
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 7,
+                "column": 43,
+                "source_id": 0,
+                "start": 210,
+                "stop": 211
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 210,
+                  "stop": 211
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-member-metadata.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 170,
+                "stop": 211
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 170,
+                  "stop": 175
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 176,
+                  "stop": 177
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 178,
+                  "stop": 181
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 182,
+                  "stop": 192
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 193,
+                  "stop": 199
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 33,
+                  "source_id": 0,
+                  "start": 200,
+                  "stop": 207
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 207,
+                  "stop": 208
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 209,
+                  "stop": 210
+                },
+                {
+                  "path": "cli/parse-aggregate-member-metadata.hc",
+                  "line": 7,
+                  "column": 43,
+                  "source_id": 0,
+                  "start": 210,
+                  "stop": 211
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-member-metadata.hc",
+            "line": 8,
+            "column": 1,
+            "source_id": 0,
+            "start": 212,
+            "stop": 213
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 212,
+              "stop": 213
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-member-metadata.hc",
+            "line": 8,
+            "column": 2,
+            "source_id": 0,
+            "start": 213,
+            "stop": 214
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 8,
+              "column": 2,
+              "source_id": 0,
+              "start": 213,
+              "stop": 214
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-member-metadata.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 214
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 18,
+              "stop": 19
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 22,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 11,
+              "source_id": 0,
+              "start": 30,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 21,
+              "source_id": 0,
+              "start": 40,
+              "stop": 44
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 26,
+              "source_id": 0,
+              "start": 45,
+              "stop": 48
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 30,
+              "source_id": 0,
+              "start": 49,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 38,
+              "source_id": 0,
+              "start": 57,
+              "stop": 59
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 3,
+              "column": 40,
+              "source_id": 0,
+              "start": 59,
+              "stop": 60
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 63,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 7,
+              "source_id": 0,
+              "start": 67,
+              "stop": 72
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 13,
+              "source_id": 0,
+              "start": 73,
+              "stop": 76
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 17,
+              "source_id": 0,
+              "start": 77,
+              "stop": 78
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 18,
+              "source_id": 0,
+              "start": 78,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 20,
+              "source_id": 0,
+              "start": 80,
+              "stop": 86
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 27,
+              "source_id": 0,
+              "start": 87,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 31,
+              "source_id": 0,
+              "start": 91,
+              "stop": 92
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 33,
+              "source_id": 0,
+              "start": 93,
+              "stop": 96
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 37,
+              "source_id": 0,
+              "start": 97,
+              "stop": 98
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 4,
+              "column": 38,
+              "source_id": 0,
+              "start": 98,
+              "stop": 99
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 102,
+              "stop": 104
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 6,
+              "source_id": 0,
+              "start": 105,
+              "stop": 106
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 7,
+              "source_id": 0,
+              "start": 106,
+              "stop": 107
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 8,
+              "source_id": 0,
+              "start": 107,
+              "stop": 115
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 16,
+              "source_id": 0,
+              "start": 115,
+              "stop": 116
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 17,
+              "source_id": 0,
+              "start": 116,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 18,
+              "source_id": 0,
+              "start": 117,
+              "stop": 120
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 22,
+              "source_id": 0,
+              "start": 121,
+              "stop": 126
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 27,
+              "source_id": 0,
+              "start": 126,
+              "stop": 127
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 29,
+              "source_id": 0,
+              "start": 128,
+              "stop": 131
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 33,
+              "source_id": 0,
+              "start": 132,
+              "stop": 141
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 5,
+              "column": 42,
+              "source_id": 0,
+              "start": 141,
+              "stop": 142
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 145,
+              "stop": 147
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 6,
+              "source_id": 0,
+              "start": 148,
+              "stop": 149
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 7,
+              "source_id": 0,
+              "start": 149,
+              "stop": 154
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 12,
+              "source_id": 0,
+              "start": 154,
+              "stop": 155
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 13,
+              "source_id": 0,
+              "start": 155,
+              "stop": 156
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 14,
+              "source_id": 0,
+              "start": 156,
+              "stop": 157
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 16,
+              "source_id": 0,
+              "start": 158,
+              "stop": 164
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 23,
+              "source_id": 0,
+              "start": 165,
+              "stop": 166
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 6,
+              "column": 24,
+              "source_id": 0,
+              "start": 166,
+              "stop": 167
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 170,
+              "stop": 175
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 9,
+              "source_id": 0,
+              "start": 176,
+              "stop": 177
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 11,
+              "source_id": 0,
+              "start": 178,
+              "stop": 181
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 15,
+              "source_id": 0,
+              "start": 182,
+              "stop": 192
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 26,
+              "source_id": 0,
+              "start": 193,
+              "stop": 199
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 33,
+              "source_id": 0,
+              "start": 200,
+              "stop": 207
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 40,
+              "source_id": 0,
+              "start": 207,
+              "stop": 208
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 42,
+              "source_id": 0,
+              "start": 209,
+              "stop": 210
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 7,
+              "column": 43,
+              "source_id": 0,
+              "start": 210,
+              "stop": 211
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 212,
+              "stop": 213
+            },
+            {
+              "path": "cli/parse-aggregate-member-metadata.hc",
+              "line": 8,
+              "column": 2,
+              "source_id": 0,
+              "start": 213,
+              "stop": 214
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

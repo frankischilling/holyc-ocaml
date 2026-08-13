@@ -216,6 +216,19 @@ let expect_member_function_pointer
   | Some function_pointer -> function_pointer
   | None -> Alcotest.fail "expected an aggregate function-pointer member"
 
+let expect_member_metadata_string (metadata : Ast.aggregate_member_metadata) =
+  match metadata.member_metadata_value with
+  | Ast.Member_metadata_string string -> string
+  | Ast.Member_metadata_expression _ ->
+      Alcotest.fail "expected an aggregate member metadata string"
+
+let expect_member_metadata_expression (metadata : Ast.aggregate_member_metadata)
+    =
+  match metadata.member_metadata_value with
+  | Ast.Member_metadata_expression expression -> expression
+  | Ast.Member_metadata_string _ ->
+      Alcotest.fail "expected an aggregate member metadata expression"
+
 let expect_local_function_pointer (declarator : Ast.local_declarator) =
   match declarator.local_function_pointer with
   | Some function_pointer -> function_pointer
@@ -261,6 +274,14 @@ let expect_integer_expression = function
       | Ast.Float_value _ | Ast.Bytes_value _ ->
           Alcotest.fail "integer literal has the wrong value kind")
   | _ -> Alcotest.fail "expected an integer expression"
+
+let expect_float_expression = function
+  | Ast.Float_literal literal -> (
+      match literal.literal_value with
+      | Ast.Float_value value -> value
+      | Ast.Integer_value _ | Ast.Bytes_value _ ->
+          Alcotest.fail "float literal has the wrong value kind")
+  | _ -> Alcotest.fail "expected a float expression"
 
 let expect_global_initial_value (declarator : Ast.global_declarator) =
   match declarator.global_initial_value with
@@ -2573,10 +2594,6 @@ let aggregate_definition_failures () =
         "class Outer { union Named { I64 value; }; };",
         "HCPARSE0116",
         "nested named" );
-      ( "member metadata is excluded",
-        "class Meta { I64 value format 3; };",
-        "HCPARSE0118",
-        "metadata" );
     ];
   let nested_unions = Parser.max_aggregate_depth + 1 in
   let source =
@@ -2977,6 +2994,349 @@ let aggregate_offset_failures_recover () =
   | Symbol_visibility.Present _ -> ()
   | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
       Alcotest.fail "offset nesting recovery did not reach the next global"
+
+let aggregate_member_metadata_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ("metadata follows class-member layout", "case PRS1B_CLASS:");
+      ("metadata entries repeat", "while (cc->token==TK_IDENT) {");
+      ("metadata is attached to the member", "tmp_meta->next=tmpm->meta;");
+      ("string values use the extended lexer", "LexExtStr(cc)");
+      ("other values use expression evaluation", "LexExpression(cc)");
+    ];
+  let lexer_library = pinned "Compiler/LexLib.HC" in
+  List.iter
+    (fun fragment ->
+      Alcotest.(check bool)
+        ("LexLib contains " ^ fragment)
+        true
+        (contains lexer_library fragment))
+    [
+      "I64 MemberMetaData(U8 *needle_str,CMemberLst *haystack_member_lst)";
+      "CMemberLstMeta *MemberMetaFind(U8 *needle_str,CMemberLst \
+       *haystack_member_lst)";
+      "to one combined str. _size includes terminator";
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  List.iter
+    (fun fragment ->
+      Alcotest.(check bool)
+        ("KernelA contains " ^ fragment)
+        true
+        (contains kernel_header fragment))
+    [
+      "#define MLMF_IS_STR\t1";
+      "public class CMemberLstMeta";
+      "CMemberLstMeta *meta;";
+    ];
+  let demo_lines =
+    pinned_lines "Demo/ClassMeta.HC" ~first:16 ~last:28
+    |> String.split_on_char '\n'
+    |> List.filter (fun line -> contains line "dft_val")
+  in
+  Alcotest.(check int)
+    "metadata-bearing demo members" 6 (List.length demo_lines)
+
+let pinned_aggregate_member_metadata () =
+  let source = pinned_lines "Demo/ClassMeta.HC" ~first:16 ~last:28 in
+  let metadata_names (declarator : Ast.aggregate_member_declarator) =
+    List.map
+      (fun (metadata : Ast.aggregate_member_metadata) ->
+        metadata.member_metadata_name.spelling)
+      declarator.member_metadata
+  in
+  let declarator definition index =
+    List.nth definition.Ast.members index |> expect_aggregate_member_declaration
+    |> fun declaration -> List.hd declaration.member_declarators
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~path:"Demo/ClassMeta.HC:16-28" ~compilation_mode source
+      in
+      let first, second =
+        match (expect_ast output).Ast.items with
+        | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+            (first, second)
+        | items ->
+            Alcotest.failf "expected two metadata demo classes, got %d items"
+              (List.length items)
+      in
+      Alcotest.(check string)
+        "first demo class" "Test1Struct" first.name.spelling;
+      Alcotest.(check string)
+        "second demo class" "Test2Struct" second.name.spelling;
+      Alcotest.(check (list (list string)))
+        "first metadata names"
+        [
+          [ "print_str"; "dft_val" ];
+          [ "dft_val" ];
+          [ "print_str"; "dft_val"; "output_fun" ];
+        ]
+        (List.init 3 (fun index -> declarator first index |> metadata_names));
+      Alcotest.(check (list (list string)))
+        "second metadata names"
+        [
+          [ "print_str"; "dft_val"; "percentile" ];
+          [ "print_str"; "dft_val" ];
+          [ "print_str"; "dft_val" ];
+        ]
+        (List.init 3 (fun index -> declarator second index |> metadata_names));
+      let age = declarator first 0 in
+      let print_string =
+        List.hd age.member_metadata |> expect_member_metadata_string
+      in
+      Alcotest.(check string)
+        "decoded print metadata" "%2d" print_string.member_metadata_string_value;
+      Alcotest.(check int)
+        "one source string segment" 1
+        (List.length print_string.member_metadata_string_segments);
+      Alcotest.(check int64)
+        "integer metadata value" 38L
+        (List.nth age.member_metadata 1
+        |> expect_member_metadata_expression |> expect_integer_expression);
+      let rank = declarator first 2 in
+      let arithmetic =
+        List.nth rank.member_metadata 1
+        |> expect_member_metadata_expression |> expect_binary_expression
+      in
+      Alcotest.(check string)
+        "metadata expression keeps division" "/"
+        arithmetic.binary_operator.operator_spelling;
+      let address =
+        List.nth rank.member_metadata 2
+        |> expect_member_metadata_expression |> expect_prefix_expression
+      in
+      Alcotest.(check bool)
+        "metadata expression keeps address-of" true
+        (address.prefix_operator_kind = Ast.Address_of);
+      Alcotest.(check string)
+        "addressed function name" "RankOut"
+        (expect_identifier_expression address.prefix_operand).spelling;
+      let percentile = declarator second 0 in
+      Alcotest.(check (float 0.))
+        "float metadata value" 54.20
+        (List.nth percentile.member_metadata 2
+        |> expect_member_metadata_expression |> expect_float_expression))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_member_metadata_shapes () =
+  let source =
+    "class MetadataBox {\n\
+     I64 age print_str \"%2\" \"d\" dft_val 38;\n\
+     I64 first tag 1, second tag 2 tag 3;\n\
+     U0 (*callback)(I64 value) doc \"handler\";\n\
+     U8 *names[2] public 1;\n\
+     union { F64 percentile format \"%5.2f\"; };\n\
+     };"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, output = parse_string ~compilation_mode source in
+      let definition = expect_ast output |> expect_one_aggregate_definition in
+      Alcotest.(check int)
+        "metadata fixture member groups" 5
+        (List.length definition.members);
+      let age =
+        List.nth definition.members 0 |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      let print_string =
+        List.hd age.member_metadata |> expect_member_metadata_string
+      in
+      Alcotest.(check string)
+        "adjacent strings concatenate" "%2d"
+        print_string.member_metadata_string_value;
+      Alcotest.(check (list string))
+        "string segments retain spelling" [ "\"%2\""; "\"d\"" ]
+        (List.map
+           (fun (literal : Ast.expression_literal) -> literal.literal_spelling)
+           print_string.member_metadata_string_segments);
+      let grouped =
+        List.nth definition.members 1 |> expect_aggregate_member_declaration
+      in
+      Alcotest.(check int)
+        "comma group declarators" 2
+        (List.length grouped.member_declarators);
+      Alcotest.(check (list int))
+        "metadata belongs to each declarator" [ 1; 2 ]
+        (List.map
+           (fun (declarator : Ast.aggregate_member_declarator) ->
+             List.length declarator.member_metadata)
+           grouped.member_declarators);
+      let duplicate_names =
+        (List.nth grouped.member_declarators 1).member_metadata
+        |> List.map (fun metadata -> metadata.Ast.member_metadata_name.spelling)
+      in
+      Alcotest.(check (list string))
+        "duplicate metadata names remain ordered" [ "tag"; "tag" ]
+        duplicate_names;
+      let callback =
+        List.nth definition.members 2 |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      ignore (expect_member_function_pointer callback);
+      Alcotest.(check string)
+        "callback metadata" "doc"
+        (List.hd callback.member_metadata).member_metadata_name.spelling;
+      let names =
+        List.nth definition.members 3 |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      Alcotest.(check int)
+        "pointer remains on metadata member" 1
+        (List.length names.member_pointer_layers);
+      Alcotest.(check int)
+        "array remains on metadata member" 1
+        (List.length names.member_array_dimensions);
+      Alcotest.(check string)
+        "keyword spelling is contextual metadata" "public"
+        (List.hd names.member_metadata).member_metadata_name.spelling;
+      let anonymous_union =
+        List.nth definition.members 4 |> expect_anonymous_union_member
+      in
+      let nested =
+        List.hd anonymous_union.anonymous_union_members
+        |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      Alcotest.(check string)
+        "anonymous-union metadata" "format"
+        (List.hd nested.member_metadata).member_metadata_name.spelling;
+      let sources = Session.sources session in
+      let human = Ast_dump.human sources (expect_ast output) in
+      let json = Ast_dump.json sources (expect_ast output) in
+      Alcotest.(check string)
+        "human metadata dump is deterministic" human
+        (Ast_dump.human sources (expect_ast output));
+      Alcotest.(check string)
+        "JSON metadata dump is deterministic" json
+        (Ast_dump.json sources (expect_ast output));
+      Alcotest.(check bool)
+        "human dump identifies extended strings" true
+        (contains human "value kind=extended_string value=\"%2d\" segments=2");
+      Alcotest.(check bool)
+        "JSON dump identifies metadata" true
+        (contains json "\"metadata\""))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_member_metadata_provenance () =
+  let source =
+    "#define META note\n\
+     #define VALUE 6/2\n\
+     #define LABEL label\n\
+     #define TEXT \"left\" \"right\"\n\
+     class Generated { I64 value META VALUE LABEL TEXT; };"
+  in
+  let _, root, output = parse_string source in
+  let declarator =
+    expect_ast output |> expect_one_aggregate_definition |> fun definition ->
+    List.hd definition.members |> expect_aggregate_member_declaration
+    |> fun declaration -> List.hd declaration.member_declarators
+  in
+  let note = List.hd declarator.member_metadata in
+  let label = List.nth declarator.member_metadata 1 in
+  let string = expect_member_metadata_string label in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps its invocation")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps its definition")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("metadata name", note.member_metadata_name.location);
+      ( "metadata expression",
+        Ast.expression_location (expect_member_metadata_expression note) );
+      ("string metadata name", label.member_metadata_name.location);
+      ( "first string segment",
+        (List.hd string.member_metadata_string_segments).literal_location );
+    ];
+  Alcotest.(check string)
+    "generated extended string value" "leftright"
+    string.member_metadata_string_value;
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "metadata.HC" in
+      write_file root_file "#include \"metadata\"";
+      write_file declaration_file "class Included { I64 value note 1; };";
+      let session = Session.create () in
+      let root = Session.load_source session ~path:root_file |> Result.get_ok in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root)
+          ~source:root
+      in
+      let metadata =
+        expect_ast output |> expect_one_aggregate_definition
+        |> fun definition ->
+        List.hd definition.members |> expect_aggregate_member_declaration
+        |> fun declaration ->
+        List.hd declaration.member_declarators |> fun declarator ->
+        List.hd declarator.member_metadata
+      in
+      let included_source =
+        Source_manager.find (Session.sources session)
+          metadata.member_metadata_name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included metadata keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
+
+let aggregate_member_metadata_failures_recover () =
+  List.iter
+    (fun (description, member, code, message_fragment) ->
+      let source = Printf.sprintf "class Broken { %s }; I64 after;" member in
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check string)
+            (description ^ " resumes after the aggregate")
+            "global-variable"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not recover to the next global" description)
+    [
+      ( "semicolon after metadata name",
+        "I64 value tag;",
+        "HCPARSE0144",
+        "after aggregate member metadata name" );
+      ( "comma after metadata name",
+        "I64 value tag, later;",
+        "HCPARSE0144",
+        "after aggregate member metadata name" );
+      ( "closing brace after metadata name",
+        "I64 value tag }",
+        "HCPARSE0144",
+        "after aggregate member metadata name" );
+      ( "malformed metadata expression",
+        "I64 value tag +;",
+        "HCPARSE0018",
+        "aggregate member metadata expression operand" );
+    ]
 
 let aggregate_member_keyword_source_behavior () =
   let lexer = pinned "Compiler/Lex.HC" in
@@ -16206,6 +16566,16 @@ let tests =
       aggregate_offset_provenance_and_dumps;
     Alcotest.test_case "aggregate offset failures recover" `Quick
       aggregate_offset_failures_recover;
+    Alcotest.test_case "pinned aggregate member metadata behavior" `Quick
+      aggregate_member_metadata_source_behavior;
+    Alcotest.test_case "pinned aggregate member metadata" `Quick
+      pinned_aggregate_member_metadata;
+    Alcotest.test_case "aggregate member metadata shapes" `Quick
+      aggregate_member_metadata_shapes;
+    Alcotest.test_case "aggregate member metadata provenance" `Quick
+      aggregate_member_metadata_provenance;
+    Alcotest.test_case "aggregate member metadata failures recover" `Quick
+      aggregate_member_metadata_failures_recover;
     Alcotest.test_case "aggregate member keyword source behavior" `Quick
       aggregate_member_keyword_source_behavior;
     Alcotest.test_case "aggregate member keyword spellings" `Quick
