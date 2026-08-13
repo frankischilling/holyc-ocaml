@@ -92,6 +92,7 @@
     {"path": "Demo/ClassMeta.HC", "sha256": "be318d9ee4d65bf850946b7caf26f4a7461fc965a36e3debb583db7b503948e2"},
     {"path": "Demo/Exceptions.HC", "sha256": "f7c89a3834e2a7a9daaf44da6f318e98a2abaee7626666caee3032bd60373146"},
     {"path": "Demo/GlblVars.HC", "sha256": "70d2ef4e34378455ddf42dcf62a77093e3f415f8e73623cca0b3dd68ba8f2d21"},
+    {"path": "Demo/Lectures/NegDisp.HC", "sha256": "2b052f277c8ace880eb69eb791ff1dd67d85a74002c8297c90cf5b1255637eb3"},
     {"path": "Demo/MultiCore/LoadTest.HC", "sha256": "09f23ac0a4cd204e95127274fb6902223ec96bef1dc951de440b661a92f01ca5"},
     {"path": "Demo/MultiCore/Lock.HC", "sha256": "02b3029b9a9b0084877f8d241364f0b9826eb9236dd81fa316d897acdb2e27b7"},
     {"path": "Demo/NullCase.HC", "sha256": "ddd8cc82cf34020e33c9a387b43cf806b125f3341591f7b684d47998c6a43383"},

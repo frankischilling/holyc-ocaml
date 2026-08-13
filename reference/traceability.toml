@@ -3403,12 +3403,61 @@ validation = "session ownership, module and aggregate scopes, AST association, d
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 callback_parameter_resolution = "not implemented for member callbacks; top-level function and nested parameter callback signatures are implemented in HC-SEMA-FUNCTION-TYPES"
-array_extent_evaluation = "not implemented"
+array_extent_evaluation = "not implemented in this type-reference pass; closed extents are evaluated by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "not implemented"
-layout_storage_and_inherited_lookup = "not implemented"
+layout_storage_and_inherited_lookup = "closed byte layout is implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED; inherited name lookup and runtime storage are not implemented"
 other_type_use_sites = "top-level function signatures are implemented in HC-SEMA-FUNCTION-TYPES; globals, locals, casts, sizeof, offset, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
+description = "Closed class and union definitions receive source-ordered packed byte layouts without guessed semantic values."
+sources = [
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/PrsExp.HC:LexExpressionI64 and LexExpression",
+  "Compiler/CInit.HC:internal_types_table",
+  "Kernel/KernelA.HH:CArrayDim",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashClass",
+  "Demo/Lectures/NegDisp.HC"
+]
+implementation = [
+  "src/sema/aggregate_layout.ml",
+  "src/driver/aggregate_layout.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_aggregate_layout.ml"
+]
+status = "implemented"
+issue = 194
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "aggregate definitions from one checked AST, header result, and member-type result whose layout dependencies are closed in source order"
+class_rule = "a base contributes its complete size at offset zero; direct members start at that size and advance by their exact storage size"
+union_rule = "top-level members overlap at base zero and retain the largest member end"
+anonymous_union_rule = "a recursive anonymous union begins at the containing aggregate's current size, including inside another union"
+automatic_padding = "none; source $$ expressions perform alignment explicitly"
+primitive_sizes = "checked HC-TYPE-PRIMITIVES byte sizes"
+pointer_and_callback_size = 8
+array_rule = "ordered dimensions multiply the element size; an empty first dimension is zero and a negative dimension is rejected"
+offset_rule = "$$ replaces the active class cursor or union base; the greatest negative magnitude is added to the final allocation size"
+closed_expressions = ["integer", "character", "$$", "grouping", "unary + - ! ~", "all checked non-assignment binary operators"]
+dimension_conversion = "LexExpressionI64 boundary: finite F64 results convert to signed I64"
+offset_conversion = "LexExpression boundary: a finite F64 result retains its raw bits"
+target_arithmetic = "Int64 wrapping for expression operations"
+host_metadata_checks = ["array count", "member storage size", "member end", "negative displacement", "final aggregate size"]
+retained_layout = ["aggregate size", "alignment 1", "base prefix", "negative adjustment", "stable member symbol", "member path", "member offset", "member size", "element size", "dimensions", "signedness", "source origin"]
+typed_dependencies = ["identifier", "call", "sizeof", "offset", "defined", "later aggregate", "by-value cycle"]
+diagnostic_codes = "HCSEMA0001 through HCSEMA0009"
+backing_storage = "not applied; fwd_class conversion semantics remain separate"
+member_metadata_duplicate_rules_inherited_lookup_subinteger_access_allocation_and_dump = "planned under epic 193"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+native_oracle_status = "not required for the direct layout state transitions; generated metadata and machine access still need later oracle fixtures"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"
