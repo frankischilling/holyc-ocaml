@@ -3602,6 +3602,57 @@ import_export_record_emission = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsGlblVarLst, and the pinned hash routines state the selection and state transitions directly"
 
 [[feature]]
+id = "HC-SEMA-GLOBAL-TYPE-REFERENCES"
+description = "Every accepted top-level or aggregate-attached global receives a source-ordered semantic type record."
+sources = [
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Kernel/KernelA.HH:CArrayDim",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashFun",
+  "Kernel/KernelA.HH:CHashGlblVar",
+  "Kernel/KernelA.HH:PTR_STARS_NUM",
+  "Kernel/KernelA.HH:GVF_FUN",
+  "Kernel/KernelA.HH:GVF_ARRAY",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/global_type_resolution.ml",
+  "src/driver/global_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_global_type_resolution.ml"
+]
+status = "implemented"
+issue = 185
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "standalone, grouped, bound, and aggregate-attached globals from one checked module"
+source_order = "module item followed by grouped declarator index; aggregate definitions publish their canonical identity before attached globals"
+type_bases = ["public primitive", "intrinsic storage", "canonical aggregate identity"]
+ordinary_pointer_depth = "zero through four, with one origin per source star"
+function_pointer_shape = "return type plus one through four declarator indirections and a complete recursive fixed or variadic signature"
+function_pointer_namespace = "global variable; the retained signature does not enable direct-call syntax"
+array_shape = "every dimension retains its index, full origin, opening bracket, optional expression, and closing bracket"
+empty_array_dimension = "permitted only at index zero and distinct from an explicit zero expression"
+initializer_shape = "scalar or braced source range retained without evaluation"
+declaration_boundaries = "declarator origin plus exact comma or semicolon origin"
+provenance = ["ordinary source", "included source", "generated invocation", "definition origin"]
+validation = "session ownership, module scope, AST and declaration association, canonical aggregate inputs, source order, symbol uniqueness, type spelling, array order, delimiters, and recursive aggregate targets"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+array_extent_evaluation_and_inference = "not implemented"
+initializer_checking_and_evaluation = "not implemented"
+global_identity_and_linkage = "not implemented"
+storage_layout_and_relocations = "not implemented"
+compiler_options_and_alternate_targets = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsClass, PrsGlblVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained shape directly"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
 description = "Language gotos and language or structural assembly-block labels receive stable function-local identities."
 sources = [
