@@ -1,3 +1,5 @@
+(** The AST shape that introduced a top-level semantic symbol. This does not
+    imply that a forward and definition have been reconciled. *)
 type declaration_kind =
   | Aggregate_forward
   | Aggregate_definition
@@ -18,12 +20,15 @@ val make_declaration :
   ?declarator_index:int ->
   unit ->
   (declaration, string) result
+(** Build one checked declaration fact without mutating a symbol table. *)
 
 val collect :
   table:Symbol_table.t ->
   ?module_name:string ->
   declaration list ->
   (t, string) result
+(** Create one module scope and insert the checked facts in list order. Repeated
+    names remain separate symbols. *)
 
 val scope : t -> Symbol_table.scope
 val entries : t -> entry list

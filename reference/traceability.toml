@@ -3231,12 +3231,48 @@ nth_match = "continues through the parent chain"
 session_seed = "17 Compiler/CInit.HC internal type spellings"
 provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
 foreign_scope_mutation = "rejected"
-ast_declaration_collection = "not implemented"
+ast_declaration_collection = "top-level declarations implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS; nested declarations are not implemented"
 reference_resolution = "not implemented"
 duplicate_policy = "not implemented"
 jit_aot_linkage = "not implemented"
 import_export_records = "not implemented"
 native_oracle_status = "not required for this data-structure boundary; insertion and lookup order are explicit in the pinned hash routines"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-DECLARATIONS"
+description = "Accepted top-level AST declarations enter a semantic module scope in source order with stable identity and provenance."
+sources = [
+  "Compiler/CMain.HC:CmpJoin",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Kernel/KHashA.HC:_HASH_ADD",
+  "Kernel/KHashB.HC:HashSrcFileSet",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/declaration_collection.ml",
+  "src/driver/semantic_collection.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_declaration_collection.ml"
+]
+status = "implemented"
+issue = 166
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+module_scope_parent = "session task root"
+source_order = "module items first; grouped declarators left to right; aggregate name before attached declarators"
+collected_kinds = ["aggregate forward", "aggregate definition", "aggregate-attached global", "global variable", "function prototype", "function definition"]
+entry_position = ["module item index", "optional declarator index"]
+provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
+top_level_executable_statements = "no declaration entry"
+forward_definition_merging = "not implemented"
+duplicate_validation = "not implemented"
+nested_declaration_collection = "not implemented"
+jit_task_publication = "not implemented"
+linkage_and_reference_resolution = "not implemented"
+native_oracle_status = "not required for this collection boundary; insertion order is explicit in PrsClass, PrsGlblVarLst, and PrsFunJoin"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"

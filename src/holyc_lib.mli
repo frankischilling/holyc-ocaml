@@ -71,3 +71,6 @@ val parse_detailed :
 
 val collect_declarations :
   Session.t -> Ast.module_ -> (Semantic_declaration_collection.t, string) result
+(** Collect accepted top-level declarations into a new semantic module scope.
+    This entry point does not perform duplicate checks or reference resolution.
+*)
