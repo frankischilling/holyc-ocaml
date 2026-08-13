@@ -712,6 +712,17 @@ let delimiter_kind token =
   | Token_kind.Punctuation ';' -> Some Ast.Semicolon
   | _ -> None
 
+let token_is_aggregate_member_identifier token =
+  match token.Token.kind with
+  | Token_kind.Identifier | Token_kind.Keyword _ -> true
+  | _ -> false
+
+let token_is_function_pointer_identifier ~declarator_context token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> true
+  | Token_kind.Keyword _ -> declarator_context = Aggregate_member_declarator
+  | _ -> false
+
 let declaration_modifier_kind token =
   match token.Token.kind with
   | Token_kind.Keyword Keyword.Public -> Some Ast.Public
@@ -2659,7 +2670,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
                 (fun name ->
                   (name, Some parsed.node, pointer_tokens @ parsed.tokens))
                 parsed.name
-        else if name_item.token.kind <> Token_kind.Identifier then (
+        else if not (token_is_aggregate_member_identifier name_item.token) then (
           report cursor name_item ~code:"HCPARSE0113"
             ~message:
               (Printf.sprintf
@@ -3013,51 +3024,56 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
             List.map (fun item -> item.token) pointer_items
           in
           let name_item = peek cursor in
+          let name_is_identifier =
+            token_is_function_pointer_identifier ~declarator_context
+              name_item.token
+          in
           let parsed_name =
-            match name_item.token.kind with
-            | Token_kind.Identifier ->
-                let name_item = take cursor in
-                Some
-                  ( Ast.make_identifier ~spelling:name_item.token.raw
-                      ~location:(token_location name_item.token),
-                    name_item.token )
-            | Token_kind.Punctuation ')'
-              when declarator_context = Function_parameter_declarator -> None
-            | _ ->
-                report cursor name_item
-                  ~code:
-                    (match declarator_context with
-                    | Function_parameter_declarator -> "HCPARSE0014"
-                    | Global_variable_declarator -> "HCPARSE0132"
-                    | Aggregate_member_declarator -> "HCPARSE0134"
-                    | Local_variable_declarator _ -> "HCPARSE0136")
-                  ~message:
-                    (match declarator_context with
-                    | Function_parameter_declarator ->
-                        Printf.sprintf
-                          "expected a function-pointer name or ')' after \
-                           pointer stars, but found %s"
-                          (token_description name_item.token)
-                    | Global_variable_declarator ->
-                        Printf.sprintf
-                          "expected a global function-pointer name after \
-                           pointer stars, but found %s"
-                          (token_description name_item.token)
-                    | Aggregate_member_declarator ->
-                        Printf.sprintf
-                          "expected an aggregate member name after \
-                           function-pointer stars, but found %s"
-                          (token_description name_item.token)
-                    | Local_variable_declarator _ ->
-                        Printf.sprintf
-                          "expected a local variable name after \
-                           function-pointer stars, but found %s"
-                          (token_description name_item.token));
-                recover_function_pointer_declaration cursor declarator_context;
-                None
+            if name_is_identifier then
+              let name_item = take cursor in
+              Some
+                ( Ast.make_identifier ~spelling:name_item.token.raw
+                    ~location:(token_location name_item.token),
+                  name_item.token )
+            else
+              match name_item.token.kind with
+              | Token_kind.Punctuation ')'
+                when declarator_context = Function_parameter_declarator -> None
+              | _ ->
+                  report cursor name_item
+                    ~code:
+                      (match declarator_context with
+                      | Function_parameter_declarator -> "HCPARSE0014"
+                      | Global_variable_declarator -> "HCPARSE0132"
+                      | Aggregate_member_declarator -> "HCPARSE0134"
+                      | Local_variable_declarator _ -> "HCPARSE0136")
+                    ~message:
+                      (match declarator_context with
+                      | Function_parameter_declarator ->
+                          Printf.sprintf
+                            "expected a function-pointer name or ')' after \
+                             pointer stars, but found %s"
+                            (token_description name_item.token)
+                      | Global_variable_declarator ->
+                          Printf.sprintf
+                            "expected a global function-pointer name after \
+                             pointer stars, but found %s"
+                            (token_description name_item.token)
+                      | Aggregate_member_declarator ->
+                          Printf.sprintf
+                            "expected an aggregate member name after \
+                             function-pointer stars, but found %s"
+                            (token_description name_item.token)
+                      | Local_variable_declarator _ ->
+                          Printf.sprintf
+                            "expected a local variable name after \
+                             function-pointer stars, but found %s"
+                            (token_description name_item.token));
+                  recover_function_pointer_declaration cursor declarator_context;
+                  None
           in
           if
-            name_item.token.kind <> Token_kind.Identifier
+            (not name_is_identifier)
             && not
                  (declarator_context = Function_parameter_declarator
                  && name_item.token.kind = Token_kind.Punctuation ')')

@@ -1,0 +1,51 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-contextual-member-names.hc:1:1..11:1 items=1
+  aggregate_definition aggregate_kind=class span=cli/parse-contextual-member-names.hc:1:1..10:3 members=4
+    aggregate_keyword spelling="class" span=cli/parse-contextual-member-names.hc:1:1..1:6
+    name spelling="ContextualNames" span=cli/parse-contextual-member-names.hc:1:7..1:22
+    opening_brace span=cli/parse-contextual-member-names.hc:2:1..2:2
+    member_declaration index=0 span=cli/parse-contextual-member-names.hc:3:3..3:17 declarators=2
+      type primitive=I64 spelling="I64" span=cli/parse-contextual-member-names.hc:3:3..3:6
+      declarator index=0 span=cli/parse-contextual-member-names.hc:3:7..3:13
+        name spelling="start" span=cli/parse-contextual-member-names.hc:3:7..3:12
+        delimiter kind=comma spelling="," span=cli/parse-contextual-member-names.hc:3:12..3:13
+      declarator index=1 span=cli/parse-contextual-member-names.hc:3:13..3:17
+        name spelling="end" span=cli/parse-contextual-member-names.hc:3:13..3:16
+        delimiter kind=semicolon spelling=";" span=cli/parse-contextual-member-names.hc:3:16..3:17
+    member_declaration index=1 span=cli/parse-contextual-member-names.hc:4:3..4:13 declarators=1
+      type primitive=U8 spelling="U8" span=cli/parse-contextual-member-names.hc:4:3..4:5
+      declarator index=0 span=cli/parse-contextual-member-names.hc:4:6..4:13
+        pointer_layer depth=1 spelling="*" span=cli/parse-contextual-member-names.hc:4:6..4:7
+        name spelling="if" span=cli/parse-contextual-member-names.hc:4:7..4:9
+        array_dimension index=0 sized=true span=cli/parse-contextual-member-names.hc:4:9..4:12
+          opening_bracket span=cli/parse-contextual-member-names.hc:4:9..4:10
+          expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-contextual-member-names.hc:4:10..4:11
+          closing_bracket span=cli/parse-contextual-member-names.hc:4:11..4:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-contextual-member-names.hc:4:12..4:13
+    member_declaration index=2 span=cli/parse-contextual-member-names.hc:5:3..5:28 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-contextual-member-names.hc:5:3..5:6
+      declarator index=0 span=cli/parse-contextual-member-names.hc:5:7..5:28
+        function_pointer span=cli/parse-contextual-member-names.hc:5:7..5:27 parameters=1 variadic=false
+          opening_parenthesis span=cli/parse-contextual-member-names.hc:5:7..5:8
+          pointer_layer depth=1 spelling="*" span=cli/parse-contextual-member-names.hc:5:8..5:9
+          name spelling="switch" span=cli/parse-contextual-member-names.hc:5:9..5:15
+          closing_parenthesis span=cli/parse-contextual-member-names.hc:5:15..5:16
+          signature_opening_parenthesis span=cli/parse-contextual-member-names.hc:5:16..5:17
+          parameter index=0 span=cli/parse-contextual-member-names.hc:5:17..5:26
+            type primitive=I64 spelling="I64" span=cli/parse-contextual-member-names.hc:5:17..5:20
+            name spelling="value" span=cli/parse-contextual-member-names.hc:5:21..5:26
+          signature_closing_parenthesis span=cli/parse-contextual-member-names.hc:5:26..5:27
+        delimiter kind=semicolon spelling=";" span=cli/parse-contextual-member-names.hc:5:27..5:28
+    anonymous_union index=3 span=cli/parse-contextual-member-names.hc:6:3..9:5 members=1
+      keyword spelling="union" span=cli/parse-contextual-member-names.hc:6:3..6:8
+      opening_brace span=cli/parse-contextual-member-names.hc:7:3..7:4
+        member_declaration index=0 span=cli/parse-contextual-member-names.hc:8:5..8:15 declarators=1
+          type primitive=I16 spelling="I16" span=cli/parse-contextual-member-names.hc:8:5..8:8
+          declarator index=0 span=cli/parse-contextual-member-names.hc:8:9..8:15
+            name spelling="class" span=cli/parse-contextual-member-names.hc:8:9..8:14
+            delimiter kind=semicolon spelling=";" span=cli/parse-contextual-member-names.hc:8:14..8:15
+      closing_brace span=cli/parse-contextual-member-names.hc:9:3..9:4
+      semicolon span=cli/parse-contextual-member-names.hc:9:4..9:5
+    closing_brace span=cli/parse-contextual-member-names.hc:10:1..10:2
+    semicolon span=cli/parse-contextual-member-names.hc:10:2..10:3
