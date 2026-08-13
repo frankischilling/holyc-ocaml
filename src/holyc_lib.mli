@@ -43,6 +43,7 @@ module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_function_type_resolution = Sema.Function_type_resolution
+module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
 
 val lex :
@@ -154,6 +155,16 @@ val resolve_function_types :
 (** Resolve function return and recursive parameter types at each declaration's
     source position. Default evaluation, declaration reconciliation, call
     checking, storage, and linkage remain separate passes. *)
+
+val resolve_global_types :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  aggregates:Semantic_aggregate_resolution.t ->
+  Ast.module_ ->
+  (Semantic_global_type_resolution.t, string) result
+(** Resolve global type references at their source publication points. Array
+    extents, initializers, identity reconciliation, storage, and linkage remain
+    separate passes. *)
 
 val resolve_function_identities :
   Session.t ->
