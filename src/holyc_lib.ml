@@ -73,5 +73,6 @@ let collect_declarations session module_ =
     module_
 
 let collect_members session ~declarations module_ =
-  Driver.Member_collection.collect ~table:(Session.semantic_symbols session)
+  Driver.Member_collection.collect
+    ~table:(Session.semantic_symbols session)
     ~declarations module_

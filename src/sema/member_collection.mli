@@ -1,8 +1,8 @@
-(** A checked direct-member fact before it is inserted into a semantic scope. *)
 type member
+(** A checked direct-member fact before it is inserted into a semantic scope. *)
 
-(** One aggregate definition and the direct members collected from it. *)
 type aggregate
+(** One aggregate definition and the direct members collected from it. *)
 
 type entry
 type collected_aggregate
@@ -18,12 +18,9 @@ val make_member :
     aggregate-member indexes, including each containing anonymous union. *)
 
 val make_aggregate :
-  symbol:Symbol.t ->
-  item_index:int ->
-  member list ->
-  (aggregate, string) result
-(** Associate checked member facts with a top-level aggregate-definition
-    symbol. *)
+  symbol:Symbol.t -> item_index:int -> member list -> (aggregate, string) result
+(** Associate checked member facts with a top-level aggregate-definition symbol.
+*)
 
 val collect :
   table:Symbol_table.t ->

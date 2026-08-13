@@ -20,9 +20,7 @@ let parse session ~path contents =
 
 let collect session ast =
   let declarations = checked (Holyc_lib.collect_declarations session ast) in
-  let members =
-    checked (Holyc_lib.collect_members session ~declarations ast)
-  in
+  let members = checked (Holyc_lib.collect_members session ~declarations ast) in
   (declarations, members)
 
 let symbol_id symbol = Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
@@ -79,7 +77,8 @@ let direct_grouped_and_anonymous_members () =
   let ast = parse session ~path:"members.HC" source in
   let declarations, collection = collect session ast in
   Alcotest.(check (list string))
-    "aggregate order" [ "Node"; "Payload"; "Empty" ]
+    "aggregate order"
+    [ "Node"; "Payload"; "Empty" ]
     (aggregate_names collection);
   let aggregates = Semantic_member_collection.aggregates collection in
   let node = List.nth aggregates 0 in
@@ -97,8 +96,7 @@ let direct_grouped_and_anonymous_members () =
     "grouped declarator indexes" [ 0; 1; 0; 0; 1; 0 ]
     (entry_declarator_indexes node);
   Alcotest.(check (list string))
-    "union members" [ "number"; "bytes" ]
-    (entry_names payload);
+    "union members" [ "number"; "bytes" ] (entry_names payload);
   Alcotest.(check int)
     "empty aggregate has no members" 0
     (Semantic_member_collection.aggregate_entries empty |> List.length);
@@ -139,9 +137,7 @@ let repeated_names_and_lookup () =
        I64 value; };"
   in
   let _, collection = collect session ast in
-  let aggregate =
-    Semantic_member_collection.aggregates collection |> List.hd
-  in
+  let aggregate = Semantic_member_collection.aggregates collection |> List.hd in
   let entries = Semantic_member_collection.aggregate_entries aggregate in
   Alcotest.(check (list string))
     "every repeated declaration survives collection"
@@ -150,8 +146,8 @@ let repeated_names_and_lookup () =
   let values =
     entries
     |> List.filter (fun entry ->
-        Semantic_member_collection.entry_symbol entry |> Semantic_symbol.name
-        |> String.equal "value")
+        Semantic_member_collection.entry_symbol entry
+        |> Semantic_symbol.name |> String.equal "value")
     |> List.map (fun entry ->
         Semantic_member_collection.entry_symbol entry |> symbol_id)
   in
@@ -164,15 +160,19 @@ let repeated_names_and_lookup () =
     |> Option.map symbol_id
   in
   Alcotest.(check (option int))
-    "newest repeated member wins" (Some (List.nth values 1)) (lookup 1);
+    "newest repeated member wins"
+    (Some (List.nth values 1))
+    (lookup 1);
   Alcotest.(check (option int))
-    "older repeated member remains addressable" (Some (List.nth values 0))
+    "older repeated member remains addressable"
+    (Some (List.nth values 0))
     (lookup 2);
   Alcotest.(check bool)
     "internal types remain visible" true
     (checked
        (Semantic_symbol_table.lookup table ~scope ~name:"I64i"
-          ~kinds:[ Semantic_symbol.Internal_type ] ())
+          ~kinds:[ Semantic_symbol.Internal_type ]
+          ())
     |> Option.is_some);
   let module_scope =
     Semantic_member_collection.aggregate_scope aggregate
@@ -202,7 +202,8 @@ let inheritance_remains_unresolved () =
   Alcotest.(check bool)
     "collection does not invent base-scope lookup" true
     (checked
-       (Semantic_symbol_table.lookup (Session.semantic_symbols session)
+       (Semantic_symbol_table.lookup
+          (Session.semantic_symbols session)
           ~scope:(Semantic_member_collection.aggregate_scope derived)
           ~name:"base_value" ~kinds:[ Semantic_symbol.Member ] ())
     |> Option.is_none)
@@ -221,7 +222,8 @@ let generated_member_provenance () =
     |> Semantic_member_collection.entry_symbol
   in
   Alcotest.(check string)
-    "expanded member name" "generated_field" (Semantic_symbol.name symbol);
+    "expanded member name" "generated_field"
+    (Semantic_symbol.name symbol);
   match Semantic_symbol.origin symbol with
   | Semantic_symbol.Source_location origin ->
       Alcotest.(check bool)
@@ -249,7 +251,9 @@ let mismatched_inputs_do_not_mutate () =
   let second = parse session ~path:"second.HC" "class Second { I64 two; };" in
   let declarations = checked (Holyc_lib.collect_declarations session first) in
   let table = Session.semantic_symbols session in
-  let initial_scope_count = Semantic_symbol_table.all_scopes table |> List.length in
+  let initial_scope_count =
+    Semantic_symbol_table.all_scopes table |> List.length
+  in
   let initial_symbol_count =
     Semantic_symbol_table.all_symbols table |> List.length
   in
@@ -271,7 +275,8 @@ let mismatched_inputs_do_not_mutate () =
   in
   Alcotest.(check bool)
     "a module scope from another table is rejected" true
-    (Holyc_lib.collect_members session ~declarations:other_declarations other_ast
+    (Holyc_lib.collect_members session ~declarations:other_declarations
+       other_ast
     |> Result.is_error);
   Alcotest.(check int)
     "foreign scope preserves scopes" initial_scope_count
@@ -335,7 +340,8 @@ let low_level_validation () =
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
   Alcotest.(check bool)
     "out-of-order members are rejected" true
-    (Semantic_member_collection.collect ~table ~parent:module_scope [ aggregate ]
+    (Semantic_member_collection.collect ~table ~parent:module_scope
+       [ aggregate ]
     |> Result.is_error);
   Alcotest.(check int)
     "validation happens before scope creation" scope_count
@@ -346,7 +352,8 @@ let low_level_validation () =
   Alcotest.(check bool)
     "task scope cannot contain aggregate scopes" true
     (Semantic_member_collection.collect ~table
-       ~parent:(Semantic_symbol_table.root table) []
+       ~parent:(Semantic_symbol_table.root table)
+       []
     |> Result.is_error)
 
 let deterministic_symbol_dumps () =
@@ -369,7 +376,8 @@ let deterministic_symbol_dumps () =
   Alcotest.(check bool)
     "human dump contains aggregate scopes" true
     (String.split_on_char '\n' human
-    |> List.exists (String.equal "scope 2 kind=aggregate name=\"One\" parent=1"));
+    |> List.exists (String.equal "scope 2 kind=aggregate name=\"One\" parent=1")
+    );
   Alcotest.(check bool)
     "human dump contains member symbols" true
     (String.split_on_char '\n' human

@@ -11,7 +11,8 @@ let origin (identifier : Frontend.Ast.identifier) =
 let member_fact ~member_path declarator_index
     (declarator : Frontend.Ast.aggregate_member_declarator) =
   Sema.Member_collection.make_member ~name:declarator.member_name.spelling
-    ~origin:(origin declarator.member_name) ~member_path ~declarator_index
+    ~origin:(origin declarator.member_name)
+    ~member_path ~declarator_index
 
 let declarator_facts ~member_path declarators =
   let rec collect declarator_index facts_rev = function
@@ -26,7 +27,7 @@ let declarator_facts ~member_path declarators =
 let rec member_facts ~path_prefix members =
   let rec collect member_index facts_rev = function
     | [] -> Ok (List.rev facts_rev |> List.concat)
-    | member :: rest ->
+    | member :: rest -> (
         let member_path = path_prefix @ [ member_index ] in
         let facts =
           match member with
@@ -38,7 +39,7 @@ let rec member_facts ~path_prefix members =
           | Frontend.Ast.Aggregate_offset_directive _
           | Frontend.Ast.Empty_aggregate_member _ -> Ok []
         in
-        (match facts with
+        match facts with
         | Error _ as error -> error
         | Ok facts -> collect (member_index + 1) (facts :: facts_rev) rest)
   in
@@ -54,15 +55,13 @@ let aggregate_definitions (module_ : Frontend.Ast.module_) =
   module_.items
   |> List.mapi (fun item_index item -> (item_index, item))
   |> List.filter_map (function
-       | item_index, Frontend.Ast.Aggregate_definition definition ->
-           Some (item_index, definition)
-       | _ -> None)
+    | item_index, Frontend.Ast.Aggregate_definition definition ->
+        Some (item_index, definition)
+    | _ -> None)
 
 let aggregate_fact entry
     (item_index, (definition : Frontend.Ast.aggregate_definition)) =
-  let entry_item_index =
-    Sema.Declaration_collection.entry_item_index entry
-  in
+  let entry_item_index = Sema.Declaration_collection.entry_item_index entry in
   let symbol = Sema.Declaration_collection.entry_symbol entry in
   if entry_item_index <> item_index then
     Error "semantic aggregate declaration does not match the AST item order"

@@ -5,11 +5,7 @@ type member = {
   declarator_index : int;
 }
 
-type aggregate = {
-  symbol : Symbol.t;
-  item_index : int;
-  members : member list;
-}
+type aggregate = { symbol : Symbol.t; item_index : int; members : member list }
 
 type entry = {
   symbol : Symbol.t;
@@ -29,7 +25,10 @@ type t = { aggregates : collected_aggregate list }
 let aggregates collection = collection.aggregates
 let aggregate_symbol (aggregate : collected_aggregate) = aggregate.symbol
 let aggregate_scope (aggregate : collected_aggregate) = aggregate.scope
-let aggregate_item_index (aggregate : collected_aggregate) = aggregate.item_index
+
+let aggregate_item_index (aggregate : collected_aggregate) =
+  aggregate.item_index
+
 let aggregate_entries (aggregate : collected_aggregate) = aggregate.entries
 let entry_symbol (entry : entry) = entry.symbol
 let entry_member_path (entry : entry) = entry.member_path
@@ -72,7 +71,9 @@ let members_are_ordered (members : member list) =
     | member :: rest ->
         compare_member_position previous member < 0 && check member rest
   in
-  match members with [] | [ _ ] -> true | first :: rest -> check first rest
+  match members with
+  | [] | [ _ ] -> true
+  | first :: rest -> check first rest
 
 let validate_aggregate parent previous_item_index (aggregate : aggregate) =
   if
@@ -126,7 +127,8 @@ let add_members table scope members =
 let collect_aggregate table parent (aggregate : aggregate) =
   match
     Symbol_table.create_scope table ~parent ~kind:Symbol_table.Aggregate
-      ~name:(Symbol.name aggregate.symbol) ()
+      ~name:(Symbol.name aggregate.symbol)
+      ()
   with
   | Error _ as error -> error
   | Ok scope -> (
