@@ -30,9 +30,9 @@ This pass does not follow backing chains, reject backing or inheritance cycles, 
 
 `Sema.Member_collection` models that boundary. `holyc_lib.collect_members` consumes the same AST and top-level declaration collection, creates one aggregate scope per definition, and gives every named direct member a stable `Member` symbol. Each entry retains its grouped-declarator index and a path of member-list indexes through any anonymous unions. Offset directives, empty separators, and metadata names do not create member symbols. For a completed forward, the reconciliation result deliberately selects this definition symbol as the canonical aggregate identity.
 
-Collection preserves repeated names. The later duplicate pass must reproduce `MemberAdd`, which permits repeated `pad`, `reserved`, and `_anon_` names but rejects other direct or inherited duplicates. Keeping every occurrence here avoids deciding that rule before types and bases are resolved.
+Collection preserves repeated names. `Sema.Aggregate_member_index` applies the later `MemberAdd` rule after types, bases, and layouts agree. It permits repeated `pad`, `reserved`, and `_anon_` spellings and rejects every other direct or inherited duplicate.
 
-`Compiler/LexLib.HC:MemberFind` searches the current class and then follows `base_class`. The current aggregate scope has the module scope as its parent; it does not point at the semantic base identity recorded by the header pass. Inherited lookup remains unimplemented rather than being approximated through ordinary lexical parents.
+`Compiler/LexLib.HC:MemberFind` searches the current class and then follows `base_class`. The current aggregate scope has the module scope as its parent; it does not point at the semantic base identity recorded by the header pass. The member index therefore follows the resolved base chain explicitly instead of treating inheritance as lexical scope.
 
 ## Member type references
 
@@ -54,10 +54,22 @@ The layout expression evaluator accepts integer and multi-character constants, `
 
 An offset directive replaces the active class cursor or union base. Negative cursors update `CHashClass.neg_offset`; `PrsClass` adds the largest negative magnitude to the final allocation size without rewriting the recorded member offsets. `Demo/Lectures/NegDisp.HC` supplies the direct source example. Layout results retain total size, the fixed packing alignment of one, base prefix, negative adjustment, each stable member identity, source path, byte offset, storage size, element size, dimensions, and signedness.
 
-This is a closed-layout boundary, not complete class semantics. An identifier, call, `sizeof`, `offset`, `defined`, later by-value definition, or cyclic by-value reference returns a typed dependency instead of zero. Member metadata evaluation, backing conversions, duplicate-name checks, inherited name lookup, subinteger access, complete callback signatures, runtime allocation, and `dump-layout` remain open work under epic #193.
+This is a closed-layout boundary, not complete class semantics. An identifier, call, `sizeof`, `offset`, `defined`, later by-value definition, or cyclic by-value reference returns a typed dependency instead of zero. Member metadata evaluation, backing conversions, subinteger access, complete callback signatures, runtime allocation, and `dump-layout` remain open work under epic #193.
+
+## Direct and inherited member lookup
+
+`Compiler/LexLib.HC:MemberAdd` checks the member view that exists before inserting each new entry. That view includes earlier direct entries and the complete base chain. A repeated name is an error unless its spelling is exactly `pad`, `reserved`, or `_anon_`. The exception is case-sensitive.
+
+The source keeps list order and lookup-tree order separately. Equal spellings are inserted below the existing tree node, so `MemberFind` still returns the first inserted equal entry. This differs from `Sema.Symbol_table`, whose normal shadowing lookup returns the newest same-name symbol. `Sema.Aggregate_member_index` consequently builds its own source-ordered name map and never delegates compatibility lookup to the general symbol table.
+
+Lookup checks the queried aggregate before following its one base. A successful result retains the queried and declaring aggregate symbols, inheritance depth, resolved member type, callback marker, complete byte layout, anonymous-union path, and source origin. An inherited offset needs no adjustment because the base is fixed at byte zero. Stable `HCSEMA0010` through `HCSEMA0013` errors cover invalid cross-pass inputs, a missing earlier base index, an ordinary duplicate, and a query for an aggregate outside the index.
+
+The index is immutable and lookup is pure. TempleOS increments `CMemberLst.use_cnt` in `MemberFind`; the later expression-resolution pass will account for uses from its retained lookup results. AST member binding, `sizeof`, `offset`, metadata lookup, backing conversion, and subinteger access are not part of this index.
 
 ## Reproducible checks
 
 `test/test_aggregate_resolution.ml` covers simple completion, repeated forwards, repeated definitions, a late forward, class/union spelling changes, unresolved identities, JIT and AOT inputs, generated and included provenance, invalid ownership or ordering, and deterministic repeated resolution without table mutation. `test/test_aggregate_header_resolution.ml` covers public and intrinsic backings, pointer depths zero through four, prepublication shadowing, postpublication bases, repeated forwards, later completion, source provenance, both compilation modes, and rejected foreign facts. `test/test_member_collection.ml` separately covers direct and grouped members, nested anonymous unions, repeated names, source provenance, ownership validation, the inheritance boundary, and deterministic symbol dumps. `test/test_member_type_resolution.ml` adds public, intrinsic, named, self, forward, repeated-forward, shadowed, callback, array, anonymous-union, generated, included, JIT, AOT, deterministic, pure, and rejected-association cases.
 
 `test/test_aggregate_layout.ml` covers packed fields, base prefixes, named and nested union overlap, multidimensional arrays, pointer and callback storage, zero-sized fields, empty first dimensions, explicit alignment, negative offsets, the complete closed operator set, short-circuiting, stable typed failures, JIT/AOT agreement, and deterministic repeat evaluation. These are source-level calculations against the pinned parser routines. They do not yet constitute a native metadata or generated-code oracle.
+
+`test/test_aggregate_member_index.ml` covers direct and missing lookups, anonymous-union paths, one-level and chained inheritance, absolute inherited offsets, direct and inherited duplicate rejection, the three exact duplicate exceptions, first-in-source selection, stable type and layout facts, invalid and cross-session inputs, pure failures, both compilation modes, and deterministic repeated indexing. These checks establish the `MemberAdd` and `MemberFind` semantic boundary; expression use counting and native field access still need later fixtures.

@@ -21,6 +21,7 @@ let () =
       ( "semantic aggregate member type resolution",
         Test_member_type_resolution.tests );
       ("semantic aggregate layout", Test_aggregate_layout.tests);
+      ("semantic aggregate member index", Test_aggregate_member_index.tests);
       ("semantic function type resolution", Test_function_type_resolution.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
