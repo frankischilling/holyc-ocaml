@@ -16,6 +16,7 @@ module Config : sig
     ?max_definition_depth:int ->
     ?max_generated_bytes:int ->
     ?max_expression_nodes:int ->
+    ?physical_nul_terminates:bool ->
     ?predefined_date:string ->
     ?predefined_time:string ->
     ?command_line_source:bool ->
@@ -30,6 +31,12 @@ module Config : sig
   val max_definition_depth : t -> int
   val max_generated_bytes : t -> int
   val max_expression_nodes : t -> int
+
+  val physical_nul_terminates : t -> bool
+  (** Whether a NUL byte ends root and included physical sources. Generated
+      definition and predefined frames remain strict. This is disabled by
+      default and enabled by the pinned compatibility corpus. *)
+
   val predefined : t -> Predefined.Settings.t
 end
 

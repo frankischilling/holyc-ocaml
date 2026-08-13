@@ -78,6 +78,32 @@ if ($manifest.checksum_basis -ne 'git-blob-bytes') {
   throw 'The reference manifest uses an unsupported checksum basis.'
 }
 
+$parserCorpus = $manifest.parser_corpus
+if ($null -eq $parserCorpus -or
+    $parserCorpus.path -ne 'reference/parser-corpus-aot.json') {
+  throw 'The reference manifest does not name the reviewed AOT parser corpus.'
+}
+$parserCorpusPath = Join-Path $repositoryRoot ([string]$parserCorpus.path)
+if (-not (Test-Path -LiteralPath $parserCorpusPath -PathType Leaf)) {
+  throw 'The reviewed AOT parser corpus is missing.'
+}
+$parserCorpusHash = (Get-FileHash -LiteralPath $parserCorpusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($parserCorpusHash -ne $parserCorpus.baseline_sha256) {
+  throw 'The reviewed AOT parser corpus checksum does not match the manifest.'
+}
+$parserReport = Get-Content -LiteralPath $parserCorpusPath -Raw | ConvertFrom-Json
+if ($parserReport.schema -ne $parserCorpus.schema -or
+    $parserReport.reference_commit -ne $expectedCommit -or
+    $parserReport.compilation_mode -ne $parserCorpus.mode) {
+  throw 'The reviewed AOT parser corpus metadata does not match the manifest.'
+}
+foreach ($field in @('files', 'parses', 'frontend_diagnostics',
+    'parser_diagnostics', 'read_errors', 'internal_errors', 'diagnostics')) {
+  if ($parserReport.summary.$field -ne $parserCorpus.$field) {
+    throw "The reviewed AOT parser corpus summary differs at $field."
+  }
+}
+
 foreach ($entry in $manifest.files) {
   $relativePath = [string]$entry.path
   $segments = $relativePath -split '/'
@@ -102,3 +128,4 @@ foreach ($entry in $manifest.files) {
 
 Write-Output "Verified TempleOS reference $expectedCommit"
 Write-Output "Verified $($manifest.files.Count) audited file checksums"
+Write-Output 'Verified the reviewed AOT parser corpus'

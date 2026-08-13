@@ -331,10 +331,38 @@ let corpus_file_bytes_argument =
     & opt int (64 * 1024 * 1024)
     & info [ "file-byte-limit" ] ~docv:"BYTES" ~doc:documentation)
 
-let corpus_lex format max_file_bytes root =
+let corpus_reference_commit_argument =
+  let documentation =
+    "Verify and record this exact TempleOS commit. The default is the \
+     compiler's pinned reference; pass a full object ID rather than a branch \
+     name."
+  in
+  Arg.(
+    value
+    & opt string Holyc_lib.Version.reference_commit
+    & info [ "reference-commit" ] ~docv:"COMMIT" ~doc:documentation)
+
+let corpus_compilation_mode_argument =
+  let values =
+    [ ("jit", Holyc_lib.Preprocessor.Jit); ("aot", Holyc_lib.Preprocessor.Aot) ]
+  in
+  let documentation =
+    "Select which #ifjit or #ifaot branch the parser corpus measures."
+  in
+  Arg.(
+    value
+    & opt (enum values) Holyc_lib.Preprocessor.Aot
+    & info [ "mode" ] ~docv:"MODE" ~doc:documentation)
+
+let corpus_require_all_argument =
+  let documentation =
+    "Return a failure status unless every corpus file completes this phase."
+  in
+  Arg.(value & flag & info [ "require-all" ] ~doc:documentation)
+
+let corpus_lex format max_file_bytes expected_commit root =
   match
-    Holyc_lib.Corpus.lex_reference ~max_file_bytes
-      ~expected_commit:Holyc_lib.Version.reference_commit ~root ()
+    Holyc_lib.Corpus.lex_reference ~max_file_bytes ~expected_commit ~root ()
   with
   | Error message ->
       (match format with
@@ -358,13 +386,47 @@ let corpus_lex_command =
   Cmd.v info
     Term.(
       const corpus_lex $ format_argument $ corpus_file_bytes_argument
-      $ corpus_root_argument)
+      $ corpus_reference_commit_argument $ corpus_root_argument)
+
+let corpus_parse format max_file_bytes expected_commit compilation_mode
+    require_all root =
+  match
+    Holyc_lib.Corpus.Parse.reference ~max_file_bytes ~expected_commit
+      ~compilation_mode ~root ()
+  with
+  | Error message ->
+      (match format with
+      | Human -> Printf.eprintf "holyc: corpus parse: %s\n" message
+      | Json ->
+          Holyc_lib.Corpus.Parse.error_json message |> output_string stderr;
+          output_char stderr '\n');
+      1
+  | Ok report ->
+      (match format with
+      | Human -> Holyc_lib.Corpus.Parse.human report |> output_string stdout
+      | Json -> Holyc_lib.Corpus.Parse.json report |> print_endline);
+      if require_all && Holyc_lib.Corpus.Parse.has_failures report then 1 else 0
+
+let corpus_parse_command =
+  let documentation =
+    "Parse every .HC, .HH, and .PRJ object in the pinned reference tree. Each \
+     root file uses a fresh session. Known incompatibilities remain visible in \
+     the report; --require-all turns them into a command failure."
+  in
+  let info = Cmd.info "parse" ~doc:documentation in
+  Cmd.v info
+    Term.(
+      const corpus_parse $ format_argument $ corpus_file_bytes_argument
+      $ corpus_reference_commit_argument $ corpus_compilation_mode_argument
+      $ corpus_require_all_argument $ corpus_root_argument)
 
 let corpus_command =
   let documentation =
     "Measure compatibility stages against a verified TempleOS source tree."
   in
-  Cmd.group (Cmd.info "corpus" ~doc:documentation) [ corpus_lex_command ]
+  Cmd.group
+    (Cmd.info "corpus" ~doc:documentation)
+    [ corpus_lex_command; corpus_parse_command ]
 
 let version_command =
   let documentation = "Print compiler and reference revisions." in

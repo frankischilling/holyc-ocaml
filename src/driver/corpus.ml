@@ -300,7 +300,7 @@ let validate_reference root expected_commit =
                            expected_commit actual)))))
 
 let redact_root root message =
-  let replace text pattern =
+  let replace pattern text =
     if String.equal pattern "" then text
     else
       let pattern_length = String.length pattern in
@@ -657,3 +657,555 @@ let human report =
   |> List.filter (fun file -> file.status <> Tokenizes)
   |> List.iter (write_failure buffer);
   Buffer.contents buffer
+
+module Parse = struct
+  type status =
+    | Parses
+    | Frontend_diagnostics
+    | Parser_diagnostics
+    | Read_error
+    | Internal_error
+
+  type diagnostic = {
+    code : string;
+    severity : string;
+    message : string;
+    path : string;
+    line : int;
+    column : int;
+  }
+
+  type file_result = {
+    path : string;
+    bytes : int64 option;
+    diagnostic_count : int;
+    error_count : int;
+    warning_count : int;
+    note_count : int;
+    diagnostic_codes : (string * int) list;
+    status : status;
+    first_error : diagnostic option;
+    failure_message : string option;
+  }
+
+  type t = {
+    input : string;
+    reference_commit : string;
+    compilation_mode : Frontend.Preprocessor.compilation_mode;
+    files : file_result list;
+    parses_count : int;
+    frontend_diagnostic_count : int;
+    parser_diagnostic_count : int;
+    read_error_count : int;
+    internal_error_count : int;
+    total_bytes : int64;
+    total_diagnostic_count : int;
+    total_error_count : int;
+    total_warning_count : int;
+    total_note_count : int;
+    diagnostic_codes : (string * int) list;
+  }
+
+  module Code_map = Map.Make (String)
+
+  let schema = "holyc-corpus-parse-v1"
+
+  let status_name = function
+    | Parses -> "parses"
+    | Frontend_diagnostics -> "frontend-diagnostics"
+    | Parser_diagnostics -> "parser-diagnostics"
+    | Read_error -> "read-error"
+    | Internal_error -> "internal-error"
+
+  let reference_commit report = report.reference_commit
+  let compilation_mode report = report.compilation_mode
+  let files report = report.files
+  let file_count report = List.length report.files
+  let parses_count report = report.parses_count
+  let frontend_diagnostic_count report = report.frontend_diagnostic_count
+  let parser_diagnostic_count report = report.parser_diagnostic_count
+  let read_error_count report = report.read_error_count
+  let internal_error_count report = report.internal_error_count
+
+  let failure_count report =
+    report.frontend_diagnostic_count + report.parser_diagnostic_count
+    + report.read_error_count + report.internal_error_count
+
+  let total_bytes report = report.total_bytes
+  let diagnostic_count report = report.total_diagnostic_count
+  let error_count report = report.total_error_count
+  let warning_count report = report.total_warning_count
+  let note_count report = report.total_note_count
+  let diagnostic_codes report = report.diagnostic_codes
+  let has_failures report = failure_count report <> 0
+
+  let normalize_path path =
+    String.map (fun byte -> if Char.equal byte '\\' then '/' else byte) path
+
+  let trim_trailing_slashes path =
+    let rec stop index =
+      if index <= 1 then index
+      else if Char.equal path.[index - 1] '/' then stop (index - 1)
+      else index
+    in
+    String.sub path 0 (stop (String.length path))
+
+  let replace_all text ~pattern ~replacement =
+    if String.equal pattern "" then text
+    else
+      let pattern_length = String.length pattern in
+      let buffer = Buffer.create (String.length text) in
+      let rec copy offset =
+        if offset >= String.length text then Buffer.contents buffer
+        else if
+          offset + pattern_length <= String.length text
+          && String.sub text offset pattern_length = pattern
+        then (
+          Buffer.add_string buffer replacement;
+          copy (offset + pattern_length))
+        else (
+          Buffer.add_char buffer text.[offset];
+          copy (offset + 1))
+      in
+      copy 0
+
+  let report_message root message =
+    redact_root root message
+    |> replace_all ~pattern:"<reference>\\" ~replacement:"<reference>/"
+
+  let source_path ~root ~fallback source =
+    let raw = Common.Source_file.path source in
+    if Filename.is_relative raw then normalize_path raw
+    else
+      let root = normalize_path root |> trim_trailing_slashes in
+      let path = normalize_path raw in
+      let prefix = root ^ "/" in
+      if String.equal path root then "."
+      else if String.starts_with ~prefix path then
+        String.sub path (String.length prefix)
+          (String.length path - String.length prefix)
+      else
+        let display = Common.Source_file.display_path source in
+        if Filename.is_relative display then normalize_path display
+        else fallback
+
+  let diagnostic_summary ~root ~fallback sources (item : Common.Diagnostic.t) =
+    let path, line, column =
+      match Common.Source_manager.find sources item.primary.source with
+      | None -> (fallback, 0, 0)
+      | Some source ->
+          let path = source_path ~root ~fallback source in
+          let line, column =
+            match Common.Source_file.position source item.primary.start with
+            | Ok position -> (position.line, position.column)
+            | Error _ -> (0, 0)
+          in
+          (path, line, column)
+    in
+    {
+      code = item.code;
+      severity = Common.Diagnostic.severity_name item.severity;
+      message = report_message root item.message;
+      path;
+      line;
+      column;
+    }
+
+  let count_diagnostics diagnostics =
+    List.fold_left
+      (fun (errors, warnings, notes) (item : Common.Diagnostic.t) ->
+        match item.severity with
+        | Common.Diagnostic.Error -> (errors + 1, warnings, notes)
+        | Common.Diagnostic.Warning -> (errors, warnings + 1, notes)
+        | Common.Diagnostic.Note -> (errors, warnings, notes + 1))
+      (0, 0, 0) diagnostics
+
+  let code_counts diagnostics =
+    diagnostics
+    |> List.fold_left
+         (fun counts (item : Common.Diagnostic.t) ->
+           Code_map.update item.code
+             (function
+               | None -> Some 1
+               | Some count -> Some (count + 1))
+             counts)
+         Code_map.empty
+    |> Code_map.bindings
+
+  let classify_diagnostic code =
+    if String.starts_with ~prefix:"HCPARSE" code then Parser_diagnostics
+    else Frontend_diagnostics
+
+  let internal_result ~root ~path ~bytes message =
+    {
+      path;
+      bytes = Some bytes;
+      diagnostic_count = 0;
+      error_count = 0;
+      warning_count = 0;
+      note_count = 0;
+      diagnostic_codes = [];
+      status = Internal_error;
+      first_error = None;
+      failure_message = Some (report_message root message);
+    }
+
+  let parse_source session ~config ~root ~path source =
+    let bytes = Int64.of_int (Common.Source_file.length source) in
+    try
+      let output =
+        Frontend.Parser.parse ~sources:(Session.sources session)
+          ~definitions:(Session.definitions session)
+          ~symbols:(Session.symbols session) ~config source
+      in
+      let diagnostics = output.diagnostics in
+      let diagnostic_count = List.length diagnostics in
+      let error_count, warning_count, note_count =
+        count_diagnostics diagnostics
+      in
+      let first_error_item =
+        List.find_opt
+          (fun (item : Common.Diagnostic.t) ->
+            item.severity = Common.Diagnostic.Error)
+          diagnostics
+      in
+      let first_error =
+        Option.map
+          (diagnostic_summary ~root ~fallback:path (Session.sources session))
+          first_error_item
+      in
+      let status, failure_message =
+        match (output.ast, first_error) with
+        | Some _, None -> (Parses, None)
+        | None, Some diagnostic -> (classify_diagnostic diagnostic.code, None)
+        | None, None ->
+            ( Internal_error,
+              Some "the parser returned no syntax tree and no error diagnostic"
+            )
+        | Some _, Some _ ->
+            ( Internal_error,
+              Some "the parser returned a syntax tree while reporting an error"
+            )
+      in
+      {
+        path;
+        bytes = Some bytes;
+        diagnostic_count;
+        error_count;
+        warning_count;
+        note_count;
+        diagnostic_codes = code_counts diagnostics;
+        status;
+        first_error;
+        failure_message;
+      }
+    with error ->
+      internal_result ~root ~path ~bytes (Printexc.to_string error)
+
+  let read_error ?bytes ~root ~path message =
+    {
+      path;
+      bytes;
+      diagnostic_count = 0;
+      error_count = 0;
+      warning_count = 0;
+      note_count = 0;
+      diagnostic_codes = [];
+      status = Read_error;
+      first_error = None;
+      failure_message = Some (report_message root message);
+    }
+
+  let make_config ~root ~max_file_bytes ~compilation_mode =
+    match
+      Frontend.Preprocessor.Config.create ~working_directory:root
+        ~templeos_root:root ~compilation_mode ~max_source_bytes:max_file_bytes
+        ~physical_nul_terminates:true ~predefined_date:"01/01/70"
+        ~predefined_time:"00:00:00" ~command_line_source:false ()
+    with
+    | Ok config -> Ok config
+    | Error message -> Error (report_message root message)
+
+  let scan_file ~config ~root ~max_file_bytes (path, absolute) =
+    let session = Session.create () in
+    match
+      Session.load_source ~max_bytes:max_file_bytes ~display_path:path session
+        ~path:absolute
+    with
+    | Error message -> read_error ~root ~path (report_message root message)
+    | Ok source -> parse_source session ~config ~root ~path source
+
+  let scan_reference_file ~config ~root ~max_file_bytes
+      (entry : reference_entry) =
+    if entry.bytes > Int64.of_int max_file_bytes then
+      read_error ~bytes:entry.bytes ~root ~path:entry.path
+        (Printf.sprintf "source exceeds the %d-byte corpus file limit"
+           max_file_bytes)
+    else
+      match git_raw root [ "cat-file"; "blob"; entry.object_id ] with
+      | Error message ->
+          read_error ~bytes:entry.bytes ~root ~path:entry.path
+            ("could not read reference object: " ^ message)
+      | Ok contents ->
+          if Int64.of_int (String.length contents) <> entry.bytes then
+            read_error ~bytes:entry.bytes ~root ~path:entry.path
+              "Git returned a reference object with an unexpected byte count"
+          else
+            let session = Session.create () in
+            let source =
+              Session.add_source session
+                ~path:(Filename.concat root entry.path)
+                ~contents
+            in
+            parse_source session ~config ~root ~path:entry.path source
+
+  let checked_sum_int label values =
+    let rec loop total = function
+      | [] -> Ok total
+      | value :: rest ->
+          if value < 0 || total > Stdlib.max_int - value then
+            Error (label ^ " exceeds the supported report range")
+          else loop (total + value) rest
+    in
+    loop 0 values
+
+  let checked_sum_int64 label values =
+    let rec loop total = function
+      | [] -> Ok total
+      | value :: rest -> (
+          match checked_add label total value with
+          | Error _ as error -> error
+          | Ok total -> loop total rest)
+    in
+    loop 0L values
+
+  let merged_code_counts files =
+    let add_file counts (file : file_result) =
+      List.fold_left
+        (fun counts (code, count) ->
+          Code_map.update code
+            (function
+              | None -> Some count
+              | Some prior -> Some (prior + count))
+            counts)
+        counts file.diagnostic_codes
+    in
+    List.fold_left add_file Code_map.empty files |> Code_map.bindings
+
+  let summarize ~input ~reference_commit ~compilation_mode files =
+    let ( let* ) = Result.bind in
+    let status_count status =
+      List.fold_left
+        (fun count file -> if file.status = status then count + 1 else count)
+        0 files
+    in
+    let* total_bytes =
+      checked_sum_int64 "parser corpus byte count"
+        (List.map (fun file -> Option.value file.bytes ~default:0L) files)
+    in
+    let* total_diagnostic_count =
+      checked_sum_int "parser corpus diagnostic count"
+        (List.map (fun file -> file.diagnostic_count) files)
+    in
+    let* total_error_count =
+      checked_sum_int "parser corpus error count"
+        (List.map (fun file -> file.error_count) files)
+    in
+    let* total_warning_count =
+      checked_sum_int "parser corpus warning count"
+        (List.map (fun file -> file.warning_count) files)
+    in
+    let* total_note_count =
+      checked_sum_int "parser corpus note count"
+        (List.map (fun file -> file.note_count) files)
+    in
+    Ok
+      {
+        input;
+        reference_commit;
+        compilation_mode;
+        files;
+        parses_count = status_count Parses;
+        frontend_diagnostic_count = status_count Frontend_diagnostics;
+        parser_diagnostic_count = status_count Parser_diagnostics;
+        read_error_count = status_count Read_error;
+        internal_error_count = status_count Internal_error;
+        total_bytes;
+        total_diagnostic_count;
+        total_error_count;
+        total_warning_count;
+        total_note_count;
+        diagnostic_codes = merged_code_counts files;
+      }
+
+  let tree ?(max_file_bytes = 64 * 1024 * 1024) ~reference_commit
+      ~compilation_mode ~root () =
+    if max_file_bytes < 0 then
+      Error "parser corpus file byte limit must be nonnegative"
+    else
+      match canonical_directory root with
+      | Error _ as error -> error
+      | Ok root -> (
+          match make_config ~root ~max_file_bytes ~compilation_mode with
+          | Error _ as error -> error
+          | Ok config -> (
+              match discover root with
+              | Error _ as error -> error
+              | Ok paths ->
+                  paths
+                  |> List.map (scan_file ~config ~root ~max_file_bytes)
+                  |> summarize ~input:"filesystem-tree" ~reference_commit
+                       ~compilation_mode))
+
+  let reference ?(max_file_bytes = 64 * 1024 * 1024) ~expected_commit
+      ~compilation_mode ~root () =
+    if max_file_bytes < 0 then
+      Error "parser corpus file byte limit must be nonnegative"
+    else
+      match validate_reference root expected_commit with
+      | Error _ as error -> error
+      | Ok root -> (
+          match make_config ~root ~max_file_bytes ~compilation_mode with
+          | Error _ as error -> error
+          | Ok config -> (
+              match discover_reference root with
+              | Error _ as error -> error
+              | Ok entries -> (
+                  let result =
+                    entries
+                    |> List.map
+                         (scan_reference_file ~config ~root ~max_file_bytes)
+                    |> summarize ~input:"verified-git-tree"
+                         ~reference_commit:expected_commit ~compilation_mode
+                  in
+                  match result with
+                  | Error _ as error -> error
+                  | Ok report -> (
+                      match validate_reference root expected_commit with
+                      | Error _ as error -> error
+                      | Ok _ -> Ok report))))
+
+  let diagnostic_json diagnostic =
+    `Assoc
+      [
+        ("code", `String diagnostic.code);
+        ("severity", `String diagnostic.severity);
+        ("message", `String diagnostic.message);
+        ("path", `String diagnostic.path);
+        ("line", `Int diagnostic.line);
+        ("column", `Int diagnostic.column);
+      ]
+
+  let code_counts_json counts =
+    `Assoc (List.map (fun (code, count) -> (code, `Int count)) counts)
+
+  let file_json file =
+    `Assoc
+      [
+        ("path", `String file.path);
+        ("status", `String (status_name file.status));
+        ( "bytes",
+          match file.bytes with
+          | None -> `Null
+          | Some bytes -> int64_json bytes );
+        ("diagnostics", `Int file.diagnostic_count);
+        ("errors", `Int file.error_count);
+        ("warnings", `Int file.warning_count);
+        ("notes", `Int file.note_count);
+        ("diagnostic_codes", code_counts_json file.diagnostic_codes);
+        ( "first_error",
+          match file.first_error with
+          | None -> `Null
+          | Some diagnostic -> diagnostic_json diagnostic );
+        ( "failure_message",
+          match file.failure_message with
+          | None -> `Null
+          | Some message -> `String message );
+      ]
+
+  let to_yojson report =
+    `Assoc
+      [
+        ("schema", `String schema);
+        ("phase", `String "parse");
+        ("input", `String report.input);
+        ("reference_commit", `String report.reference_commit);
+        ( "compilation_mode",
+          `String
+            (Frontend.Preprocessor.compilation_mode_name report.compilation_mode)
+        );
+        ( "summary",
+          `Assoc
+            [
+              ("files", `Int (file_count report));
+              ("parses", `Int report.parses_count);
+              ("frontend_diagnostics", `Int report.frontend_diagnostic_count);
+              ("parser_diagnostics", `Int report.parser_diagnostic_count);
+              ("read_errors", `Int report.read_error_count);
+              ("internal_errors", `Int report.internal_error_count);
+              ("failed", `Int (failure_count report));
+              ("bytes", int64_json report.total_bytes);
+              ("diagnostics", `Int report.total_diagnostic_count);
+              ("errors", `Int report.total_error_count);
+              ("warnings", `Int report.total_warning_count);
+              ("notes", `Int report.total_note_count);
+              ("diagnostic_codes", code_counts_json report.diagnostic_codes);
+            ] );
+        ("files", `List (List.map file_json report.files));
+      ]
+
+  let json report = to_yojson report |> Yojson.Safe.pretty_to_string
+
+  let error_json message =
+    `Assoc
+      [
+        ("schema", `String "holyc-corpus-parse-error-v1");
+        ("phase", `String "parse");
+        ("message", `String message);
+      ]
+    |> Yojson.Safe.pretty_to_string
+
+  let write_failure buffer file =
+    match (file.first_error, file.failure_message) with
+    | Some diagnostic, _ ->
+        Printf.bprintf buffer "failure %s %s at %s:%d:%d %s %s\n" file.path
+          (status_name file.status) diagnostic.path diagnostic.line
+          diagnostic.column diagnostic.code diagnostic.message
+    | None, Some message ->
+        Printf.bprintf buffer "failure %s %s %s\n" file.path
+          (status_name file.status) message
+    | None, None ->
+        Printf.bprintf buffer "failure %s %s\n" file.path
+          (status_name file.status)
+
+  let human report =
+    let buffer = Buffer.create 512 in
+    Printf.bprintf buffer "%s\n" schema;
+    Printf.bprintf buffer "phase parse\n";
+    Printf.bprintf buffer "input %s\n" report.input;
+    Printf.bprintf buffer "templeos-reference %s\n" report.reference_commit;
+    Printf.bprintf buffer "compilation-mode %s\n"
+      (Frontend.Preprocessor.compilation_mode_name report.compilation_mode);
+    Printf.bprintf buffer "files %d\n" (file_count report);
+    Printf.bprintf buffer "parses %d\n" report.parses_count;
+    Printf.bprintf buffer "failed %d\n" (failure_count report);
+    Printf.bprintf buffer "frontend-diagnostics %d\n"
+      report.frontend_diagnostic_count;
+    Printf.bprintf buffer "parser-diagnostics %d\n"
+      report.parser_diagnostic_count;
+    Printf.bprintf buffer "read-errors %d\n" report.read_error_count;
+    Printf.bprintf buffer "internal-errors %d\n" report.internal_error_count;
+    Printf.bprintf buffer "bytes %Ld\n" report.total_bytes;
+    Printf.bprintf buffer "diagnostics %d\n" report.total_diagnostic_count;
+    Printf.bprintf buffer "errors %d\n" report.total_error_count;
+    Printf.bprintf buffer "warnings %d\n" report.total_warning_count;
+    Printf.bprintf buffer "notes %d\n" report.total_note_count;
+    List.iter
+      (fun (code, count) ->
+        Printf.bprintf buffer "diagnostic-code %s %d\n" code count)
+      report.diagnostic_codes;
+    report.files
+    |> List.filter (fun file -> file.status <> Parses)
+    |> List.iter (write_failure buffer);
+    Buffer.contents buffer
+end

@@ -109,6 +109,7 @@
   (source_tree ../third_party/TempleOS/Demo)
   (source_tree ../third_party/TempleOS/Kernel)
   ../reference/assembly-blocks.json
+  ../reference/parser-corpus-aot.json
   oracle/function-definitions.json
   oracle/local-declarations.json
   oracle/parenthesis-free-calls.json

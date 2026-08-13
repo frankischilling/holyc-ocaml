@@ -3044,6 +3044,45 @@ encoding = "not implemented"
 execution = "not implemented"
 
 [[feature]]
+id = "HC-PARSER-CORPUS"
+description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
+sources = [
+  "Compiler/Compiler.PRJ",
+  "Compiler/PrsLib.HC",
+  "Compiler/PrsExp.HC",
+  "Compiler/PrsVar.HC",
+  "Compiler/PrsStmt.HC"
+]
+implementation = [
+  "src/driver/corpus.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_corpus.ml",
+  "reference/parser-corpus-aot.json",
+  ".github/workflows/corpus.yml"
+]
+status = "implemented"
+issue = 153
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+report_schema = "holyc-corpus-parse-v1"
+default_mode = "aot"
+source_objects = 528
+parses = 20
+frontend_diagnostics = 16
+parser_diagnostics = 492
+read_errors = 0
+internal_errors = 0
+diagnostics = 37452
+root_source_bytes = "Git blob"
+include_source_bytes = "clean verified checkout"
+physical_nul_behavior = "ends root and included source before any trailing payload"
+session_scope = "one fresh session per root object"
+exclusions = 0
+strict_gate = "--require-all"
+semantic_compatibility = "not evaluated"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [
