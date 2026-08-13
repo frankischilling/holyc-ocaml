@@ -43,6 +43,7 @@ module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
+module Semantic_aggregate_layout = Sema.Aggregate_layout
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
@@ -151,6 +152,18 @@ val resolve_member_types :
 (** Resolve aggregate member type references at their source publication points.
     Array extents, callback signatures, layout, inherited lookup, and linkage
     remain separate passes. *)
+
+val layout_aggregates :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  aggregates:Semantic_aggregate_resolution.t ->
+  headers:Semantic_aggregate_header_resolution.t ->
+  members:Semantic_member_type_resolution.t ->
+  Ast.module_ ->
+  (Semantic_aggregate_layout.t, string) result
+(** Calculate source-ordered layouts whose dimensions, offsets, bases, and
+    by-value members have closed values. Unresolved semantic constants and later
+    aggregate definitions remain explicit errors. *)
 
 val resolve_function_types :
   Session.t ->
