@@ -101,6 +101,16 @@ let simple_completion () =
     "both declarations map to the definition"
     [ symbol_id definition_symbol; symbol_id definition_symbol ]
     (declaration_identity_ids resolution);
+  Alcotest.(check (list string))
+    "both declaration roles remain visible"
+    [ "forward"; "definition" ]
+    (declaration_sites resolution
+    |> List.map Semantic_aggregate_resolution.declaration_site_kind
+    |> List.map Semantic_aggregate_resolution.declaration_kind_name);
+  Alcotest.(check (list int))
+    "both module positions remain visible" [ 0; 1 ]
+    (declaration_sites resolution
+    |> List.map Semantic_aggregate_resolution.declaration_site_item_index);
   Alcotest.(check (list int))
     "the identity keeps its forward position" [ 0 ]
     (Semantic_aggregate_resolution.identities resolution
