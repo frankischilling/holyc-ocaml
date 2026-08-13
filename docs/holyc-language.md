@@ -67,10 +67,17 @@ aggregate-definition := declaration-modifier* aggregate-backing? aggregate-keywo
 aggregate-tail       := ";" | global-declarator ("," global-declarator)* ";"
 aggregate-backing  := type-specifier pointer-star{0,4}
 aggregate-base     := ":" visible-class-name
-aggregate-member   := member-declaration | anonymous-union | ";"
+aggregate-member   := member-declaration | aggregate-offset-directive
+                    | anonymous-union | ";"
 member-declaration := type-specifier member-declarator
                       ("," member-declarator)* ";"
-member-declarator  := pointer-star{0,4} identifier array-dimension*
+member-declarator  := pointer-star{0,4} member-declarator-core array-dimension*
+member-declarator-core := aggregate-member-name
+                        | "(" pointer-star{1,4} aggregate-member-name ")"
+                          "(" parameter-list? ")"
+aggregate-member-name := identifier | language-keyword
+language-keyword    := one of the 48 checked KW_* spellings
+aggregate-offset-directive := "$$" "=" core-expression ";"
 anonymous-union    := "union" "{" aggregate-member* "}" ";"?
 aggregate-keyword  := "class" | "union"
 global-declaration := declaration-modifier* declaration-binding? type-specifier
@@ -206,6 +213,8 @@ For a definition, `Compiler/PrsStmt.HC:PrsClass` creates or reuses the named cla
 The definition AST retains ordered modifiers, an optional backing type with zero through four pointer layers, the distinct aggregate kind, keyword, name, an optional base, both braces, every member, and either a standalone semicolon or attached global declarators. The base record keeps the colon and identifier spellings and locations separately. An ordinary member group keeps one primitive, intrinsic, or visible named type plus independent return-pointer layers, an optional recursive function-pointer declarator, array dimensions, and comma or semicolon delimiters for each name. An anonymous union owns its recursive member list and records whether a semicolon followed its closing brace. Empty member semicolons remain explicit nodes. The aggregate name enters the parser environment before the base token or members are read, matching the source publication point. Both compile modes share this syntax, and generated definitions retain their invocation and definition locations. `HCPARSE0121` rejects a missing or nonclass base, while `HCPARSE0126` reports a second base. Other `HCPARSE0109` through `HCPARSE0125` diagnostics cover malformed bodies, remaining deferred forms, unknown backings, and a binding before a backed definition. `HCPARSE0133` and `HCPARSE0134` cover malformed member callbacks. A hosted limit of 256 nested anonymous unions prevents parser exhaustion.
 
 Inside `PrsVarLst`, class mode enables `CCF_CLASS_DOL_OFFSET`, initializes `class_dol_offset` from the current class size or union base, skips ordinary member semicolons, and then accepts repeated `$$ = LexExpression;` directives. The pinned corpus contains four direct forms: `Demo/Lectures/NegDisp.HC:35` starts `Person` at `-128`; `Kernel/KernelA.HH:447` aligns `CKernel`; line 3422 advances `CSysFixedArea` to a page boundary; and line 3806 sets `CFunSegCache` to 64. The aggregate-member AST has a distinct offset-directive node that retains the `$$` marker, equals sign, ordinary HolyC expression, semicolon, complete span, and generated-source provenance. The same member loop covers classes, named unions, and anonymous unions. `HCPARSE0142` reports a missing equals sign, `HCPARSE0018` reports a missing value in the aggregate-offset expression context, and `HCPARSE0143` reports a missing semicolon. Outside an aggregate member list, `$$` remains the existing current-position expression, so `$$=8;` is represented as an ordinary assignment statement rather than an aggregate directive.
+
+TempleOS does not assign a distinct lexer token kind to language keywords. `Compiler/Lex.HC:493-514` attaches the hash entry and still returns `TK_IDENT`; `Compiler/PrsLib.HC:PrsKeyWord` interprets that token as a keyword only when the active grammar asks. `PrsType` consequently accepts a keyword spelling when it reaches a member-name slot. The OCaml lexer retains its more descriptive keyword token kind, while the aggregate declarator parser converts that token to an ordinary source-positioned identifier only in the corresponding name slot. This covers ordinary, pointer, array, grouped, and recursive function-pointer members in classes, named unions, and anonymous unions without changing keyword dispatch elsewhere. A pinned scan finds 12 direct `U0 start;` members in `Kernel/KernelA.HH`, `Adam/Gr/Gr.HH`, and `Adam/Gr/SpriteMesh.HC`; the exact `CKernel` region now parses from its opening brace through the aligned `sys_gdt` member. Other declaration-name contexts remain deliberately strict pending their own audits.
 
 After `PrsClass` consumes the closing brace, it calls `PrsGlblVarLst` with the completed aggregate type unless the next token is a semicolon. That path admits the same pointer, array, comma-list, and initialization syntax as an ordinary global declaration. `PrsVarInit`, `PrsVarInit2`, and `PrsGlblInit` recursively consume scalar and braced initial values. The AST mirrors that handoff with `attached_declarators` and a recursive initial-value tree. Each completed attached name enters the streaming environment before the next token is requested. `HCPARSE0127` through `HCPARSE0130` report a missing initial value, a missing list separator, an unclosed list, and excessive nesting.
 

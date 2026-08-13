@@ -2329,6 +2329,55 @@ native_oracle_status = "not required; dispatch and punctuation are explicit in t
 offset_evaluation_negative_offset_union_base_alignment_and_layout = "planned"
 
 [[feature]]
+id = "HC-PARSER-CONTEXTUAL-AGGREGATE-MEMBER-NAMES"
+description = "Aggregate declarators retain language-keyword spellings as source-positioned member identifiers where TempleOS treats keyword recognition contextually."
+sources = [
+  "Compiler/Lex.HC:493-514 identifier hash lookup and TK_IDENT result",
+  "Compiler/PrsLib.HC:31-37 PrsKeyWord",
+  "Compiler/PrsVar.HC:285-370 PrsType declarator-name path",
+  "Compiler/CompilerA.HH:239-286 language keyword identities",
+  "Kernel/KernelA.HH:215,233,440,1123,2526,2789,2805,3601 U0 start members",
+  "Adam/Gr/Gr.HH:13,160 U0 start members",
+  "Adam/Gr/SpriteMesh.HC:12,27 U0 start members"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-contextual-member-names.hc",
+  "test/cli/parse-contextual-member-names.human",
+  "test/cli/parse-contextual-member-names.json"
+]
+status = "implemented"
+issue = 147
+ast_schema = "holyc-ast-v1"
+accepted_contexts = [
+  "ordinary class member names",
+  "ordinary named-union member names",
+  "ordinary anonymous-union member names",
+  "recursive function-pointer aggregate member names"
+]
+accepted_spelling_count = 48
+lexer_behavior = "the OCaml lexer retains explicit keyword tokens; token dumps and keyword identities do not change"
+parser_adaptation = "a keyword token becomes an Ast.identifier only after an aggregate type and pointer or callback prefix place the parser in a member-name slot"
+direct_corpus_member_count = 12
+direct_corpus_spelling = "start"
+pinned_ckernel_slice = "Kernel/KernelA.HH:430-449 parses through start, the explicit alignment directive, and sys_gdt"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+unaffected_name_contexts = [
+  "globals",
+  "locals",
+  "parameters",
+  "functions",
+  "aggregate declarations",
+  "labels"
+]
+native_oracle_status = "not required; the pinned lexer and PrsKeyWord contract make the contextual identity behavior explicit"
+semantic_member_identity_layout_and_duplicates = "planned"
+
+[[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-MEMBERS"
 description = "Class, union, and anonymous-union member declarators retain recursive function-pointer signatures separately from return-pointer layers, arrays, and group delimiters."
 sources = [

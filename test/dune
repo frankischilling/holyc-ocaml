@@ -66,7 +66,9 @@
   ../third_party/TempleOS/Compiler/PrsVar.HC
   ../third_party/TempleOS/Compiler/PrsExp.HC
   ../third_party/TempleOS/Compiler/UAsm.HC
+  ../third_party/TempleOS/Adam/Gr/Gr.HH
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
+  ../third_party/TempleOS/Adam/Gr/SpriteMesh.HC
   ../third_party/TempleOS/Adam/WallPaper.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
@@ -3577,3 +3579,37 @@
    (diff
     cli/parse-aggregate-offset-error.json
     parse-aggregate-offset-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-contextual-member-names.human.actual)
+ (deps
+  cli/parse-contextual-member-names.hc
+  cli/parse-contextual-member-names.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-contextual-member-names.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-contextual-member-names.hc))
+   (diff
+    cli/parse-contextual-member-names.human
+    parse-contextual-member-names.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-contextual-member-names.json.actual)
+ (deps
+  cli/parse-contextual-member-names.hc
+  cli/parse-contextual-member-names.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-contextual-member-names.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-contextual-member-names.hc))
+   (diff
+    cli/parse-contextual-member-names.json
+    parse-contextual-member-names.json.actual))))

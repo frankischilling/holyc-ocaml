@@ -1,0 +1,1806 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-contextual-member-names.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 117
+    },
+    "items": [
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 5
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "ContextualNames",
+          "location": {
+            "span": {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 21
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 1,
+                "column": 7,
+                "source_id": 0,
+                "start": 6,
+                "stop": 21
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-contextual-member-names.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 22,
+            "stop": 23
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 29
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 29
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "start",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 35
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 3,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 35
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "comma",
+                  "spelling": ",",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 35,
+                      "stop": 36
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 3,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 35,
+                        "stop": 36
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 36
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 30,
+                      "stop": 35
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 35,
+                      "stop": 36
+                    }
+                  ]
+                }
+              },
+              {
+                "name": {
+                  "spelling": "end",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 36,
+                      "stop": 39
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 3,
+                        "column": 13,
+                        "source_id": 0,
+                        "start": 36,
+                        "stop": 39
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 40
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 3,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 40
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 3,
+                    "column": 13,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 40
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 13,
+                      "source_id": 0,
+                      "start": 36,
+                      "stop": 39
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 3,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 40
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 26,
+                "stop": 40
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 29
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 30,
+                  "stop": 35
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 35,
+                  "stop": 36
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 13,
+                  "source_id": 0,
+                  "start": 36,
+                  "stop": 39
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 3,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 39,
+                  "stop": 40
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "U8",
+              "spelling": "U8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 45
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 43,
+                    "stop": 45
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "pointer_layers": [
+                  {
+                    "depth": 1,
+                    "spelling": "*",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 46,
+                        "stop": 47
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 6,
+                          "source_id": 0,
+                          "start": 46,
+                          "stop": 47
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "name": {
+                  "spelling": "if",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 47,
+                      "stop": 49
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 47,
+                        "stop": 49
+                      }
+                    ]
+                  }
+                },
+                "array_dimensions": [
+                  {
+                    "opening_bracket": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 50
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 50
+                        }
+                      ]
+                    },
+                    "expression": {
+                      "kind": "integer_literal",
+                      "spelling": "3",
+                      "value": "0x0000000000000003",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 50,
+                          "stop": 51
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 4,
+                            "column": 10,
+                            "source_id": 0,
+                            "start": 50,
+                            "stop": 51
+                          }
+                        ]
+                      }
+                    },
+                    "closing_bracket": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 51,
+                        "stop": 52
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 51,
+                          "stop": 52
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 52
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 50
+                        },
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 50,
+                          "stop": 51
+                        },
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 51,
+                          "stop": 52
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 52,
+                      "stop": 53
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 4,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 52,
+                        "stop": 53
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 4,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 46,
+                    "stop": 53
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 46,
+                      "stop": 47
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 47,
+                      "stop": 49
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 50
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 50,
+                      "stop": 51
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 51,
+                      "stop": 52
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 4,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 52,
+                      "stop": 53
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 43,
+                "stop": 53
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 43,
+                  "stop": 45
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 46,
+                  "stop": 47
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 47,
+                  "stop": 49
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 49,
+                  "stop": 50
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 50,
+                  "stop": 51
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 51,
+                  "stop": 52
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 4,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 52,
+                  "stop": 53
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 56,
+                  "stop": 59
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 56,
+                    "stop": 59
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "function_pointer": {
+                  "kind": "function_pointer",
+                  "opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 60,
+                      "stop": 61
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 60,
+                        "stop": 61
+                      }
+                    ]
+                  },
+                  "pointer_layers": [
+                    {
+                      "depth": 1,
+                      "spelling": "*",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 5,
+                          "column": 8,
+                          "source_id": 0,
+                          "start": 61,
+                          "stop": 62
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 5,
+                            "column": 8,
+                            "source_id": 0,
+                            "start": 61,
+                            "stop": 62
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "name": {
+                    "spelling": "switch",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 68
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 5,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 62,
+                          "stop": 68
+                        }
+                      ]
+                    }
+                  },
+                  "closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 68,
+                      "stop": 69
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 68,
+                        "stop": 69
+                      }
+                    ]
+                  },
+                  "signature_opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 69,
+                      "stop": 70
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 69,
+                        "stop": 70
+                      }
+                    ]
+                  },
+                  "parameters": [
+                    {
+                      "type": {
+                        "kind": "primitive",
+                        "primitive": "I64",
+                        "spelling": "I64",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 5,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 70,
+                            "stop": 73
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-contextual-member-names.hc",
+                              "line": 5,
+                              "column": 17,
+                              "source_id": 0,
+                              "start": 70,
+                              "stop": 73
+                            }
+                          ]
+                        }
+                      },
+                      "name": {
+                        "spelling": "value",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 5,
+                            "column": 21,
+                            "source_id": 0,
+                            "start": 74,
+                            "stop": 79
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-contextual-member-names.hc",
+                              "line": 5,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 74,
+                              "stop": 79
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 5,
+                          "column": 17,
+                          "source_id": 0,
+                          "start": 70,
+                          "stop": 79
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 5,
+                            "column": 17,
+                            "source_id": 0,
+                            "start": 70,
+                            "stop": 73
+                          },
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 5,
+                            "column": 21,
+                            "source_id": 0,
+                            "start": 74,
+                            "stop": 79
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "signature_closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 79,
+                      "stop": 80
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 79,
+                        "stop": 80
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 60,
+                      "stop": 80
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 60,
+                        "stop": 61
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 8,
+                        "source_id": 0,
+                        "start": 61,
+                        "stop": 62
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 62,
+                        "stop": 68
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 68,
+                        "stop": 69
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 69,
+                        "stop": 70
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 17,
+                        "source_id": 0,
+                        "start": 70,
+                        "stop": 73
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 74,
+                        "stop": 79
+                      },
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 79,
+                        "stop": 80
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 80,
+                      "stop": 81
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 5,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 80,
+                        "stop": 81
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 5,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 81
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 60,
+                      "stop": 61
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 8,
+                      "source_id": 0,
+                      "start": 61,
+                      "stop": 62
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 62,
+                      "stop": 68
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 15,
+                      "source_id": 0,
+                      "start": 68,
+                      "stop": 69
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 69,
+                      "stop": 70
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 17,
+                      "source_id": 0,
+                      "start": 70,
+                      "stop": 73
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 74,
+                      "stop": 79
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 26,
+                      "source_id": 0,
+                      "start": 79,
+                      "stop": 80
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 5,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 80,
+                      "stop": 81
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 56,
+                "stop": 81
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 56,
+                  "stop": 59
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 60,
+                  "stop": 61
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 8,
+                  "source_id": 0,
+                  "start": 61,
+                  "stop": 62
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 62,
+                  "stop": 68
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 69
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 69,
+                  "stop": 70
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 70,
+                  "stop": 73
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 74,
+                  "stop": 79
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 79,
+                  "stop": 80
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 5,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 80,
+                  "stop": 81
+                }
+              ]
+            }
+          },
+          {
+            "kind": "anonymous_union",
+            "keyword": {
+              "spelling": "union",
+              "location": {
+                "span": {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 84,
+                  "stop": 89
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 84,
+                    "stop": 89
+                  }
+                ]
+              }
+            },
+            "opening_brace": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 92,
+                "stop": 93
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 92,
+                  "stop": 93
+                }
+              ]
+            },
+            "members": [
+              {
+                "kind": "member_declaration",
+                "type": {
+                  "kind": "primitive",
+                  "primitive": "I16",
+                  "spelling": "I16",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 8,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 98,
+                      "stop": 101
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 8,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 98,
+                        "stop": 101
+                      }
+                    ]
+                  }
+                },
+                "declarators": [
+                  {
+                    "name": {
+                      "spelling": "class",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 8,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 102,
+                          "stop": 107
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 8,
+                            "column": 9,
+                            "source_id": 0,
+                            "start": 102,
+                            "stop": 107
+                          }
+                        ]
+                      }
+                    },
+                    "delimiter": {
+                      "kind": "semicolon",
+                      "spelling": ";",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 8,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 107,
+                          "stop": 108
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-contextual-member-names.hc",
+                            "line": 8,
+                            "column": 14,
+                            "source_id": 0,
+                            "start": 107,
+                            "stop": 108
+                          }
+                        ]
+                      }
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-contextual-member-names.hc",
+                        "line": 8,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 102,
+                        "stop": 108
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 8,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 102,
+                          "stop": 107
+                        },
+                        {
+                          "path": "cli/parse-contextual-member-names.hc",
+                          "line": 8,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 107,
+                          "stop": 108
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "location": {
+                  "span": {
+                    "path": "cli/parse-contextual-member-names.hc",
+                    "line": 8,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 98,
+                    "stop": 108
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 8,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 98,
+                      "stop": 101
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 8,
+                      "column": 9,
+                      "source_id": 0,
+                      "start": 102,
+                      "stop": 107
+                    },
+                    {
+                      "path": "cli/parse-contextual-member-names.hc",
+                      "line": 8,
+                      "column": 14,
+                      "source_id": 0,
+                      "start": 107,
+                      "stop": 108
+                    }
+                  ]
+                }
+              }
+            ],
+            "closing_brace": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 9,
+                "column": 3,
+                "source_id": 0,
+                "start": 111,
+                "stop": 112
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 9,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 111,
+                  "stop": 112
+                }
+              ]
+            },
+            "semicolon": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 9,
+                "column": 4,
+                "source_id": 0,
+                "start": 112,
+                "stop": 113
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 9,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 112,
+                  "stop": 113
+                }
+              ]
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-contextual-member-names.hc",
+                "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 84,
+                "stop": 113
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 84,
+                  "stop": 89
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 92,
+                  "stop": 93
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 8,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 98,
+                  "stop": 101
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 8,
+                  "column": 9,
+                  "source_id": 0,
+                  "start": 102,
+                  "stop": 107
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 8,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 107,
+                  "stop": 108
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 9,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 111,
+                  "stop": 112
+                },
+                {
+                  "path": "cli/parse-contextual-member-names.hc",
+                  "line": 9,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 112,
+                  "stop": 113
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-contextual-member-names.hc",
+            "line": 10,
+            "column": 1,
+            "source_id": 0,
+            "start": 114,
+            "stop": 115
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 10,
+              "column": 1,
+              "source_id": 0,
+              "start": 114,
+              "stop": 115
+            }
+          ]
+        },
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-contextual-member-names.hc",
+            "line": 10,
+            "column": 2,
+            "source_id": 0,
+            "start": 115,
+            "stop": 116
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 10,
+              "column": 2,
+              "source_id": 0,
+              "start": 115,
+              "stop": 116
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-contextual-member-names.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 116
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 5
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 1,
+              "column": 7,
+              "source_id": 0,
+              "start": 6,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 30,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 3,
+              "column": 12,
+              "source_id": 0,
+              "start": 35,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 3,
+              "column": 13,
+              "source_id": 0,
+              "start": 36,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 3,
+              "column": 16,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 43,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 6,
+              "source_id": 0,
+              "start": 46,
+              "stop": 47
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 7,
+              "source_id": 0,
+              "start": 47,
+              "stop": 49
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 9,
+              "source_id": 0,
+              "start": 49,
+              "stop": 50
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 10,
+              "source_id": 0,
+              "start": 50,
+              "stop": 51
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 11,
+              "source_id": 0,
+              "start": 51,
+              "stop": 52
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 4,
+              "column": 12,
+              "source_id": 0,
+              "start": 52,
+              "stop": 53
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 56,
+              "stop": 59
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 7,
+              "source_id": 0,
+              "start": 60,
+              "stop": 61
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 8,
+              "source_id": 0,
+              "start": 61,
+              "stop": 62
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 9,
+              "source_id": 0,
+              "start": 62,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 15,
+              "source_id": 0,
+              "start": 68,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 16,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 17,
+              "source_id": 0,
+              "start": 70,
+              "stop": 73
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 21,
+              "source_id": 0,
+              "start": 74,
+              "stop": 79
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 26,
+              "source_id": 0,
+              "start": 79,
+              "stop": 80
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 5,
+              "column": 27,
+              "source_id": 0,
+              "start": 80,
+              "stop": 81
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 84,
+              "stop": 89
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 92,
+              "stop": 93
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 8,
+              "column": 5,
+              "source_id": 0,
+              "start": 98,
+              "stop": 101
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 8,
+              "column": 9,
+              "source_id": 0,
+              "start": 102,
+              "stop": 107
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 8,
+              "column": 14,
+              "source_id": 0,
+              "start": 107,
+              "stop": 108
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 9,
+              "column": 3,
+              "source_id": 0,
+              "start": 111,
+              "stop": 112
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 9,
+              "column": 4,
+              "source_id": 0,
+              "start": 112,
+              "stop": 113
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 10,
+              "column": 1,
+              "source_id": 0,
+              "start": 114,
+              "stop": 115
+            },
+            {
+              "path": "cli/parse-contextual-member-names.hc",
+              "line": 10,
+              "column": 2,
+              "source_id": 0,
+              "start": 115,
+              "stop": 116
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

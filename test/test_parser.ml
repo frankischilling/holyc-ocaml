@@ -2978,6 +2978,275 @@ let aggregate_offset_failures_recover () =
   | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
       Alcotest.fail "offset nesting recovery did not reach the next global"
 
+let aggregate_member_keyword_source_behavior () =
+  let lexer = pinned "Compiler/Lex.HC" in
+  let parser_library = pinned "Compiler/PrsLib.HC" in
+  let variables = pinned "Compiler/PrsVar.HC" in
+  Alcotest.(check int)
+    "complete checked keyword table" 48 (List.length Keyword.all);
+  List.iter
+    (fun (description, source, fragment) ->
+      Alcotest.(check bool) description true (contains source fragment))
+    [
+      ( "the lexer retains identifier tokens after hash lookup",
+        lexer,
+        "cc->token=TK_IDENT;" );
+      ( "keyword lookup is contextual",
+        parser_library,
+        "cc->token==TK_IDENT &&(tmph=cc->hash_entry) && tmph->type&HTT_KEYWORD"
+      );
+      ( "declarator names use the identifier token path",
+        variables,
+        "if (cc->token==TK_IDENT)" );
+      ( "declarator names retain the current spelling",
+        variables,
+        "*_ident=cc->cur_str;" );
+    ];
+  Alcotest.(check bool)
+    "start has a pinned keyword identity" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_START\t21");
+  let compact line =
+    line |> String.to_seq
+    |> Seq.filter (function
+      | ' ' | '\t' | '\r' -> false
+      | _ -> true)
+    |> String.of_seq
+  in
+  let direct_members =
+    [
+      pinned "Kernel/KernelA.HH";
+      pinned "Adam/Gr/Gr.HH";
+      pinned "Adam/Gr/SpriteMesh.HC";
+    ]
+    |> List.concat_map (fun source -> String.split_on_char '\n' source)
+    |> List.filter (fun line -> String.equal (compact line) "U0start;")
+  in
+  Alcotest.(check int)
+    "twelve direct U0 start members" 12
+    (List.length direct_members)
+
+let aggregate_member_keyword_spellings () =
+  List.iter
+    (fun compilation_mode ->
+      List.iter
+        (fun (spelling, _, _) ->
+          let source = Printf.sprintf "class Soft { I64 %s; };" spelling in
+          let _, _, output = parse_string ~compilation_mode source in
+          let definition =
+            expect_ast output |> expect_one_aggregate_definition
+          in
+          let declaration =
+            List.hd definition.members |> expect_aggregate_member_declaration
+          in
+          let name = (List.hd declaration.member_declarators).member_name in
+          Alcotest.(check string)
+            (Printf.sprintf "%s member spelling" spelling)
+            spelling name.spelling;
+          Alcotest.(check int)
+            (Printf.sprintf "%s member width" spelling)
+            (String.length spelling)
+            (Span.length name.location.span))
+        Keyword.all)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_member_keyword_shapes () =
+  let source =
+    "class Names { I64 start,end; U8 *if[3]; I64 (*switch)(I64 value); union { \
+     I16 class; }; }; union Overlay { I64 try; };"
+  in
+  let _, _, output = parse_string source in
+  let definitions =
+    (expect_ast output).items
+    |> List.map (function
+      | Ast.Aggregate_definition definition -> definition
+      | _ -> Alcotest.fail "keyword-name fixture produced another item kind")
+  in
+  let names = List.nth definitions 0 in
+  let grouped =
+    List.nth names.members 0 |> expect_aggregate_member_declaration
+  in
+  Alcotest.(check (list string))
+    "keyword names remain in their declaration group" [ "start"; "end" ]
+    (List.map
+       (fun (declarator : Ast.aggregate_member_declarator) ->
+         declarator.member_name.spelling)
+       grouped.member_declarators);
+  let pointer =
+    List.nth names.members 1 |> expect_aggregate_member_declaration
+    |> fun declaration -> List.hd declaration.member_declarators
+  in
+  Alcotest.(check string)
+    "pointer member name" "if" pointer.member_name.spelling;
+  Alcotest.(check int)
+    "pointer member depth" 1
+    (List.length pointer.member_pointer_layers);
+  Alcotest.(check int)
+    "keyword-named array dimensions" 1
+    (List.length pointer.member_array_dimensions);
+  let callback =
+    List.nth names.members 2 |> expect_aggregate_member_declaration
+    |> fun declaration -> List.hd declaration.member_declarators
+  in
+  Alcotest.(check string)
+    "callback member name" "switch" callback.member_name.spelling;
+  ignore (expect_member_function_pointer callback);
+  let anonymous = List.nth names.members 3 |> expect_anonymous_union_member in
+  let anonymous_name =
+    List.hd anonymous.anonymous_union_members
+    |> expect_aggregate_member_declaration
+    |> fun declaration -> (List.hd declaration.member_declarators).member_name
+  in
+  Alcotest.(check string)
+    "anonymous-union member name" "class" anonymous_name.spelling;
+  let overlay = List.nth definitions 1 in
+  let union_name =
+    List.hd overlay.members |> expect_aggregate_member_declaration
+    |> fun declaration -> (List.hd declaration.member_declarators).member_name
+  in
+  Alcotest.(check string) "named-union member name" "try" union_name.spelling
+
+let pinned_aggregate_member_keyword_names () =
+  let prefix =
+    "extern class CBinFile; extern class CDate; extern class CMemE820; extern \
+     class CSysLimitBase; extern class CGDT;\n"
+  in
+  let source = prefix ^ pinned_lines "Kernel/KernelA.HH" ~first:430 ~last:449 in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~path:"Kernel/KernelA.contextual-members.HH"
+          ~compilation_mode source
+      in
+      let definition =
+        (expect_ast output).items
+        |> List.find_map (function
+          | Ast.Aggregate_definition definition
+            when String.equal definition.name.spelling "CKernel" ->
+              Some definition
+          | _ -> None)
+        |> Option.get
+      in
+      Alcotest.(check int)
+        "complete CKernel member slice" 13
+        (List.length definition.members);
+      let member_names =
+        definition.members
+        |> List.concat_map (function
+          | Ast.Aggregate_member_declaration declaration ->
+              List.map
+                (fun (declarator : Ast.aggregate_member_declarator) ->
+                  declarator.member_name.spelling)
+                declaration.member_declarators
+          | Ast.Aggregate_offset_directive _
+          | Ast.Anonymous_union_member _
+          | Ast.Empty_aggregate_member _ -> [])
+      in
+      Alcotest.(check bool)
+        "CKernel retains start" true
+        (List.mem "start" member_names);
+      Alcotest.(check bool)
+        "CKernel reaches the member after the offset" true
+        (List.mem "sys_gdt" member_names);
+      Alcotest.(check int)
+        "CKernel retains one explicit offset" 1
+        (List.length
+           (List.filter_map
+              (function
+                | Ast.Aggregate_offset_directive directive -> Some directive
+                | _ -> None)
+              definition.members)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_member_keyword_provenance_and_scope () =
+  let source = "#define MEMBER start\nclass Generated { I64 MEMBER; };" in
+  let session, root, output = parse_string source in
+  let definition = expect_ast output |> expect_one_aggregate_definition in
+  let name =
+    List.hd definition.members |> expect_aggregate_member_declaration
+    |> fun declaration -> (List.hd declaration.member_declarators).member_name
+  in
+  Alcotest.(check string) "generated keyword spelling" "start" name.spelling;
+  Alcotest.(check bool)
+    "generated keyword uses its definition frame" false
+    (Source_id.equal name.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated keyword keeps its invocation" true
+    (Option.is_some name.location.generated_from);
+  Alcotest.(check bool)
+    "generated keyword keeps its definition" true
+    (Option.is_some name.location.defined_at);
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human keyword-name dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON keyword-name dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump retains the contextual name" true
+    (contains human "name spelling=\"start\"");
+  let open Yojson.Safe.Util in
+  let json_name =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "members" |> to_list |> List.hd |> member "declarators" |> to_list
+    |> List.hd |> member "name"
+  in
+  Alcotest.(check string)
+    "JSON keyword-name spelling" "start"
+    (json_name |> member "spelling" |> to_string);
+  Alcotest.(check bool)
+    "JSON keyword name keeps provenance" true
+    (json_name |> member "location" |> member "generated_from" <> `Null);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "member.HC" in
+      write_file root_file "#include \"member\"";
+      write_file definition_file "class Included { I64 start; };";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_definition
+      in
+      let included_name =
+        List.hd included.members |> expect_aggregate_member_declaration
+        |> fun declaration ->
+        (List.hd declaration.member_declarators).member_name
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included keyword name keeps its canonical path"
+        (Unix.realpath definition_file)
+        (Source_file.path included_source));
+  List.iter
+    (fun (description, rejected, code) ->
+      let _, _, rejected_output = parse_string rejected in
+      Alcotest.(check string)
+        description code (first_diagnostic rejected_output).code)
+    [
+      ( "aggregate names remain strict",
+        "class start { I64 value; };",
+        "HCPARSE0109" );
+      ("global names remain strict", "I64 start;", "HCPARSE0002");
+      ("global callback names remain strict", "I64 (*start)();", "HCPARSE0132");
+    ];
+  let _, _, switch_output = parse_string "switch[value]{start:case 1:;end:}" in
+  ignore (expect_ast switch_output)
+
 let aggregate_backing_source_behavior () =
   let variables = pinned "Compiler/PrsVar.HC" in
   List.iter
@@ -15937,6 +16206,16 @@ let tests =
       aggregate_offset_provenance_and_dumps;
     Alcotest.test_case "aggregate offset failures recover" `Quick
       aggregate_offset_failures_recover;
+    Alcotest.test_case "aggregate member keyword source behavior" `Quick
+      aggregate_member_keyword_source_behavior;
+    Alcotest.test_case "aggregate member keyword spellings" `Quick
+      aggregate_member_keyword_spellings;
+    Alcotest.test_case "aggregate member keyword shapes" `Quick
+      aggregate_member_keyword_shapes;
+    Alcotest.test_case "pinned aggregate member keyword names" `Quick
+      pinned_aggregate_member_keyword_names;
+    Alcotest.test_case "aggregate member keyword provenance and scope" `Quick
+      aggregate_member_keyword_provenance_and_scope;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick
       aggregate_backing_source_behavior;
     Alcotest.test_case "internal type specifiers" `Quick
