@@ -1,0 +1,163 @@
+{
+  "schema": "holyc-symbol-visibility-v2",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "symbols": [
+    {
+      "id": 570,
+      "name": "Node",
+      "kind": "class",
+      "origin": {
+        "kind": "source-location",
+        "span": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 89,
+          "stop": 93,
+          "line": 2,
+          "column": 14,
+          "end_line": 2,
+          "end_column": 18
+        },
+        "source_segments": [
+          {
+            "path": "cli/symbol-dump.hc",
+            "source_id": 0,
+            "start": 89,
+            "stop": 93,
+            "line": 2,
+            "column": 14,
+            "end_line": 2,
+            "end_column": 18
+          }
+        ],
+        "generated_from": null,
+        "defined_at": null
+      },
+      "call_shape": null
+    },
+    {
+      "id": 571,
+      "name": "count",
+      "kind": "global-variable",
+      "origin": {
+        "kind": "source-location",
+        "span": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 116,
+          "stop": 121,
+          "line": 6,
+          "column": 5,
+          "end_line": 6,
+          "end_column": 10
+        },
+        "source_segments": [
+          {
+            "path": "cli/symbol-dump.hc",
+            "source_id": 0,
+            "start": 116,
+            "stop": 121,
+            "line": 6,
+            "column": 5,
+            "end_line": 6,
+            "end_column": 10
+          }
+        ],
+        "generated_from": null,
+        "defined_at": null
+      },
+      "call_shape": null
+    },
+    {
+      "id": 572,
+      "name": "generated",
+      "kind": "global-variable",
+      "origin": {
+        "kind": "source-location",
+        "span": {
+          "path": "<definition:00000000:GENERATED>",
+          "source_id": 1,
+          "start": 4,
+          "stop": 13,
+          "line": 1,
+          "column": 5,
+          "end_line": 1,
+          "end_column": 14
+        },
+        "source_segments": [
+          {
+            "path": "<definition:00000000:GENERATED>",
+            "source_id": 1,
+            "start": 4,
+            "stop": 13,
+            "line": 1,
+            "column": 5,
+            "end_line": 1,
+            "end_column": 14
+          }
+        ],
+        "generated_from": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 156,
+          "stop": 165,
+          "line": 8,
+          "column": 1,
+          "end_line": 8,
+          "end_column": 10
+        },
+        "defined_at": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 123,
+          "stop": 156,
+          "line": 7,
+          "column": 1,
+          "end_line": 8,
+          "end_column": 1
+        }
+      },
+      "call_shape": null
+    },
+    {
+      "id": 573,
+      "name": "Compute",
+      "kind": "function",
+      "origin": {
+        "kind": "source-location",
+        "span": {
+          "path": "cli/symbol-dump.hc",
+          "source_id": 0,
+          "start": 177,
+          "stop": 184,
+          "line": 9,
+          "column": 12,
+          "end_line": 9,
+          "end_column": 19
+        },
+        "source_segments": [
+          {
+            "path": "cli/symbol-dump.hc",
+            "source_id": 0,
+            "start": 177,
+            "stop": 184,
+            "line": 9,
+            "column": 12,
+            "end_line": 9,
+            "end_column": 19
+          }
+        ],
+        "generated_from": null,
+        "defined_at": null
+      },
+      "call_shape": {
+        "parameters": [
+          { "position": 0, "name": "first", "has_default": true },
+          { "position": 1, "name": "required", "has_default": false }
+        ],
+        "variadic": true
+      }
+    }
+  ],
+  "local_contexts": []
+}

@@ -247,7 +247,16 @@ module Environment = struct
           parameter.has_default)
       shape.parameters
 
-  let human sources environment =
+  let selected_entries source_only environment =
+    all environment
+    |> List.filter (fun entry ->
+           (not source_only)
+           ||
+           match entry.origin with
+           | Source_span _ | Source_location _ -> true
+           | Pinned_source _ | Session_registration -> false)
+
+  let human ?(source_only = false) sources environment =
     let buffer = Buffer.create 512 in
     Buffer.add_string buffer "holyc-symbol-visibility-v2\n";
     Printf.bprintf buffer "reference_commit=%s\n"
@@ -261,7 +270,7 @@ module Environment = struct
         | Source_location source -> print_source_origin sources buffer source
         | Pinned_source _ | Source_span _ | Session_registration -> ());
         Option.iter (print_call_shape buffer) entry.function_call_shape)
-      (all environment);
+      (selected_entries source_only environment);
     List.rev environment.local_contexts
     |> List.iter (fun (context, names) ->
         Printf.bprintf buffer "local-context %d\n" context;
@@ -362,13 +371,16 @@ module Environment = struct
           | Some shape -> call_shape_to_yojson shape );
       ]
 
-  let to_yojson sources environment =
+  let to_yojson ?(source_only = false) sources environment =
     `Assoc
       [
         ("schema", `String "holyc-symbol-visibility-v2");
         ( "reference_commit",
           `String Generated.Opcode_keywords.reference_commit );
-        ("symbols", `List (List.map (entry_to_yojson sources) (all environment)));
+        ( "symbols",
+          `List
+            (List.map (entry_to_yojson sources)
+               (selected_entries source_only environment)) );
         ( "local_contexts",
           `List
             (List.rev environment.local_contexts
@@ -383,8 +395,9 @@ module Environment = struct
                      ])) );
       ]
 
-  let json sources environment =
-    to_yojson sources environment |> Yojson.Safe.pretty_to_string
+  let json ?(source_only = false) sources environment =
+    to_yojson ~source_only sources environment
+    |> Yojson.Safe.pretty_to_string
 
-  let dump = human
+  let dump sources environment = human sources environment
 end

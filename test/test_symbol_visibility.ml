@@ -256,6 +256,11 @@ let deterministic_json () =
   in
   Alcotest.(check string) "repeatable JSON" first second;
   let json = Yojson.Safe.from_string first in
+  let source_only =
+    Symbol_visibility.Environment.json ~source_only:true
+      (Session.sources session) symbols
+    |> Yojson.Safe.from_string
+  in
   let open Yojson.Safe.Util in
   Alcotest.(check string)
     "JSON schema" "holyc-symbol-visibility-v2"
@@ -277,7 +282,12 @@ let deterministic_json () =
   Alcotest.(check (list string))
     "local names are sorted" [ "alpha"; "zeta" ]
     (json |> member "local_contexts" |> index 0 |> member "names" |> to_list
-    |> List.map to_string)
+    |> List.map to_string);
+  let source_symbols = source_only |> member "symbols" |> to_list in
+  Alcotest.(check int) "source-only entry count" 1 (List.length source_symbols);
+  Alcotest.(check string)
+    "source-only entry" "Callable"
+    (source_symbols |> List.hd |> member "name" |> to_string)
 
 let tests =
   [

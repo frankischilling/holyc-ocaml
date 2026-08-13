@@ -17,6 +17,13 @@ let file_argument =
   Arg.(
     required & pos 0 (some file) None & info [] ~docv:"FILE" ~doc:documentation)
 
+let source_only_argument =
+  let documentation =
+    "Show declarations published from the input stream and omit the pinned \
+     keyword, type, register, opcode, and directive seed."
+  in
+  Arg.(value & flag & info [ "source-only" ] ~doc:documentation)
+
 let print_diagnostics format session diagnostics =
   match format with
   | Human ->
@@ -261,15 +268,15 @@ let print_ast format session ast =
       Holyc_lib.Ast_dump.json (Holyc_lib.Session.sources session) ast
       |> print_endline
 
-let print_symbols format session =
+let print_symbols format source_only session =
   let sources = Holyc_lib.Session.sources session in
   let symbols = Holyc_lib.Session.symbols session in
   match format with
   | Human ->
-      Holyc_lib.Symbol_visibility.Environment.human sources symbols
+      Holyc_lib.Symbol_visibility.Environment.human ~source_only sources symbols
       |> output_string stdout
   | Json ->
-      Holyc_lib.Symbol_visibility.Environment.json sources symbols
+      Holyc_lib.Symbol_visibility.Environment.json ~source_only sources symbols
       |> print_endline
 
 let parse_file format include_roots templeos_root max_include_depth
@@ -325,8 +332,8 @@ let dump_ast_command =
   in
   Cmd.v (Cmd.info "dump-ast" ~doc:documentation) parser_term
 
-let dump_symbols_file format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
+let dump_symbols_file format source_only include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
     max_conditional_depth max_expression_nodes compilation_mode predefined_date
     predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
@@ -349,16 +356,25 @@ let dump_symbols_file format include_roots templeos_root max_include_depth
           let output = Holyc_lib.parse_detailed session ~config ~source in
           if output.diagnostics <> [] then
             print_diagnostics format session output.diagnostics;
-          print_symbols format session;
+          print_symbols format source_only session;
           if Option.is_none output.ast then 1 else 0)
+
+let dump_symbols_term =
+  Term.(
+    const dump_symbols_file $ format_argument $ source_only_argument
+    $ include_roots_argument $ templeos_root_argument $ include_depth_argument
+    $ include_bytes_argument $ definition_depth_argument
+    $ generated_bytes_argument $ conditional_depth_argument
+    $ expression_nodes_argument $ compilation_mode_argument
+    $ predefined_date_argument $ predefined_time_argument
+    $ command_line_source_argument $ file_argument)
 
 let dump_symbols_command =
   let documentation =
     "Print the versioned parser visibility state after consuming a HolyC \
      source file. This is not a semantic name-resolution result."
   in
-  Cmd.v (Cmd.info "dump-symbols" ~doc:documentation)
-    (source_parser_term dump_symbols_file)
+  Cmd.v (Cmd.info "dump-symbols" ~doc:documentation) dump_symbols_term
 
 let corpus_root_argument =
   let documentation =

@@ -1,0 +1,15 @@
+holyc-symbol-visibility-v2
+reference_commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
+symbol 570 name="Node" kind=class origin=cli/symbol-dump.hc:2:14..2:18
+  source-segment 0 location=cli/symbol-dump.hc:2:14..2:18
+symbol 571 name="count" kind=global-variable origin=cli/symbol-dump.hc:6:5..6:10
+  source-segment 0 location=cli/symbol-dump.hc:6:5..6:10
+symbol 572 name="generated" kind=global-variable origin=<definition:00000000:GENERATED>:1:5..1:14
+  source-segment 0 location=<definition:00000000:GENERATED>:1:5..1:14
+  generated-from=cli/symbol-dump.hc:8:1..8:10
+  defined-at=cli/symbol-dump.hc:7:1..8:1
+symbol 573 name="Compute" kind=function origin=cli/symbol-dump.hc:9:12..9:19
+  source-segment 0 location=cli/symbol-dump.hc:9:12..9:19
+  call-shape fixed=2 variadic=true
+    parameter 0 name="first" default=true
+    parameter 1 name="required" default=false
