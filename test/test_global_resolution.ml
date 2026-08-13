@@ -153,6 +153,20 @@ let driver_retains_every_binding_form () =
       "defined";
     ]
     (record_states resolution);
+  Alcotest.(check (list string))
+    "the driver uses the current code-heap default"
+    [
+      "code-heap";
+      "code-heap";
+      "code-heap";
+      "code-heap";
+      "code-heap";
+      "code-heap";
+      "code-heap";
+    ]
+    (records resolution
+    |> List.map Semantic_global_resolution.global_record_storage
+    |> List.map Semantic_global_resolution.storage_name);
   let bindings =
     records resolution
     |> List.map Semantic_global_resolution.global_record_declaration
@@ -447,6 +461,14 @@ let invalid_batches_and_driver_inputs_do_not_mutate () =
     |> Semantic_global_resolution.global_record_declaration
   in
   reject "foreign symbol table" Semantic_global_resolution.Aot [ foreign ];
+  let foreign_parent =
+    Semantic_declaration_collection.scope other.declarations
+  in
+  Alcotest.(check bool)
+    "a foreign module scope is rejected" true
+    (Semantic_global_resolution.resolve ~table ~parent:foreign_parent
+       ~compilation_mode:Semantic_global_resolution.Aot declarations
+    |> Result.is_error);
   Alcotest.(check bool)
     "the driver rejects a JIT import mode mismatch" true
     (Holyc_lib.resolve_global_records prepared.session
