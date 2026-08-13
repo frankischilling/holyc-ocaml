@@ -4,7 +4,7 @@
 
 ## Current status
 
-The repository has a byte-oriented source manager, structured diagnostics, a handwritten streaming lexer, an integrated preprocessing stream, a source-positioned AST, and the first parser slices. Human and JSON reports are deterministic.
+The repository has a byte-oriented source manager, structured diagnostics, a handwritten streaming lexer, an integrated preprocessing stream, a source-positioned AST, and the first parser slices. Human and JSON reports are deterministic. `holyc dump-symbols` exposes the parser's source-order visibility state; it is inspection data, not a completed semantic symbol table.
 
 Raw lexing handles the complete checked keyword and operator tables, numeric literals, strings, character constants up to eight bytes, nested comments, line continuations, and TempleOS files with a NUL-terminated text prefix. The pinned corpus result is 528 of 528 `.HC`, `.HH`, and `.PRJ` Git blobs tokenized without a lexer diagnostic or crash. That result applies only to raw lexing.
 
@@ -94,12 +94,14 @@ dune exec holyc -- parse test/cli/parse-try-catch-statements.hc
 dune exec holyc -- parse test/cli/parse-assembly-block.hc
 dune exec holyc -- parse test/cli/parse-inline-assembly.hc
 dune exec holyc -- dump-ast --format=json test/cli/parse-implicit-output.hc
+dune exec holyc -- dump-symbols --source-only test/cli/symbol-dump.hc
+dune exec holyc -- dump-symbols --source-only --format=json test/cli/symbol-dump.hc
 dune exec holyc -- corpus lex --reference-root=third_party/TempleOS
 dune exec holyc -- corpus parse --mode=aot --reference-root=third_party/TempleOS
 dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_party/TempleOS
 ```
 
-`lex`, `preprocess`, `parse`, `dump-ast`, and `corpus lex` exit with status 1 when they report an error. `corpus parse` normally succeeds after a complete scan because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
+`lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 570 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `corpus parse` normally succeeds after a complete scan because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
 
 There is not yet a command that compiles or runs a HolyC program. The parser can inspect the current fixtures, but it cannot execute them. Compilation examples will be added only after semantic checking, verified IR, and an execution backend pass their own tests.
 
