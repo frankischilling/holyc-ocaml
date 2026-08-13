@@ -12,6 +12,7 @@
   test_predefined
   test_symbol_visibility
   test_semantic_symbol_table
+  test_declaration_collection
   test_diagnostic
   test_version
   test_corpus
