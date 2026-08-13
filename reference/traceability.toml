@@ -672,7 +672,58 @@ ast_schema = "holyc-ast-v1"
 accepted_grammar = "global-variable := primitive pointer-star{0,4} identifier ';'"
 max_pointer_depth = 4
 semantic_pointer_status = "planned"
-function_pointer_status = "planned"
+function_pointer_status = "implemented in HC-PARSER-FUNCTION-POINTER-GLOBALS"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-POINTER-GLOBALS"
+description = "Global storage declarators retain a recursive function-pointer signature separately from return-pointer layers, arrays, and initializers."
+sources = [
+  "Compiler/PrsVar.HC:285-370 PrsType",
+  "Compiler/PrsStmt.HC:209-456 PrsGlblVarLst",
+  "Kernel/KGlbls.HC:32-35",
+  "Kernel/KernelC.HH:256, 396, 517, and 719",
+  "Adam/ABlkDev/FileMgr.HC:568",
+  "Demo/Graphics/WallPaperFish.HC:55"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-pointer-global.hc",
+  "test/cli/parse-function-pointer-global.human",
+  "test/cli/parse-function-pointer-global.json",
+  "test/cli/parse-pointer-errors.hc",
+  "test/cli/parse-pointer-errors.human",
+  "test/cli/parse-pointer-errors.json"
+]
+status = "implemented"
+issue = 137
+ast_schema = "holyc-ast-v1"
+accepted_form = "type pointer-star{0,4} '(' pointer-star{1,4} identifier ')' '(' parameter-list? ')' array-dimension* initializer? delimiter"
+return_pointer_depth = "zero through four"
+declarator_pointer_depth = "one through four"
+name_status = "required for stored globals"
+signature_status = ["empty", "fixed", "variadic", "nested"]
+array_suffix = "retained after the callback signature"
+initializer = "scalar or recursive braced global initializer retained"
+aggregate_attached_form = "implemented"
+compilation_modes = ["jit", "aot"]
+ordinary_extern_form = "implemented"
+symbol_category = "global variable, not direct function"
+publication_order = "the accepted variable is visible before the next token is requested"
+audited_direct_line_forms = 10
+corpus_scan_scope = "line-anchored byte scan of Compiler, Kernel, Adam, and Demo .HC and .HH files; this is not a structural whole-corpus count"
+definition_and_include_provenance = "preserved for both parenthesis pairs, pointer layers, the required name, signature contents, arrays, initializers, and delimiters"
+missing_punctuation_diagnostic = "HCPARSE0131"
+missing_name_diagnostic = "HCPARSE0132"
+hosted_nesting_limit = 32
+nesting_limit_diagnostic = "HCPARSE0017"
+native_oracle_status = "not required for this syntax slice; PrsType and PrsGlblVarLst state the retained callback metadata and variable-symbol path directly"
+function_type_checking_storage_layout_indirect_call_lowering_and_execution = "planned"
 
 [[feature]]
 id = "HC-PARSER-COMMA-GLOBALS"
@@ -2240,7 +2291,7 @@ issue = 135
 ast_schema = "holyc-ast-v1"
 accepted_attached_form = "aggregate-definition-body global-declarator (, global-declarator)* ;"
 accepted_global_initializer = "= scalar-expression or recursively braced initializer list"
-declarator_shape = "independent pointer layers, array dimensions, optional initializer, and comma or semicolon delimiter"
+declarator_shape = "independent return-pointer layers, optional recursive function-pointer signature, array dimensions, optional initializer, and comma or semicolon delimiter"
 initializer_shape = "an equals location plus either one expression or a brace pair containing ordered recursive elements and optional following commas"
 single_initialized_global_representation = "Global_declaration with one declarator; uninitialized singleton globals retain the earlier Global_variable shape"
 publication_order = "each accepted object is published before the stream requests the next declarator or following directive"
