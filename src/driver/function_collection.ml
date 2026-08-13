@@ -197,19 +197,29 @@ let functions (module_ : Frontend.Ast.module_) =
 
 let function_header = function
   | Prototype prototype ->
-      (prototype.name, prototype.parameters, prototype.variadic, None)
+      ( Sema.Declaration_collection.Function_prototype,
+        prototype.name,
+        prototype.parameters,
+        prototype.variadic,
+        None )
   | Definition definition ->
-      ( definition.name,
+      ( Sema.Declaration_collection.Function_definition,
+        definition.name,
         definition.parameters,
         definition.variadic,
         definition.body )
 
 let function_fact entry (item_index, function_ast) =
   let entry_item_index = Sema.Declaration_collection.entry_item_index entry in
+  let entry_kind = Sema.Declaration_collection.entry_kind entry in
   let symbol = Sema.Declaration_collection.entry_symbol entry in
-  let name, fixed_parameters, variadic, body = function_header function_ast in
+  let expected_kind, name, fixed_parameters, variadic, body =
+    function_header function_ast
+  in
   if entry_item_index <> item_index then
     Error "semantic function declaration does not match the AST item order"
+  else if entry_kind <> expected_kind then
+    Error "semantic function declaration does not match the AST kind"
   else if not (String.equal (Sema.Symbol.name symbol) name.spelling) then
     Error "semantic function declaration does not match the AST name"
   else if Sema.Symbol.origin symbol <> origin name then

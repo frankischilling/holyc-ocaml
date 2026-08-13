@@ -388,7 +388,56 @@ let mismatched_inputs_do_not_mutate () =
     (Semantic_symbol_table.all_scopes table |> List.length);
   Alcotest.(check int)
     "foreign scope preserves symbols" symbol_count
-    (Semantic_symbol_table.all_symbols table |> List.length)
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let kind_session = Session.create () in
+  let _, prototype_ast =
+    parse kind_session ~path:"kind.HC" "extern U0 Same(I64 value);"
+  in
+  let prototype =
+    match prototype_ast.items with
+    | [ Ast.Function_prototype prototype ] -> prototype
+    | _ -> Alcotest.fail "expected one prototype for the kind mismatch"
+  in
+  let location = prototype.name.location in
+  let origin =
+    Semantic_symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  let wrong_declaration =
+    checked
+      (Semantic_declaration_collection.make_declaration
+         ~name:prototype.name.spelling
+         ~declaration_kind:Semantic_declaration_collection.Function_definition
+         ~origin ~item_index:0 ())
+  in
+  let kind_table = Session.semantic_symbols kind_session in
+  let wrong_collection =
+    checked
+      (Semantic_declaration_collection.collect ~table:kind_table
+         ~module_name:"kind.HC" [ wrong_declaration ])
+  in
+  let kind_scope_count =
+    Semantic_symbol_table.all_scopes kind_table |> List.length
+  in
+  let kind_symbol_count =
+    Semantic_symbol_table.all_symbols kind_table |> List.length
+  in
+  Alcotest.(check bool)
+    "a prototype paired with a definition entry is rejected" true
+    (Holyc_lib.collect_functions kind_session ~declarations:wrong_collection
+       prototype_ast
+    |> Result.is_error);
+  Alcotest.(check int)
+    "kind mismatch preserves scopes" kind_scope_count
+    (Semantic_symbol_table.all_scopes kind_table |> List.length);
+  Alcotest.(check int)
+    "kind mismatch preserves symbols" kind_symbol_count
+    (Semantic_symbol_table.all_symbols kind_table |> List.length)
 
 let low_level_validation_and_dumps () =
   let origin = Semantic_symbol.Synthesized "function collection test" in
