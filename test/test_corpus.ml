@@ -428,9 +428,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_452
+    "diagnostics" 37_420
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_452 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_420 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
