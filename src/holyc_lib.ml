@@ -34,6 +34,7 @@ module Ast = Frontend.Ast
 module Ast_dump = Frontend.Ast_dump
 module Parser = Frontend.Parser
 module Semantic_declaration_collection = Sema.Declaration_collection
+module Semantic_member_collection = Sema.Member_collection
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -70,3 +71,7 @@ let collect_declarations session module_ =
   Driver.Semantic_collection.collect ~sources:(Session.sources session)
     ~table:(Session.semantic_symbols session)
     module_
+
+let collect_members session ~declarations module_ =
+  Driver.Member_collection.collect ~table:(Session.semantic_symbols session)
+    ~declarations module_

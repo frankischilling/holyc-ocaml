@@ -67,6 +67,7 @@ let scope_kind scope = scope.kind
 let scope_name scope = scope.name
 let parent scope = scope.parent
 let owns (table : t) (scope : scope) = table.owner == scope.owner
+let owns_scope = owns
 
 let create_scope (table : t) ~(parent : scope) ~kind ?name () =
   if not (owns table parent) then

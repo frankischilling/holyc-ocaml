@@ -34,6 +34,7 @@ module Ast = Frontend.Ast
 module Ast_dump = Frontend.Ast_dump
 module Parser = Frontend.Parser
 module Semantic_declaration_collection = Sema.Declaration_collection
+module Semantic_member_collection = Sema.Member_collection
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -74,3 +75,13 @@ val collect_declarations :
 (** Collect accepted top-level declarations into a new semantic module scope.
     This entry point does not perform duplicate checks or reference resolution.
 *)
+
+val collect_members :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  Ast.module_ ->
+  (Semantic_member_collection.t, string) result
+(** Create aggregate scopes beneath [declarations] and collect direct members.
+    Anonymous-union members share their containing aggregate scope. Layout,
+    inheritance, duplicate checks, and member-reference resolution remain
+    separate semantic passes. *)
