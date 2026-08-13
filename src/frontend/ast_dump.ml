@@ -116,6 +116,11 @@ let assembly_label_kind_name = function
   | Ast.Assembly_exported_global_label -> "exported_global"
   | Ast.Assembly_local_label -> "local"
 
+let inline_assembly_operand_kind_name = function
+  | Ast.Inline_assembly_register_operand -> "register"
+  | Ast.Inline_assembly_immediate_operand -> "immediate"
+  | Ast.Inline_assembly_memory_operand -> "memory"
+
 let assembly_token_kind_name = function
   | Ast.Assembly_opcode_token _ -> "opcode"
   | Ast.Assembly_directive_token _ -> "directive"
@@ -619,12 +624,43 @@ let rec print_statement buffer sources ~indent = function
       List.iteri
         (fun index (operation : Ast.inline_assembly_operation) ->
           let operation_indent = child_indent ^ "  " in
-          Printf.bprintf buffer "%soperation index=%d span=%s semicolon=%b\n"
+          Printf.bprintf buffer
+            "%soperation index=%d span=%s operands=%d separator=%b semicolon=%b\n"
             child_indent index
             (location_text sources operation.inline_assembly_operation_location)
+            (List.length operation.inline_assembly_operands)
+            (Option.is_some operation.inline_assembly_separator)
             (Option.is_some operation.inline_assembly_semicolon);
           print_assembly_token buffer sources ~indent:operation_indent 0
             operation.inline_assembly_opcode;
+          List.iteri
+            (fun operand_index (operand : Ast.inline_assembly_operand) ->
+              let operand_indent = operation_indent ^ "  " in
+              let prefix_spelling = function
+                | None -> "none"
+                | Some (token : Ast.assembly_token) ->
+                    Printf.sprintf "%S" token.assembly_source_token.raw
+              in
+              Printf.bprintf buffer
+                "%soperand index=%d kind=%s size_prefix=%s segment_prefix=%s \
+                 span=%s tokens=%d\n"
+                operation_indent operand_index
+                (inline_assembly_operand_kind_name
+                   operand.inline_assembly_operand_kind)
+                (prefix_spelling operand.inline_assembly_size_prefix)
+                (prefix_spelling operand.inline_assembly_segment_prefix)
+                (location_text sources operand.inline_assembly_operand_location)
+                (List.length operand.inline_assembly_operand_tokens);
+              List.iteri
+                (print_assembly_token buffer sources ~indent:operand_indent)
+                operand.inline_assembly_operand_tokens)
+            operation.inline_assembly_operands;
+          Option.iter
+            (fun separator ->
+              Printf.bprintf buffer "%sseparator spelling=\",\" span=%s\n"
+                operation_indent
+                (location_text sources separator))
+            operation.inline_assembly_separator;
           Option.iter
             (fun semicolon ->
               Printf.bprintf buffer "%ssemicolon span=%s\n" operation_indent
@@ -2055,10 +2091,38 @@ let assembly_line_to_yojson sources (line : Ast.assembly_line) =
 
 let inline_assembly_operation_to_yojson sources
     (operation : Ast.inline_assembly_operation) =
+  let operand_to_yojson (operand : Ast.inline_assembly_operand) =
+    let optional_token = function
+      | None -> `Null
+      | Some token -> assembly_token_to_yojson sources token
+    in
+    `Assoc
+      [
+        ( "kind",
+          `String
+            (inline_assembly_operand_kind_name
+               operand.inline_assembly_operand_kind) );
+        ("size_prefix", optional_token operand.inline_assembly_size_prefix);
+        ("segment_prefix", optional_token operand.inline_assembly_segment_prefix);
+        ( "tokens",
+          `List
+            (List.map
+               (assembly_token_to_yojson sources)
+               operand.inline_assembly_operand_tokens) );
+        ( "location",
+          location_to_yojson sources operand.inline_assembly_operand_location );
+      ]
+  in
   `Assoc
     [
       ( "opcode",
         assembly_token_to_yojson sources operation.inline_assembly_opcode );
+      ( "operands",
+        `List (List.map operand_to_yojson operation.inline_assembly_operands) );
+      ( "separator",
+        match operation.inline_assembly_separator with
+        | None -> `Null
+        | Some separator -> location_to_yojson sources separator );
       ( "semicolon",
         match operation.inline_assembly_semicolon with
         | None -> `Null

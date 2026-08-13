@@ -585,8 +585,23 @@ type assembly_line = private {
   assembly_line_location : location;
 }
 
+type inline_assembly_operand_kind =
+  | Inline_assembly_register_operand
+  | Inline_assembly_immediate_operand
+  | Inline_assembly_memory_operand
+
+type inline_assembly_operand = private {
+  inline_assembly_operand_kind : inline_assembly_operand_kind;
+  inline_assembly_size_prefix : assembly_token option;
+  inline_assembly_segment_prefix : assembly_token option;
+  inline_assembly_operand_tokens : assembly_token list;
+  inline_assembly_operand_location : location;
+}
+
 type inline_assembly_operation = private {
   inline_assembly_opcode : assembly_token;
+  inline_assembly_operands : inline_assembly_operand list;
+  inline_assembly_separator : location option;
   inline_assembly_semicolon : location option;
   inline_assembly_operation_location : location;
 }
@@ -1246,8 +1261,18 @@ val make_assembly_block_statement :
   location:location ->
   assembly_block_statement
 
+val make_inline_assembly_operand :
+  kind:inline_assembly_operand_kind ->
+  size_prefix:assembly_token option ->
+  segment_prefix:assembly_token option ->
+  tokens:assembly_token list ->
+  location:location ->
+  inline_assembly_operand
+
 val make_inline_assembly_operation :
   opcode:assembly_token ->
+  operands:inline_assembly_operand list ->
+  separator:location option ->
   semicolon:location option ->
   location:location ->
   inline_assembly_operation
