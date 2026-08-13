@@ -22,6 +22,7 @@ type t = {
   root : scope;
   mutable scopes_rev : scope list;
   mutable symbols_rev : Symbol.t list;
+  symbols_by_id : (int, Symbol.t) Hashtbl.t;
   mutable next_scope_id : int;
   mutable next_symbol_id : int;
 }
@@ -57,6 +58,7 @@ let create ?root_name () =
     root;
     scopes_rev = [ root ];
     symbols_rev = [];
+    symbols_by_id = Hashtbl.create 128;
     next_scope_id = 1;
     next_symbol_id = 0;
   }
@@ -68,6 +70,13 @@ let scope_name scope = scope.name
 let parent scope = scope.parent
 let owns (table : t) (scope : scope) = table.owner == scope.owner
 let owns_scope = owns
+
+let owns_symbol table symbol =
+  match
+    Hashtbl.find_opt table.symbols_by_id (Symbol.Id.to_int (Symbol.id symbol))
+  with
+  | Some owned -> owned == symbol
+  | None -> false
 
 let create_scope (table : t) ~(parent : scope) ~kind ?name () =
   if not (owns table parent) then
@@ -110,6 +119,9 @@ let add (table : t) ~(scope : scope) ~name ~kind ~origin =
       in
       Hashtbl.replace scope.entries_by_name name (symbol :: existing);
       table.symbols_rev <- symbol :: table.symbols_rev;
+      Hashtbl.add table.symbols_by_id
+        (Symbol.Id.to_int (Symbol.id symbol))
+        symbol;
       Ok symbol
     with Invalid_argument message -> Error message
 

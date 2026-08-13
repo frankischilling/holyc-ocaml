@@ -35,6 +35,7 @@ module Ast_dump = Frontend.Ast_dump
 module Parser = Frontend.Parser
 module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
+module Semantic_function_collection = Sema.Function_collection
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -85,3 +86,13 @@ val collect_members :
     Anonymous-union members share their containing aggregate scope. Layout,
     inheritance, duplicate checks, and member-reference resolution remain
     separate semantic passes. *)
+
+val collect_functions :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  Ast.module_ ->
+  (Semantic_function_collection.t, string) result
+(** Create function scopes beneath [declarations] and collect named parameters,
+    variadic [argc] and [argv], and function-wide locals. Type resolution,
+    storage, duplicate checks, labels, and reference resolution remain separate
+    semantic passes. *)
