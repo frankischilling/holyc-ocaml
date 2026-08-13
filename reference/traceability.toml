@@ -3039,7 +3039,7 @@ missing_closing_diagnostic = "HCPARSE0146"
 operand_parsing = "not implemented inside brace-delimited assembly blocks"
 directive_semantics = "not implemented"
 label_resolution = "not implemented"
-single_instruction_form = "zero-, one-, and two-operand opcodes and aliases implemented by issues 155 and 157; direct directives and labels remain pending"
+single_instruction_form = "zero-, one-, and two-operand opcodes and aliases are implemented by issues 155 and 157; source-ordered direct directives are implemented by issue 159"
 encoding = "not implemented"
 execution = "not implemented"
 
@@ -3092,8 +3092,60 @@ top_level_diagnostic = "HCPARSE0147"
 operand_diagnostics = ["HCPARSE0149", "HCPARSE0150", "HCPARSE0151", "HCPARSE0152"]
 operand_structure = "implemented"
 operand_validation = "not implemented"
-direct_directives = "not implemented"
+direct_directives = "implemented as retained syntax by issue 159"
 direct_labels = "not implemented as assembly-label nodes; ordinary function-label parsing remains available"
+lowering = "not implemented"
+encoding = "not implemented"
+execution = "not implemented"
+
+[[feature]]
+id = "HC-PARSER-INLINE-ASSEMBLY-DIRECTIVES"
+description = "Function-local direct assembly retains supported assembler directives and instructions in one source-ordered item stream."
+sources = [
+  "Compiler/CompilerA.HH:AKW_ALIGN through AKW_BINFILE",
+  "Compiler/OpCodes.DD:ASM_KEYWORD",
+  "Compiler/PrsStmt.HC:PrsStmt direct assembler-keyword branch",
+  "Compiler/Asm.HC:PrsAsmDefine",
+  "Compiler/Asm.HC:PrsBinFile",
+  "Compiler/Asm.HC:PrsAsmBlk",
+  "Doc/Asm.DD"
+]
+implementation = [
+  "src/asm/directive.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-inline-assembly.hc",
+  "test/cli/parse-inline-assembly.human",
+  "test/cli/parse-inline-assembly.json",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 159
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+compilation_modes = ["jit", "aot"]
+contexts = ["function bodies", "blocks", "conditionals", "loops", "lock bodies", "for updates"]
+item_order = "direct instructions and directives retain source order; physical newlines are not delimiters"
+implemented_directives = ["DU8", "DU16", "DU32", "DU64", "USE16", "USE32", "USE64", "IMPORT", "LIST", "NOLIST", "BINFILE"]
+data_forms = ["string", "expression", "expression DUP(expression)"]
+optional_separators = "commas between IMPORT names and DU values are retained when present but are not required by PrsAsmBlk or PrsAsmDefine"
+required_semicolons = ["IMPORT", "DU8", "DU16", "DU32", "DU64", "BINFILE"]
+optional_semicolons = ["USE16", "USE32", "USE64", "LIST", "NOLIST"]
+function_restrictions = ["ORG", "ALIGN"]
+operand_prefixes = ["I0", "I8", "I16", "I32", "I64", "U0", "U8", "U16", "U32", "U64", "F64"]
+suffix_only = ["DUP"]
+symbol_visibility = "a visible local or newer symbol suppresses direct assembler-keyword dispatch"
+definition_and_include_provenance = "preserved"
+diagnostics = ["HCPARSE0147", "HCPARSE0153", "HCPARSE0154", "HCPARSE0155", "HCPARSE0156"]
+expression_evaluation = "not implemented"
+import_publication = "not implemented"
+binfile_read = "not implemented"
+state_changes = "not implemented"
+data_emission = "not implemented"
 lowering = "not implemented"
 encoding = "not implemented"
 execution = "not implemented"
@@ -3129,7 +3181,7 @@ parser_diagnostics = 491
 read_errors = 0
 internal_errors = 0
 diagnostics = 37415
-baseline_sha256 = "2c6a1dee6f05318c2a7be4c3bffa3e005323fb3d6b09b8b16dc774f7242bd04f"
+baseline_sha256 = "3dee7472529e439c38ee91af86b3e24b99c2953d5499cb609ed5a8baa739b530"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"
