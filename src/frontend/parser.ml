@@ -4518,29 +4518,46 @@ let token_cannot_start_inline_assembly_operand cursor token =
   | Token_kind.Newline -> false
 
 let parse_inline_assembly_bracket cursor opcode_item operand_index =
-  let rec collect depth tokens_rev =
+  let malformed item message =
+    report cursor item ~code:"HCPARSE0151"
+      ~message:
+        (Printf.sprintf "%s in operand %d of inline assembly opcode %S" message
+           operand_index opcode_item.token.raw);
+    None
+  in
+  let rec collect expected_closers tokens_rev =
     let item = peek cursor in
     match item.token.Token.kind with
     | Token_kind.Eof | Token_kind.Punctuation (';' | '}') ->
-        report cursor item ~code:"HCPARSE0151"
-          ~message:
-            (Printf.sprintf
-               "expected ']' to close operand %d of inline assembly opcode %S"
-               operand_index opcode_item.token.raw);
-        None
+        let expected =
+          match expected_closers with
+          | closer :: _ ->
+              Printf.sprintf "expected %C before the statement boundary" closer
+          | [] -> "expected an address expression before the statement boundary"
+        in
+        malformed item expected
     | Token_kind.Punctuation '[' ->
         let item = take cursor in
-        collect (depth + 1) (item.token :: tokens_rev)
-    | Token_kind.Punctuation ']' ->
+        collect (']' :: expected_closers) (item.token :: tokens_rev)
+    | Token_kind.Punctuation '(' ->
         let item = take cursor in
-        let tokens_rev = item.token :: tokens_rev in
-        if depth = 1 then Some (List.rev tokens_rev)
-        else collect (depth - 1) tokens_rev
+        collect (')' :: expected_closers) (item.token :: tokens_rev)
+    | Token_kind.Punctuation ((']' | ')') as closer) -> (
+        match expected_closers with
+        | expected :: remaining when Char.equal closer expected ->
+            let item = take cursor in
+            let tokens_rev = item.token :: tokens_rev in
+            if remaining = [] then Some (List.rev tokens_rev)
+            else collect remaining tokens_rev
+        | expected :: _ ->
+            malformed item
+              (Printf.sprintf "found %C while waiting for %C" closer expected)
+        | [] -> malformed item (Printf.sprintf "found unmatched %C" closer))
     | _ ->
         let item = take cursor in
-        collect depth (item.token :: tokens_rev)
+        collect expected_closers (item.token :: tokens_rev)
   in
-  collect 0 []
+  collect [] []
 
 let parse_inline_assembly_operand cursor opcode_item operand_index =
   let missing item =

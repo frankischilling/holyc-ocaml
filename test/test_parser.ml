@@ -15680,6 +15680,9 @@ let inline_assembly_failures () =
       ( "unclosed memory operand diagnostic",
         "U0 Bad(){MOV RAX,[RBP;}",
         "HCPARSE0151" );
+      ( "mismatched memory delimiter diagnostic",
+        "U0 Bad(){MOV RAX,[(RBP];}",
+        "HCPARSE0151" );
       ("extra operand diagnostic", "U0 Bad(){MOV RAX,RBX,RCX;}", "HCPARSE0152");
     ];
   let _, _, local = parse_string "U0 Local(){I64 value;}" in
@@ -15718,7 +15721,7 @@ let inline_assembly_failures () =
     | statement -> [ statement ]
   in
   let statements = List.concat_map flatten_statement body.block_statements in
-  match statements with
+  (match statements with
   | [ declaration; direct; expression ] ->
       ignore (declaration |> expect_local_declaration);
       Alcotest.(check (list string))
@@ -15729,7 +15732,25 @@ let inline_assembly_failures () =
   | statements ->
       Alcotest.failf
         "an adjacent shadow should produce three ordered statements, got %d"
-        (List.length statements)
+        (List.length statements));
+  let _, _, register_shadow =
+    parse_string "U0 RegisterShadow(){I64 RAX;MOV RAX,RBX;}"
+  in
+  let operation =
+    expect_ast register_shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    List.concat_map flatten_statement block.block_statements
+    |> List.find_map (function
+      | Ast.Inline_assembly_statement statement ->
+          Some (List.hd statement.inline_assembly_operations)
+      | _ -> None)
+    |> Option.get
+  in
+  let first_operand = List.hd operation.inline_assembly_operands in
+  match first_operand.inline_assembly_operand_kind with
+  | Ast.Inline_assembly_immediate_operand -> ()
+  | _ -> Alcotest.fail "a local named RAX did not shadow the register spelling"
 
 let deterministic_inline_assembly_dumps () =
   let session, _, output =
