@@ -22,6 +22,7 @@ type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 type parsed_declarator_prefix = {
   pointer_layers : Ast.pointer_layer list;
   name : Ast.identifier;
+  function_pointer : Ast.function_pointer_declarator option;
   tokens : Token.t list;
   definition_trace : Common.Diagnostic.related list;
 }
@@ -137,6 +138,10 @@ type parsed_parameter_list = {
   tokens : Token.t list;
   closing_parenthesis : Ast.location;
 }
+
+type function_pointer_declarator_context =
+  | Function_parameter_declarator
+  | Global_variable_declarator
 
 type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
 
@@ -703,19 +708,32 @@ let rec parse_modifiers cursor (modifiers_rev : parsed_modifier list) =
       in
       parse_modifiers cursor ({ node; item } :: modifiers_rev)
 
-let parse_declarator_prefix cursor base_spelling =
+let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> None
   | Some (pointer_layers, pointer_items) ->
       let pointer_tokens = List.map (fun item -> item.token) pointer_items in
       let pointer_trace = pointer_definition_trace pointer_items in
       let name_item = peek cursor in
-      if name_item.token.kind = Token_kind.Punctuation '(' then (
-        report ~secondary:pointer_trace cursor name_item ~code:"HCPARSE0005"
-          ~message:
-            "parenthesized function-pointer declarators are not implemented";
-        recover_declaration cursor;
-        None)
+      if name_item.token.kind = Token_kind.Punctuation '(' then
+        Option.map
+          (fun (parsed : parsed_function_pointer) ->
+            let name =
+              match parsed.name with
+              | Some name -> name
+              | None ->
+                  invalid_arg
+                    "global function-pointer parser returned an unnamed \
+                     declarator"
+            in
+            {
+              pointer_layers;
+              name;
+              function_pointer = Some parsed.node;
+              tokens = pointer_tokens @ parsed.tokens;
+              definition_trace = pointer_trace;
+            })
+          (parse_function_pointer ())
       else if name_item.token.kind <> Token_kind.Identifier then (
         report ~secondary:pointer_trace cursor name_item ~code:"HCPARSE0002"
           ~message:
@@ -734,6 +752,7 @@ let parse_declarator_prefix cursor base_spelling =
           {
             pointer_layers;
             name;
+            function_pointer = None;
             tokens = pointer_tokens @ [ name_item.token ];
             definition_trace = pointer_trace;
           }
@@ -2289,25 +2308,31 @@ let parse_variable_declarator_suffix cursor prefix =
               in
               let node =
                 Ast.make_global_declarator ~pointer_layers:prefix.pointer_layers
-                  ~name:prefix.name ~array_dimensions ~initial_value ~delimiter
+                  ~name:prefix.name ~function_pointer:prefix.function_pointer
+                  ~array_dimensions ~initial_value ~delimiter
                   ~location:(location_from_tokens tokens)
               in
               publish_global cursor prefix.name;
               Some ({ node; tokens } : parsed_declarator))
 
-let parse_declarator cursor base_spelling =
-  match parse_declarator_prefix cursor base_spelling with
+let parse_declarator cursor base_spelling ~parse_function_pointer =
+  match
+    parse_declarator_prefix cursor base_spelling ~parse_function_pointer
+  with
   | None -> None
   | Some prefix -> parse_variable_declarator_suffix cursor prefix
 
-let rec parse_declarators cursor base_spelling declarators_rev =
-  match parse_declarator cursor base_spelling with
+let rec parse_declarators cursor base_spelling ~parse_function_pointer
+    declarators_rev =
+  match parse_declarator cursor base_spelling ~parse_function_pointer with
   | None -> None
   | Some declarator -> (
       let declarators_rev = declarator :: declarators_rev in
       match declarator.node.delimiter.kind with
       | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma -> parse_declarators cursor base_spelling declarators_rev)
+      | Ast.Comma ->
+          parse_declarators cursor base_spelling ~parse_function_pointer
+            declarators_rev)
 
 let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
@@ -2534,7 +2559,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth :
                     Ok { node; tokens })))
 
 let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
-    ~aggregate_kind =
+    ~aggregate_kind ~parse_function_pointer =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
   if name_item.token.kind <> Token_kind.Identifier then (
@@ -2583,8 +2608,12 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                       ( [],
                         [ semicolon_item.token ],
                         token_location semicolon_item.token )
-                | Token_kind.Identifier | Token_kind.Punctuation '*' -> (
-                    match parse_declarators cursor name.spelling [] with
+                | Token_kind.Identifier | Token_kind.Punctuation ('*' | '(')
+                  -> (
+                    match
+                      parse_declarators cursor name.spelling
+                        ~parse_function_pointer []
+                    with
                     | None -> None
                     | Some declarators ->
                         let last = List.hd (List.rev declarators) in
@@ -2738,6 +2767,7 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
           | Token_kind.Punctuation '(' -> (
               match
                 parse_function_pointer_declarator cursor ~function_pointer_depth
+                  ~declarator_context:Function_parameter_declarator
               with
               | None -> None
               | Some parsed ->
@@ -2767,7 +2797,8 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
               %s"
              (token_description type_item.token))
 
-and parse_function_pointer_declarator cursor ~function_pointer_depth =
+and parse_function_pointer_declarator cursor ~function_pointer_depth
+    ~declarator_context =
   let opening_item = peek cursor in
   if function_pointer_depth >= max_function_pointer_depth then
     declaration_failure cursor opening_item ~code:"HCPARSE0017"
@@ -2779,12 +2810,23 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
     let opening_item = take cursor in
     let first_star = peek cursor in
     if first_star.token.kind <> Token_kind.Punctuation '*' then
-      declaration_failure cursor first_star ~code:"HCPARSE0014"
+      declaration_failure cursor first_star
+        ~code:
+          (match declarator_context with
+          | Function_parameter_declarator -> "HCPARSE0014"
+          | Global_variable_declarator -> "HCPARSE0131")
         ~message:
-          (Printf.sprintf
-             "expected '*' after '(' in function-pointer parameter, but found \
-              %s"
-             (token_description first_star.token))
+          (match declarator_context with
+          | Function_parameter_declarator ->
+              Printf.sprintf
+                "expected '*' after '(' in function-pointer parameter, but \
+                 found %s"
+                (token_description first_star.token)
+          | Global_variable_declarator ->
+              Printf.sprintf
+                "expected '*' after '(' in global function-pointer declarator, \
+                 but found %s"
+                (token_description first_star.token))
     else
       match parse_pointer_layers cursor 0 [] [] with
       | None -> None
@@ -2801,27 +2843,45 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
                   ( Ast.make_identifier ~spelling:name_item.token.raw
                       ~location:(token_location name_item.token),
                     name_item.token )
-            | Token_kind.Punctuation ')' -> None
+            | Token_kind.Punctuation ')'
+              when declarator_context = Function_parameter_declarator -> None
             | _ ->
-                report cursor name_item ~code:"HCPARSE0014"
+                report cursor name_item
+                  ~code:
+                    (match declarator_context with
+                    | Function_parameter_declarator -> "HCPARSE0014"
+                    | Global_variable_declarator -> "HCPARSE0132")
                   ~message:
-                    (Printf.sprintf
-                       "expected a function-pointer name or ')' after pointer \
-                        stars, but found %s"
-                       (token_description name_item.token));
+                    (match declarator_context with
+                    | Function_parameter_declarator ->
+                        Printf.sprintf
+                          "expected a function-pointer name or ')' after \
+                           pointer stars, but found %s"
+                          (token_description name_item.token)
+                    | Global_variable_declarator ->
+                        Printf.sprintf
+                          "expected a global function-pointer name after \
+                           pointer stars, but found %s"
+                          (token_description name_item.token));
                 recover_declaration cursor;
                 None
           in
           if
             name_item.token.kind <> Token_kind.Identifier
-            && name_item.token.kind <> Token_kind.Punctuation ')'
+            && not
+                 (declarator_context = Function_parameter_declarator
+                 && name_item.token.kind = Token_kind.Punctuation ')')
           then None
           else
             let name = Option.map fst parsed_name in
             let name_tokens = Option.to_list (Option.map snd parsed_name) in
             let closing_item = peek cursor in
             if closing_item.token.kind <> Token_kind.Punctuation ')' then
-              declaration_failure cursor closing_item ~code:"HCPARSE0014"
+              declaration_failure cursor closing_item
+                ~code:
+                  (match declarator_context with
+                  | Function_parameter_declarator -> "HCPARSE0014"
+                  | Global_variable_declarator -> "HCPARSE0131")
                 ~message:
                   (Printf.sprintf
                      "expected ')' after function-pointer name, but found %s"
@@ -2830,7 +2890,11 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth =
               let closing_item = take cursor in
               let signature_opening = peek cursor in
               if signature_opening.token.kind <> Token_kind.Punctuation '(' then
-                declaration_failure cursor signature_opening ~code:"HCPARSE0014"
+                declaration_failure cursor signature_opening
+                  ~code:
+                    (match declarator_context with
+                    | Function_parameter_declarator -> "HCPARSE0014"
+                    | Global_variable_declarator -> "HCPARSE0131")
                   ~message:
                     (Printf.sprintf
                        "expected '(' for function-pointer signature, but found \
@@ -2974,6 +3038,10 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
         Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
+  let parse_global_function_pointer () =
+    parse_function_pointer_declarator cursor ~function_pointer_depth:0
+      ~declarator_context:Global_variable_declarator
+  in
   let parsed_modifiers = parse_modifiers cursor [] in
   let modifiers =
     List.map
@@ -3077,6 +3145,7 @@ let parse_global cursor ~parse_function_definition =
       | Some aggregate_kind ->
           parse_aggregate_definition cursor ~modifier_tokens ~modifiers
             ~backing:None ~aggregate_kind
+            ~parse_function_pointer:parse_global_function_pointer
       | None -> (
           match parse_binding cursor with
           | Bad_binding -> None
@@ -3121,12 +3190,17 @@ let parse_global cursor ~parse_function_definition =
                           | Some backing ->
                               parse_aggregate_definition cursor ~modifier_tokens
                                 ~modifiers ~backing:(Some backing)
-                                ~aggregate_kind))
+                                ~aggregate_kind
+                                ~parse_function_pointer:
+                                  parse_global_function_pointer))
                   | None -> (
                       let spelling =
                         Ast.type_specifier_spelling type_specifier
                       in
-                      match parse_declarator_prefix cursor spelling with
+                      match
+                        parse_declarator_prefix cursor spelling
+                          ~parse_function_pointer:parse_global_function_pointer
+                      with
                       | None -> None
                       | Some first_prefix -> (
                           let next_item = peek cursor in
@@ -3153,6 +3227,8 @@ let parse_global cursor ~parse_function_definition =
                                     | Ast.Semicolon -> Some [ first_declarator ]
                                     | Ast.Comma ->
                                         parse_declarators cursor spelling
+                                          ~parse_function_pointer:
+                                            parse_global_function_pointer
                                           [ first_declarator ]
                                   in
                                   match parsed_declarators with
@@ -3170,7 +3246,10 @@ let parse_global cursor ~parse_function_definition =
                                       | [ declarator ]
                                         when Option.is_none
                                                declarator.node
-                                                 .global_initial_value ->
+                                                 .global_initial_value
+                                             && Option.is_none
+                                                  declarator.node
+                                                    .function_pointer ->
                                           let variable =
                                             Ast.make_global_variable ~modifiers
                                               ~binding ~type_specifier

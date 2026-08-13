@@ -994,32 +994,6 @@ let print_array_dimensions buffer sources ~indent dimensions =
         (location_text sources dimension.closing_bracket))
     dimensions
 
-let print_global_declarator buffer sources ~indent ~label index
-    (declarator : Ast.global_declarator) =
-  let child_indent = indent ^ "  " in
-  Printf.bprintf buffer "%s%s index=%d span=%s\n" indent label index
-    (location_text sources declarator.location);
-  print_pointer_layers buffer sources ~indent:child_indent
-    declarator.pointer_layers;
-  Printf.bprintf buffer "%sname spelling=%S span=%s\n" child_indent
-    declarator.name.spelling
-    (location_text sources declarator.name.location);
-  print_array_dimensions buffer sources ~indent:child_indent
-    declarator.array_dimensions;
-  Option.iter
-    (fun (initial_value : Ast.global_initializer) ->
-      Printf.bprintf buffer "%sinitializer span=%s\n" child_indent
-        (location_text sources initial_value.global_initializer_location);
-      Printf.bprintf buffer "%s  equals span=%s\n" child_indent
-        (location_text sources initial_value.global_initializer_equals);
-      print_initializer buffer sources ~indent:(child_indent ^ "  ")
-        initial_value.global_initializer_value)
-    declarator.global_initial_value;
-  Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n" child_indent
-    (delimiter_kind_name declarator.delimiter.kind)
-    declarator.delimiter.spelling
-    (location_text sources declarator.delimiter.location)
-
 let rec print_aggregate_member buffer sources ~indent index = function
   | Ast.Aggregate_member_declaration declaration ->
       Printf.bprintf buffer
@@ -1152,6 +1126,37 @@ and print_variadic_marker buffer sources ~indent
     (location_text sources variadic.location);
   print_register_qualifiers buffer sources ~indent:(indent ^ "  ")
     ~position:Ast.Before_type variadic.register_qualifiers
+
+let print_global_declarator buffer sources ~indent ~label index
+    (declarator : Ast.global_declarator) =
+  let child_indent = indent ^ "  " in
+  Printf.bprintf buffer "%s%s index=%d span=%s\n" indent label index
+    (location_text sources declarator.location);
+  print_pointer_layers buffer sources ~indent:child_indent
+    declarator.pointer_layers;
+  (match declarator.function_pointer with
+  | None ->
+      Printf.bprintf buffer "%sname spelling=%S span=%s\n" child_indent
+        declarator.name.spelling
+        (location_text sources declarator.name.location)
+  | Some function_pointer ->
+      print_function_pointer buffer sources ~indent:child_indent
+        ~name:(Some declarator.name) function_pointer);
+  print_array_dimensions buffer sources ~indent:child_indent
+    declarator.array_dimensions;
+  Option.iter
+    (fun (initial_value : Ast.global_initializer) ->
+      Printf.bprintf buffer "%sinitializer span=%s\n" child_indent
+        (location_text sources initial_value.global_initializer_location);
+      Printf.bprintf buffer "%s  equals span=%s\n" child_indent
+        (location_text sources initial_value.global_initializer_equals);
+      print_initializer buffer sources ~indent:(child_indent ^ "  ")
+        initial_value.global_initializer_value)
+    declarator.global_initial_value;
+  Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n" child_indent
+    (delimiter_kind_name declarator.delimiter.kind)
+    declarator.delimiter.spelling
+    (location_text sources declarator.delimiter.location)
 
 let human sources module_ =
   let buffer = Buffer.create 256 in
@@ -2251,22 +2256,6 @@ let global_initializer_to_yojson sources
         location_to_yojson sources initial_value.global_initializer_location );
     ]
 
-let declarator_to_yojson sources (declarator : Ast.global_declarator) =
-  `Assoc
-    (pointer_layer_fields sources declarator.pointer_layers
-    @ [ ("name", identifier_to_yojson sources declarator.name) ]
-    @ array_dimension_fields sources declarator.array_dimensions
-    @ (match declarator.global_initial_value with
-      | None -> []
-      | Some initial_value ->
-          [
-            ("initializer", global_initializer_to_yojson sources initial_value);
-          ])
-    @ [
-        ("delimiter", delimiter_to_yojson sources declarator.delimiter);
-        ("location", location_to_yojson sources declarator.location);
-      ])
-
 let aggregate_member_declarator_to_yojson sources
     (declarator : Ast.aggregate_member_declarator) =
   `Assoc
@@ -2436,6 +2425,29 @@ and function_pointer_to_yojson sources ~name
         ( "location",
           location_to_yojson sources function_pointer.function_pointer_location
         );
+      ])
+
+let declarator_to_yojson sources (declarator : Ast.global_declarator) =
+  `Assoc
+    (pointer_layer_fields sources declarator.pointer_layers
+    @ (match declarator.function_pointer with
+      | None -> [ ("name", identifier_to_yojson sources declarator.name) ]
+      | Some function_pointer ->
+          [
+            ( "function_pointer",
+              function_pointer_to_yojson sources ~name:(Some declarator.name)
+                function_pointer );
+          ])
+    @ array_dimension_fields sources declarator.array_dimensions
+    @ (match declarator.global_initial_value with
+      | None -> []
+      | Some initial_value ->
+          [
+            ("initializer", global_initializer_to_yojson sources initial_value);
+          ])
+    @ [
+        ("delimiter", delimiter_to_yojson sources declarator.delimiter);
+        ("location", location_to_yojson sources declarator.location);
       ])
 
 let item_to_yojson sources = function

@@ -1,0 +1,410 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-function-pointer-global.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 92
+    },
+    "items": [
+      {
+        "kind": "global_declaration",
+        "type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 64,
+              "stop": 66
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-function-pointer-global.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 64,
+                "stop": 66
+              }
+            ]
+          }
+        },
+        "declarators": [
+          {
+            "function_pointer": {
+              "kind": "function_pointer",
+              "opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 67,
+                  "stop": 68
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 67,
+                    "stop": 68
+                  }
+                ]
+              },
+              "pointer_layers": [
+                {
+                  "depth": 1,
+                  "spelling": "*",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-function-pointer-global.hc",
+                      "line": 2,
+                      "column": 5,
+                      "source_id": 0,
+                      "start": 68,
+                      "stop": 69
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-function-pointer-global.hc",
+                        "line": 2,
+                        "column": 5,
+                        "source_id": 0,
+                        "start": 68,
+                        "stop": 69
+                      }
+                    ]
+                  }
+                }
+              ],
+              "name": {
+                "spelling": "fp_set_std_palette",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 69,
+                    "stop": 87
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-function-pointer-global.hc",
+                      "line": 2,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 69,
+                      "stop": 87
+                    }
+                  ]
+                }
+              },
+              "closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 87,
+                  "stop": 88
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 87,
+                    "stop": 88
+                  }
+                ]
+              },
+              "signature_opening_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 89
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 88,
+                    "stop": 89
+                  }
+                ]
+              },
+              "parameters": [],
+              "signature_closing_parenthesis": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 89,
+                  "stop": 90
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 89,
+                    "stop": 90
+                  }
+                ]
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 67,
+                  "stop": 90
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 4,
+                    "source_id": 0,
+                    "start": 67,
+                    "stop": 68
+                  },
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 68,
+                    "stop": 69
+                  },
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 69,
+                    "stop": 87
+                  },
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 87,
+                    "stop": 88
+                  },
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 88,
+                    "stop": 89
+                  },
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 89,
+                    "stop": 90
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "semicolon",
+              "spelling": ";",
+              "location": {
+                "span": {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 90,
+                  "stop": 91
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-function-pointer-global.hc",
+                    "line": 2,
+                    "column": 27,
+                    "source_id": 0,
+                    "start": 90,
+                    "stop": 91
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-function-pointer-global.hc",
+                "line": 2,
+                "column": 4,
+                "source_id": 0,
+                "start": 67,
+                "stop": 91
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 4,
+                  "source_id": 0,
+                  "start": 67,
+                  "stop": 68
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 68,
+                  "stop": 69
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 69,
+                  "stop": 87
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 24,
+                  "source_id": 0,
+                  "start": 87,
+                  "stop": 88
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 25,
+                  "source_id": 0,
+                  "start": 88,
+                  "stop": 89
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 26,
+                  "source_id": 0,
+                  "start": 89,
+                  "stop": 90
+                },
+                {
+                  "path": "cli/parse-function-pointer-global.hc",
+                  "line": 2,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 90,
+                  "stop": 91
+                }
+              ]
+            }
+          }
+        ],
+        "location": {
+          "span": {
+            "path": "cli/parse-function-pointer-global.hc",
+            "line": 2,
+            "column": 1,
+            "source_id": 0,
+            "start": 64,
+            "stop": 91
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 64,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 4,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 5,
+              "source_id": 0,
+              "start": 68,
+              "stop": 69
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 6,
+              "source_id": 0,
+              "start": 69,
+              "stop": 87
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 24,
+              "source_id": 0,
+              "start": 87,
+              "stop": 88
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 25,
+              "source_id": 0,
+              "start": 88,
+              "stop": 89
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 26,
+              "source_id": 0,
+              "start": 89,
+              "stop": 90
+            },
+            {
+              "path": "cli/parse-function-pointer-global.hc",
+              "line": 2,
+              "column": 27,
+              "source_id": 0,
+              "start": 90,
+              "stop": 91
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

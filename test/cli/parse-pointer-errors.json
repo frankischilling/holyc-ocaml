@@ -17,16 +17,33 @@
     "help": null
   },
   {
-    "code": "HCPARSE0005",
+    "code": "HCPARSE0132",
     "severity": "error",
-    "message": "parenthesized function-pointer declarators are not implemented",
+    "message": "expected a global function-pointer name after pointer stars, but found \")\"",
     "primary": {
       "path": "cli/parse-pointer-errors.hc",
       "line": 3,
-      "column": 5,
+      "column": 7,
       "source_id": 0,
-      "start": 62,
-      "stop": 63
+      "start": 64,
+      "stop": 65
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  },
+  {
+    "code": "HCPARSE0131",
+    "severity": "error",
+    "message": "expected '*' after '(' in global function-pointer declarator, but found identifier \"missing_star\"",
+    "primary": {
+      "path": "cli/parse-pointer-errors.hc",
+      "line": 4,
+      "column": 6,
+      "source_id": 0,
+      "start": 74,
+      "stop": 86
     },
     "secondary": [],
     "include_stack": [],

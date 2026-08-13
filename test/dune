@@ -59,6 +59,7 @@
   ../third_party/TempleOS/Kernel/KernelA.HH
   ../third_party/TempleOS/Kernel/KernelB.HH
   ../third_party/TempleOS/Kernel/KernelC.HH
+  ../third_party/TempleOS/Kernel/KGlbls.HC
   ../third_party/TempleOS/Kernel/KExts.HC
   ../third_party/TempleOS/Compiler/PrsLib.HC
   ../third_party/TempleOS/Compiler/PrsStmt.HC
@@ -70,6 +71,7 @@
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Adam/Snd/SndMath.HC
+  ../third_party/TempleOS/Adam/ABlkDev/FileMgr.HC
   ../third_party/TempleOS/Demo/Asm/AsmAndC1.HC
   ../third_party/TempleOS/Demo/Asm/AsmAndC2.HC
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
@@ -77,6 +79,7 @@
   ../third_party/TempleOS/Demo/Exceptions.HC
   ../third_party/TempleOS/Demo/RadixSort.HC
   ../third_party/TempleOS/Demo/Games/Talons.HC
+  ../third_party/TempleOS/Demo/Graphics/WallPaperFish.HC
   ../third_party/TempleOS/Demo/NullCase.HC
   ../third_party/TempleOS/Demo/SubSwitch.HC
   ../third_party/TempleOS/Kernel/Compress.HC
@@ -1168,6 +1171,40 @@
    (diff
     cli/parse-register-parameter-error.json
     parse-register-parameter-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-global.human.actual)
+ (deps
+  cli/parse-function-pointer-global.hc
+  cli/parse-function-pointer-global.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-global.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-pointer-global.hc))
+   (diff
+    cli/parse-function-pointer-global.human
+    parse-function-pointer-global.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-global.json.actual)
+ (deps
+  cli/parse-function-pointer-global.hc
+  cli/parse-function-pointer-global.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-global.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-pointer-global.hc))
+   (diff
+    cli/parse-function-pointer-global.json
+    parse-function-pointer-global.json.actual))))
 
 (rule
  (alias runtest)
