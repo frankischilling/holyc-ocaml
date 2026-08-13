@@ -73,3 +73,70 @@ jobs:
         run: >-
           test "${{ steps.json.outcome }}" = "success" &&
           test "${{ steps.human.outcome }}" = "success"
+
+  parser:
+    name: Parser corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@605a7e998e76e035b82c14d618a6e1010732c4ce # v3
+        with:
+          ocaml-compiler: 5.3.x
+          dune-cache: true
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --with-dev-setup
+
+      - name: Build the corpus command
+        run: opam exec -- dune build @all
+
+      - name: Verify the pinned reference
+        shell: pwsh
+        run: ./tools/verify-reference.ps1
+
+      - name: Create the report directory
+        run: mkdir -p corpus-results
+
+      - name: Write the JSON report
+        id: json
+        continue-on-error: true
+        run: >-
+          opam exec -- dune exec holyc -- corpus parse --format=json --mode=aot
+          --reference-commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
+          --reference-root=third_party/TempleOS > corpus-results/parser-aot.json
+
+      - name: Write the human report
+        id: human
+        continue-on-error: true
+        run: >-
+          opam exec -- dune exec holyc -- corpus parse --mode=aot
+          --reference-commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
+          --reference-root=third_party/TempleOS > corpus-results/parser-aot.txt
+
+      - name: Compare the reviewed baseline
+        id: baseline
+        continue-on-error: true
+        run: diff --unified reference/parser-corpus-aot.json corpus-results/parser-aot.json
+
+      - name: Upload corpus results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: parser-corpus-${{ github.sha }}
+          path: corpus-results/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce corpus results
+        if: always()
+        run: >-
+          test "${{ steps.json.outcome }}" = "success" &&
+          test "${{ steps.human.outcome }}" = "success" &&
+          test "${{ steps.baseline.outcome }}" = "success"
