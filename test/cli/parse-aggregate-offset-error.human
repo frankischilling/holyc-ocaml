@@ -1,0 +1,3 @@
+cli/parse-aggregate-offset-error.hc:3:6: error[HCPARSE0142]: expected '=' after the '$$' aggregate offset marker, but found "8"
+    3 |   $$ 8;
+      |      ^

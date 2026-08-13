@@ -2269,11 +2269,64 @@ anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
 backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
 inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
-inherited_layout_metadata_and_explicit_offsets = "planned"
+inherited_layout_and_metadata = "planned"
+explicit_offset_syntax = "implemented in HC-PARSER-AGGREGATE-OFFSET-DIRECTIVES"
 nested_named_definitions = "planned"
 attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
 function_pointer_members = "implemented in HC-PARSER-FUNCTION-POINTER-MEMBERS"
 semantic_identity_layout_overlap_and_linkage = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-OFFSET-DIRECTIVES"
+description = "Class, union, and anonymous-union bodies retain repeated explicit current-offset directives as source-positioned aggregate members."
+sources = [
+  "Compiler/PrsVar.HC:419-444 PrsVarLst class-offset setup and directive loop",
+  "Compiler/PrsExp.HC:707-721 current-position expression",
+  "Doc/HolyC.DD:222 class-offset meaning of $$",
+  "Demo/Lectures/NegDisp.HC:34-42 Person",
+  "Kernel/KernelA.HH:430-449 CKernel",
+  "Kernel/KernelA.HH:3415-3423 CSysFixedArea",
+  "Kernel/KernelA.HH:3801-3807 CFunSegCache"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-offset.hc",
+  "test/cli/parse-aggregate-offset.human",
+  "test/cli/parse-aggregate-offset.json",
+  "test/cli/parse-aggregate-offset-error.hc",
+  "test/cli/parse-aggregate-offset-error.human",
+  "test/cli/parse-aggregate-offset-error.json"
+]
+status = "implemented"
+issue = 145
+ast_schema = "holyc-ast-v1"
+accepted_form = "$$ = expression ; inside a class, named union, or anonymous union body"
+member_shape = "marker, equals sign, ordinary HolyC expression, semicolon, complete location"
+empty_member_behavior = "ordinary semicolons remain separate ordered members before or after a directive"
+repeat_behavior = "the shared member loop accepts consecutive directives"
+corpus_directive_count = 4
+corpus_directives = [
+  "Demo/Lectures/NegDisp.HC:35",
+  "Kernel/KernelA.HH:447",
+  "Kernel/KernelA.HH:3422",
+  "Kernel/KernelA.HH:3806"
+]
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+outside_aggregate_behavior = "the same tokens remain an ordinary current-position assignment expression"
+missing_equals_diagnostic = "HCPARSE0142"
+missing_expression_diagnostic = "HCPARSE0018 in the aggregate-offset expression context"
+missing_semicolon_diagnostic = "HCPARSE0143"
+expression_depth_diagnostic = "HCPARSE0021 at a fixed hosted limit of 256"
+recovery = "tracks aggregate depth through the containing closing brace and resumes at the following global"
+native_oracle_status = "not required; dispatch and punctuation are explicit in the pinned PrsVarLst loop"
+offset_evaluation_negative_offset_union_base_alignment_and_layout = "planned"
 
 [[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-MEMBERS"

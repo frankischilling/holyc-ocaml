@@ -353,6 +353,7 @@ and function_pointer_declarator = private {
 
 type aggregate_member =
   | Aggregate_member_declaration of aggregate_member_declaration
+  | Aggregate_offset_directive of aggregate_offset_directive
   | Anonymous_union_member of anonymous_union_member
   | Empty_aggregate_member of location
 
@@ -369,6 +370,14 @@ and aggregate_member_declaration = private {
   member_type_specifier : type_specifier;
   member_declarators : aggregate_member_declarator list;
   member_declaration_location : location;
+}
+
+and aggregate_offset_directive = private {
+  aggregate_offset_marker : expression_operator;
+  aggregate_offset_equals : location;
+  aggregate_offset_expression : expression;
+  aggregate_offset_semicolon : location;
+  aggregate_offset_location : location;
 }
 
 and anonymous_union_member = private {
@@ -785,6 +794,14 @@ val make_aggregate_member_declaration :
   declarators:aggregate_member_declarator list ->
   location:location ->
   aggregate_member_declaration
+
+val make_aggregate_offset_directive :
+  marker:expression_operator ->
+  equals:location ->
+  expression:expression ->
+  semicolon:location ->
+  location:location ->
+  aggregate_offset_directive
 
 val make_anonymous_union_member :
   keyword_spelling:string ->

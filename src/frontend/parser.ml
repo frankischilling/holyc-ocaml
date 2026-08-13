@@ -113,6 +113,7 @@ type expression_context =
   | While_condition_expression
   | Local_initializer_expression
   | Global_initializer_expression
+  | Aggregate_offset_expression
   | Statement_expression
 
 type direct_function_resolution =
@@ -970,6 +971,7 @@ let expression_context_name = function
   | While_condition_expression -> "while condition expression"
   | Local_initializer_expression -> "local initializer expression"
   | Global_initializer_expression -> "global initializer expression"
+  | Aggregate_offset_expression -> "aggregate offset expression"
   | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
@@ -988,6 +990,7 @@ let expression_operand_name = function
   | While_condition_expression -> "a while condition expression operand"
   | Local_initializer_expression -> "a local initializer expression operand"
   | Global_initializer_expression -> "a global initializer expression operand"
+  | Aggregate_offset_expression -> "an aggregate offset expression operand"
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
@@ -2478,12 +2481,16 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
         ~message:
           "nested named class definitions are not implemented in aggregate \
            bodies"
-  | Token_kind.Operator Operator.Current_position ->
-      aggregate_member_failure cursor item ~recovery_depth:(depth + 1)
-        ~code:"HCPARSE0117"
-        ~message:
-          "explicit '$$' aggregate offsets are not implemented in this parser \
-           slice"
+  | Token_kind.Operator Operator.Current_position -> (
+      match
+        parse_aggregate_offset_directive cursor ~recovery_depth:(depth + 1)
+      with
+      | Error failure -> Error failure
+      | Ok member ->
+          parse_aggregate_members cursor ~opening_brace ~depth
+            ~parse_member_function_pointer
+            (member.node :: members_rev)
+            (List.rev_append member.tokens tokens_rev))
   | _ -> (
       match
         parse_aggregate_member_declaration cursor ~recovery_depth:(depth + 1)
@@ -2495,6 +2502,50 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
             ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
+
+and parse_aggregate_offset_directive cursor ~recovery_depth :
+    (parsed_aggregate_member, aggregate_parse_failure) result =
+  let marker_item = take cursor in
+  let marker = make_expression_operator marker_item.token in
+  let equals_item = peek cursor in
+  if equals_item.token.kind <> Token_kind.Punctuation '=' then
+    aggregate_member_failure cursor equals_item ~recovery_depth
+      ~code:"HCPARSE0142"
+      ~message:
+        (Printf.sprintf
+           "expected '=' after the '$$' aggregate offset marker, but found %s"
+           (token_description equals_item.token))
+  else
+    let equals_item = take cursor in
+    match
+      parse_expression cursor ~context:Aggregate_offset_expression ~depth:0
+        ~minimum_binding_power:0
+    with
+    | None -> Error { recovery_depth }
+    | Some expression ->
+        let semicolon_item = peek cursor in
+        if semicolon_item.token.kind <> Token_kind.Punctuation ';' then
+          aggregate_member_failure cursor semicolon_item ~recovery_depth
+            ~code:"HCPARSE0143"
+            ~message:
+              (Printf.sprintf
+                 "expected ';' after the aggregate offset expression, but \
+                  found %s"
+                 (token_description semicolon_item.token))
+        else
+          let semicolon_item = take cursor in
+          let tokens =
+            (marker_item.token :: equals_item.token :: expression.tokens)
+            @ [ semicolon_item.token ]
+          in
+          let node =
+            Ast.make_aggregate_offset_directive ~marker
+              ~equals:(token_location equals_item.token)
+              ~expression:expression.node
+              ~semicolon:(token_location semicolon_item.token)
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Ok { node = Ast.Aggregate_offset_directive node; tokens }
 
 and parse_anonymous_union_member cursor ~depth ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
