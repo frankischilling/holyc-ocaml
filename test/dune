@@ -3807,3 +3807,63 @@
      --format=json
      cli/parse-inline-assembly.hc))
    (diff cli/parse-inline-assembly.json parse-inline-assembly.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets symbol-dump.human.actual)
+ (deps cli/symbol-dump.hc cli/symbol-dump.human)
+ (action
+  (progn
+   (with-stdout-to
+    symbol-dump.human.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-symbols
+     --source-only
+     cli/symbol-dump.hc))
+   (diff cli/symbol-dump.human symbol-dump.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets symbol-dump.json.actual)
+ (deps cli/symbol-dump.hc cli/symbol-dump.json)
+ (action
+  (progn
+   (with-stdout-to
+    symbol-dump.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-symbols
+     --source-only
+     --format=json
+     cli/symbol-dump.hc))
+   (diff cli/symbol-dump.json symbol-dump.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  symbol-dump-error.human.stdout.actual
+  symbol-dump-error.human.diagnostics.actual)
+ (deps
+  cli/symbol-dump-error.hc
+  cli/symbol-dump-error.human.stdout
+  cli/symbol-dump-error.human.diagnostics)
+ (action
+  (progn
+   (with-stdout-to
+    symbol-dump-error.human.stdout.actual
+    (with-stderr-to
+     symbol-dump-error.human.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-symbols
+       --source-only
+       cli/symbol-dump-error.hc))))
+   (diff
+    cli/symbol-dump-error.human.stdout
+    symbol-dump-error.human.stdout.actual)
+   (diff
+    cli/symbol-dump-error.human.diagnostics
+    symbol-dump-error.human.diagnostics.actual))))

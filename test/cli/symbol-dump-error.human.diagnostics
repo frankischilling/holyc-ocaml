@@ -1,0 +1,3 @@
+cli/symbol-dump-error.hc:3:12: error[HCPARSE0127]: expected a global initializer value, but found ";"
+    3 | I64 broken=;
+      |            ^

@@ -478,6 +478,50 @@ issue = 29
 known_difference_issues = [27]
 
 [[feature]]
+id = "HC-PARSER-SYMBOL-DUMP"
+description = "The CLI emits deterministic human and JSON views of the parser's source-order visibility state without presenting that state as semantic name resolution."
+sources = [
+  "Compiler/CHash.HC:MapFileWrite",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsStmt",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Kernel/KernelA.HH:HTT_EXPORT_SYS_SYM through HTT_FRAME_PTR",
+  "Kernel/KHashB.HC:HashTypeNum",
+  "Kernel/KHashB.HC:HashVal",
+  "Kernel/KHashB.HC:HashSrcFileSet",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/frontend/symbol_visibility.ml",
+  "src/frontend/parser.ml",
+  "src/driver/session.ml",
+  "bin/holyc.ml"
+]
+tests = [
+  "test/test_symbol_visibility.ml",
+  "test/cli/symbol-dump.hc",
+  "test/cli/symbol-dump.human",
+  "test/cli/symbol-dump.json",
+  "test/cli/symbol-dump-error.hc",
+  "test/cli/symbol-dump-error.human.stdout",
+  "test/cli/symbol-dump-error.human.diagnostics"
+]
+status = "implemented"
+issue = 162
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+schema = "holyc-symbol-visibility-v2"
+formats = ["human", "json"]
+commands = ["holyc dump-symbols FILE", "holyc dump-symbols --source-only FILE"]
+default_seed_entries = 570
+ordering = "stable symbol ID; lexical local names"
+source_provenance = ["primary span", "source segments", "generated-from", "defined-at"]
+function_shape = ["fixed parameter order", "optional names", "default availability", "variadic marker"]
+error_behavior = "prints accumulated state, reports diagnostics, and exits with status 1"
+semantic_resolution = "not implemented"
+
+[[feature]]
 id = "HC-PREPROCESSOR-CONSTANT-IF"
 description = "The integrated stream evaluates literal and definition-expanded #if expressions with checked HolyC precedence, explicit 64-bit target values, defined lookup, retained lookahead, and bounded deterministic recovery."
 sources = [

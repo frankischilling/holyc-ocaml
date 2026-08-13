@@ -1,0 +1,4 @@
+holyc-symbol-visibility-v2
+reference_commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
+symbol 570 name="retained" kind=global-variable origin=cli/symbol-dump-error.hc:2:5..2:13
+  source-segment 0 location=cli/symbol-dump-error.hc:2:5..2:13

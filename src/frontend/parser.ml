@@ -757,17 +757,28 @@ let type_specifier_of_item cursor item =
                   ~location:(token_location item.token)))
       | None -> None)
 
+let symbol_source_origin (location : Ast.location) =
+  Symbol_visibility.Source_location
+    {
+      span = location.span;
+      source_segments = location.source_segments;
+      generated_from = location.generated_from;
+      defined_at = location.defined_at;
+    }
+
 let publish_global cursor (name : Ast.identifier) =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Global_variable
-       ~origin:(Symbol_visibility.Source_span name.location.span) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_class cursor (name : Ast.identifier) =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Class
-       ~origin:(Symbol_visibility.Source_span name.location.span) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_function cursor (name : Ast.identifier) parameters variadic =
   let function_call_shape : Symbol_visibility.function_call_shape =
@@ -789,7 +800,8 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Function ~function_call_shape
-       ~origin:(Symbol_visibility.Source_span name.location.span) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_local cursor (name : Ast.identifier) =
   match cursor.local_context with
