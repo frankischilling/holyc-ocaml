@@ -91,6 +91,16 @@ let replaced_item_indexes resolution =
         declaration
       |> Option.map site_item_index)
 
+let identity_site_item_indexes resolution =
+  Semantic_function_resolution.identities resolution
+  |> List.map (fun identity ->
+      Semantic_function_resolution.identity_sites identity
+      |> List.map site_item_index)
+
+let identity_first_item_indexes resolution =
+  Semantic_function_resolution.identities resolution
+  |> List.map Semantic_function_resolution.identity_first_item_index
+
 let final_states resolution =
   Semantic_function_resolution.identities resolution
   |> List.map (fun identity ->
@@ -136,6 +146,13 @@ let jit_join_and_shadow_matrix () =
     "joined declarations retain the replaced header"
     [ None; Some 0; Some 1; None; None; Some 4 ]
     (replaced_item_indexes resolution);
+  Alcotest.(check (list (list int)))
+    "every JIT declaration site remains ordered"
+    [ [ 0; 1; 2 ]; [ 3 ]; [ 4; 5 ] ]
+    (identity_site_item_indexes resolution);
+  Alcotest.(check (list int))
+    "JIT identities keep their first declaration position" [ 0; 3; 4 ]
+    (identity_first_item_indexes resolution);
   Alcotest.(check (list string))
     "each JIT identity ends resolved"
     [ "resolved"; "resolved"; "resolved" ]
@@ -187,6 +204,13 @@ let aot_import_barrier_matrix () =
     "AOT replacement chain follows source order"
     [ None; Some 0; Some 1; Some 2; None; Some 4; None ]
     (replaced_item_indexes resolution);
+  Alcotest.(check (list (list int)))
+    "every AOT declaration site remains ordered"
+    [ [ 0; 1; 2; 3 ]; [ 4; 5 ]; [ 6 ] ]
+    (identity_site_item_indexes resolution);
+  Alcotest.(check (list int))
+    "AOT identities keep their first declaration position" [ 0; 4; 6 ]
+    (identity_first_item_indexes resolution);
   Alcotest.(check (list string))
     "each final AOT header is imported"
     [ "imported"; "imported"; "imported" ]

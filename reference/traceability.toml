@@ -3487,7 +3487,7 @@ block_local_scopes = "not created; accepted locals share the function scope"
 local_positions = ["declaration index", "grouped declarator index"]
 repeated_names = "preserved as separate entries with newest-first lookup"
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
-prototype_definition_reconciliation = "not implemented"
+prototype_definition_reconciliation = "implemented separately by HC-SEMA-FUNCTION-IDENTITIES; this pass still preserves each function scope and local collection"
 type_resolution = "return and recursive parameter types are implemented in HC-SEMA-FUNCTION-TYPES; local types remain unresolved"
 default_and_initializer_evaluation = "not implemented"
 register_and_storage_assignment = "not implemented"
@@ -3544,13 +3544,62 @@ validation = "session ownership, module and function scopes, AST association, de
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 default_evaluation_and_substitution = "not implemented"
-prototype_definition_reconciliation = "not implemented"
+prototype_definition_reconciliation = "identity selection is implemented separately by HC-SEMA-FUNCTION-IDENTITIES; header comparison is not implemented"
 call_checking = "not implemented"
 function_flags_register_requests_storage_and_abi = "not implemented"
 member_callback_signatures = "not implemented by this pass"
 global_local_cast_sizeof_and_offset_types = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-IDENTITIES"
+description = "Function declarations reconcile to source-ordered identities using TempleOS's distinct JIT and AOT selection rules."
+sources = [
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/LexLib.HC:MemberLstCmp",
+  "Kernel/KHashA.HC:_HASH_ADD",
+  "Kernel/KHashA.HC:SYS_HASH_SINGLE_TABLE_FIND",
+  "Kernel/KHashA.HC:SYS_HASH_FIND",
+  "Kernel/KernelA.HH:CHashFun",
+  "Doc/ScopingLinkage.DD",
+  "Doc/Options.DD"
+]
+implementation = [
+  "src/sema/function_resolution.ml",
+  "src/driver/function_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_resolution.ml"
+]
+status = "implemented"
+issue = 183
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "named top-level function prototypes and definitions from one checked module; unnamed callback signatures remain independent type records"
+identity_order = "first declaration site in module order"
+identity_symbol = "the first declaration symbol remains the representative because TempleOS updates the selected CHashFun record in place"
+declaration_sites = "every declaration remains available in source order with its function type, binding kind, and resulting state"
+replaced_header = "a joined declaration retains the immediately preceding site selected by PrsFunJoin"
+jit_selection = "reuse only the newest same-name unresolved extern; resolved records are shadowing barriers"
+aot_selection = "reuse the newest same-name record unless it is imported; an imported record is a barrier for the next declaration"
+extern_state = "unresolved extern"
+bound_extern_intern_and_definition_state = "resolved"
+import_and_bound_import_state = "imported"
+source_forms = ["extern", "_extern", "import", "_import", "_intern", "definition"]
+validation = "session ownership, module scope, AST and declaration association, source order, symbol uniqueness, function name and origin, and exact binding target shape"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+header_comparison_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEADER_MISMATCH are later consumers of the retained replacement pair"
+default_evaluation = "not implemented"
+parent_task_and_system_symbol_lookup = "not implemented"
+alternate_target_and_address_resolution = "not implemented"
+externs_to_imports_option = "not implemented"
+function_flags_visibility_calls_and_abi = "not implemented"
+import_export_record_emission = "not implemented"
+native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsGlblVarLst, and the pinned hash routines state the selection and state transitions directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
