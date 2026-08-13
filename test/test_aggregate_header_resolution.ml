@@ -71,10 +71,12 @@ let check_primitive_backing ~form ~primitive backing =
   (match Semantic_type.base resolved_type with
   | Semantic_type.Primitive (actual_form, actual_primitive) ->
       Alcotest.(check string)
-        "primitive form" (Semantic_type.primitive_form_name form)
+        "primitive form"
+        (Semantic_type.primitive_form_name form)
         (Semantic_type.primitive_form_name actual_form);
       Alcotest.(check string)
-        "primitive value" (Primitive_type.to_string primitive)
+        "primitive value"
+        (Primitive_type.to_string primitive)
         (Primitive_type.to_string actual_primitive)
   | Semantic_type.Aggregate _ ->
       Alcotest.fail "expected a primitive aggregate backing");
@@ -170,18 +172,40 @@ let backing_uses_prepublication_state () =
 
 let base_uses_postpublication_state () =
   let session = Session.create () in
-  let ast = parse session ~path:"base-publication.HC" "class Self : Self {};" in
+  let ast =
+    parse session ~path:"base-publication.HC"
+      "extern class Forward; class Self : Self {}; class Child : Forward {};"
+  in
   let results = resolve session ast in
-  let header = List.hd (headers results) in
+  let header = header_named results "Self" in
   let owner =
     Semantic_aggregate_header_resolution.header_symbol header |> symbol_id
   in
   let base =
-    header |> required_base
-    |> Semantic_aggregate_header_resolution.base_symbol |> symbol_id
+    header |> required_base |> Semantic_aggregate_header_resolution.base_symbol
+    |> symbol_id
   in
   Alcotest.(check int)
-    "the current identity is visible while its base is read" owner base
+    "the current identity is visible while its base is read" owner base;
+  let child_base =
+    header_named results "Child"
+    |> required_base |> Semantic_aggregate_header_resolution.base_symbol
+  in
+  let forward_identity =
+    Semantic_aggregate_resolution.identities results.aggregates
+    |> List.find (fun identity ->
+        identity |> Semantic_aggregate_resolution.identity_symbol
+        |> Semantic_symbol.name |> String.equal "Forward")
+  in
+  Alcotest.(check int)
+    "an unresolved forward remains a valid base target"
+    (forward_identity |> Semantic_aggregate_resolution.identity_symbol
+   |> symbol_id)
+    (symbol_id child_base);
+  Alcotest.(check bool)
+    "the selected base forward remains unresolved" true
+    (Semantic_aggregate_resolution.identity_definition forward_identity
+    |> Option.is_none)
 
 let newest_forward_is_canonical () =
   let session = Session.create () in
@@ -196,8 +220,7 @@ let newest_forward_is_canonical () =
   let child = header_named results "Child" in
   let node = header_named results "Node" in
   let base_symbol =
-    child |> required_base
-    |> Semantic_aggregate_header_resolution.base_symbol
+    child |> required_base |> Semantic_aggregate_header_resolution.base_symbol
   in
   Alcotest.(check int)
     "the base uses the completed newest forward"
@@ -209,12 +232,13 @@ let newest_forward_is_canonical () =
         identity |> Semantic_aggregate_resolution.identity_symbol
         |> Semantic_symbol.name |> String.equal "Node")
   in
-  Alcotest.(check int) "both forwards keep identities" 2
+  Alcotest.(check int)
+    "both forwards keep identities" 2
     (List.length node_identities);
   Alcotest.(check bool)
     "the older forward remains unresolved" true
     (List.hd node_identities
-    |> Semantic_aggregate_resolution.identity_definition |> Option.is_none)
+   |> Semantic_aggregate_resolution.identity_definition |> Option.is_none)
 
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
@@ -230,7 +254,9 @@ let generated_provenance () =
        class Root {};\n\
        STORAGE class Generated : ROOT {};"
   in
-  let header = resolve session ast |> fun results -> header_named results "Generated" in
+  let header =
+    resolve session ast |> fun results -> header_named results "Generated"
+  in
   let backing_origin =
     header |> required_backing
     |> Semantic_aggregate_header_resolution.backing_spelling_origin
@@ -282,20 +308,23 @@ let included_provenance () =
       let ast =
         Holyc_lib.parse_with_config session ~config ~source |> expect_ast
       in
-      let header = resolve session ast |> fun results -> header_named results "Included" in
+      let header =
+        resolve session ast |> fun results -> header_named results "Included"
+      in
       let origins =
         [
-          (header |> required_backing
-          |> Semantic_aggregate_header_resolution.backing_spelling_origin);
-          (header |> required_base
-          |> Semantic_aggregate_header_resolution.base_name_origin);
+          header |> required_backing
+          |> Semantic_aggregate_header_resolution.backing_spelling_origin;
+          header |> required_base
+          |> Semantic_aggregate_header_resolution.base_name_origin;
         ]
       in
       List.iter
         (fun site_origin ->
           let site_origin = source_origin site_origin in
           let source =
-            Source_manager.find (Session.sources session) site_origin.span.source
+            Source_manager.find (Session.sources session)
+              site_origin.span.source
             |> Option.get
           in
           Alcotest.(check string)
@@ -311,15 +340,15 @@ let modes_determinism_and_purity () =
         parse session ~mode ~path:"header-modes.HC"
           "I64i class Root {}; class Child : Root {};"
       in
-      let declarations =
-        checked (Holyc_lib.collect_declarations session ast)
-      in
+      let declarations = checked (Holyc_lib.collect_declarations session ast) in
       let aggregates =
         checked (Holyc_lib.resolve_aggregates session ~declarations ast)
       in
       let table = Session.semantic_symbols session in
       let scope_count = Semantic_symbol_table.all_scopes table |> List.length in
-      let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
       let resolve () =
         checked
           (Holyc_lib.resolve_aggregate_headers session ~declarations ~aggregates
@@ -329,8 +358,7 @@ let modes_determinism_and_purity () =
         Semantic_aggregate_header_resolution.headers resolution
         |> List.map (fun header ->
             ( Semantic_aggregate_header_resolution.header_item_index header,
-              header
-              |> Semantic_aggregate_header_resolution.header_symbol
+              header |> Semantic_aggregate_header_resolution.header_symbol
               |> symbol_id ))
       in
       let first = resolve () in
@@ -470,11 +498,9 @@ let low_level_validation () =
   let foreign_backing =
     checked
       (Semantic_aggregate_header_resolution.make_backing_site
-         ~spelling:"Foreign"
-         ~origin:(Semantic_symbol.Synthesized "foreign use")
+         ~spelling:"Foreign" ~origin:(Semantic_symbol.Synthesized "foreign use")
          ~spelling_origin:(Semantic_symbol.Synthesized "foreign name")
-         ~pointer_origins:[]
-         ~resolved_type:foreign_type)
+         ~pointer_origins:[] ~resolved_type:foreign_type)
   in
   let owner = aggregate "Owner" in
   let foreign_header =
