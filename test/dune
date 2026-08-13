@@ -72,6 +72,7 @@
   ../third_party/TempleOS/Adam/WallPaper.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
+  ../third_party/TempleOS/Demo/Graphics/Balloon.HC
   ../third_party/TempleOS/Adam/Snd/SndMath.HC
   ../third_party/TempleOS/Adam/ABlkDev/FileMgr.HC
   ../third_party/TempleOS/Demo/Asm/AsmAndC1.HC
@@ -3778,5 +3779,39 @@
        --format=json
        cli/parse-assembly-block-error.hc))))
    (diff
-    cli/parse-assembly-block-error.json
-    parse-assembly-block-error.json.actual))))
+   cli/parse-assembly-block-error.json
+   parse-assembly-block-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-inline-assembly.human.actual)
+ (deps
+  cli/parse-inline-assembly.hc
+  cli/parse-inline-assembly.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-inline-assembly.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-inline-assembly.hc))
+   (diff
+    cli/parse-inline-assembly.human
+    parse-inline-assembly.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-inline-assembly.json.actual)
+ (deps
+  cli/parse-inline-assembly.hc
+  cli/parse-inline-assembly.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-inline-assembly.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-inline-assembly.hc))
+   (diff
+    cli/parse-inline-assembly.json
+    parse-inline-assembly.json.actual))))

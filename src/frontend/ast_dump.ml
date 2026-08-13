@@ -610,6 +610,27 @@ let rec print_statement buffer sources ~indent = function
         statement.assembly_lines;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources statement.assembly_closing_brace)
+  | Ast.Inline_assembly_statement statement ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer
+        "%sinline_assembly_statement span=%s operations=%d\n" indent
+        (location_text sources statement.inline_assembly_location)
+        (List.length statement.inline_assembly_operations);
+      List.iteri
+        (fun index (operation : Ast.inline_assembly_operation) ->
+          let operation_indent = child_indent ^ "  " in
+          Printf.bprintf buffer
+            "%soperation index=%d span=%s semicolon=%b\n" child_indent index
+            (location_text sources operation.inline_assembly_operation_location)
+            (Option.is_some operation.inline_assembly_semicolon);
+          print_assembly_token buffer sources ~indent:operation_indent 0
+            operation.inline_assembly_opcode;
+          Option.iter
+            (fun semicolon ->
+              Printf.bprintf buffer "%ssemicolon span=%s\n" operation_indent
+                (location_text sources semicolon))
+            operation.inline_assembly_semicolon)
+        statement.inline_assembly_operations
   | Ast.Block_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sblock_statement span=%s statements=%d\n" indent
@@ -2032,6 +2053,20 @@ let assembly_line_to_yojson sources (line : Ast.assembly_line) =
       ("location", location_to_yojson sources line.assembly_line_location);
     ]
 
+let inline_assembly_operation_to_yojson sources
+    (operation : Ast.inline_assembly_operation) =
+  `Assoc
+    [
+      ("opcode", assembly_token_to_yojson sources operation.inline_assembly_opcode);
+      ( "semicolon",
+        match operation.inline_assembly_semicolon with
+        | None -> `Null
+        | Some semicolon -> location_to_yojson sources semicolon );
+      ( "location",
+        location_to_yojson sources operation.inline_assembly_operation_location
+      );
+    ]
+
 let rec statement_to_yojson sources = function
   | Ast.Assembly_block_statement statement ->
       `Assoc
@@ -2049,6 +2084,18 @@ let rec statement_to_yojson sources = function
             location_to_yojson sources statement.assembly_closing_brace );
           ( "location",
             location_to_yojson sources statement.assembly_block_location );
+        ]
+  | Ast.Inline_assembly_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "inline_assembly_statement");
+          ( "operations",
+            `List
+              (List.map
+                 (inline_assembly_operation_to_yojson sources)
+                 statement.inline_assembly_operations) );
+          ( "location",
+            location_to_yojson sources statement.inline_assembly_location );
         ]
   | Ast.Block_statement statement ->
       `Assoc
