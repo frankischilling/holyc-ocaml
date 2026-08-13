@@ -17,9 +17,7 @@ let expect_ast = function
 
 let parse ?(mode = Preprocessor.Jit) session ~path contents =
   let source = Session.add_source session ~path ~contents in
-  let config =
-    checked (Preprocessor.Config.create ~compilation_mode:mode ())
-  in
+  let config = checked (Preprocessor.Config.create ~compilation_mode:mode ()) in
   Holyc_lib.parse_with_config session ~config ~source |> expect_ast
 
 type semantic_results = {
@@ -101,7 +99,9 @@ let packed_class_has_no_implicit_alignment () =
     parse session ~path:"packed-layout.HC"
       "class Packed { U8 byte; I64 wide; U16 tail; };"
   in
-  let packed = resolve session ast |> fun results -> layout_named results "Packed" in
+  let packed =
+    resolve session ast |> fun results -> layout_named results "Packed"
+  in
   Alcotest.(check int64) "packed size" 11L packed.size;
   Alcotest.(check int) "aggregate alignment" 1 packed.alignment;
   ignore (check_member packed "byte" ~offset:0L ~size:1L);
@@ -137,8 +137,8 @@ let arrays_pointers_callbacks_and_zero_size () =
   let session = Session.create () in
   let ast =
     parse session ~path:"array-layout.HC"
-      "class Storage { U8 bytes[2][3]; I64 *ptrs[4]; I64 \
-       (*callback)(I64 value); I0 zero; U8 flexible[]; };"
+      "class Storage { U8 bytes[2][3]; I64 *ptrs[4]; I64 (*callback)(I64 \
+       value); I0 zero; U8 flexible[]; };"
   in
   let storage =
     resolve session ast |> fun results -> layout_named results "Storage"
@@ -149,13 +149,14 @@ let arrays_pointers_callbacks_and_zero_size () =
   Alcotest.(check int64) "array element size" 1L bytes.element_size;
   let pointers = check_member storage "ptrs" ~offset:6L ~size:32L in
   Alcotest.(check int64) "pointer element size" 8L pointers.element_size;
-  Alcotest.(check string) "pointer signedness" "unsigned"
+  Alcotest.(check string)
+    "pointer signedness" "unsigned"
     (Semantic_aggregate_layout.signedness_name pointers.signedness);
   ignore (check_member storage "callback" ~offset:38L ~size:8L);
   ignore (check_member storage "zero" ~offset:46L ~size:0L);
   let flexible = check_member storage "flexible" ~offset:46L ~size:0L in
-  Alcotest.(check (list int64)) "empty first dimension" [ 0L ]
-    flexible.dimensions
+  Alcotest.(check (list int64))
+    "empty first dimension" [ 0L ] flexible.dimensions
 
 let explicit_and_negative_offsets () =
   let session = Session.create () in
@@ -176,8 +177,8 @@ let explicit_and_negative_offsets () =
   ignore (check_member negative "first" ~offset:(-16L) ~size:8L);
   ignore (check_member negative "tail" ~offset:(-8L) ~size:1L);
   Alcotest.(check int64) "negative union size" 8L negative_union.size;
-  Alcotest.(check int64) "negative union adjustment" 8L
-    negative_union.negative_offset;
+  Alcotest.(check int64)
+    "negative union adjustment" 8L negative_union.negative_offset;
   ignore (check_member negative_union "value" ~offset:(-8L) ~size:8L)
 
 let expression_origin = Semantic_symbol.Synthesized "layout expression test"
@@ -200,7 +201,8 @@ let evaluate expression =
     expression
   |> function
   | Ok value -> value
-  | Error error -> Alcotest.fail (Semantic_aggregate_layout.error_to_string error)
+  | Error error ->
+      Alcotest.fail (Semantic_aggregate_layout.error_to_string error)
 
 let closed_expression_operators () =
   let binary_cases =
@@ -229,28 +231,34 @@ let closed_expression_operators () =
   in
   List.iter
     (fun (name, operator, left, right, expected) ->
-      Alcotest.(check int64) name expected
+      Alcotest.(check int64)
+        name expected
         (evaluate (binary operator (integer left) (integer right))))
     binary_cases;
-  Alcotest.(check int64) "unary identity" 3L
+  Alcotest.(check int64)
+    "unary identity" 3L
     (evaluate (unary Identity (integer 3L)));
-  Alcotest.(check int64) "unary negate" (-3L)
+  Alcotest.(check int64)
+    "unary negate" (-3L)
     (evaluate (unary Negate (integer 3L)));
-  Alcotest.(check int64) "logical not" 1L
+  Alcotest.(check int64)
+    "logical not" 1L
     (evaluate (unary Logical_not (integer 0L)));
-  Alcotest.(check int64) "bitwise not" (-2L)
+  Alcotest.(check int64)
+    "bitwise not" (-2L)
     (evaluate (unary Bitwise_not (integer 1L)));
-  Alcotest.(check int64) "current position" 13L
+  Alcotest.(check int64)
+    "current position" 13L
     (evaluate
        (Semantic_aggregate_layout.Current_position_expression expression_origin));
-  Alcotest.(check int64) "target addition wraps" Int64.min_int
-    (evaluate
-       (binary Add (integer Int64.max_int) (integer 1L)));
+  Alcotest.(check int64)
+    "target addition wraps" Int64.min_int
+    (evaluate (binary Add (integer Int64.max_int) (integer 1L)));
   let skipped_division =
-    binary Logical_and (integer 0L)
-      (binary Divide (integer 1L) (integer 0L))
+    binary Logical_and (integer 0L) (binary Divide (integer 1L) (integer 0L))
   in
-  Alcotest.(check int64) "logical and short-circuits" 0L
+  Alcotest.(check int64)
+    "logical and short-circuits" 0L
     (evaluate skipped_division);
   let power = binary Power (integer 2L) (integer 3L) in
   let raw_offset =
@@ -262,13 +270,14 @@ let closed_expression_operators () =
     | Error error ->
         Alcotest.fail (Semantic_aggregate_layout.error_to_string error)
   in
-  Alcotest.(check int64) "LexExpression keeps F64 bits"
-    (Int64.bits_of_float 8.0) raw_offset
+  Alcotest.(check int64)
+    "LexExpression keeps F64 bits" (Int64.bits_of_float 8.0) raw_offset
 
 let check_error_code expected = function
   | Ok _ -> Alcotest.failf "expected %s" expected
   | Error error ->
-      Alcotest.(check string) "stable semantic code" expected
+      Alcotest.(check string)
+        "stable semantic code" expected
         (Semantic_aggregate_layout.error_code error);
       error
 
@@ -316,8 +325,8 @@ let layout_error source =
     Holyc_lib.layout_aggregates session
       ~declarations:prepared.prepared_declarations
       ~aggregates:prepared.prepared_aggregates
-      ~headers:prepared.prepared_headers
-      ~members:prepared.prepared_member_types ast
+      ~headers:prepared.prepared_headers ~members:prepared.prepared_member_types
+      ast
   with
   | Ok _ -> Alcotest.fail "expected aggregate layout to fail"
   | Error message -> message
@@ -326,14 +335,11 @@ let check_prefix prefix value =
   Alcotest.(check bool) prefix true (String.starts_with ~prefix value)
 
 let layout_failures_stay_visible () =
-  check_prefix "HCSEMA0003:"
-    (layout_error "class Bad { I8 values[-1]; };");
-  check_prefix "HCSEMA0004:"
-    (layout_error "class Bad { I8 values[1/0]; };");
+  check_prefix "HCSEMA0003:" (layout_error "class Bad { I8 values[-1]; };");
+  check_prefix "HCSEMA0004:" (layout_error "class Bad { I8 values[1/0]; };");
   check_prefix "HCSEMA0002:"
     (layout_error "I64 COUNT; class Bad { I8 values[COUNT]; };");
-  check_prefix "HCSEMA0002:"
-    (layout_error "class Node { Node value; };");
+  check_prefix "HCSEMA0002:" (layout_error "class Node { Node value; };");
   check_prefix "HCSEMA0008:"
     (layout_error "class Huge { I8 values[0x7fffffffffffffff][2]; };");
   check_prefix "HCSEMA0008:"
@@ -382,29 +388,31 @@ let modes_and_repeat_runs_are_deterministic () =
           Semantic_aggregate_layout.layouts layouts
           |> List.map
                (fun (layout : Semantic_aggregate_layout.aggregate_layout) ->
-              ( Semantic_symbol.name layout.Semantic_aggregate_layout.symbol,
-                layout.size,
-                List.map
-                  (fun (member : Semantic_aggregate_layout.member_layout) ->
-                    ( Semantic_symbol.name member.Semantic_aggregate_layout.symbol,
-                      member.offset,
-                      member.size ))
-                  layout.members ))
+                 ( Semantic_symbol.name layout.Semantic_aggregate_layout.symbol,
+                   layout.size,
+                   List.map
+                     (fun (member : Semantic_aggregate_layout.member_layout) ->
+                       ( Semantic_symbol.name
+                           member.Semantic_aggregate_layout.symbol,
+                         member.offset,
+                         member.size ))
+                     layout.members ))
         in
         let first = signature results.layouts in
         let second =
           checked
             (Holyc_lib.layout_aggregates session
-               ~declarations:results.declarations
-               ~aggregates:results.aggregates ~headers:results.headers
-               ~members:results.member_types ast)
+               ~declarations:results.declarations ~aggregates:results.aggregates
+               ~headers:results.headers ~members:results.member_types ast)
           |> signature
         in
-        Alcotest.(check (list (triple string int64 (list (triple string int64 int64)))))
+        Alcotest.(
+          check (list (triple string int64 (list (triple string int64 int64)))))
           "repeat layout" first second;
         first)
   in
-  Alcotest.(check (list (triple string int64 (list (triple string int64 int64)))))
+  Alcotest.(
+    check (list (triple string int64 (list (triple string int64 int64)))))
     "JIT and AOT layout" (List.nth signatures 0) (List.nth signatures 1)
 
 let tests =
@@ -423,8 +431,7 @@ let tests =
       expression_failures_are_typed;
     Alcotest.test_case "visible layout failures" `Quick
       layout_failures_stay_visible;
-    Alcotest.test_case "mismatched inputs" `Quick
-      mismatched_inputs_are_rejected;
+    Alcotest.test_case "mismatched inputs" `Quick mismatched_inputs_are_rejected;
     Alcotest.test_case "modes and deterministic repeats" `Quick
       modes_and_repeat_runs_are_deterministic;
   ]

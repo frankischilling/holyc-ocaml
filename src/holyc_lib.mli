@@ -162,8 +162,8 @@ val layout_aggregates :
   Ast.module_ ->
   (Semantic_aggregate_layout.t, string) result
 (** Calculate source-ordered layouts whose dimensions, offsets, bases, and
-    by-value members have closed values. Unresolved semantic constants and
-    later aggregate definitions remain explicit errors. *)
+    by-value members have closed values. Unresolved semantic constants and later
+    aggregate definitions remain explicit errors. *)
 
 val resolve_function_types :
   Session.t ->

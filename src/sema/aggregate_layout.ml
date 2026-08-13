@@ -31,10 +31,7 @@ type dependency_kind =
   | Aggregate_dependency
 
 type expression =
-  | Integer_expression of {
-      value : int64;
-      origin : Symbol.origin;
-    }
+  | Integer_expression of { value : int64; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
@@ -52,10 +49,7 @@ type expression =
       detail : string;
       origin : Symbol.origin;
     }
-  | Unsupported_expression of {
-      description : string;
-      origin : Symbol.origin;
-    }
+  | Unsupported_expression of { description : string; origin : Symbol.origin }
 
 type expression_context = Array_dimension | Aggregate_offset
 
@@ -77,10 +71,7 @@ type member_input = {
 type item =
   | Field of member_input
   | Offset_directive of expression
-  | Anonymous_union of {
-      union_origin : Symbol.origin;
-      union_items : item list;
-    }
+  | Anonymous_union of { union_origin : Symbol.origin; union_items : item list }
   | Empty_member of Symbol.origin
 
 type aggregate_kind = Class | Union
@@ -180,9 +171,9 @@ let invalid_input ?origin message =
 let unresolved origin dependency_kind detail =
   make_error ~origin "HCSEMA0002"
     (Unresolved_dependency { dependency_kind; detail })
-    (Printf.sprintf
-       "aggregate layout needs the unresolved %s %s"
-       (dependency_kind_name dependency_kind) detail)
+    (Printf.sprintf "aggregate layout needs the unresolved %s %s"
+       (dependency_kind_name dependency_kind)
+       detail)
 
 let invalid_dimension origin value =
   make_error ~origin "HCSEMA0003" (Invalid_array_dimension value)
@@ -234,7 +225,10 @@ let truthy = function
   | Floating value -> not (Int64.equal (Int64.bits_of_float value) 0L)
 
 let boolean value = Integer (if value then 1L else 0L)
-let as_float = function Integer value -> Int64.to_float value | Floating value -> value
+
+let as_float = function
+  | Integer value -> Int64.to_float value
+  | Floating value -> value
 
 let common left right =
   match (left, right) with
@@ -282,8 +276,7 @@ let compare_numbers operator left right =
           Int64.equal (Int64.bits_of_float left) (Int64.bits_of_float right)
       | Not_equal ->
           not
-            (Int64.equal (Int64.bits_of_float left)
-               (Int64.bits_of_float right))
+            (Int64.equal (Int64.bits_of_float left) (Int64.bits_of_float right))
       | Less -> left < right
       | Greater -> left > right
       | Less_equal -> left <= right
@@ -361,7 +354,8 @@ let rec evaluate_number current_position = function
           | Logical_and when not (truthy left) -> Ok (boolean false)
           | Logical_or when truthy left -> Ok (boolean true)
           | Logical_and | Logical_or ->
-              Result.map (fun right -> boolean (truthy right))
+              Result.map
+                (fun right -> boolean (truthy right))
                 (evaluate_number current_position right)
           | _ ->
               Result.bind (evaluate_number current_position right) (fun right ->
@@ -394,10 +388,10 @@ let same_scope left right =
 
 let checked_add origin detail left right =
   if
-    (Int64.compare right 0L > 0
-    && Int64.compare left (Int64.sub Int64.max_int right) > 0)
-    || (Int64.compare right 0L < 0
-       && Int64.compare left (Int64.sub Int64.min_int right) < 0)
+    Int64.compare right 0L > 0
+    && Int64.compare left (Int64.sub Int64.max_int right) > 0
+    || Int64.compare right 0L < 0
+       && Int64.compare left (Int64.sub Int64.min_int right) < 0
   then Error (metadata_overflow origin detail)
   else Ok (Int64.add left right)
 
@@ -423,7 +417,9 @@ let primitive_signedness primitive =
 
 let element_shape (previous : aggregate_layout Int_map.t)
     (member : member_input) =
-  if member.member_is_function_pointer || Type.pointer_depth member.member_type > 0
+  if
+    member.member_is_function_pointer
+    || Type.pointer_depth member.member_type > 0
   then Ok (8L, Unsigned)
   else
     match Type.base member.member_type with
@@ -442,7 +438,7 @@ let element_shape (previous : aggregate_layout Int_map.t)
 let evaluate_dimensions current_position dimensions =
   let rec loop index total values_rev = function
     | [] -> Ok (total, List.rev values_rev)
-    | { dimension_expression; dimension_origin } :: rest -> (
+    | { dimension_expression; dimension_origin } :: rest ->
         let value =
           match dimension_expression with
           | None when index = 0 -> Ok 0L
@@ -460,8 +456,8 @@ let evaluate_dimensions current_position dimensions =
             else
               Result.bind
                 (checked_multiply_nonnegative dimension_origin
-                   "the array element count" total value)
-                (fun total -> loop (index + 1) total (value :: values_rev) rest)))
+                   "the array element count" total value) (fun total ->
+                  loop (index + 1) total (value :: values_rev) rest))
   in
   loop 0 1L [] dimensions
 
@@ -485,7 +481,9 @@ let update_negative_offset origin state position =
 let lay_out_member (previous : aggregate_layout Int_map.t) mode union_base state
     member =
   let current_position =
-    match mode with Class -> state.size | Union -> union_base
+    match mode with
+    | Class -> state.size
+    | Union -> union_base
   in
   Result.bind (element_shape previous member) (fun (element_size, signedness) ->
       Result.bind
@@ -493,8 +491,7 @@ let lay_out_member (previous : aggregate_layout Int_map.t) mode union_base state
         (fun (total_count, dimensions) ->
           Result.bind
             (checked_multiply_nonnegative member.member_origin
-               "the member storage size" element_size total_count)
-            (fun size ->
+               "the member storage size" element_size total_count) (fun size ->
               let offset = current_position in
               let placed_size =
                 match mode with
@@ -538,28 +535,28 @@ let rec lay_out_items (previous : aggregate_layout Int_map.t) mode union_base
       match item with
       | Empty_member _ -> lay_out_items previous mode union_base state rest
       | Field member ->
-          Result.bind
-            (lay_out_member previous mode union_base state member)
+          Result.bind (lay_out_member previous mode union_base state member)
             (fun state -> lay_out_items previous mode union_base state rest)
       | Offset_directive expression ->
           let current_position =
-            match mode with Class -> state.size | Union -> union_base
+            match mode with
+            | Class -> state.size
+            | Union -> union_base
           in
           Result.bind
             (evaluate_expression ~context:Aggregate_offset ~current_position
-               expression)
-            (fun position ->
+               expression) (fun position ->
               Result.bind
-                (update_negative_offset (expression_origin expression) state
-                   position)
+                (update_negative_offset
+                   (expression_origin expression)
+                   state position)
                 (fun state ->
                   match mode with
                   | Class ->
                       lay_out_items previous mode union_base
                         { state with size = position }
                         rest
-                  | Union ->
-                      lay_out_items previous mode position state rest))
+                  | Union -> lay_out_items previous mode position state rest))
       | Anonymous_union { union_items; _ } ->
           Result.bind
             (lay_out_items previous Union state.size state union_items)
@@ -571,7 +568,8 @@ let validate_member table aggregate_scope seen (member : member_input) =
     Error
       (invalid_input ~origin:member.member_origin
          "aggregate member belongs to a different symbol table")
-  else if not (Symbol.equal_kind (Symbol.kind member.member_symbol) Symbol.Member)
+  else if
+    not (Symbol.equal_kind (Symbol.kind member.member_symbol) Symbol.Member)
   then
     Error
       (invalid_input ~origin:member.member_origin
@@ -627,7 +625,10 @@ let validate_aggregate table parent previous_item_index seen_symbols input =
       (invalid_input ~origin:input.aggregate_origin
          "aggregate belongs to a different symbol table")
   else if
-    not (Symbol.equal_kind (Symbol.kind input.aggregate_symbol) Symbol.Aggregate_type)
+    not
+      (Symbol.equal_kind
+         (Symbol.kind input.aggregate_symbol)
+         Symbol.Aggregate_type)
   then
     Error
       (invalid_input ~origin:input.aggregate_origin
@@ -645,7 +646,8 @@ let validate_aggregate table parent previous_item_index seen_symbols input =
     Error
       (invalid_input ~origin:input.aggregate_origin
          "aggregate scope belongs to a different symbol table")
-  else if Symbol_table.scope_kind input.aggregate_scope <> Symbol_table.Aggregate
+  else if
+    Symbol_table.scope_kind input.aggregate_scope <> Symbol_table.Aggregate
   then
     Error
       (invalid_input ~origin:input.aggregate_origin
@@ -669,24 +671,24 @@ let validate_aggregate table parent previous_item_index seen_symbols input =
   else
     match input.aggregate_base with
     | Some base
-      when not (Symbol_table.owns_symbol table base.base_symbol)
+      when (not (Symbol_table.owns_symbol table base.base_symbol))
            || not
-                (Symbol.equal_kind (Symbol.kind base.base_symbol)
+                (Symbol.equal_kind
+                   (Symbol.kind base.base_symbol)
                    Symbol.Aggregate_type) ->
         Error
           (invalid_input ~origin:base.base_origin
              "aggregate base is not an aggregate type from this symbol table")
     | None | Some _ ->
         Result.map
-          (fun _ ->
-            ( input.aggregate_item_index,
-              Int_set.add key seen_symbols ))
+          (fun _ -> (input.aggregate_item_index, Int_set.add key seen_symbols))
           (validate_items table input.aggregate_scope Int_set.empty
              input.aggregate_items)
 
 let validate_inputs table parent inputs =
   if not (Symbol_table.owns_scope table parent) then
-    Error (invalid_input "aggregate layout module belongs to another symbol table")
+    Error
+      (invalid_input "aggregate layout module belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
     Error (invalid_input "aggregate layout parent must be a module scope")
   else
@@ -695,8 +697,7 @@ let validate_inputs table parent inputs =
       | input :: rest ->
           Result.bind
             (validate_aggregate table parent previous_item_index seen_symbols
-               input)
-            (fun (item_index, seen_symbols) ->
+               input) (fun (item_index, seen_symbols) ->
               loop item_index seen_symbols rest)
     in
     loop (-1) Int_set.empty inputs
@@ -725,14 +726,17 @@ let lay_out_aggregate (previous : aggregate_layout Int_map.t)
     (input : aggregate_input) =
   Result.bind (base_layout previous input) (fun base ->
       let initial_size =
-        match base with None -> 0L | Some base -> base.size
+        match base with
+        | None -> 0L
+        | Some base -> base.size
       in
-      let state = { size = initial_size; negative_offset = 0L; members_rev = [] } in
+      let state =
+        { size = initial_size; negative_offset = 0L; members_rev = [] }
+      in
       let union_base = 0L in
       Result.bind
         (lay_out_items previous input.aggregate_kind union_base state
-           input.aggregate_items)
-        (fun state ->
+           input.aggregate_items) (fun state ->
           Result.map
             (fun size ->
               {

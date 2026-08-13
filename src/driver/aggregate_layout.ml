@@ -224,7 +224,8 @@ let rec expression = function
         offset.offset_location
   | Frontend.Ast.Defined_expression defined ->
       dependency Sema.Aggregate_layout.Defined_dependency
-        (Printf.sprintf "for `%s`" defined.defined_operand.defined_operand_spelling)
+        (Printf.sprintf "for `%s`"
+           defined.defined_operand.defined_operand_spelling)
         defined.defined_location
   | Frontend.Ast.Parenthesized_expression grouped ->
       expression grouped.grouped_expression
@@ -287,10 +288,11 @@ let validate_member fact path declarator_index
   else if
     Sema.Member_type_resolution.member_declarator_index fact <> declarator_index
   then Error "aggregate layout member has the wrong declarator order"
-  else if not (String.equal (Sema.Symbol.name symbol) declarator.member_name.spelling)
+  else if
+    not (String.equal (Sema.Symbol.name symbol) declarator.member_name.spelling)
   then Error "aggregate layout member does not match the AST name"
-  else if Sema.Symbol.origin symbol <> origin declarator.member_name.location then
-    Error "aggregate layout member does not match the AST origin"
+  else if Sema.Symbol.origin symbol <> origin declarator.member_name.location
+  then Error "aggregate layout member does not match the AST origin"
   else if
     Sema.Member_type_resolution.member_declarator_origin fact
     <> origin declarator.member_declarator_location
@@ -329,7 +331,8 @@ let field fact path declarator_index
           member_type =
             Sema.Member_type_resolution.type_reference_type type_reference;
           member_is_function_pointer;
-          member_dimensions = List.map dimension declarator.member_array_dimensions;
+          member_dimensions =
+            List.map dimension declarator.member_array_dimensions;
         })
     (validate_member fact path declarator_index declarator)
 
@@ -368,14 +371,16 @@ let rec member_items path_prefix members facts =
                   ( [
                       Sema.Aggregate_layout.Anonymous_union
                         {
-                          union_origin = origin anonymous_union.anonymous_union_location;
+                          union_origin =
+                            origin anonymous_union.anonymous_union_location;
                           union_items;
                         };
                     ],
                     facts ))
                 (member_items path anonymous_union.anonymous_union_members facts)
           | Frontend.Ast.Empty_aggregate_member location ->
-              Ok ([ Sema.Aggregate_layout.Empty_member (origin location) ], facts)
+              Ok
+                ([ Sema.Aggregate_layout.Empty_member (origin location) ], facts)
         in
         Result.bind built (fun (items, facts) ->
             loop (member_index + 1) (List.rev_append items items_rev) facts rest)
@@ -388,15 +393,11 @@ let layout_kind = function
 
 let validate_definition ~table ~scope event header aggregate
     (definition : Frontend.Ast.aggregate_definition) =
-  let header_symbol =
-    Sema.Aggregate_header_resolution.header_symbol header
-  in
+  let header_symbol = Sema.Aggregate_header_resolution.header_symbol header in
   let aggregate_symbol =
     Sema.Member_type_resolution.aggregate_symbol aggregate
   in
-  let aggregate_scope =
-    Sema.Member_type_resolution.aggregate_scope aggregate
-  in
+  let aggregate_scope = Sema.Member_type_resolution.aggregate_scope aggregate in
   if not (same_symbol header_symbol event.identity_symbol) then
     Error "aggregate layout header has the wrong aggregate identity"
   else if not (same_symbol aggregate_symbol event.declaration_symbol) then
@@ -419,7 +420,8 @@ let validate_definition ~table ~scope event header aggregate
   then Error "aggregate layout header does not match the AST definition"
   else if not (Sema.Symbol_table.owns_scope table aggregate_scope) then
     Error "aggregate layout member scope belongs to a different symbol table"
-  else if Sema.Symbol_table.scope_kind aggregate_scope <> Sema.Symbol_table.Aggregate
+  else if
+    Sema.Symbol_table.scope_kind aggregate_scope <> Sema.Symbol_table.Aggregate
   then Error "aggregate layout members do not use an aggregate scope"
   else if
     match Sema.Symbol_table.parent aggregate_scope with
@@ -474,8 +476,8 @@ let inputs ~table ~scope events headers aggregates =
             match (headers, aggregates) with
             | header :: header_rest, aggregate :: aggregate_rest ->
                 Result.bind
-                  (aggregate_input ~table ~scope event header aggregate definition)
-                  (fun input ->
+                  (aggregate_input ~table ~scope event header aggregate
+                     definition) (fun input ->
                     loop (input :: inputs_rev) rest header_rest aggregate_rest)
             | [], _ | _, [] ->
                 Error "aggregate layout is missing a definition input"))
@@ -490,7 +492,8 @@ let layout ~table ~declarations ~aggregates ~headers ~members module_ =
     else if Sema.Symbol_table.scope_kind scope <> Sema.Symbol_table.Module then
       Error "aggregate layout declarations must belong to a module scope"
     else
-      Result.bind (events ~table ~declarations ~aggregates module_) (fun events ->
+      Result.bind (events ~table ~declarations ~aggregates module_)
+        (fun events ->
           Result.bind
             (inputs ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)

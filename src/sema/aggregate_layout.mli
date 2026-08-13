@@ -31,10 +31,7 @@ type dependency_kind =
   | Aggregate_dependency
 
 type expression =
-  | Integer_expression of {
-      value : int64;
-      origin : Symbol.origin;
-    }
+  | Integer_expression of { value : int64; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
@@ -52,10 +49,7 @@ type expression =
       detail : string;
       origin : Symbol.origin;
     }
-  | Unsupported_expression of {
-      description : string;
-      origin : Symbol.origin;
-    }
+  | Unsupported_expression of { description : string; origin : Symbol.origin }
 
 type expression_context = Array_dimension | Aggregate_offset
 
@@ -77,10 +71,7 @@ type member_input = {
 type item =
   | Field of member_input
   | Offset_directive of expression
-  | Anonymous_union of {
-      union_origin : Symbol.origin;
-      union_items : item list;
-    }
+  | Anonymous_union of { union_origin : Symbol.origin; union_items : item list }
   | Empty_member of Symbol.origin
 
 type aggregate_kind = Class | Union
