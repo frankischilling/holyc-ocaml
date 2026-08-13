@@ -1,0 +1,6 @@
+holyc-aggregate-layout-v1
+reference_commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
+aggregates=1
+aggregate id=17 name="Byte" kind=class item=0 size=1 alignment=1 negative_offset=0 origin=cli/dump-layout.hc:1:1..3:3
+  base none
+  member id=18 name="value" declaring=17 path=[0] declarator=0 type_kind=primitive type_form=public-spelling type_name="U8" type_symbol=none ptr=0 callback=false offset=0 size=1 element_size=1 dimensions=[] signedness=unsigned alignment=1 origin=cli/dump-layout.hc:2:6..2:12

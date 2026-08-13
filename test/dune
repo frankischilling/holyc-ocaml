@@ -21,6 +21,7 @@
   test_member_type_resolution
   test_aggregate_layout
   test_aggregate_member_index
+  test_aggregate_layout_dump
   test_function_type_resolution
   test_global_type_resolution
   test_function_resolution
@@ -3888,3 +3889,143 @@
    (diff
     cli/symbol-dump-error.human.diagnostics
     symbol-dump-error.human.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets dump-layout.human.actual)
+ (deps cli/dump-layout.hc cli/dump-layout.human)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout.human.actual
+    (run %{exe:../bin/holyc.exe} dump-layout cli/dump-layout.hc))
+   (diff cli/dump-layout.human dump-layout.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets dump-layout.json.actual)
+ (deps cli/dump-layout.hc cli/dump-layout.json)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-layout
+     --format=json
+     cli/dump-layout.hc))
+   (diff cli/dump-layout.json dump-layout.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  dump-layout-semantic-error.human.stdout.actual
+  dump-layout-semantic-error.human.diagnostics.actual)
+ (deps
+  cli/dump-layout-semantic-error.hc
+  cli/dump-layout-semantic-error.human
+  cli/dump-layout-error.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout-semantic-error.human.stdout.actual
+    (with-stderr-to
+     dump-layout-semantic-error.human.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-layout
+       cli/dump-layout-semantic-error.hc))))
+   (diff
+    cli/dump-layout-error.stdout
+    dump-layout-semantic-error.human.stdout.actual)
+   (diff
+    cli/dump-layout-semantic-error.human
+    dump-layout-semantic-error.human.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  dump-layout-semantic-error.json.stdout.actual
+  dump-layout-semantic-error.json.diagnostics.actual)
+ (deps
+  cli/dump-layout-semantic-error.hc
+  cli/dump-layout-semantic-error.json
+  cli/dump-layout-error.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout-semantic-error.json.stdout.actual
+    (with-stderr-to
+     dump-layout-semantic-error.json.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-layout
+       --format=json
+       cli/dump-layout-semantic-error.hc))))
+   (diff
+    cli/dump-layout-error.stdout
+    dump-layout-semantic-error.json.stdout.actual)
+   (diff
+    cli/dump-layout-semantic-error.json
+    dump-layout-semantic-error.json.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  dump-layout-parse-error.human.stdout.actual
+  dump-layout-parse-error.human.diagnostics.actual)
+ (deps
+  cli/dump-layout-parse-error.hc
+  cli/dump-layout-parse-error.human
+  cli/dump-layout-error.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout-parse-error.human.stdout.actual
+    (with-stderr-to
+     dump-layout-parse-error.human.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-layout
+       cli/dump-layout-parse-error.hc))))
+   (diff
+    cli/dump-layout-error.stdout
+    dump-layout-parse-error.human.stdout.actual)
+   (diff
+    cli/dump-layout-parse-error.human
+    dump-layout-parse-error.human.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  dump-layout-parse-error.json.stdout.actual
+  dump-layout-parse-error.json.diagnostics.actual)
+ (deps
+  cli/dump-layout-parse-error.hc
+  cli/dump-layout-parse-error.json
+  cli/dump-layout-error.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    dump-layout-parse-error.json.stdout.actual
+    (with-stderr-to
+     dump-layout-parse-error.json.diagnostics.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-layout
+       --format=json
+       cli/dump-layout-parse-error.hc))))
+   (diff
+    cli/dump-layout-error.stdout
+    dump-layout-parse-error.json.stdout.actual)
+   (diff
+    cli/dump-layout-parse-error.json
+    dump-layout-parse-error.json.diagnostics.actual))))
