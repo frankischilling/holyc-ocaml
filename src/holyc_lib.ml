@@ -39,8 +39,10 @@ module Semantic_function_collection = Sema.Function_collection
 module Semantic_label_resolution = Sema.Label_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
+module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
+module Semantic_function_type_resolution = Sema.Function_type_resolution
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -108,3 +110,9 @@ let resolve_member_types session ~declarations ~aggregates ~headers ~members
   Driver.Member_type_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~headers ~members module_
+
+let resolve_function_types session ~declarations ~aggregates ~functions module_
+    =
+  Driver.Function_type_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~aggregates ~functions module_
