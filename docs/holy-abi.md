@@ -33,6 +33,16 @@ The accepted name set is not the complete assembler register set. For example, `
 
 This is syntax and metadata capture, not ABI implementation. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
 
+## Resolved signature facts
+
+`Compiler/PrsStmt.HC:PrsGlblVarLst` passes the selected return class to `PrsFunJoin`. `PrsVarLst` then creates one fixed slot per source parameter; an unnamed slot remains in the signature even though it receives no `CMemberLst` name. `PrsType` can recurse through callback parameters, preserving zero through four return-pointer layers and requiring one through four callback-indirection stars. Defaults are per-slot flags, so an ordinary expression default, `lastclass`, and no default remain different even when a required slot follows a defaulted one.
+
+`Sema.Function_type_resolution` and its driver bind those facts for top-level prototypes and definitions. Return and fixed-parameter types resolve to public primitives, intrinsic storage types, or the canonical aggregate identity visible at the declaration. Callback parameter signatures resolve recursively. Named top-level slots map to the parameter identities already collected in the function scope; unnamed slots remain positional only. The pass preserves default kind and source provenance but does not evaluate or substitute a default.
+
+`PrsDotDotDot` appends `argc` and then `argv` after the fixed slots. Both use the compiler's internal `I64` class. `argc` is scalar. `argv` is array-shaped: its source declaration has no extent, while the compiler stores 127 as an internal placeholder dimension. This is not a C-style `char **argv`, and 127 is not reported as a source-written bound. Nested callback ellipses retain their marker but do not create top-level synthetic bindings.
+
+These are checked semantic signature facts, not a calling-convention implementation. Prototype/definition reconciliation, default evaluation, function flags, explicit register requests, argument placement, cleanup, storage, indirect calls, and native entry points remain separate work. [Issue #181](https://github.com/frankischilling/holyc-ocaml/issues/181) records the implemented boundary.
+
 ## Argument cleanup
 
 `PrsFunJoin` derives `Ff_RET1` when a function has at least one fixed argument, is not variadic, and its argument byte count fits the signed 16-bit immediate used by `RET`. With eight-byte argument slots, the accepted count is 1 through 4,095.

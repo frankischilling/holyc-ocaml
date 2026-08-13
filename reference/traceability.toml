@@ -3232,7 +3232,7 @@ session_seed = "17 Compiler/CInit.HC internal type spellings"
 provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
 foreign_scope_mutation = "rejected"
 ast_declaration_collection = "top-level declarations are implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS, direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS, parameters and locals in HC-SEMA-FUNCTION-BINDINGS, and function-local language plus structural assembly labels in HC-SEMA-FUNCTION-LABELS"
-reference_resolution = "not implemented"
+reference_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and top-level function signatures in HC-SEMA-FUNCTION-TYPES; remaining reference sites are not implemented"
 duplicate_policy = "not implemented"
 jit_aot_linkage = "not implemented"
 import_export_records = "not implemented"
@@ -3311,7 +3311,7 @@ ordering = "identities by creation site and declarations by source item"
 mutation = "none after validated declaration collection input"
 compilation_modes = ["jit", "aot"]
 parent_task_lookup = "not implemented; AOT HashFind and JIT HashSingleTableFind differences remain separate work"
-named_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; other sites remain unresolved"
+named_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and top-level function signatures in HC-SEMA-FUNCTION-TYPES; other sites remain unresolved"
 unused_forward_warning = "not implemented"
 layout = "not implemented"
 linkage = "not implemented"
@@ -3356,7 +3356,7 @@ mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 cycle_validation = "not implemented"
 layout_and_inherited_lookup = "not implemented"
-ordinary_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES; other sites remain unresolved"
+ordinary_type_use_resolution = "aggregate member heads are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and top-level function signatures in HC-SEMA-FUNCTION-TYPES; other sites remain unresolved"
 parent_task_lookup = "not implemented"
 native_oracle_status = "not required for this header boundary; PrsType, PrsClass, PrsClassNew, and OptClassFwd state the lookup order and retained relation directly"
 
@@ -3379,6 +3379,7 @@ sources = [
 ]
 implementation = [
   "src/sema/type.ml",
+  "src/sema/type_reference.ml",
   "src/sema/member_type_resolution.ml",
   "src/driver/member_type_resolution.ml",
   "src/holyc_lib.ml"
@@ -3401,12 +3402,12 @@ canonical_identity = "earlier definitions, self references, completed forwards, 
 validation = "session ownership, module and aggregate scopes, AST association, declaration association, header association, member paths, source order, symbol kinds, and provenance"
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
-callback_parameter_resolution = "not implemented"
+callback_parameter_resolution = "not implemented for member callbacks; top-level function and nested parameter callback signatures are implemented in HC-SEMA-FUNCTION-TYPES"
 array_extent_evaluation = "not implemented"
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "not implemented"
 layout_storage_and_inherited_lookup = "not implemented"
-other_type_use_sites = "not implemented"
+other_type_use_sites = "top-level function signatures are implemented in HC-SEMA-FUNCTION-TYPES; globals, locals, casts, sizeof, offset, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
 [[feature]]
@@ -3487,7 +3488,7 @@ local_positions = ["declaration index", "grouped declarator index"]
 repeated_names = "preserved as separate entries with newest-first lookup"
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
 prototype_definition_reconciliation = "not implemented"
-type_resolution = "not implemented"
+type_resolution = "return and recursive parameter types are implemented in HC-SEMA-FUNCTION-TYPES; local types remain unresolved"
 default_and_initializer_evaluation = "not implemented"
 register_and_storage_assignment = "not implemented"
 duplicate_validation = "not implemented"
@@ -3495,6 +3496,61 @@ label_resolution = "implemented by the separate HC-SEMA-FUNCTION-LABELS feature"
 ordinary_reference_resolution = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsVarLst, PrsDotDotDot, MemberAdd, and MemberFind state the insertion order and shared function namespace directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-TYPES"
+description = "Function prototypes and definitions bind return and recursive fixed-parameter types at their source-order publication points."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/LexLib.HC:MemberLstCmp",
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Compiler/CInit.HC:internal_types_table",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashFun",
+  "Kernel/KernelA.HH:MLF_DFT_AVAILABLE, MLF_LASTCLASS, MLF_FUN, and MLF_DOT_DOT_DOT",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/sema/type_reference.ml",
+  "src/sema/function_type_resolution.ml",
+  "src/driver/function_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_type_resolution.ml"
+]
+status = "implemented"
+issue = 181
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "function prototypes and definitions from one checked AST, declaration collection, aggregate reconciliation, and function collection"
+type_bases = ["public primitive spelling", "intrinsic storage spelling", "source-visible canonical aggregate identity"]
+declaration_order = "prototypes and definitions remain independent entries in module item order"
+aggregate_visibility = "aggregate forwards, completions, and shadowing definitions use the canonical identity visible at each function declaration"
+return_pointer_depth = "zero through four"
+fixed_parameters = "every source slot is retained in order; unnamed slots remain present without a semantic symbol"
+parameter_bindings = "named fixed parameters on the top-level function signature map to the symbols created by HC-SEMA-FUNCTION-BINDINGS"
+callback_signatures = "one through four callback indirection layers with recursively resolved fixed parameters, defaults, nested callbacks, and terminal ellipsis provenance"
+defaults = "absence, ordinary expression syntax, and lastclass syntax remain distinct with source provenance; values are not evaluated"
+variadic_bindings = "top-level ellipsis binds argc followed by argv after the fixed slots"
+argc = "intrinsic I64 scalar"
+argv = "intrinsic I64 array shape with no source extent and the compiler placeholder extent 127"
+provenance = ["return type and pointers", "signature punctuation", "each fixed slot", "names", "delimiters", "defaults", "callback punctuation and indirection", "ellipsis", "synthetic bindings"]
+validation = "session ownership, module and function scopes, AST association, declaration association, aggregate association, function collection, source order, symbol kinds, recursive type targets, fixed-slot order, and synthetic vararg shape"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+default_evaluation_and_substitution = "not implemented"
+prototype_definition_reconciliation = "not implemented"
+call_checking = "not implemented"
+function_flags_register_requests_storage_and_abi = "not implemented"
+member_callback_signatures = "not implemented by this pass"
+global_local_cast_sizeof_and_offset_types = "not implemented"
+linkage = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
