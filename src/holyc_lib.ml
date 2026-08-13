@@ -43,6 +43,7 @@ module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
+module Semantic_aggregate_layout = Sema.Aggregate_layout
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
@@ -117,6 +118,12 @@ let resolve_aggregate_headers session ~declarations ~aggregates module_ =
 let resolve_member_types session ~declarations ~aggregates ~headers ~members
     module_ =
   Driver.Member_type_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~aggregates ~headers ~members module_
+
+let layout_aggregates session ~declarations ~aggregates ~headers ~members
+    module_ =
+  Driver.Aggregate_layout.layout
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~headers ~members module_
 
