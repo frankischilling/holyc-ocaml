@@ -62,6 +62,8 @@ type parsed_array_dimension = {
   tokens : Token.t list;
 }
 
+type parsed_initializer = { node : Ast.initial_value; tokens : Token.t list }
+
 type parsed_aggregate_member_declarator = {
   node : Ast.aggregate_member_declarator;
   tokens : Token.t list;
@@ -105,6 +107,7 @@ type expression_context =
   | Switch_case_expression
   | While_condition_expression
   | Local_initializer_expression
+  | Global_initializer_expression
   | Statement_expression
 
 type direct_function_resolution =
@@ -159,6 +162,7 @@ let max_lock_depth = 256
 let max_try_depth = 256
 let max_switch_depth = 256
 let max_aggregate_depth = 256
+let max_initializer_depth = 256
 
 let canonical_u64_registers =
   List.init 16 (fun register_number ->
@@ -900,6 +904,7 @@ let expression_context_name = function
   | Switch_case_expression -> "switch case expression"
   | While_condition_expression -> "while condition expression"
   | Local_initializer_expression -> "local initializer expression"
+  | Global_initializer_expression -> "global initializer expression"
   | Statement_expression -> "statement expression"
 
 let expression_operand_name = function
@@ -917,6 +922,7 @@ let expression_operand_name = function
   | Switch_case_expression -> "a switch case expression operand"
   | While_condition_expression -> "a while condition expression operand"
   | Local_initializer_expression -> "a local initializer expression operand"
+  | Global_initializer_expression -> "a global initializer expression operand"
   | Statement_expression -> "a statement expression operand"
 
 let rec parse_expression ?(allow_parenthesis_free_call = true) cursor ~context
@@ -2139,39 +2145,154 @@ let rec parse_array_dimensions cursor index dimensions_rev token_groups_rev =
           (dimension.node :: dimensions_rev)
           (dimension.tokens :: token_groups_rev)
 
+let initializer_failure ?(secondary = []) cursor item ~code ~message =
+  declaration_failure ~secondary cursor item ~code ~message
+
+let rec parse_initializer_value cursor ~depth : parsed_initializer option =
+  let item = peek cursor in
+  if depth >= max_initializer_depth then
+    initializer_failure cursor item ~code:"HCPARSE0130"
+      ~message:
+        (Printf.sprintf
+           "global initializer nesting exceeds the hosted limit of %d"
+           max_initializer_depth)
+  else
+    match item.token.kind with
+    | Token_kind.Punctuation '{' -> parse_braced_initializer cursor ~depth
+    | Token_kind.Punctuation (';' | ',' | '}') | Token_kind.Eof ->
+        initializer_failure cursor item ~code:"HCPARSE0127"
+          ~message:
+            (Printf.sprintf "expected a global initializer value, but found %s"
+               (token_description item.token))
+    | _ -> (
+        match
+          parse_expression cursor ~context:Global_initializer_expression
+            ~depth:0 ~minimum_binding_power:0
+        with
+        | None -> None
+        | Some expression ->
+            Some
+              {
+                node = Ast.Scalar_initializer expression.node;
+                tokens = expression.tokens;
+              })
+
+and parse_braced_initializer cursor ~depth : parsed_initializer option =
+  let opening_item = take cursor in
+  let opening_brace = token_location opening_item.token in
+  let rec parse_elements elements_rev token_groups_rev :
+      parsed_initializer option =
+    let item = peek cursor in
+    match item.token.kind with
+    | Token_kind.Punctuation '}' ->
+        let closing_item = take cursor in
+        let tokens =
+          opening_item.token
+          :: (List.rev token_groups_rev |> List.concat)
+          @ [ closing_item.token ]
+        in
+        let node =
+          Ast.make_braced_initializer ~opening_brace
+            ~elements:(List.rev elements_rev)
+            ~closing_brace:(token_location closing_item.token)
+            ~location:(location_from_expression_tokens tokens)
+          |> fun braced -> Ast.Braced_initializer braced
+        in
+        Some ({ node; tokens } : parsed_initializer)
+    | Token_kind.Eof ->
+        initializer_failure cursor item ~code:"HCPARSE0129"
+          ~secondary:
+            [
+              ({
+                 Common.Diagnostic.span = opening_brace.span;
+                 message = "initializer list starts here";
+               }
+                : Common.Diagnostic.related);
+            ]
+          ~message:"expected '}' to close the global initializer list"
+    | _ -> (
+        match parse_initializer_value cursor ~depth:(depth + 1) with
+        | None -> None
+        | Some value ->
+            let following_item = peek cursor in
+            let comma, element_tokens =
+              match following_item.token.kind with
+              | Token_kind.Punctuation ',' ->
+                  let comma_item = take cursor in
+                  ( Some (token_location comma_item.token),
+                    value.tokens @ [ comma_item.token ] )
+              | Token_kind.Punctuation '}' -> (None, value.tokens)
+              | _ -> (None, [])
+            in
+            if element_tokens = [] then
+              initializer_failure cursor following_item ~code:"HCPARSE0128"
+                ~message:
+                  (Printf.sprintf
+                     "expected ',' or '}' after a global initializer element, \
+                      but found %s"
+                     (token_description following_item.token))
+            else
+              let element =
+                Ast.make_initializer_element ~value:value.node ~comma
+                  ~location:(location_from_expression_tokens element_tokens)
+              in
+              parse_elements (element :: elements_rev)
+                (element_tokens :: token_groups_rev))
+  in
+  parse_elements [] []
+
+let parse_global_initializer cursor =
+  let equals_item = peek cursor in
+  if equals_item.token.kind <> Token_kind.Punctuation '=' then Some (None, [])
+  else
+    let equals_item = take cursor in
+    match parse_initializer_value cursor ~depth:0 with
+    | None -> None
+    | Some value ->
+        let tokens = equals_item.token :: value.tokens in
+        let initial_value =
+          Ast.make_global_initializer ~equals:(token_location equals_item.token)
+            ~value:value.node ~location:(location_from_expression_tokens tokens)
+        in
+        Some (Some initial_value, tokens)
+
 let parse_variable_declarator_suffix cursor prefix =
   match parse_array_dimensions cursor 0 [] [] with
   | None -> None
-  | Some (array_dimensions, array_tokens) -> (
-      let delimiter_item = peek cursor in
-      match delimiter_kind delimiter_item.token with
-      | None ->
-          report ~secondary:prefix.definition_trace cursor delimiter_item
-            ~code:"HCPARSE0003"
-            ~message:
-              (Printf.sprintf
-                 "expected ';' after global variable %S, but found %s"
-                 prefix.name.spelling
-                 (token_description delimiter_item.token));
-          recover_declaration cursor;
-          None
-      | Some kind ->
-          let delimiter_item = take cursor in
-          let delimiter =
-            Ast.make_declaration_delimiter ~kind
-              ~spelling:delimiter_item.token.raw
-              ~location:(token_location delimiter_item.token)
-          in
-          let tokens =
-            prefix.tokens @ array_tokens @ [ delimiter_item.token ]
-          in
-          let node =
-            Ast.make_global_declarator ~pointer_layers:prefix.pointer_layers
-              ~name:prefix.name ~array_dimensions ~delimiter
-              ~location:(location_from_tokens tokens)
-          in
-          publish_global cursor prefix.name;
-          Some ({ node; tokens } : parsed_declarator))
+  | Some (array_dimensions, array_tokens) ->
+      Option.bind (parse_global_initializer cursor)
+        (fun (initial_value, initializer_tokens) ->
+          let delimiter_item = peek cursor in
+          match delimiter_kind delimiter_item.token with
+          | None ->
+              report ~secondary:prefix.definition_trace cursor delimiter_item
+                ~code:"HCPARSE0003"
+                ~message:
+                  (Printf.sprintf
+                     "expected ',' or ';' after global variable %S, but found \
+                      %s"
+                     prefix.name.spelling
+                     (token_description delimiter_item.token));
+              recover_declaration cursor;
+              None
+          | Some kind ->
+              let delimiter_item = take cursor in
+              let delimiter =
+                Ast.make_declaration_delimiter ~kind
+                  ~spelling:delimiter_item.token.raw
+                  ~location:(token_location delimiter_item.token)
+              in
+              let tokens =
+                prefix.tokens @ array_tokens @ initializer_tokens
+                @ [ delimiter_item.token ]
+              in
+              let node =
+                Ast.make_global_declarator ~pointer_layers:prefix.pointer_layers
+                  ~name:prefix.name ~array_dimensions ~initial_value ~delimiter
+                  ~location:(location_from_tokens tokens)
+              in
+              publish_global cursor prefix.name;
+              Some ({ node; tokens } : parsed_declarator))
 
 let parse_declarator cursor base_spelling =
   match parse_declarator_prefix cursor base_spelling with
@@ -2451,30 +2572,43 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
           | Error failure ->
               recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
               None
-          | Ok parsed_members ->
-              let semicolon_item = peek cursor in
-              if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
-                let trailing_declarator =
-                  semicolon_item.token.kind = Token_kind.Identifier
-                in
-                report cursor semicolon_item
-                  ~code:
-                    (if trailing_declarator then "HCPARSE0119"
-                     else "HCPARSE0115")
-                  ~message:
-                    (if trailing_declarator then
-                       "global object declarators after an aggregate \
-                        definition are not implemented in this parser slice"
-                     else
-                       Printf.sprintf
-                         "expected ';' after aggregate definition %S, but \
-                          found %s"
-                         name.spelling
-                         (token_description semicolon_item.token));
-                if trailing_declarator then recover_declaration cursor;
-                None)
-              else
-                let semicolon_item = take cursor in
+          | Ok parsed_members -> (
+              let following_item = peek cursor in
+              let parsed_tail =
+                match following_item.token.kind with
+                | Token_kind.Punctuation ';' ->
+                    let semicolon_item = take cursor in
+                    Some
+                      ( [],
+                        [ semicolon_item.token ],
+                        token_location semicolon_item.token )
+                | Token_kind.Identifier | Token_kind.Punctuation '*' -> (
+                    match parse_declarators cursor name.spelling [] with
+                    | None -> None
+                    | Some declarators ->
+                        let last = List.hd (List.rev declarators) in
+                        Some
+                          ( List.map
+                              (fun (declarator : parsed_declarator) ->
+                                declarator.node)
+                              declarators,
+                            List.concat_map
+                              (fun (declarator : parsed_declarator) ->
+                                declarator.tokens)
+                              declarators,
+                            last.node.delimiter.location ))
+                | _ ->
+                    report cursor following_item ~code:"HCPARSE0115"
+                      ~message:
+                        (Printf.sprintf
+                           "expected ';' or a global declarator after aggregate \
+                            definition %S, but found %s"
+                           name.spelling
+                           (token_description following_item.token));
+                    None
+              in
+              Option.map
+                (fun (attached_declarators, tail_tokens, semicolon) ->
                 let tokens =
                   modifier_tokens
                   @ (match backing with
@@ -2486,7 +2620,7 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     | None -> []
                     | Some (base : parsed_aggregate_base) -> base.tokens)
                   @ (opening_item.token :: parsed_members.tokens)
-                  @ [ semicolon_item.token ]
+                  @ tail_tokens
                 in
                 let definition =
                   Ast.make_aggregate_definition ~modifiers
@@ -2506,10 +2640,11 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                          base)
                     ~opening_brace ~members:parsed_members.members
                     ~closing_brace:parsed_members.closing_brace
-                    ~semicolon:(token_location semicolon_item.token)
+                    ~attached_declarators ~semicolon
                     ~location:(location_from_expression_tokens tokens)
                 in
-                Some (Ast.Aggregate_definition definition))
+                Ast.Aggregate_definition definition)
+                parsed_tail))
 
 let finish_function_parameter cursor ~register_qualifiers ~type_specifier
     ~pointer_layers ~name ~function_pointer ~tokens =
@@ -3031,7 +3166,10 @@ let parse_global cursor ~parse_function_definition =
                                                declarators
                                       in
                                       match declarators with
-                                      | [ declarator ] ->
+                                      | [ declarator ]
+                                        when Option.is_none
+                                               declarator.node
+                                                 .global_initial_value ->
                                           let variable =
                                             Ast.make_global_variable ~modifiers
                                               ~binding ~type_specifier

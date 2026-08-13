@@ -1,0 +1,110 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-aggregate-globals.hc:1:1..10:1 items=3
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-globals.hc:3:1..3:6 segments=[cli/parse-aggregate-globals.hc:3:1..3:6,cli/parse-aggregate-globals.hc:3:7..3:12,cli/parse-aggregate-globals.hc:4:1..4:2,cli/parse-aggregate-globals.hc:5:3..5:6,cli/parse-aggregate-globals.hc:5:7..5:12,cli/parse-aggregate-globals.hc:5:12..5:13,cli/parse-aggregate-globals.hc:6:3..6:5,cli/parse-aggregate-globals.hc:6:6..6:7,cli/parse-aggregate-globals.hc:6:7..6:11,cli/parse-aggregate-globals.hc:6:11..6:12,cli/parse-aggregate-globals.hc:7:1..7:2,cli/parse-aggregate-globals.hc:7:3..7:10,cli/parse-aggregate-globals.hc:7:10..7:11,<definition:00000000:COUNT>:1:1..1:2,cli/parse-aggregate-globals.hc:7:16..7:17,cli/parse-aggregate-globals.hc:7:17..7:18,cli/parse-aggregate-globals.hc:7:18..7:19,cli/parse-aggregate-globals.hc:7:19..7:20,cli/parse-aggregate-globals.hc:7:20..7:21,cli/parse-aggregate-globals.hc:7:21..7:22,cli/parse-aggregate-globals.hc:7:22..7:27,cli/parse-aggregate-globals.hc:7:27..7:28,cli/parse-aggregate-globals.hc:7:28..7:29,cli/parse-aggregate-globals.hc:7:29..7:30,cli/parse-aggregate-globals.hc:7:30..7:31,cli/parse-aggregate-globals.hc:7:31..7:32,cli/parse-aggregate-globals.hc:7:32..7:37,cli/parse-aggregate-globals.hc:7:37..7:38,cli/parse-aggregate-globals.hc:7:38..7:39,cli/parse-aggregate-globals.hc:7:39..7:40,cli/parse-aggregate-globals.hc:7:40..7:41,cli/parse-aggregate-globals.hc:7:41..7:42,cli/parse-aggregate-globals.hc:7:42..7:48,cli/parse-aggregate-globals.hc:7:48..7:49,cli/parse-aggregate-globals.hc:7:49..7:55,cli/parse-aggregate-globals.hc:7:55..7:56,cli/parse-aggregate-globals.hc:7:56..7:62,cli/parse-aggregate-globals.hc:7:62..7:63,cli/parse-aggregate-globals.hc:7:63..7:68,cli/parse-aggregate-globals.hc:7:68..7:69,cli/parse-aggregate-globals.hc:7:69..7:70,cli/parse-aggregate-globals.hc:7:70..7:71] members=2
+    aggregate_keyword spelling="class" span=cli/parse-aggregate-globals.hc:3:1..3:6
+    name spelling="Entry" span=cli/parse-aggregate-globals.hc:3:7..3:12
+    opening_brace span=cli/parse-aggregate-globals.hc:4:1..4:2
+    member_declaration index=0 span=cli/parse-aggregate-globals.hc:5:3..5:13 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-globals.hc:5:3..5:6
+      declarator index=0 span=cli/parse-aggregate-globals.hc:5:7..5:13
+        name spelling="value" span=cli/parse-aggregate-globals.hc:5:7..5:12
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:5:12..5:13
+    member_declaration index=1 span=cli/parse-aggregate-globals.hc:6:3..6:12 declarators=1
+      type primitive=U8 spelling="U8" span=cli/parse-aggregate-globals.hc:6:3..6:5
+      declarator index=0 span=cli/parse-aggregate-globals.hc:6:6..6:12
+        pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-globals.hc:6:6..6:7
+        name spelling="name" span=cli/parse-aggregate-globals.hc:6:7..6:11
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:6:11..6:12
+    closing_brace span=cli/parse-aggregate-globals.hc:7:1..7:2
+    attached_declarator index=0 span=cli/parse-aggregate-globals.hc:7:3..7:10 segments=[cli/parse-aggregate-globals.hc:7:3..7:10,cli/parse-aggregate-globals.hc:7:10..7:11,<definition:00000000:COUNT>:1:1..1:2,cli/parse-aggregate-globals.hc:7:16..7:17,cli/parse-aggregate-globals.hc:7:17..7:18,cli/parse-aggregate-globals.hc:7:18..7:19,cli/parse-aggregate-globals.hc:7:19..7:20,cli/parse-aggregate-globals.hc:7:20..7:21,cli/parse-aggregate-globals.hc:7:21..7:22,cli/parse-aggregate-globals.hc:7:22..7:27,cli/parse-aggregate-globals.hc:7:27..7:28,cli/parse-aggregate-globals.hc:7:28..7:29,cli/parse-aggregate-globals.hc:7:29..7:30,cli/parse-aggregate-globals.hc:7:30..7:31,cli/parse-aggregate-globals.hc:7:31..7:32,cli/parse-aggregate-globals.hc:7:32..7:37,cli/parse-aggregate-globals.hc:7:37..7:38,cli/parse-aggregate-globals.hc:7:38..7:39,cli/parse-aggregate-globals.hc:7:39..7:40,cli/parse-aggregate-globals.hc:7:40..7:41]
+      name spelling="entries" span=cli/parse-aggregate-globals.hc:7:3..7:10
+      array_dimension index=0 sized=true span=cli/parse-aggregate-globals.hc:7:10..7:11 segments=[cli/parse-aggregate-globals.hc:7:10..7:11,<definition:00000000:COUNT>:1:1..1:2,cli/parse-aggregate-globals.hc:7:16..7:17]
+        opening_bracket span=cli/parse-aggregate-globals.hc:7:10..7:11
+        expression kind=integer_literal spelling="2" value="0x0000000000000002" span=<definition:00000000:COUNT>:1:1..1:2 generated_from=cli/parse-aggregate-globals.hc:7:11..7:16 defined_at=cli/parse-aggregate-globals.hc:2:1..3:1
+        closing_bracket span=cli/parse-aggregate-globals.hc:7:16..7:17
+      initializer span=cli/parse-aggregate-globals.hc:7:17..7:40
+        equals span=cli/parse-aggregate-globals.hc:7:17..7:18
+        value kind=braced span=cli/parse-aggregate-globals.hc:7:18..7:40 elements=2
+          opening_brace span=cli/parse-aggregate-globals.hc:7:18..7:19
+          element index=0 span=cli/parse-aggregate-globals.hc:7:19..7:29
+            value kind=braced span=cli/parse-aggregate-globals.hc:7:19..7:28 elements=2
+              opening_brace span=cli/parse-aggregate-globals.hc:7:19..7:20
+              element index=0 span=cli/parse-aggregate-globals.hc:7:20..7:22
+                value kind=scalar span=cli/parse-aggregate-globals.hc:7:20..7:21
+                  expression kind=integer_literal spelling="1" value="0x0000000000000001" span=cli/parse-aggregate-globals.hc:7:20..7:21
+                comma span=cli/parse-aggregate-globals.hc:7:21..7:22
+              element index=1 span=cli/parse-aggregate-globals.hc:7:22..7:27
+                value kind=scalar span=cli/parse-aggregate-globals.hc:7:22..7:27
+                  expression kind=string_literal spelling="\"one\"" value="one" span=cli/parse-aggregate-globals.hc:7:22..7:27
+              closing_brace span=cli/parse-aggregate-globals.hc:7:27..7:28
+            comma span=cli/parse-aggregate-globals.hc:7:28..7:29
+          element index=1 span=cli/parse-aggregate-globals.hc:7:29..7:39
+            value kind=braced span=cli/parse-aggregate-globals.hc:7:29..7:38 elements=2
+              opening_brace span=cli/parse-aggregate-globals.hc:7:29..7:30
+              element index=0 span=cli/parse-aggregate-globals.hc:7:30..7:32
+                value kind=scalar span=cli/parse-aggregate-globals.hc:7:30..7:31
+                  expression kind=integer_literal spelling="2" value="0x0000000000000002" span=cli/parse-aggregate-globals.hc:7:30..7:31
+                comma span=cli/parse-aggregate-globals.hc:7:31..7:32
+              element index=1 span=cli/parse-aggregate-globals.hc:7:32..7:37
+                value kind=scalar span=cli/parse-aggregate-globals.hc:7:32..7:37
+                  expression kind=string_literal spelling="\"two\"" value="two" span=cli/parse-aggregate-globals.hc:7:32..7:37
+              closing_brace span=cli/parse-aggregate-globals.hc:7:37..7:38
+            comma span=cli/parse-aggregate-globals.hc:7:38..7:39
+          closing_brace span=cli/parse-aggregate-globals.hc:7:39..7:40
+      delimiter kind=comma spelling="," span=cli/parse-aggregate-globals.hc:7:40..7:41
+    attached_declarator index=1 span=cli/parse-aggregate-globals.hc:7:41..7:71
+      pointer_layer depth=1 spelling="*" span=cli/parse-aggregate-globals.hc:7:41..7:42
+      name spelling="active" span=cli/parse-aggregate-globals.hc:7:42..7:48
+      initializer span=cli/parse-aggregate-globals.hc:7:48..7:70
+        equals span=cli/parse-aggregate-globals.hc:7:48..7:49
+        value kind=scalar span=cli/parse-aggregate-globals.hc:7:49..7:70
+          expression kind=call arguments=1 span=cli/parse-aggregate-globals.hc:7:49..7:70
+            callee
+              expression kind=identifier spelling="CAlloc" span=cli/parse-aggregate-globals.hc:7:49..7:55
+            opening_parenthesis span=cli/parse-aggregate-globals.hc:7:55..7:56
+            argument index=0 kind=provided span=cli/parse-aggregate-globals.hc:7:56..7:69
+              expression kind=sizeof wrappers=1 members=0 pointer_layers=0 span=cli/parse-aggregate-globals.hc:7:56..7:69
+                keyword spelling="sizeof" span=cli/parse-aggregate-globals.hc:7:56..7:62
+                opening_parenthesis depth=1 span=cli/parse-aggregate-globals.hc:7:62..7:63
+                target spelling="Entry" span=cli/parse-aggregate-globals.hc:7:63..7:68
+                closing_parenthesis depth=1 span=cli/parse-aggregate-globals.hc:7:68..7:69
+            closing_parenthesis span=cli/parse-aggregate-globals.hc:7:69..7:70
+      delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:7:70..7:71
+    semicolon span=cli/parse-aggregate-globals.hc:7:70..7:71
+  aggregate_definition aggregate_kind=union span=cli/parse-aggregate-globals.hc:8:1..8:63 members=2
+    aggregate_keyword spelling="union" span=cli/parse-aggregate-globals.hc:8:1..8:6
+    name spelling="Bits" span=cli/parse-aggregate-globals.hc:8:7..8:11
+    opening_brace span=cli/parse-aggregate-globals.hc:8:12..8:13
+    member_declaration index=0 span=cli/parse-aggregate-globals.hc:8:14..8:31 declarators=1
+      type primitive=I64 spelling="I64" span=cli/parse-aggregate-globals.hc:8:14..8:17
+      declarator index=0 span=cli/parse-aggregate-globals.hc:8:18..8:31
+        name spelling="signed_value" span=cli/parse-aggregate-globals.hc:8:18..8:30
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:8:30..8:31
+    member_declaration index=1 span=cli/parse-aggregate-globals.hc:8:32..8:51 declarators=1
+      type primitive=U64 spelling="U64" span=cli/parse-aggregate-globals.hc:8:32..8:35
+      declarator index=0 span=cli/parse-aggregate-globals.hc:8:36..8:51
+        name spelling="unsigned_value" span=cli/parse-aggregate-globals.hc:8:36..8:50
+        delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:8:50..8:51
+    closing_brace span=cli/parse-aggregate-globals.hc:8:52..8:53
+    attached_declarator index=0 span=cli/parse-aggregate-globals.hc:8:54..8:63
+      name spelling="bits" span=cli/parse-aggregate-globals.hc:8:54..8:58
+      initializer span=cli/parse-aggregate-globals.hc:8:58..8:62
+        equals span=cli/parse-aggregate-globals.hc:8:58..8:59
+        value kind=braced span=cli/parse-aggregate-globals.hc:8:59..8:62 elements=1
+          opening_brace span=cli/parse-aggregate-globals.hc:8:59..8:60
+          element index=0 span=cli/parse-aggregate-globals.hc:8:60..8:61
+            value kind=scalar span=cli/parse-aggregate-globals.hc:8:60..8:61
+              expression kind=integer_literal spelling="0" value="0x0000000000000000" span=cli/parse-aggregate-globals.hc:8:60..8:61
+          closing_brace span=cli/parse-aggregate-globals.hc:8:61..8:62
+      delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:8:62..8:63
+    semicolon span=cli/parse-aggregate-globals.hc:8:62..8:63
+  global_declaration span=cli/parse-aggregate-globals.hc:9:1..9:18 declarators=1
+    type primitive=I64 spelling="I64" span=cli/parse-aggregate-globals.hc:9:1..9:4
+    declarator index=0 span=cli/parse-aggregate-globals.hc:9:5..9:18
+      name spelling="standalone" span=cli/parse-aggregate-globals.hc:9:5..9:15
+      initializer span=cli/parse-aggregate-globals.hc:9:15..9:17
+        equals span=cli/parse-aggregate-globals.hc:9:15..9:16
+        value kind=scalar span=cli/parse-aggregate-globals.hc:9:16..9:17
+          expression kind=integer_literal spelling="3" value="0x0000000000000003" span=cli/parse-aggregate-globals.hc:9:16..9:17
+      delimiter kind=semicolon spelling=";" span=cli/parse-aggregate-globals.hc:9:17..9:18

@@ -233,6 +233,19 @@ let expect_integer_expression = function
           Alcotest.fail "integer literal has the wrong value kind")
   | _ -> Alcotest.fail "expected an integer expression"
 
+let expect_global_initial_value (declarator : Ast.global_declarator) =
+  match declarator.global_initial_value with
+  | Some initial_value -> initial_value
+  | None -> Alcotest.failf "%s has no global initializer" declarator.name.spelling
+
+let expect_scalar_initial_value = function
+  | Ast.Scalar_initializer expression -> expression
+  | Ast.Braced_initializer _ -> Alcotest.fail "expected a scalar initializer"
+
+let expect_braced_initial_value = function
+  | Ast.Braced_initializer braced -> braced
+  | Ast.Scalar_initializer _ -> Alcotest.fail "expected a braced initializer"
+
 let expect_binary_expression = function
   | Ast.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a binary expression"
@@ -1979,6 +1992,249 @@ let aggregate_definition_source_behavior () =
     "language guide records one base class" true
     (contains language "Only one base class is allowed.")
 
+let aggregate_global_source_behavior () =
+  let statements = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains statements fragment))
+    [
+      ( "definition may continue into storage",
+        "if (!cc->htc.fun && cc->token!=';')" );
+      ( "completed aggregate becomes the saved type",
+        "PrsGlblVarLst(cc,PRS0_NULL|PRS1_NULL,tmpex,0,fsp_flags);" );
+      ("global initializer dispatch", "if (cc->token=='=') {");
+      ("second initializer pass", "PrsGlblInit(cc,tmpg,2);");
+    ];
+  let variables = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variables fragment))
+    [
+      ("initializer parser entry", "U0 PrsVarInit(");
+      ("recursive initializer entry", "U0 PrsVarInit2(");
+      ("aggregate values require a brace", "if (cc->token!='{')");
+      ("global initializer wrapper", "U0 PrsGlblInit(");
+    ];
+  List.iter
+    (fun (path, fragment) ->
+      Alcotest.(check bool) path true (contains (pinned path) fragment))
+    [
+      ("Compiler/CInit.HC", "internal_types_table[INTERNAL_TYPES_NUM]={");
+      ("Adam/WallPaper.HC", "} *wall=CAlloc(sizeof(CWallPaperGlbls));");
+      ("Demo/RadixSort.HC", "} l[N],*r[RADIX];");
+      ( "Demo/Games/Talons.HC",
+        "} *panel_head,*panels[MAP_HEIGHT][MAP_WIDTH];" );
+    ]
+
+let pinned_cinit_attached_global () =
+  let source = pinned_lines "Compiler/CInit.HC" ~first:1 ~last:14 in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let definition = expect_ast output |> expect_one_aggregate_definition in
+      Alcotest.(check string)
+        "pinned class name" "CInternalType" definition.name.spelling;
+      let table =
+        match definition.attached_declarators with
+        | [ table ] -> table
+        | declarators ->
+            Alcotest.failf "expected one attached table, got %d"
+              (List.length declarators)
+      in
+      Alcotest.(check string)
+        "pinned table name" "internal_types_table" table.name.spelling;
+      Alcotest.(check int)
+        "pinned table dimension" 1 (List.length table.array_dimensions);
+      let rows =
+        expect_global_initial_value table |> fun value ->
+        expect_braced_initial_value value.global_initializer_value
+      in
+      Alcotest.(check int)
+        "all pinned internal type rows" 17
+        (List.length rows.initializer_elements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_globals_and_initializer_trees () =
+  let source =
+    "class Entry { I64 value; U8 *name; } \
+     entries[2]={{1,\"one\"},{2,\"two\"},}, \
+     *active=CAlloc(sizeof(Entry));\n\
+     I64 standalone=3;"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Aggregate_definition definition; Ast.Global_declaration standalone ]
+    ->
+      Alcotest.(check (list string))
+        "attached names" [ "entries"; "active" ]
+        (List.map
+           (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+           definition.attached_declarators);
+      let entries, active =
+        match definition.attached_declarators with
+        | [ entries; active ] -> (entries, active)
+        | declarators ->
+            Alcotest.failf "expected two attached globals, got %d"
+              (List.length declarators)
+      in
+      Alcotest.(check int)
+        "array dimension" 1 (List.length entries.array_dimensions);
+      Alcotest.(check int)
+        "pointer depth" 1 (List.length active.pointer_layers);
+      Alcotest.(check bool)
+        "first delimiter is a comma" true
+        (entries.delimiter.kind = Ast.Comma);
+      Alcotest.(check bool)
+        "last delimiter is a semicolon" true
+        (active.delimiter.kind = Ast.Semicolon);
+      Alcotest.(check int)
+        "definition reaches the declaration semicolon" definition.semicolon.span.stop
+        definition.location.span.stop;
+      let outer =
+        expect_global_initial_value entries |> fun value ->
+        expect_braced_initial_value value.global_initializer_value
+      in
+      Alcotest.(check int)
+        "two outer initializer elements" 2
+        (List.length outer.initializer_elements);
+      let first =
+        List.hd outer.initializer_elements
+        |> fun element ->
+        expect_braced_initial_value element.initializer_element_value
+      in
+      Alcotest.(check int)
+        "two fields in the first entry" 2
+        (List.length first.initializer_elements);
+      let second = List.nth outer.initializer_elements 1 in
+      Alcotest.(check bool)
+        "outer trailing comma is retained" true
+        (Option.is_some second.initializer_element_comma);
+      expect_global_initial_value active |> fun value ->
+      value.global_initializer_value |> expect_scalar_initial_value
+      |> expect_call_expression |> expect_parenthesized_call;
+      let standalone_declarator = List.hd standalone.declarators in
+      let standalone_value =
+        expect_global_initial_value standalone_declarator
+        |> fun value -> value.global_initializer_value
+        |> expect_scalar_initial_value |> expect_integer_expression
+      in
+      Alcotest.(check int64) "standalone scalar initializer" 3L
+        standalone_value
+  | items ->
+      Alcotest.failf "expected an aggregate and initialized global, got %d items"
+        (List.length items)
+
+let aggregate_global_streaming_visibility () =
+  let source =
+    "class Pair { I64 value; } first,\n\
+     #ifdef first\n\
+     *second;\n\
+     #else\n\
+     Widget wrong;\n\
+     #endif\n\
+     #ifdef second\n\
+     I64 selected;\n\
+     #endif"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).items with
+  | [ Ast.Aggregate_definition definition; Ast.Global_variable selected ] ->
+      Alcotest.(check (list string))
+        "the declarator stream sees each prior attached global"
+        [ "first"; "second" ]
+        (List.map
+           (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+           definition.attached_declarators);
+      Alcotest.(check string) "following conditional" "selected"
+        selected.name.spelling
+  | items ->
+      Alcotest.failf "expected one aggregate and one selected global, got %d"
+        (List.length items)
+
+let aggregate_global_provenance_and_dumps () =
+  let source =
+    "#define VALUES {1,{2,3}}\n\
+     class Data { I64 values[3]; } data=VALUES;"
+  in
+  let session, root, output = parse_string source in
+  let definition = expect_ast output |> expect_one_aggregate_definition in
+  let declarator = List.hd definition.attached_declarators in
+  let braced =
+    expect_global_initial_value declarator |> fun value ->
+    expect_braced_initial_value value.global_initializer_value
+  in
+  Alcotest.(check bool)
+    "generated initializer uses its definition frame" false
+    (Source_id.equal braced.initializer_opening_brace.span.source
+       (Source_file.id root));
+  Alcotest.(check bool)
+    "generated initializer retains the invocation" true
+    (Option.is_some braced.initializer_opening_brace.generated_from);
+  Alcotest.(check bool)
+    "generated initializer retains the definition" true
+    (Option.is_some braced.initializer_opening_brace.defined_at);
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human dump is deterministic" human (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON dump is deterministic" json (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump names attached declarators" true
+    (contains human "attached_declarator index=0");
+  let open Yojson.Safe.Util in
+  let item =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  let initial_value =
+    item |> member "attached_declarators" |> to_list |> List.hd
+    |> member "initializer" |> member "value"
+  in
+  Alcotest.(check string) "JSON initializer kind" "braced"
+    (initial_value |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON generated brace retains provenance" true
+    (initial_value |> member "opening_brace" |> member "generated_from"
+    <> `Null)
+
+let global_initializer_failures () =
+  List.iter
+    (fun (description, source, code, message_fragment) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no AST") true (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment))
+    [
+      ("missing value", "I64 value=;", "HCPARSE0127", "initializer value");
+      ( "missing element separator",
+        "I64 value={1 2};",
+        "HCPARSE0128",
+        "after a global initializer element" );
+      ( "unclosed list",
+        "I64 value={",
+        "HCPARSE0129",
+        "close the global initializer list" );
+      ( "missing declaration delimiter",
+        "I64 value={1} next;",
+        "HCPARSE0003",
+        "after global variable" );
+    ];
+  let nesting = Parser.max_initializer_depth + 1 in
+  let source =
+    "I64 value=" ^ String.make nesting '{' ^ "0"
+    ^ String.make nesting '}' ^ "; I64 after;"
+  in
+  let _, _, output = parse_string source in
+  Alcotest.(check string)
+    "initializer nesting code" "HCPARSE0130" (first_diagnostic output).code
+
 let direct_aggregate_definitions () =
   let source =
     "public class Node\n\
@@ -2284,10 +2540,6 @@ let aggregate_definition_failures () =
         "class Meta { I64 value format 3; };",
         "HCPARSE0118",
         "metadata" );
-      ( "trailing object is excluded",
-        "class Object { I64 value; } object;",
-        "HCPARSE0119",
-        "object declarators" );
       ( "function pointer member is excluded",
         "class Callbacks { I64 (*callback)(I64 value); };",
         "HCPARSE0123",
@@ -13780,7 +14032,6 @@ let unsupported_forms () =
       ("unknown type", "Widget value;", "HCPARSE0001");
       ("missing name", "I64 ;", "HCPARSE0002");
       ("missing semicolon", "I64 value", "HCPARSE0003");
-      ("initializer", "I64 value=1;", "HCPARSE0003");
     ]
   in
   List.iter
@@ -13888,6 +14139,18 @@ let tests =
       deterministic_aggregate_forward_dumps;
     Alcotest.test_case "pinned aggregate definition behavior" `Quick
       aggregate_definition_source_behavior;
+    Alcotest.test_case "pinned aggregate global behavior" `Quick
+      aggregate_global_source_behavior;
+    Alcotest.test_case "pinned CInit attached global" `Quick
+      pinned_cinit_attached_global;
+    Alcotest.test_case "aggregate globals and initializer trees" `Quick
+      aggregate_globals_and_initializer_trees;
+    Alcotest.test_case "aggregate global streaming visibility" `Quick
+      aggregate_global_streaming_visibility;
+    Alcotest.test_case "aggregate global provenance and dumps" `Quick
+      aggregate_global_provenance_and_dumps;
+    Alcotest.test_case "global initializer failures" `Quick
+      global_initializer_failures;
     Alcotest.test_case "direct aggregate definitions" `Quick
       direct_aggregate_definitions;
     Alcotest.test_case "aggregate definition forward completion" `Quick

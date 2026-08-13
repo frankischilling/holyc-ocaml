@@ -12,6 +12,7 @@ val max_lock_depth : int
 val max_try_depth : int
 val max_switch_depth : int
 val max_aggregate_depth : int
+val max_initializer_depth : int
 
 val parse :
   sources:Common.Source_manager.t ->

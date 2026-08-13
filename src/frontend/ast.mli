@@ -320,6 +320,38 @@ type aggregate_base = private {
   base_location : location;
 }
 
+type initial_value =
+  | Scalar_initializer of expression
+  | Braced_initializer of braced_initializer
+
+and braced_initializer = private {
+  initializer_opening_brace : location;
+  initializer_elements : initializer_element list;
+  initializer_closing_brace : location;
+  initializer_location : location;
+}
+
+and initializer_element = private {
+  initializer_element_value : initial_value;
+  initializer_element_comma : location option;
+  initializer_element_location : location;
+}
+
+type global_initializer = private {
+  global_initializer_equals : location;
+  global_initializer_value : initial_value;
+  global_initializer_location : location;
+}
+
+type global_declarator = private {
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  global_initial_value : global_initializer option;
+  delimiter : declaration_delimiter;
+  location : location;
+}
+
 type aggregate_definition = private {
   modifiers : declaration_modifier list;
   backing : aggregate_backing option;
@@ -331,15 +363,8 @@ type aggregate_definition = private {
   opening_brace : location;
   members : aggregate_member list;
   closing_brace : location;
+  attached_declarators : global_declarator list;
   semicolon : location;
-  location : location;
-}
-
-type global_declarator = private {
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  array_dimensions : array_dimension list;
-  delimiter : declaration_delimiter;
   location : location;
 }
 
@@ -780,6 +805,36 @@ val make_aggregate_base :
   location:location ->
   aggregate_base
 
+val initial_value_location : initial_value -> location
+
+val make_braced_initializer :
+  opening_brace:location ->
+  elements:initializer_element list ->
+  closing_brace:location ->
+  location:location ->
+  braced_initializer
+
+val make_initializer_element :
+  value:initial_value ->
+  comma:location option ->
+  location:location ->
+  initializer_element
+
+val make_global_initializer :
+  equals:location ->
+  value:initial_value ->
+  location:location ->
+  global_initializer
+
+val make_global_declarator :
+  pointer_layers:pointer_layer list ->
+  name:identifier ->
+  array_dimensions:array_dimension list ->
+  initial_value:global_initializer option ->
+  delimiter:declaration_delimiter ->
+  location:location ->
+  global_declarator
+
 val make_aggregate_definition :
   modifiers:declaration_modifier list ->
   backing:aggregate_backing option ->
@@ -791,17 +846,10 @@ val make_aggregate_definition :
   opening_brace:location ->
   members:aggregate_member list ->
   closing_brace:location ->
+  attached_declarators:global_declarator list ->
   semicolon:location ->
   location:location ->
   aggregate_definition
-
-val make_global_declarator :
-  pointer_layers:pointer_layer list ->
-  name:identifier ->
-  array_dimensions:array_dimension list ->
-  delimiter:declaration_delimiter ->
-  location:location ->
-  global_declarator
 
 val make_global_variable :
   modifiers:declaration_modifier list ->

@@ -1,0 +1,3975 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-aggregate-globals.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 289
+    },
+    "items": [
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "class",
+        "aggregate_keyword": {
+          "spelling": "class",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 98,
+              "stop": 103
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 3,
+                "column": 1,
+                "source_id": 0,
+                "start": 98,
+                "stop": 103
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Entry",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 104,
+              "stop": 109
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 3,
+                "column": 7,
+                "source_id": 0,
+                "start": 104,
+                "stop": 109
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 4,
+            "column": 1,
+            "source_id": 0,
+            "start": 110,
+            "stop": 111
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 110,
+              "stop": 111
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 114,
+                  "stop": 117
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 5,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 114,
+                    "stop": 117
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "value",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 118,
+                      "stop": 123
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 5,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 118,
+                        "stop": 123
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 5,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 123,
+                      "stop": 124
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 5,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 123,
+                        "stop": 124
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 5,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 118,
+                    "stop": 124
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 5,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 118,
+                      "stop": 123
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 5,
+                      "column": 12,
+                      "source_id": 0,
+                      "start": 123,
+                      "stop": 124
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 5,
+                "column": 3,
+                "source_id": 0,
+                "start": 114,
+                "stop": 124
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 5,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 114,
+                  "stop": 117
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 5,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 118,
+                  "stop": 123
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 5,
+                  "column": 12,
+                  "source_id": 0,
+                  "start": 123,
+                  "stop": 124
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "U8",
+              "spelling": "U8",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 127,
+                  "stop": 129
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 6,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 127,
+                    "stop": 129
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "pointer_layers": [
+                  {
+                    "depth": 1,
+                    "spelling": "*",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 6,
+                        "column": 6,
+                        "source_id": 0,
+                        "start": 130,
+                        "stop": 131
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 6,
+                          "column": 6,
+                          "source_id": 0,
+                          "start": 130,
+                          "stop": 131
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "name": {
+                  "spelling": "name",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 6,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 131,
+                      "stop": 135
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 6,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 131,
+                        "stop": 135
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 6,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 135,
+                      "stop": 136
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 6,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 135,
+                        "stop": 136
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 6,
+                    "column": 6,
+                    "source_id": 0,
+                    "start": 130,
+                    "stop": 136
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 6,
+                      "column": 6,
+                      "source_id": 0,
+                      "start": 130,
+                      "stop": 131
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 6,
+                      "column": 7,
+                      "source_id": 0,
+                      "start": 131,
+                      "stop": 135
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 6,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 135,
+                      "stop": 136
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 6,
+                "column": 3,
+                "source_id": 0,
+                "start": 127,
+                "stop": 136
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 6,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 127,
+                  "stop": 129
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 6,
+                  "column": 6,
+                  "source_id": 0,
+                  "start": 130,
+                  "stop": 131
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 6,
+                  "column": 7,
+                  "source_id": 0,
+                  "start": 131,
+                  "stop": 135
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 6,
+                  "column": 11,
+                  "source_id": 0,
+                  "start": 135,
+                  "stop": 136
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 7,
+            "column": 1,
+            "source_id": 0,
+            "start": 137,
+            "stop": 138
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 137,
+              "stop": 138
+            }
+          ]
+        },
+        "attached_declarators": [
+          {
+            "name": {
+              "spelling": "entries",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 146
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 139,
+                    "stop": 146
+                  }
+                ]
+              }
+            },
+            "array_dimensions": [
+              {
+                "opening_bracket": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 146,
+                    "stop": 147
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 146,
+                      "stop": 147
+                    }
+                  ]
+                },
+                "expression": {
+                  "kind": "integer_literal",
+                  "spelling": "2",
+                  "value": "0x0000000000000002",
+                  "location": {
+                    "span": {
+                      "path": "<definition:00000000:COUNT>",
+                      "line": 1,
+                      "column": 1,
+                      "source_id": 1,
+                      "start": 0,
+                      "stop": 1
+                    },
+                    "source_segments": [
+                      {
+                        "path": "<definition:00000000:COUNT>",
+                        "line": 1,
+                        "column": 1,
+                        "source_id": 1,
+                        "start": 0,
+                        "stop": 1
+                      }
+                    ],
+                    "generated_from": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 11,
+                      "source_id": 0,
+                      "start": 147,
+                      "stop": 152
+                    },
+                    "defined_at": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 2,
+                      "column": 1,
+                      "source_id": 0,
+                      "start": 82,
+                      "stop": 98
+                    }
+                  }
+                },
+                "closing_bracket": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 152,
+                    "stop": 153
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 152,
+                      "stop": 153
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 146,
+                    "stop": 147
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 10,
+                      "source_id": 0,
+                      "start": 146,
+                      "stop": 147
+                    },
+                    {
+                      "path": "<definition:00000000:COUNT>",
+                      "line": 1,
+                      "column": 1,
+                      "source_id": 1,
+                      "start": 0,
+                      "stop": 1
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 152,
+                      "stop": 153
+                    }
+                  ]
+                }
+              }
+            ],
+            "initializer": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 153,
+                  "stop": 154
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 153,
+                    "stop": 154
+                  }
+                ]
+              },
+              "value": {
+                "kind": "braced",
+                "opening_brace": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 154,
+                    "stop": 155
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 154,
+                      "stop": 155
+                    }
+                  ]
+                },
+                "elements": [
+                  {
+                    "value": {
+                      "kind": "braced",
+                      "opening_brace": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 156
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 19,
+                            "source_id": 0,
+                            "start": 155,
+                            "stop": 156
+                          }
+                        ]
+                      },
+                      "elements": [
+                        {
+                          "value": {
+                            "kind": "scalar",
+                            "expression": {
+                              "kind": "integer_literal",
+                              "spelling": "1",
+                              "value": "0x0000000000000001",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 156,
+                                  "stop": 157
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-aggregate-globals.hc",
+                                    "line": 7,
+                                    "column": 20,
+                                    "source_id": 0,
+                                    "start": 156,
+                                    "stop": 157
+                                  }
+                                ]
+                              }
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 156,
+                                "stop": 157
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 156,
+                                  "stop": 157
+                                }
+                              ]
+                            }
+                          },
+                          "comma": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 157,
+                              "stop": 158
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 157,
+                                "stop": 158
+                              }
+                            ]
+                          },
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 156,
+                              "stop": 158
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 156,
+                                "stop": 157
+                              },
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 21,
+                                "source_id": 0,
+                                "start": 157,
+                                "stop": 158
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "value": {
+                            "kind": "scalar",
+                            "expression": {
+                              "kind": "string_literal",
+                              "spelling": "\"one\"",
+                              "value": "one",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 22,
+                                  "source_id": 0,
+                                  "start": 158,
+                                  "stop": 163
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-aggregate-globals.hc",
+                                    "line": 7,
+                                    "column": 22,
+                                    "source_id": 0,
+                                    "start": 158,
+                                    "stop": 163
+                                  }
+                                ]
+                              }
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 22,
+                                "source_id": 0,
+                                "start": 158,
+                                "stop": 163
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 22,
+                                  "source_id": 0,
+                                  "start": 158,
+                                  "stop": 163
+                                }
+                              ]
+                            }
+                          },
+                          "comma": null,
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 22,
+                              "source_id": 0,
+                              "start": 158,
+                              "stop": 163
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 22,
+                                "source_id": 0,
+                                "start": 158,
+                                "stop": 163
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "closing_brace": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 163,
+                          "stop": 164
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 27,
+                            "source_id": 0,
+                            "start": 163,
+                            "stop": 164
+                          }
+                        ]
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 164
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 19,
+                            "source_id": 0,
+                            "start": 155,
+                            "stop": 156
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 20,
+                            "source_id": 0,
+                            "start": 156,
+                            "stop": 157
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 21,
+                            "source_id": 0,
+                            "start": 157,
+                            "stop": 158
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 22,
+                            "source_id": 0,
+                            "start": 158,
+                            "stop": 163
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 27,
+                            "source_id": 0,
+                            "start": 163,
+                            "stop": 164
+                          }
+                        ]
+                      }
+                    },
+                    "comma": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 28,
+                        "source_id": 0,
+                        "start": 164,
+                        "stop": 165
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 28,
+                          "source_id": 0,
+                          "start": 164,
+                          "stop": 165
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 155,
+                        "stop": 165
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 155,
+                          "stop": 156
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 156,
+                          "stop": 157
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 157,
+                          "stop": 158
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 22,
+                          "source_id": 0,
+                          "start": 158,
+                          "stop": 163
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 163,
+                          "stop": 164
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 28,
+                          "source_id": 0,
+                          "start": 164,
+                          "stop": 165
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "value": {
+                      "kind": "braced",
+                      "opening_brace": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 166
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 29,
+                            "source_id": 0,
+                            "start": 165,
+                            "stop": 166
+                          }
+                        ]
+                      },
+                      "elements": [
+                        {
+                          "value": {
+                            "kind": "scalar",
+                            "expression": {
+                              "kind": "integer_literal",
+                              "spelling": "2",
+                              "value": "0x0000000000000002",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 30,
+                                  "source_id": 0,
+                                  "start": 166,
+                                  "stop": 167
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-aggregate-globals.hc",
+                                    "line": 7,
+                                    "column": 30,
+                                    "source_id": 0,
+                                    "start": 166,
+                                    "stop": 167
+                                  }
+                                ]
+                              }
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 30,
+                                "source_id": 0,
+                                "start": 166,
+                                "stop": 167
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 30,
+                                  "source_id": 0,
+                                  "start": 166,
+                                  "stop": 167
+                                }
+                              ]
+                            }
+                          },
+                          "comma": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 31,
+                              "source_id": 0,
+                              "start": 167,
+                              "stop": 168
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 31,
+                                "source_id": 0,
+                                "start": 167,
+                                "stop": 168
+                              }
+                            ]
+                          },
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 30,
+                              "source_id": 0,
+                              "start": 166,
+                              "stop": 168
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 30,
+                                "source_id": 0,
+                                "start": 166,
+                                "stop": 167
+                              },
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 31,
+                                "source_id": 0,
+                                "start": 167,
+                                "stop": 168
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "value": {
+                            "kind": "scalar",
+                            "expression": {
+                              "kind": "string_literal",
+                              "spelling": "\"two\"",
+                              "value": "two",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 32,
+                                  "source_id": 0,
+                                  "start": 168,
+                                  "stop": 173
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-aggregate-globals.hc",
+                                    "line": 7,
+                                    "column": 32,
+                                    "source_id": 0,
+                                    "start": 168,
+                                    "stop": 173
+                                  }
+                                ]
+                              }
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 32,
+                                "source_id": 0,
+                                "start": 168,
+                                "stop": 173
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-aggregate-globals.hc",
+                                  "line": 7,
+                                  "column": 32,
+                                  "source_id": 0,
+                                  "start": 168,
+                                  "stop": 173
+                                }
+                              ]
+                            }
+                          },
+                          "comma": null,
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 32,
+                              "source_id": 0,
+                              "start": 168,
+                              "stop": 173
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 32,
+                                "source_id": 0,
+                                "start": 168,
+                                "stop": 173
+                              }
+                            ]
+                          }
+                        }
+                      ],
+                      "closing_brace": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 37,
+                          "source_id": 0,
+                          "start": 173,
+                          "stop": 174
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 37,
+                            "source_id": 0,
+                            "start": 173,
+                            "stop": 174
+                          }
+                        ]
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 174
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 29,
+                            "source_id": 0,
+                            "start": 165,
+                            "stop": 166
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 30,
+                            "source_id": 0,
+                            "start": 166,
+                            "stop": 167
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 31,
+                            "source_id": 0,
+                            "start": 167,
+                            "stop": 168
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 32,
+                            "source_id": 0,
+                            "start": 168,
+                            "stop": 173
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 37,
+                            "source_id": 0,
+                            "start": 173,
+                            "stop": 174
+                          }
+                        ]
+                      }
+                    },
+                    "comma": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 38,
+                        "source_id": 0,
+                        "start": 174,
+                        "stop": 175
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 38,
+                          "source_id": 0,
+                          "start": 174,
+                          "stop": 175
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 29,
+                        "source_id": 0,
+                        "start": 165,
+                        "stop": 175
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 165,
+                          "stop": 166
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 30,
+                          "source_id": 0,
+                          "start": 166,
+                          "stop": 167
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 167,
+                          "stop": 168
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 32,
+                          "source_id": 0,
+                          "start": 168,
+                          "stop": 173
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 37,
+                          "source_id": 0,
+                          "start": 173,
+                          "stop": 174
+                        },
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 38,
+                          "source_id": 0,
+                          "start": 174,
+                          "stop": 175
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_brace": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 175,
+                    "stop": 176
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 39,
+                      "source_id": 0,
+                      "start": 175,
+                      "stop": 176
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 154,
+                    "stop": 176
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 154,
+                      "stop": 155
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 19,
+                      "source_id": 0,
+                      "start": 155,
+                      "stop": 156
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 20,
+                      "source_id": 0,
+                      "start": 156,
+                      "stop": 157
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 21,
+                      "source_id": 0,
+                      "start": 157,
+                      "stop": 158
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 22,
+                      "source_id": 0,
+                      "start": 158,
+                      "stop": 163
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 27,
+                      "source_id": 0,
+                      "start": 163,
+                      "stop": 164
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 28,
+                      "source_id": 0,
+                      "start": 164,
+                      "stop": 165
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 29,
+                      "source_id": 0,
+                      "start": 165,
+                      "stop": 166
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 30,
+                      "source_id": 0,
+                      "start": 166,
+                      "stop": 167
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 31,
+                      "source_id": 0,
+                      "start": 167,
+                      "stop": 168
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 32,
+                      "source_id": 0,
+                      "start": 168,
+                      "stop": 173
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 37,
+                      "source_id": 0,
+                      "start": 173,
+                      "stop": 174
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 38,
+                      "source_id": 0,
+                      "start": 174,
+                      "stop": 175
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 39,
+                      "source_id": 0,
+                      "start": 175,
+                      "stop": 176
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 153,
+                  "stop": 176
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 153,
+                    "stop": 154
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 154,
+                    "stop": 155
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 155,
+                    "stop": 156
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 156,
+                    "stop": 157
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 157,
+                    "stop": 158
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 158,
+                    "stop": 163
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 27,
+                    "source_id": 0,
+                    "start": 163,
+                    "stop": 164
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 28,
+                    "source_id": 0,
+                    "start": 164,
+                    "stop": 165
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 165,
+                    "stop": 166
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 166,
+                    "stop": 167
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 167,
+                    "stop": 168
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 168,
+                    "stop": 173
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 37,
+                    "source_id": 0,
+                    "start": 173,
+                    "stop": 174
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 38,
+                    "source_id": 0,
+                    "start": 174,
+                    "stop": 175
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 39,
+                    "source_id": 0,
+                    "start": 175,
+                    "stop": 176
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 176,
+                  "stop": 177
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 40,
+                    "source_id": 0,
+                    "start": 176,
+                    "stop": 177
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 7,
+                "column": 3,
+                "source_id": 0,
+                "start": 139,
+                "stop": 146
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 139,
+                  "stop": 146
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 146,
+                  "stop": 147
+                },
+                {
+                  "path": "<definition:00000000:COUNT>",
+                  "line": 1,
+                  "column": 1,
+                  "source_id": 1,
+                  "start": 0,
+                  "stop": 1
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 152,
+                  "stop": 153
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 153,
+                  "stop": 154
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 154,
+                  "stop": 155
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 19,
+                  "source_id": 0,
+                  "start": 155,
+                  "stop": 156
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 20,
+                  "source_id": 0,
+                  "start": 156,
+                  "stop": 157
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 21,
+                  "source_id": 0,
+                  "start": 157,
+                  "stop": 158
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 22,
+                  "source_id": 0,
+                  "start": 158,
+                  "stop": 163
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 27,
+                  "source_id": 0,
+                  "start": 163,
+                  "stop": 164
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 28,
+                  "source_id": 0,
+                  "start": 164,
+                  "stop": 165
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 29,
+                  "source_id": 0,
+                  "start": 165,
+                  "stop": 166
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 166,
+                  "stop": 167
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 31,
+                  "source_id": 0,
+                  "start": 167,
+                  "stop": 168
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 168,
+                  "stop": 173
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 37,
+                  "source_id": 0,
+                  "start": 173,
+                  "stop": 174
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 38,
+                  "source_id": 0,
+                  "start": 174,
+                  "stop": 175
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 39,
+                  "source_id": 0,
+                  "start": 175,
+                  "stop": 176
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 40,
+                  "source_id": 0,
+                  "start": 176,
+                  "stop": 177
+                }
+              ]
+            }
+          },
+          {
+            "pointer_layers": [
+              {
+                "depth": 1,
+                "spelling": "*",
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 41,
+                    "source_id": 0,
+                    "start": 177,
+                    "stop": 178
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 41,
+                      "source_id": 0,
+                      "start": 177,
+                      "stop": 178
+                    }
+                  ]
+                }
+              }
+            ],
+            "name": {
+              "spelling": "active",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 178,
+                  "stop": 184
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 42,
+                    "source_id": 0,
+                    "start": 178,
+                    "stop": 184
+                  }
+                ]
+              }
+            },
+            "initializer": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 184,
+                  "stop": 185
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 48,
+                    "source_id": 0,
+                    "start": 184,
+                    "stop": 185
+                  }
+                ]
+              },
+              "value": {
+                "kind": "scalar",
+                "expression": {
+                  "kind": "call",
+                  "callee": {
+                    "kind": "identifier",
+                    "spelling": "CAlloc",
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 49,
+                        "source_id": 0,
+                        "start": 185,
+                        "stop": 191
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 49,
+                          "source_id": 0,
+                          "start": 185,
+                          "stop": 191
+                        }
+                      ]
+                    }
+                  },
+                  "opening_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 55,
+                      "source_id": 0,
+                      "start": 191,
+                      "stop": 192
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 55,
+                        "source_id": 0,
+                        "start": 191,
+                        "stop": 192
+                      }
+                    ]
+                  },
+                  "arguments": [
+                    {
+                      "kind": "provided",
+                      "expression": {
+                        "kind": "sizeof",
+                        "keyword": {
+                          "spelling": "sizeof",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 56,
+                              "source_id": 0,
+                              "start": 192,
+                              "stop": 198
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 56,
+                                "source_id": 0,
+                                "start": 192,
+                                "stop": 198
+                              }
+                            ]
+                          }
+                        },
+                        "opening_parentheses": [
+                          {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 62,
+                              "source_id": 0,
+                              "start": 198,
+                              "stop": 199
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 62,
+                                "source_id": 0,
+                                "start": 198,
+                                "stop": 199
+                              }
+                            ]
+                          }
+                        ],
+                        "target": {
+                          "spelling": "Entry",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 63,
+                              "source_id": 0,
+                              "start": 199,
+                              "stop": 204
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 63,
+                                "source_id": 0,
+                                "start": 199,
+                                "stop": 204
+                              }
+                            ]
+                          }
+                        },
+                        "members": [],
+                        "closing_parentheses": [
+                          {
+                            "span": {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 68,
+                              "source_id": 0,
+                              "start": 204,
+                              "stop": 205
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-aggregate-globals.hc",
+                                "line": 7,
+                                "column": 68,
+                                "source_id": 0,
+                                "start": 204,
+                                "stop": 205
+                              }
+                            ]
+                          }
+                        ],
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 56,
+                            "source_id": 0,
+                            "start": 192,
+                            "stop": 205
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 56,
+                              "source_id": 0,
+                              "start": 192,
+                              "stop": 198
+                            },
+                            {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 62,
+                              "source_id": 0,
+                              "start": 198,
+                              "stop": 199
+                            },
+                            {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 63,
+                              "source_id": 0,
+                              "start": 199,
+                              "stop": 204
+                            },
+                            {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 7,
+                              "column": 68,
+                              "source_id": 0,
+                              "start": 204,
+                              "stop": 205
+                            }
+                          ]
+                        }
+                      },
+                      "comma": null,
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 7,
+                          "column": 56,
+                          "source_id": 0,
+                          "start": 192,
+                          "stop": 205
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 56,
+                            "source_id": 0,
+                            "start": 192,
+                            "stop": 198
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 62,
+                            "source_id": 0,
+                            "start": 198,
+                            "stop": 199
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 63,
+                            "source_id": 0,
+                            "start": 199,
+                            "stop": 204
+                          },
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 7,
+                            "column": 68,
+                            "source_id": 0,
+                            "start": 204,
+                            "stop": 205
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "closing_parenthesis": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 69,
+                      "source_id": 0,
+                      "start": 205,
+                      "stop": 206
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 69,
+                        "source_id": 0,
+                        "start": 205,
+                        "stop": 206
+                      }
+                    ]
+                  },
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 49,
+                      "source_id": 0,
+                      "start": 185,
+                      "stop": 206
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 49,
+                        "source_id": 0,
+                        "start": 185,
+                        "stop": 191
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 55,
+                        "source_id": 0,
+                        "start": 191,
+                        "stop": 192
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 56,
+                        "source_id": 0,
+                        "start": 192,
+                        "stop": 198
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 62,
+                        "source_id": 0,
+                        "start": 198,
+                        "stop": 199
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 63,
+                        "source_id": 0,
+                        "start": 199,
+                        "stop": 204
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 68,
+                        "source_id": 0,
+                        "start": 204,
+                        "stop": 205
+                      },
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 7,
+                        "column": 69,
+                        "source_id": 0,
+                        "start": 205,
+                        "stop": 206
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 49,
+                    "source_id": 0,
+                    "start": 185,
+                    "stop": 206
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 49,
+                      "source_id": 0,
+                      "start": 185,
+                      "stop": 191
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 55,
+                      "source_id": 0,
+                      "start": 191,
+                      "stop": 192
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 56,
+                      "source_id": 0,
+                      "start": 192,
+                      "stop": 198
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 62,
+                      "source_id": 0,
+                      "start": 198,
+                      "stop": 199
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 63,
+                      "source_id": 0,
+                      "start": 199,
+                      "stop": 204
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 68,
+                      "source_id": 0,
+                      "start": 204,
+                      "stop": 205
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 7,
+                      "column": 69,
+                      "source_id": 0,
+                      "start": 205,
+                      "stop": 206
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 184,
+                  "stop": 206
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 48,
+                    "source_id": 0,
+                    "start": 184,
+                    "stop": 185
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 49,
+                    "source_id": 0,
+                    "start": 185,
+                    "stop": 191
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 55,
+                    "source_id": 0,
+                    "start": 191,
+                    "stop": 192
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 56,
+                    "source_id": 0,
+                    "start": 192,
+                    "stop": 198
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 198,
+                    "stop": 199
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 63,
+                    "source_id": 0,
+                    "start": 199,
+                    "stop": 204
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 68,
+                    "source_id": 0,
+                    "start": 204,
+                    "stop": 205
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 69,
+                    "source_id": 0,
+                    "start": 205,
+                    "stop": 206
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "semicolon",
+              "spelling": ";",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 70,
+                  "source_id": 0,
+                  "start": 206,
+                  "stop": 207
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 7,
+                    "column": 70,
+                    "source_id": 0,
+                    "start": 206,
+                    "stop": 207
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 7,
+                "column": 41,
+                "source_id": 0,
+                "start": 177,
+                "stop": 207
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 41,
+                  "source_id": 0,
+                  "start": 177,
+                  "stop": 178
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 42,
+                  "source_id": 0,
+                  "start": 178,
+                  "stop": 184
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 48,
+                  "source_id": 0,
+                  "start": 184,
+                  "stop": 185
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 49,
+                  "source_id": 0,
+                  "start": 185,
+                  "stop": 191
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 55,
+                  "source_id": 0,
+                  "start": 191,
+                  "stop": 192
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 56,
+                  "source_id": 0,
+                  "start": 192,
+                  "stop": 198
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 198,
+                  "stop": 199
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 63,
+                  "source_id": 0,
+                  "start": 199,
+                  "stop": 204
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 68,
+                  "source_id": 0,
+                  "start": 204,
+                  "stop": 205
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 69,
+                  "source_id": 0,
+                  "start": 205,
+                  "stop": 206
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 7,
+                  "column": 70,
+                  "source_id": 0,
+                  "start": 206,
+                  "stop": 207
+                }
+              ]
+            }
+          }
+        ],
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 7,
+            "column": 70,
+            "source_id": 0,
+            "start": 206,
+            "stop": 207
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 70,
+              "source_id": 0,
+              "start": 206,
+              "stop": 207
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 3,
+            "column": 1,
+            "source_id": 0,
+            "start": 98,
+            "stop": 103
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 3,
+              "column": 1,
+              "source_id": 0,
+              "start": 98,
+              "stop": 103
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 104,
+              "stop": 109
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 4,
+              "column": 1,
+              "source_id": 0,
+              "start": 110,
+              "stop": 111
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 5,
+              "column": 3,
+              "source_id": 0,
+              "start": 114,
+              "stop": 117
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 5,
+              "column": 7,
+              "source_id": 0,
+              "start": 118,
+              "stop": 123
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 5,
+              "column": 12,
+              "source_id": 0,
+              "start": 123,
+              "stop": 124
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 6,
+              "column": 3,
+              "source_id": 0,
+              "start": 127,
+              "stop": 129
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 6,
+              "column": 6,
+              "source_id": 0,
+              "start": 130,
+              "stop": 131
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 6,
+              "column": 7,
+              "source_id": 0,
+              "start": 131,
+              "stop": 135
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 6,
+              "column": 11,
+              "source_id": 0,
+              "start": 135,
+              "stop": 136
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 1,
+              "source_id": 0,
+              "start": 137,
+              "stop": 138
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 3,
+              "source_id": 0,
+              "start": 139,
+              "stop": 146
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 10,
+              "source_id": 0,
+              "start": 146,
+              "stop": 147
+            },
+            {
+              "path": "<definition:00000000:COUNT>",
+              "line": 1,
+              "column": 1,
+              "source_id": 1,
+              "start": 0,
+              "stop": 1
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 16,
+              "source_id": 0,
+              "start": 152,
+              "stop": 153
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 17,
+              "source_id": 0,
+              "start": 153,
+              "stop": 154
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 18,
+              "source_id": 0,
+              "start": 154,
+              "stop": 155
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 19,
+              "source_id": 0,
+              "start": 155,
+              "stop": 156
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 20,
+              "source_id": 0,
+              "start": 156,
+              "stop": 157
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 21,
+              "source_id": 0,
+              "start": 157,
+              "stop": 158
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 22,
+              "source_id": 0,
+              "start": 158,
+              "stop": 163
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 27,
+              "source_id": 0,
+              "start": 163,
+              "stop": 164
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 28,
+              "source_id": 0,
+              "start": 164,
+              "stop": 165
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 29,
+              "source_id": 0,
+              "start": 165,
+              "stop": 166
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 30,
+              "source_id": 0,
+              "start": 166,
+              "stop": 167
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 31,
+              "source_id": 0,
+              "start": 167,
+              "stop": 168
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 32,
+              "source_id": 0,
+              "start": 168,
+              "stop": 173
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 37,
+              "source_id": 0,
+              "start": 173,
+              "stop": 174
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 38,
+              "source_id": 0,
+              "start": 174,
+              "stop": 175
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 39,
+              "source_id": 0,
+              "start": 175,
+              "stop": 176
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 40,
+              "source_id": 0,
+              "start": 176,
+              "stop": 177
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 41,
+              "source_id": 0,
+              "start": 177,
+              "stop": 178
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 42,
+              "source_id": 0,
+              "start": 178,
+              "stop": 184
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 48,
+              "source_id": 0,
+              "start": 184,
+              "stop": 185
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 49,
+              "source_id": 0,
+              "start": 185,
+              "stop": 191
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 55,
+              "source_id": 0,
+              "start": 191,
+              "stop": 192
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 56,
+              "source_id": 0,
+              "start": 192,
+              "stop": 198
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 62,
+              "source_id": 0,
+              "start": 198,
+              "stop": 199
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 63,
+              "source_id": 0,
+              "start": 199,
+              "stop": 204
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 68,
+              "source_id": 0,
+              "start": 204,
+              "stop": 205
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 69,
+              "source_id": 0,
+              "start": 205,
+              "stop": 206
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 7,
+              "column": 70,
+              "source_id": 0,
+              "start": 206,
+              "stop": 207
+            }
+          ]
+        }
+      },
+      {
+        "kind": "aggregate_definition",
+        "aggregate_kind": "union",
+        "aggregate_keyword": {
+          "spelling": "union",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 208,
+              "stop": 213
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 8,
+                "column": 1,
+                "source_id": 0,
+                "start": 208,
+                "stop": 213
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Bits",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 7,
+              "source_id": 0,
+              "start": 214,
+              "stop": 218
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 8,
+                "column": 7,
+                "source_id": 0,
+                "start": 214,
+                "stop": 218
+              }
+            ]
+          }
+        },
+        "opening_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 8,
+            "column": 12,
+            "source_id": 0,
+            "start": 219,
+            "stop": 220
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 12,
+              "source_id": 0,
+              "start": 219,
+              "stop": 220
+            }
+          ]
+        },
+        "members": [
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 221,
+                  "stop": 224
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 221,
+                    "stop": 224
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "signed_value",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 225,
+                      "stop": 237
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 8,
+                        "column": 18,
+                        "source_id": 0,
+                        "start": 225,
+                        "stop": 237
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 30,
+                      "source_id": 0,
+                      "start": 237,
+                      "stop": 238
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 8,
+                        "column": 30,
+                        "source_id": 0,
+                        "start": 237,
+                        "stop": 238
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 18,
+                    "source_id": 0,
+                    "start": 225,
+                    "stop": 238
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 18,
+                      "source_id": 0,
+                      "start": 225,
+                      "stop": 237
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 30,
+                      "source_id": 0,
+                      "start": 237,
+                      "stop": 238
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 8,
+                "column": 14,
+                "source_id": 0,
+                "start": 221,
+                "stop": 238
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 221,
+                  "stop": 224
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 18,
+                  "source_id": 0,
+                  "start": 225,
+                  "stop": 237
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 30,
+                  "source_id": 0,
+                  "start": 237,
+                  "stop": 238
+                }
+              ]
+            }
+          },
+          {
+            "kind": "member_declaration",
+            "type": {
+              "kind": "primitive",
+              "primitive": "U64",
+              "spelling": "U64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 239,
+                  "stop": 242
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 32,
+                    "source_id": 0,
+                    "start": 239,
+                    "stop": 242
+                  }
+                ]
+              }
+            },
+            "declarators": [
+              {
+                "name": {
+                  "spelling": "unsigned_value",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 36,
+                      "source_id": 0,
+                      "start": 243,
+                      "stop": 257
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 8,
+                        "column": 36,
+                        "source_id": 0,
+                        "start": 243,
+                        "stop": 257
+                      }
+                    ]
+                  }
+                },
+                "delimiter": {
+                  "kind": "semicolon",
+                  "spelling": ";",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 257,
+                      "stop": 258
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 8,
+                        "column": 50,
+                        "source_id": 0,
+                        "start": 257,
+                        "stop": 258
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 36,
+                    "source_id": 0,
+                    "start": 243,
+                    "stop": 258
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 36,
+                      "source_id": 0,
+                      "start": 243,
+                      "stop": 257
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 50,
+                      "source_id": 0,
+                      "start": 257,
+                      "stop": 258
+                    }
+                  ]
+                }
+              }
+            ],
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 8,
+                "column": 32,
+                "source_id": 0,
+                "start": 239,
+                "stop": 258
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 32,
+                  "source_id": 0,
+                  "start": 239,
+                  "stop": 242
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 36,
+                  "source_id": 0,
+                  "start": 243,
+                  "stop": 257
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 50,
+                  "source_id": 0,
+                  "start": 257,
+                  "stop": 258
+                }
+              ]
+            }
+          }
+        ],
+        "closing_brace": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 8,
+            "column": 52,
+            "source_id": 0,
+            "start": 259,
+            "stop": 260
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 52,
+              "source_id": 0,
+              "start": 259,
+              "stop": 260
+            }
+          ]
+        },
+        "attached_declarators": [
+          {
+            "name": {
+              "spelling": "bits",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 54,
+                  "source_id": 0,
+                  "start": 261,
+                  "stop": 265
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 54,
+                    "source_id": 0,
+                    "start": 261,
+                    "stop": 265
+                  }
+                ]
+              }
+            },
+            "initializer": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 58,
+                  "source_id": 0,
+                  "start": 265,
+                  "stop": 266
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 58,
+                    "source_id": 0,
+                    "start": 265,
+                    "stop": 266
+                  }
+                ]
+              },
+              "value": {
+                "kind": "braced",
+                "opening_brace": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 59,
+                    "source_id": 0,
+                    "start": 266,
+                    "stop": 267
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 59,
+                      "source_id": 0,
+                      "start": 266,
+                      "stop": 267
+                    }
+                  ]
+                },
+                "elements": [
+                  {
+                    "value": {
+                      "kind": "scalar",
+                      "expression": {
+                        "kind": "integer_literal",
+                        "spelling": "0",
+                        "value": "0x0000000000000000",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 8,
+                            "column": 60,
+                            "source_id": 0,
+                            "start": 267,
+                            "stop": 268
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-aggregate-globals.hc",
+                              "line": 8,
+                              "column": 60,
+                              "source_id": 0,
+                              "start": 267,
+                              "stop": 268
+                            }
+                          ]
+                        }
+                      },
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 8,
+                          "column": 60,
+                          "source_id": 0,
+                          "start": 267,
+                          "stop": 268
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-aggregate-globals.hc",
+                            "line": 8,
+                            "column": 60,
+                            "source_id": 0,
+                            "start": 267,
+                            "stop": 268
+                          }
+                        ]
+                      }
+                    },
+                    "comma": null,
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 8,
+                        "column": 60,
+                        "source_id": 0,
+                        "start": 267,
+                        "stop": 268
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-aggregate-globals.hc",
+                          "line": 8,
+                          "column": 60,
+                          "source_id": 0,
+                          "start": 267,
+                          "stop": 268
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "closing_brace": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 61,
+                    "source_id": 0,
+                    "start": 268,
+                    "stop": 269
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 61,
+                      "source_id": 0,
+                      "start": 268,
+                      "stop": 269
+                    }
+                  ]
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 59,
+                    "source_id": 0,
+                    "start": 266,
+                    "stop": 269
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 59,
+                      "source_id": 0,
+                      "start": 266,
+                      "stop": 267
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 60,
+                      "source_id": 0,
+                      "start": 267,
+                      "stop": 268
+                    },
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 8,
+                      "column": 61,
+                      "source_id": 0,
+                      "start": 268,
+                      "stop": 269
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 58,
+                  "source_id": 0,
+                  "start": 265,
+                  "stop": 269
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 58,
+                    "source_id": 0,
+                    "start": 265,
+                    "stop": 266
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 59,
+                    "source_id": 0,
+                    "start": 266,
+                    "stop": 267
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 60,
+                    "source_id": 0,
+                    "start": 267,
+                    "stop": 268
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 61,
+                    "source_id": 0,
+                    "start": 268,
+                    "stop": 269
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "semicolon",
+              "spelling": ";",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 269,
+                  "stop": 270
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 8,
+                    "column": 62,
+                    "source_id": 0,
+                    "start": 269,
+                    "stop": 270
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 8,
+                "column": 54,
+                "source_id": 0,
+                "start": 261,
+                "stop": 270
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 54,
+                  "source_id": 0,
+                  "start": 261,
+                  "stop": 265
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 58,
+                  "source_id": 0,
+                  "start": 265,
+                  "stop": 266
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 59,
+                  "source_id": 0,
+                  "start": 266,
+                  "stop": 267
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 60,
+                  "source_id": 0,
+                  "start": 267,
+                  "stop": 268
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 61,
+                  "source_id": 0,
+                  "start": 268,
+                  "stop": 269
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 8,
+                  "column": 62,
+                  "source_id": 0,
+                  "start": 269,
+                  "stop": 270
+                }
+              ]
+            }
+          }
+        ],
+        "semicolon": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 8,
+            "column": 62,
+            "source_id": 0,
+            "start": 269,
+            "stop": 270
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 62,
+              "source_id": 0,
+              "start": 269,
+              "stop": 270
+            }
+          ]
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 8,
+            "column": 1,
+            "source_id": 0,
+            "start": 208,
+            "stop": 270
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 1,
+              "source_id": 0,
+              "start": 208,
+              "stop": 213
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 7,
+              "source_id": 0,
+              "start": 214,
+              "stop": 218
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 12,
+              "source_id": 0,
+              "start": 219,
+              "stop": 220
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 14,
+              "source_id": 0,
+              "start": 221,
+              "stop": 224
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 18,
+              "source_id": 0,
+              "start": 225,
+              "stop": 237
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 30,
+              "source_id": 0,
+              "start": 237,
+              "stop": 238
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 32,
+              "source_id": 0,
+              "start": 239,
+              "stop": 242
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 36,
+              "source_id": 0,
+              "start": 243,
+              "stop": 257
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 50,
+              "source_id": 0,
+              "start": 257,
+              "stop": 258
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 52,
+              "source_id": 0,
+              "start": 259,
+              "stop": 260
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 54,
+              "source_id": 0,
+              "start": 261,
+              "stop": 265
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 58,
+              "source_id": 0,
+              "start": 265,
+              "stop": 266
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 59,
+              "source_id": 0,
+              "start": 266,
+              "stop": 267
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 60,
+              "source_id": 0,
+              "start": 267,
+              "stop": 268
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 61,
+              "source_id": 0,
+              "start": 268,
+              "stop": 269
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 8,
+              "column": 62,
+              "source_id": 0,
+              "start": 269,
+              "stop": 270
+            }
+          ]
+        }
+      },
+      {
+        "kind": "global_declaration",
+        "type": {
+          "kind": "primitive",
+          "primitive": "I64",
+          "spelling": "I64",
+          "location": {
+            "span": {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 271,
+              "stop": 274
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 9,
+                "column": 1,
+                "source_id": 0,
+                "start": 271,
+                "stop": 274
+              }
+            ]
+          }
+        },
+        "declarators": [
+          {
+            "name": {
+              "spelling": "standalone",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 275,
+                  "stop": 285
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 5,
+                    "source_id": 0,
+                    "start": 275,
+                    "stop": 285
+                  }
+                ]
+              }
+            },
+            "initializer": {
+              "equals": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 285,
+                  "stop": 286
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 285,
+                    "stop": 286
+                  }
+                ]
+              },
+              "value": {
+                "kind": "scalar",
+                "expression": {
+                  "kind": "integer_literal",
+                  "spelling": "3",
+                  "value": "0x0000000000000003",
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 9,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 286,
+                      "stop": 287
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-aggregate-globals.hc",
+                        "line": 9,
+                        "column": 16,
+                        "source_id": 0,
+                        "start": 286,
+                        "stop": 287
+                      }
+                    ]
+                  }
+                },
+                "location": {
+                  "span": {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 286,
+                    "stop": 287
+                  },
+                  "source_segments": [
+                    {
+                      "path": "cli/parse-aggregate-globals.hc",
+                      "line": 9,
+                      "column": 16,
+                      "source_id": 0,
+                      "start": 286,
+                      "stop": 287
+                    }
+                  ]
+                }
+              },
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 285,
+                  "stop": 287
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 285,
+                    "stop": 286
+                  },
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 16,
+                    "source_id": 0,
+                    "start": 286,
+                    "stop": 287
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "semicolon",
+              "spelling": ";",
+              "location": {
+                "span": {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 287,
+                  "stop": 288
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-aggregate-globals.hc",
+                    "line": 9,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 287,
+                    "stop": 288
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-aggregate-globals.hc",
+                "line": 9,
+                "column": 5,
+                "source_id": 0,
+                "start": 275,
+                "stop": 288
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 5,
+                  "source_id": 0,
+                  "start": 275,
+                  "stop": 285
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 15,
+                  "source_id": 0,
+                  "start": 285,
+                  "stop": 286
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 16,
+                  "source_id": 0,
+                  "start": 286,
+                  "stop": 287
+                },
+                {
+                  "path": "cli/parse-aggregate-globals.hc",
+                  "line": 9,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 287,
+                  "stop": 288
+                }
+              ]
+            }
+          }
+        ],
+        "location": {
+          "span": {
+            "path": "cli/parse-aggregate-globals.hc",
+            "line": 9,
+            "column": 1,
+            "source_id": 0,
+            "start": 271,
+            "stop": 288
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 1,
+              "source_id": 0,
+              "start": 271,
+              "stop": 274
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 5,
+              "source_id": 0,
+              "start": 275,
+              "stop": 285
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 15,
+              "source_id": 0,
+              "start": 285,
+              "stop": 286
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 16,
+              "source_id": 0,
+              "start": 286,
+              "stop": 287
+            },
+            {
+              "path": "cli/parse-aggregate-globals.hc",
+              "line": 9,
+              "column": 17,
+              "source_id": 0,
+              "start": 287,
+              "stop": 288
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
