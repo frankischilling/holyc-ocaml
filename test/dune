@@ -11,6 +11,7 @@
   test_help_directive
   test_predefined
   test_symbol_visibility
+  test_semantic_symbol_table
   test_diagnostic
   test_version
   test_corpus

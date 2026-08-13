@@ -2,6 +2,7 @@ type t = {
   sources : Common.Source_manager.t;
   definitions : Frontend.Definition.Environment.t;
   symbols : Frontend.Symbol_visibility.Environment.t;
+  semantic_symbols : Sema.Symbol_table.t;
 }
 
 module Symbol_visibility = Frontend.Symbol_visibility
@@ -48,18 +49,42 @@ let seed_compiler_symbols symbols =
         opcode.aliases)
     Generated.Opcode_keywords.opcodes
 
+let seed_semantic_symbols table =
+  let root = Sema.Symbol_table.root table in
+  List.iter
+    (fun (entry : Generated.Primitive_raw_types.internal_type) ->
+      match
+        Sema.Symbol_table.add table ~scope:root ~name:entry.spelling
+          ~kind:Sema.Symbol.Internal_type
+          ~origin:
+            (Sema.Symbol.Pinned_source
+               {
+                 path = Generated.Primitive_raw_types.cinit_source_path;
+                 line = entry.source_line;
+               })
+      with
+      | Ok _ -> ()
+      | Error message -> invalid_arg message)
+    Generated.Primitive_raw_types.internal_types
+
 let create () =
   let symbols = Symbol_visibility.Environment.create () in
   seed_compiler_symbols symbols;
+  let semantic_symbols =
+    Sema.Symbol_table.create ~root_name:"session-task" ()
+  in
+  seed_semantic_symbols semantic_symbols;
   {
     sources = Common.Source_manager.create ();
     definitions = Frontend.Definition.Environment.create ();
     symbols;
+    semantic_symbols;
   }
 
 let sources session = session.sources
 let definitions session = session.definitions
 let symbols session = session.symbols
+let semantic_symbols session = session.semantic_symbols
 
 let add_source session ~path ~contents =
   Common.Source_manager.add_string session.sources ~path ~contents

@@ -10,6 +10,7 @@ let () =
       ("help directives", Test_help_directive.tests);
       ("predefined values", Test_predefined.tests);
       ("symbol visibility", Test_symbol_visibility.tests);
+      ("semantic symbol table", Test_semantic_symbol_table.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("corpus", Test_corpus.tests);
