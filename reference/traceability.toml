@@ -3267,12 +3267,55 @@ collected_kinds = ["aggregate forward", "aggregate definition", "aggregate-attac
 entry_position = ["module item index", "optional declarator index"]
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
 top_level_executable_statements = "no declaration entry"
-forward_definition_merging = "not implemented"
+forward_definition_reconciliation = "implemented for aggregates in HC-SEMA-AGGREGATE-RECONCILIATION; functions and globals remain unresolved"
 duplicate_validation = "not implemented"
 nested_declaration_collection = "direct aggregate members are implemented in HC-SEMA-AGGREGATE-MEMBERS, parameters and locals in HC-SEMA-FUNCTION-BINDINGS, and function-local language plus structural assembly labels in HC-SEMA-FUNCTION-LABELS"
 jit_task_publication = "not implemented"
 linkage_and_reference_resolution = "not implemented"
 native_oracle_status = "not required for this collection boundary; insertion order is explicit in PrsClass, PrsGlblVarLst, and PrsFunJoin"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-RECONCILIATION"
+description = "Aggregate forwards and definitions map to the source-ordered identities selected by the module-local PrsClass rule."
+sources = [
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/PrsVar.HC:PrsType",
+  "Kernel/KHashA.HC:_HASH_ADD",
+  "Kernel/KHashA.HC:SYS_HASH_SINGLE_TABLE_FIND",
+  "Kernel/KHashA.HC:SYS_HASH_FIND",
+  "Kernel/KernelA.HH:HTT_CLASS",
+  "Kernel/KernelA.HH:Cf_EXTERN",
+  "Kernel/KernelA.HH:CHashClass",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/aggregate_resolution.ml",
+  "src/driver/aggregate_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_aggregate_resolution.ml"
+]
+status = "implemented"
+issue = 175
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "module-local declarations from one checked AST and declaration collection"
+forward_rule = "every forward creates a distinct aggregate identity"
+definition_rule = "a definition completes only the newest same-name unresolved identity; otherwise it starts a new identity"
+canonical_symbol = "the definition symbol when present, preserving the member scope already collected for that definition"
+site_retention = ["forward symbol and provenance", "definition symbol and provenance", "class or union spelling", "module item index"]
+effective_kind = "definition spelling when present; forward spelling otherwise"
+class_union_mismatch = "not diagnosed because PrsClass selects through shared HTT_CLASS state without comparing the keyword"
+ordering = "identities by creation site and declarations by source item"
+mutation = "none after validated declaration collection input"
+compilation_modes = ["jit", "aot"]
+parent_task_lookup = "not implemented; AOT HashFind and JIT HashSingleTableFind differences remain separate work"
+named_type_use_resolution = "not implemented"
+unused_forward_warning = "not implemented"
+layout = "not implemented"
+linkage = "not implemented"
+native_oracle_status = "not required for this identity boundary; PrsClass and the pinned hash routines state creation, selection, and completion behavior directly"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"
