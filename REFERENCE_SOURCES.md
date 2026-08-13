@@ -114,7 +114,9 @@ The `#ifdef` and `#ifndef` implementation follows identifier lookup and both dir
 
 The semantic table foundation uses complete reads of `Kernel/KHashA.HC`, `Kernel/KHashB.HC`, `Compiler/CHash.HC`, and `Doc/ScopingLinkage.DD`. It also follows hash-chain construction in `Compiler/CMain.HC`, declaration insertion in `Compiler/PrsStmt.HC`, member insertion in `Compiler/LexLib.HC`, and the 17 internal type records in `Compiler/CInit.HC`. Each source blob was already present in the pinned manifest.
 
-`Sema.Symbol_table` reproduces the audited prepend, masked lookup, instance-count, and explicit chain order as a safe OCaml data structure. The task, module, function, block, aggregate, and assembler-block scope names describe contexts required by the semantic pipeline; this slice does not claim that the parser constructs them from source. No TempleOS table or executable code is copied.
+`Sema.Symbol_table` reproduces the audited prepend, masked lookup, instance-count, and explicit chain order as a safe OCaml data structure. The task, module, function, block, aggregate, and assembler-block scope names describe contexts required by the semantic pipeline. No TempleOS table or executable code is copied.
+
+Top-level collection additionally follows `Compiler/PrsStmt.HC:PrsClass`, `PrsGlblVarLst`, and `PrsFunJoin`. `Driver.Semantic_collection` translates accepted AST items into dependency-free semantic declaration facts, and `Sema.Declaration_collection` creates one module scope with source-ordered entries. The pass does not implement the source routines' duplicate reconciliation, flags, addresses, storage, or JIT/AOT publication effects.
 
 ## Preprocessor-expression audit
 

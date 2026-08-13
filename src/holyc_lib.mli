@@ -33,6 +33,7 @@ module Preprocessor = Frontend.Preprocessor
 module Ast = Frontend.Ast
 module Ast_dump = Frontend.Ast_dump
 module Parser = Frontend.Parser
+module Semantic_declaration_collection = Sema.Declaration_collection
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -67,3 +68,9 @@ val parse_detailed :
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
   Parser.output
+
+val collect_declarations :
+  Session.t -> Ast.module_ -> (Semantic_declaration_collection.t, string) result
+(** Collect accepted top-level declarations into a new semantic module scope.
+    This entry point does not perform duplicate checks or reference resolution.
+*)
