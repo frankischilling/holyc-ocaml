@@ -19,6 +19,7 @@
   test_aggregate_resolution
   test_aggregate_header_resolution
   test_member_type_resolution
+  test_aggregate_layout
   test_function_type_resolution
   test_global_type_resolution
   test_function_resolution
