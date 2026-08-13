@@ -100,6 +100,15 @@
   ../third_party/TempleOS/Doc/HolyC.DD
   ../third_party/TempleOS/Doc/Options.DD
   ../third_party/TempleOS/Doc/PreProcessor.DD
+  ../third_party/TempleOS/Doc/Asm.DD
+  ../third_party/TempleOS/Compiler/AsmInit.HC
+  ../third_party/TempleOS/Compiler/AsmLib.HC
+  ../third_party/TempleOS/Kernel/PCIBIOS.HC
+  (source_tree ../third_party/TempleOS/Adam)
+  (source_tree ../third_party/TempleOS/Compiler)
+  (source_tree ../third_party/TempleOS/Demo)
+  (source_tree ../third_party/TempleOS/Kernel)
+  ../reference/assembly-blocks.json
   oracle/function-definitions.json
   oracle/local-declarations.json
   oracle/parenthesis-free-calls.json
@@ -3700,3 +3709,73 @@
    (diff
     cli/parse-aggregate-member-metadata-error.json
     parse-aggregate-member-metadata-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-assembly-block.human.actual)
+ (deps cli/parse-assembly-block.hc cli/parse-assembly-block.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-assembly-block.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-assembly-block.hc))
+   (diff cli/parse-assembly-block.human parse-assembly-block.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-assembly-block.json.actual)
+ (deps cli/parse-assembly-block.hc cli/parse-assembly-block.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-assembly-block.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-assembly-block.hc))
+   (diff cli/parse-assembly-block.json parse-assembly-block.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-assembly-block-error.human.actual
+  parse-assembly-block-error.human.stdout.actual)
+ (deps
+  cli/parse-assembly-block-error.hc
+  cli/parse-assembly-block-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-assembly-block-error.human.stdout.actual
+    (with-stderr-to
+     parse-assembly-block-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-assembly-block-error.hc))))
+   (diff
+    cli/parse-assembly-block-error.human
+    parse-assembly-block-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-assembly-block-error.json.actual
+  parse-assembly-block-error.json.stdout.actual)
+ (deps cli/parse-assembly-block-error.hc cli/parse-assembly-block-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-assembly-block-error.json.stdout.actual
+    (with-stderr-to
+     parse-assembly-block-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-assembly-block-error.hc))))
+   (diff
+    cli/parse-assembly-block-error.json
+    parse-assembly-block-error.json.actual))))

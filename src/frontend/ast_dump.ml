@@ -101,6 +101,35 @@ let local_storage_name = function
   | Ast.Automatic_local -> "automatic"
   | Ast.Static_local -> "static"
 
+let assembly_register_kind_name = function
+  | Asm.Register.R8 -> "r8"
+  | Asm.Register.R16 -> "r16"
+  | Asm.Register.R32 -> "r32"
+  | Asm.Register.R64 -> "r64"
+  | Asm.Register.Segment -> "segment"
+  | Asm.Register.Float_stack -> "float_stack"
+  | Asm.Register.Mm -> "mm"
+  | Asm.Register.Xmm -> "xmm"
+
+let assembly_label_kind_name = function
+  | Ast.Assembly_global_label -> "global"
+  | Ast.Assembly_exported_global_label -> "exported_global"
+  | Ast.Assembly_local_label -> "local"
+
+let assembly_token_kind_name = function
+  | Ast.Assembly_opcode_token _ -> "opcode"
+  | Ast.Assembly_directive_token _ -> "directive"
+  | Ast.Assembly_register_token _ -> "register"
+  | Ast.Assembly_identifier_token -> "identifier"
+  | Ast.Assembly_keyword_token -> "keyword"
+  | Ast.Assembly_integer_token -> "integer"
+  | Ast.Assembly_float_token -> "float"
+  | Ast.Assembly_string_token -> "string"
+  | Ast.Assembly_character_token -> "character"
+  | Ast.Assembly_operator_token -> "operator"
+  | Ast.Assembly_punctuation_token -> "punctuation"
+  | Ast.Assembly_newline_token -> "newline"
+
 let association_name = function
   | Operator.Unspecified -> "unspecified"
   | Operator.Left -> "left"
@@ -500,7 +529,87 @@ and print_expression_operator buffer sources ~indent
     operator.operator_spelling
     (location_text sources operator.operator_location)
 
+let print_assembly_token buffer sources ~indent index
+    (token : Ast.assembly_token) =
+  let source = token.assembly_source_token in
+  let value =
+    match Token.value_text source.value with
+    | None -> ""
+    | Some value -> Printf.sprintf " value=%S" value
+  in
+  let details =
+    match token.assembly_token_kind with
+    | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
+        Printf.sprintf " canonical=%S alias=%b" canonical_spelling
+          source_is_alias
+    | Ast.Assembly_directive_token { templeos_id } ->
+        Printf.sprintf " templeos_id=%d" templeos_id
+    | Ast.Assembly_register_token { register_kind; register_number } ->
+        Printf.sprintf " register_kind=%s register_number=%d"
+          (assembly_register_kind_name register_kind)
+          register_number
+    | Ast.Assembly_identifier_token
+    | Ast.Assembly_keyword_token
+    | Ast.Assembly_integer_token
+    | Ast.Assembly_float_token
+    | Ast.Assembly_string_token
+    | Ast.Assembly_character_token
+    | Ast.Assembly_operator_token
+    | Ast.Assembly_punctuation_token
+    | Ast.Assembly_newline_token -> ""
+  in
+  Printf.bprintf buffer
+    "%stoken index=%d category=%s spelling=%S lexical_kind=%s%s%s span=%s\n"
+    indent index
+    (assembly_token_kind_name token.assembly_token_kind)
+    source.raw
+    (Token_kind.name source.kind)
+    value details
+    (location_text sources token.assembly_token_location)
+
 let rec print_statement buffer sources ~indent = function
+  | Ast.Assembly_block_statement statement ->
+      let child_indent = indent ^ "  " in
+      let token_count =
+        List.fold_left
+          (fun count (line : Ast.assembly_line) ->
+            count + List.length line.assembly_line_tokens)
+          0 statement.assembly_lines
+      in
+      Printf.bprintf buffer
+        "%sassembly_block_statement span=%s lines=%d tokens=%d\n" indent
+        (location_text sources statement.assembly_block_location)
+        (List.length statement.assembly_lines)
+        token_count;
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.assembly_keyword);
+      Printf.bprintf buffer "%sopening_brace span=%s\n" child_indent
+        (location_text sources statement.assembly_opening_brace);
+      List.iteri
+        (fun line_index (line : Ast.assembly_line) ->
+          let line_indent = child_indent ^ "  " in
+          Printf.bprintf buffer
+            "%sline index=%d source_line=%d span=%s labels=%d tokens=%d\n"
+            child_indent line_index line.assembly_line_source_line
+            (location_text sources line.assembly_line_location)
+            (List.length line.assembly_line_labels)
+            (List.length line.assembly_line_tokens);
+          List.iteri
+            (fun label_index (label : Ast.assembly_label) ->
+              Printf.bprintf buffer
+                "%slabel index=%d kind=%s name=%S delimiter=%S span=%s\n"
+                line_indent label_index
+                (assembly_label_kind_name label.assembly_label_kind)
+                label.assembly_label_name.spelling
+                label.assembly_label_delimiter_spelling
+                (location_text sources label.assembly_label_location))
+            line.assembly_line_labels;
+          List.iteri
+            (print_assembly_token buffer sources ~indent:line_indent)
+            line.assembly_line_tokens)
+        statement.assembly_lines;
+      Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+        (location_text sources statement.assembly_closing_brace)
   | Ast.Block_statement statement ->
       let child_indent = indent ^ "  " in
       Printf.bprintf buffer "%sblock_statement span=%s statements=%d\n" indent
@@ -1855,7 +1964,92 @@ let implicit_output_statement_to_yojson sources
       ("location", location_to_yojson sources statement.location);
     ]
 
+let assembly_token_to_yojson sources (token : Ast.assembly_token) =
+  let source = token.assembly_source_token in
+  let classification =
+    match token.assembly_token_kind with
+    | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
+        [
+          ("canonical_spelling", `String canonical_spelling);
+          ("source_is_alias", `Bool source_is_alias);
+        ]
+    | Ast.Assembly_directive_token { templeos_id } ->
+        [ ("templeos_id", `Int templeos_id) ]
+    | Ast.Assembly_register_token { register_kind; register_number } ->
+        [
+          ("register_kind", `String (assembly_register_kind_name register_kind));
+          ("register_number", `Int register_number);
+        ]
+    | Ast.Assembly_identifier_token
+    | Ast.Assembly_keyword_token
+    | Ast.Assembly_integer_token
+    | Ast.Assembly_float_token
+    | Ast.Assembly_string_token
+    | Ast.Assembly_character_token
+    | Ast.Assembly_operator_token
+    | Ast.Assembly_punctuation_token
+    | Ast.Assembly_newline_token -> []
+  in
+  `Assoc
+    ([
+       ("category", `String (assembly_token_kind_name token.assembly_token_kind));
+       ("spelling", `String source.raw);
+       ("lexical_kind", `String (Token_kind.name source.kind));
+       ( "value",
+         match Token.value_text source.value with
+         | None -> `Null
+         | Some value -> `String value );
+       ("mode", `String (Token.mode_name source.mode));
+     ]
+    @ classification
+    @ [ ("location", location_to_yojson sources token.assembly_token_location) ]
+    )
+
+let assembly_label_to_yojson sources (label : Ast.assembly_label) =
+  `Assoc
+    [
+      ("kind", `String (assembly_label_kind_name label.assembly_label_kind));
+      ("name", identifier_to_yojson sources label.assembly_label_name);
+      ("delimiter_spelling", `String label.assembly_label_delimiter_spelling);
+      ("delimiter", location_to_yojson sources label.assembly_label_delimiter);
+      ("location", location_to_yojson sources label.assembly_label_location);
+    ]
+
+let assembly_line_to_yojson sources (line : Ast.assembly_line) =
+  `Assoc
+    [
+      ("source_line", `Int line.assembly_line_source_line);
+      ( "labels",
+        `List
+          (List.map
+             (assembly_label_to_yojson sources)
+             line.assembly_line_labels) );
+      ( "tokens",
+        `List
+          (List.map
+             (assembly_token_to_yojson sources)
+             line.assembly_line_tokens) );
+      ("location", location_to_yojson sources line.assembly_line_location);
+    ]
+
 let rec statement_to_yojson sources = function
+  | Ast.Assembly_block_statement statement ->
+      `Assoc
+        [
+          ("kind", `String "assembly_block_statement");
+          ("keyword", location_to_yojson sources statement.assembly_keyword);
+          ( "opening_brace",
+            location_to_yojson sources statement.assembly_opening_brace );
+          ( "lines",
+            `List
+              (List.map
+                 (assembly_line_to_yojson sources)
+                 statement.assembly_lines) );
+          ( "closing_brace",
+            location_to_yojson sources statement.assembly_closing_brace );
+          ( "location",
+            location_to_yojson sources statement.assembly_block_location );
+        ]
   | Ast.Block_statement statement ->
       `Assoc
         [

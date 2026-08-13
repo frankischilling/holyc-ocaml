@@ -2981,6 +2981,69 @@ boolean_selection = "planned"
 ic_lowering_status = "planned IC_IMM_I64 emission"
 
 [[feature]]
+id = "HC-PARSER-ASSEMBLY-BLOCKS"
+description = "Brace-delimited assembly statements retain their source structure and checked token identities without claiming operand or encoding support."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_ASM dispatch",
+  "Compiler/Asm.HC:PrsAsmBlk",
+  "Compiler/AsmLib.HC:AsmLexExpression and AsmLineLst",
+  "Compiler/AsmInit.HC:AsmHashLoad",
+  "Compiler/OpCodes.DD",
+  "Kernel/PCIBIOS.HC:USE64 and MOV on one source line",
+  "Demo/Asm/AsmAndC1.HC:top-level and function-local assembly blocks",
+  "Demo/Asm/AsmAndC2.HC:top-level and function-local assembly blocks",
+  "Doc/Asm.DD:label and data-directive definitions"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/asm/opcode.ml",
+  "src/asm/directive.ml",
+  "src/asm/register.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-assembly-block.hc",
+  "test/cli/parse-assembly-block.human",
+  "test/cli/parse-assembly-block.json",
+  "test/cli/parse-assembly-block-error.hc",
+  "test/cli/parse-assembly-block-error.human",
+  "test/cli/parse-assembly-block-error.json",
+  "reference/assembly-blocks.json"
+]
+status = "implemented"
+issue = 151
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+inventory_schema = "holyc-reference-assembly-blocks-v1"
+inventory_roots = ["Compiler", "Kernel", "Adam", "Demo"]
+inventory_extensions = [".HC", ".HH"]
+inventory_discovery = "adjacent asm and opening-brace raw lexer tokens with surrounding brace depth"
+inventory_blocks = 45
+inventory_files = 40
+top_level_blocks = 39
+nested_blocks = 6
+compilation_modes = ["jit", "aot"]
+implemented_contexts = ["top-level statements", "function-local statements", "recursive statement contexts"]
+label_forms = ["global name:", "exported global name::", "local @@name:"]
+checked_opcode_count = 325
+checked_alias_count = 49
+checked_directive_count = 25
+checked_register_count = 106
+token_categories = ["canonical opcode", "opcode alias", "assembler directive", "register", "identifier", "language keyword", "integer", "float", "string", "character", "operator", "punctuation"]
+line_grouping = "deterministic display grouping by source ID and physical line; never an instruction boundary"
+definition_and_include_provenance = "preserved"
+missing_opening_diagnostic = "HCPARSE0145"
+missing_closing_diagnostic = "HCPARSE0146"
+operand_parsing = "not implemented"
+directive_semantics = "not implemented"
+label_resolution = "not implemented"
+single_instruction_form = "not implemented"
+encoding = "not implemented"
+execution = "not implemented"
+
+[[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
 description = "Definitions, conditional directives, compile-time execution, predefined values, and generated input are handled by the lexical stream."
 sources = [

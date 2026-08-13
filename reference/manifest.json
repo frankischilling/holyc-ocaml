@@ -12,6 +12,17 @@
     "nul_terminated_files": 54,
     "trailing_payload_bytes": 1266852
   },
+  "assembly_block_inventory": {
+    "schema": "holyc-reference-assembly-blocks-v1",
+    "path": "reference/assembly-blocks.json",
+    "roots": ["Compiler", "Kernel", "Adam", "Demo"],
+    "extensions": [".HC", ".HH"],
+    "discovery": "adjacent asm and opening-brace raw tokens with surrounding brace depth",
+    "blocks": 45,
+    "files": 40,
+    "top_level": 39,
+    "nested": 6
+  },
   "files": [
     {"path": "Compiler/Compiler.PRJ", "sha256": "bbf936462dbe22b5ef4dc8bd0e33269d56c26d246ba7cff48c26c4e4be5477bd"},
     {"path": "Compiler/CompilerA.HH", "sha256": "9eca54eff7d1c0803172e45e5483a57262e24f7b759a6a727c29beaf660967b2"},
@@ -24,6 +35,7 @@
     {"path": "Compiler/CMain.HC", "sha256": "318717f411327cdb5b4b4f2d4836e0e9ec69995f80403f0eb2b6d527b2a43647"},
     {"path": "Compiler/Asm.HC", "sha256": "00f2b2fa8b32eff2ceb3c338b796b1608e2b71b3134f3782cb61b0d460fbfec0"},
     {"path": "Compiler/AsmInit.HC", "sha256": "f2e6a8ed27b879031b1574b8e2df01e253b71ca012f86429e7c5f47ed0a61acc"},
+    {"path": "Compiler/AsmLib.HC", "sha256": "dd64771cece93847eb3edb280c85fdba7b135d1127d6cd98bca1c915be5ffa53"},
     {"path": "Compiler/AsmResolve.HC", "sha256": "0bd47938221100b8d4786979f84735f4fdd5aff8406cab75db77a05ee3226df9"},
     {"path": "Compiler/LexLib.HC", "sha256": "e3618d409597d8fffd9089bfd6c9fd31463a69c9b62ac6089a347b2e3b54e8b2"},
     {"path": "Compiler/Lex.HC", "sha256": "d35432fb7862588ae463524e3896d7de2f2e1db2ccb5f2ce6e11e18db27da864"},
@@ -57,6 +69,7 @@
     {"path": "Kernel/KStart16.HC", "sha256": "db71f3cef755745bb23ff6888cdf958e6e63046f2e68a9d96b7c9c0ec0685a85"},
     {"path": "Kernel/KStart32.HC", "sha256": "8b913008c3f10876353889562da44c26fadcb3b5e6618f48d2ee56da39b8adc2"},
     {"path": "Kernel/KUtils.HC", "sha256": "0372304b077110f40b13883af21aa5365b57ddfcb8572e0f75cb40af5a65131a"},
+    {"path": "Kernel/PCIBIOS.HC", "sha256": "5de3bf71156770f599c09407d7bb865a3f0d22070ca484dce414f758372d18c5"},
     {"path": "Kernel/BlkDev/DskStrA.HC", "sha256": "169357c8460fb5cbd0c1dca0476cefbb7a26c7368ff2d249423c0eb0c287cdff"},
     {"path": "Kernel/StrA.HC", "sha256": "3a14834309e6a59a9345606ab64c74ba0e719e3b35b12d1f75554757e4444780"},
     {"path": "Kernel/StrPrint.HC", "sha256": "5faa7c97acae07d38a2775e15fa73844f36480eca4c8023a9f55362d7be05daa"},
@@ -75,6 +88,7 @@
     {"path": "Adam/Gr/SpriteMesh.HC", "sha256": "56be009cc3b1d4af7a08ccacbba841f9ff3cfec2b96a8fb224c2fde7223b3428"},
     {"path": "Adam/Opt/Utils/StrUtils.HC", "sha256": "d3bebee3611021e7e5cce1cd5682eee8ac5f4331ff521db00263f3f4addd6154"},
     {"path": "Adam/Snd/SndMath.HC", "sha256": "f0d7ba7625624b960e2d179ceee6e240a8b6455ac65aabd273c84b59f1fd53a3"},
+    {"path": "Doc/Asm.DD", "sha256": "c88d7db31ecce5b19b8e35890609b471a133f3e3ea3ffefb1197ee932f6f8dec"},
     {"path": "Doc/HolyC.DD", "sha256": "bacd70e46107b03949a3ded7459e1acb771ffbb1864e2b5ef9166d8a81bf10d6"},
     {"path": "Doc/PreProcessor.DD", "sha256": "36e52625d9cde57a9873bada9c39a6e6ccec65d9603a01a7bda48aa93dd50d54"},
     {"path": "Doc/Directives.DD", "sha256": "80fdc3c4303c6f4ff547add32494932db96c1fb6c5207edba192fc97c1dcdbeb"},
