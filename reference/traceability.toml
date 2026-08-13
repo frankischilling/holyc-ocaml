@@ -2217,12 +2217,12 @@ native_oracle_status = "not required; acceptance and publication order are expli
 named_type_use = "implemented in HC-PARSER-NAMED-AGGREGATE-TYPES"
 aggregate_body_parsing = "implemented in HC-PARSER-AGGREGATE-DEFINITIONS"
 inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
-inherited_layout_and_metadata = "planned"
+inherited_layout_and_metadata_evaluation_and_lookup = "planned"
 semantic_duplicate_and_linkage_checks = "planned"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-DEFINITIONS"
-description = "Named class and union bodies retain ordinary and function-pointer member declarations, recursive anonymous unions, punctuation, and source provenance."
+description = "Named class and union bodies retain ordinary and function-pointer member declarations, member metadata, recursive anonymous unions, punctuation, and source provenance."
 sources = [
   "Compiler/PrsStmt.HC:PrsClass",
   "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
@@ -2264,12 +2264,12 @@ missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
 missing_final_semicolon_diagnostic = "HCPARSE0115"
-deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0118"
+deferred_form_diagnostics = "HCPARSE0116 for nested named aggregate definitions"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
 backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
 inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
-inherited_layout_and_metadata = "planned"
+metadata_evaluation_list_construction_lookup_flags_layout_and_runtime_api = "planned"
 explicit_offset_syntax = "implemented in HC-PARSER-AGGREGATE-OFFSET-DIRECTIVES"
 nested_named_definitions = "planned"
 attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
@@ -2376,6 +2376,46 @@ unaffected_name_contexts = [
 ]
 native_oracle_status = "not required; the pinned lexer and PrsKeyWord contract make the contextual identity behavior explicit"
 semantic_member_identity_layout_and_duplicates = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
+description = "Aggregate member declarators retain repeated source-ordered metadata names with distinct extended-string and expression values."
+sources = [
+  "Compiler/PrsVar.HC:660-688 PrsVarLst class metadata branch",
+  "Compiler/LexLib.HC:47-64 MemberMetaData and MemberMetaFind",
+  "Compiler/LexLib.HC:248-276 LexExtStr",
+  "Kernel/KernelA.HH:792-799 MLMF_IS_STR and CMemberLstMeta",
+  "Demo/ClassMeta.HC:16-28 Test1Struct and Test2Struct"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-member-metadata.hc",
+  "test/cli/parse-aggregate-member-metadata.human",
+  "test/cli/parse-aggregate-member-metadata.json",
+  "test/cli/parse-aggregate-member-metadata-error.hc",
+  "test/cli/parse-aggregate-member-metadata-error.human",
+  "test/cli/parse-aggregate-member-metadata-error.json"
+]
+status = "implemented"
+issue = 149
+ast_schema = "holyc-ast-v1"
+accepted_contexts = ["class members", "named-union members", "anonymous-union members", "ordinary, pointer, array, callback, and comma-group declarators"]
+value_kinds = ["extended strings with source segments and combined decoded bytes", "ordinary HolyC expression trees"]
+source_order = "preserved, including duplicate names"
+pinned_demo_member_count = 6
+pinned_demo_entry_count = 13
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+missing_value_diagnostic = "HCPARSE0144"
+expression_diagnostics = "shared parser diagnostics in the aggregate member metadata expression context"
+native_oracle_status = "not required for syntax; PrsVarLst, LexExtStr, and the metadata structures state the token and storage boundary directly"
+evaluation_list_construction_lookup_flags_layout_and_runtime_api = "planned"
 
 [[feature]]
 id = "HC-PARSER-FUNCTION-POINTER-MEMBERS"
@@ -2614,7 +2654,7 @@ primitive_dump_compatibility = "existing human and JSON forms remain unchanged"
 native_oracle_status = "not required; dispatch categories and source forms are explicit in the pinned parser"
 semantic_type_identity = "planned"
 aggregate_member_syntax = "implemented in HC-PARSER-AGGREGATE-DEFINITIONS"
-aggregate_layout_and_metadata = "planned"
+aggregate_layout_and_metadata_evaluation_and_lookup = "planned"
 cast_conversion_and_lowering = "planned"
 
 [[feature]]
