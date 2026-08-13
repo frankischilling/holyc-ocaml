@@ -1,6 +1,5 @@
-type type_reference
-(** A source type spelling resolved to a primitive, intrinsic storage type, or
-    canonical aggregate identity. *)
+type type_reference = Type_reference.t
+(** The shared semantic source-type reference. *)
 
 type function_pointer
 (** The source head of a callback member. Its recursive signature is resolved by
