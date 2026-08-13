@@ -403,6 +403,10 @@ let expect_assembly_block_statement = function
   | Ast.Assembly_block_statement statement -> statement
   | _ -> Alcotest.fail "expected an assembly block statement"
 
+let expect_inline_assembly_statement = function
+  | Ast.Inline_assembly_statement statement -> statement
+  | _ -> Alcotest.fail "expected an inline assembly statement"
+
 let expect_one_top_level_assembly ast =
   match ast.Ast.items with
   | [ Ast.Top_level_statement statement ] ->
@@ -15215,6 +15219,373 @@ let deterministic_assembly_block_dumps () =
     "JSON marks an opcode alias" true
     (alias |> member "source_is_alias" |> to_bool)
 
+let inline_assembly_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ( "PrsStmt has the direct assembly entry",
+        "if (cmp_flags&CMPF_ONE_ASM_INS)" );
+      ( "function opcodes enter the joined assembly path",
+        "CmpJoin(cc,CMPF_ASM_BLK|CMPF_ONE_ASM_INS)" );
+      ( "top-level direct assembly is rejected",
+        "LexExcept(cc,\"Use Asm Blk at \"" );
+    ];
+  let assembly_parser = pinned "Compiler/Asm.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains assembly_parser fragment))
+    [
+      ( "the direct path omits the opening brace",
+        "if (!(cmp_flags&CMPF_ONE_ASM_INS))" );
+      ( "the first loaded form controls the first operand",
+        "if (tmpo->ins[0].arg1)" );
+      ( "the direct path may continue to another opcode",
+        "tmpo->type&(HTT_OPCODE|HTT_ASM_KEYWORD)" );
+    ];
+  Alcotest.(check bool)
+    "the direct assembly flag keeps its pinned bit" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define CMPF_ONE_ASM_INS\t2");
+  List.iter
+    (fun (path, fragments) ->
+      Alcotest.(check bool)
+        (path ^ " contains the audited inline assembly")
+        true
+        (List.for_all (contains (pinned path)) fragments))
+    [
+      ("Adam/AMem.HC", [ "  PUSHFD"; "  CLI"; "    PAUSE" ]);
+      ("Kernel/Job.HC", [ "  PUSHFD"; "  CLI"; "  POPFD" ]);
+      ("Demo/Graphics/Balloon.HC", [ "  CLI"; "  STI" ]);
+    ];
+  let argument_count spelling =
+    match Asm_opcode.resolve spelling with
+    | Some resolved ->
+        Asm_opcode.first_form_argument_count
+          (Asm_opcode.resolved_opcode resolved)
+    | None -> Alcotest.failf "checked opcode %S is unavailable" spelling
+  in
+  Alcotest.(check int) "CLI has no operands" 0 (argument_count "CLI");
+  Alcotest.(check int) "MOV has two operands" 2 (argument_count "MOV");
+  Alcotest.(check int) "BPT alias has no operands" 0 (argument_count "BPT")
+
+let pinned_inline_assembly_snippets () =
+  let cases =
+    [
+      ( "Adam memory lock",
+        "Adam/AMem.HC",
+        "extern class CTask;\n\
+         extern Bool LBts(I64 *value,I64 bit);\n\
+         I64 HClf_LOCKED;\n\
+         U0 Exact(CTask *task){\n",
+        pinned_lines "Adam/AMem.HC" ~first:40 ~last:46,
+        "\n}" );
+      ( "kernel message wake-up",
+        "Kernel/Job.HC",
+        "extern class CTask;\n\
+         extern Bool TaskValidate(CTask *task);\n\
+         extern Bool LBtr(I64 *value,I64 bit);\n\
+         I64 TASKf_AWAITING_MSG;\n\
+         U0 Exact(CTask *task){\n",
+        pinned_lines "Kernel/Job.HC" ~first:28 ~last:36,
+        "\n}" );
+      ( "balloon interrupt boundary",
+        "Demo/Graphics/Balloon.HC",
+        "extern U0 OutU8(I64 port,I64 value);\n\
+         extern U0 MemSetI64(I64 dst,I64 value,I64 size);\n\
+         extern U0 VGAFlush();\n\
+         I64 VGAP_IDX,VGAR_MAP_MASK,VGAP_DATA,RED,GREEN,text;\n\
+         U0 Exact(){\n",
+        pinned_lines "Demo/Graphics/Balloon.HC" ~first:13 ~last:17
+        ^ "\n"
+        ^ pinned_lines "Demo/Graphics/Balloon.HC" ~first:34 ~last:35,
+        "\n}" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, path, prefix, excerpt, suffix) ->
+          let _, _, output =
+            parse_string ~path ~compilation_mode:mode (prefix ^ excerpt ^ suffix)
+          in
+          let definition =
+            expect_ast output |> fun ast ->
+            match List.rev ast.Ast.items with
+            | Ast.Function_definition definition :: _ -> definition
+            | items ->
+                Alcotest.failf "%s produced %d trailing items" name
+                  (List.length items)
+          in
+          let body =
+            definition |> expect_function_body |> expect_block_statement
+          in
+          let rec inline_count = function
+            | Ast.Inline_assembly_statement _ -> 1
+            | Ast.Block_statement statement ->
+                List.fold_left
+                  (fun count statement -> count + inline_count statement)
+                  0 statement.block_statements
+            | Ast.If_statement statement ->
+                inline_count statement.if_then_branch
+                + Option.fold ~none:0
+                    ~some:(fun clause -> inline_count clause.Ast.else_branch)
+                    statement.if_else_clause
+            | Ast.While_statement statement -> inline_count statement.while_body
+            | Ast.Do_while_statement statement -> inline_count statement.do_body
+            | Ast.For_statement statement ->
+                Option.fold ~none:0 ~some:inline_count statement.for_update
+                + inline_count statement.for_body
+            | Ast.Lock_statement statement -> inline_count statement.lock_body
+            | Ast.Try_catch_statement statement ->
+                inline_count statement.try_body
+                + inline_count statement.catch_body
+            | Ast.Sequence_statement sequence ->
+                List.fold_left
+                  (fun count element ->
+                    count + inline_count element.Ast.sequence_statement)
+                  0 sequence.sequence_elements
+            | Ast.Switch_statement _
+            | Ast.Assembly_block_statement _
+            | Ast.Break_statement _
+            | Ast.Empty_statement _
+            | Ast.Expression_statement _
+            | Ast.Goto_statement _
+            | Ast.Implicit_output_statement _
+            | Ast.Label_statement _
+            | Ast.Local_declaration_statement _
+            | Ast.Return_statement _ -> 0
+          in
+          Alcotest.(check bool)
+            (name ^ " retains inline assembly nodes")
+            true
+            (List.fold_left
+               (fun count statement -> count + inline_count statement)
+               0 body.block_statements
+            > 0))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_opcode_spellings (statement : Ast.inline_assembly_statement)
+    =
+  List.map
+    (fun (operation : Ast.inline_assembly_operation) ->
+      operation.inline_assembly_opcode.assembly_source_token.raw)
+    statement.inline_assembly_operations
+
+let inline_assembly_shapes () =
+  let source = "U0 Inline()\n{\nPUSHFD CLI;\nif (1) {PAUSE}\nPOPFD BPT;\n}" in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let body =
+        expect_ast output |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+      in
+      match body.block_statements with
+      | [ first; conditional; last ] -> (
+          let first = expect_inline_assembly_statement first in
+          Alcotest.(check (list string))
+            "adjacent operand-free opcodes stay together" [ "PUSHFD"; "CLI" ]
+            (inline_assembly_opcode_spellings first);
+          Alcotest.(check (list bool))
+            "only the source semicolon is retained" [ false; true ]
+            (List.map
+               (fun (operation : Ast.inline_assembly_operation) ->
+                 Option.is_some operation.inline_assembly_semicolon)
+               first.inline_assembly_operations);
+          let conditional = expect_if_statement conditional in
+          let conditional_body =
+            conditional.if_then_branch |> expect_block_statement
+          in
+          Alcotest.(check (list string))
+            "an inline opcode is valid as an if body" [ "PAUSE" ]
+            (List.hd conditional_body.block_statements
+            |> expect_inline_assembly_statement
+            |> inline_assembly_opcode_spellings);
+          let last = expect_inline_assembly_statement last in
+          Alcotest.(check (list string))
+            "an alias stays in the same opcode run" [ "POPFD"; "BPT" ]
+            (inline_assembly_opcode_spellings last);
+          match
+            (List.nth last.inline_assembly_operations 1).inline_assembly_opcode
+              .assembly_token_kind
+          with
+          | Ast.Assembly_opcode_token
+              { canonical_spelling = "INT3"; source_is_alias = true } -> ()
+          | _ -> Alcotest.fail "BPT did not retain its INT3 alias identity")
+      | statements ->
+          Alcotest.failf
+            "expected two inline runs around an if statement, got %d statements"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_statement_contexts () =
+  let _, _, output =
+    parse_string
+      "U0 Contexts(){while(1) PAUSE;do CLI while(0);for(;1;STI) PAUSE;lock \
+       PUSHFD;}"
+  in
+  let body =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  match body.block_statements with
+  | [ while_; do_while; for_; lock ] ->
+      let while_ = expect_while_statement while_ in
+      ignore (expect_inline_assembly_statement while_.while_body);
+      let do_while = expect_do_while_statement do_while in
+      ignore (expect_inline_assembly_statement do_while.do_body);
+      let for_ = expect_for_statement for_ in
+      ignore (for_.for_update |> Option.get |> expect_inline_assembly_statement);
+      ignore (expect_inline_assembly_statement for_.for_body);
+      let lock = expect_lock_statement lock in
+      ignore (expect_inline_assembly_statement lock.lock_body)
+  | statements ->
+      Alcotest.failf "expected four recursive statement contexts, got %d"
+        (List.length statements)
+
+let inline_assembly_provenance () =
+  let session, _, output =
+    parse_string "#define STOP CLI\nU0 Generated(){STOP;}"
+  in
+  let generated =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    List.hd block.block_statements |> expect_inline_assembly_statement
+    |> fun statement -> List.hd statement.inline_assembly_operations
+  in
+  let location = generated.inline_assembly_opcode.assembly_token_location in
+  Alcotest.(check bool)
+    "generated opcode keeps its expansion site" true
+    (Option.is_some location.generated_from);
+  Alcotest.(check bool)
+    "generated opcode keeps its definition site" true
+    (Option.is_some location.defined_at);
+  let json = Ast_dump.json (Session.sources session) (expect_ast output) in
+  Alcotest.(check bool)
+    "JSON keeps the generated inline operation" true
+    (contains json "\"kind\": \"inline_assembly_statement\"");
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let inline_file = Filename.concat directory "inline.HC" in
+      write_file root_file "#include \"inline\"";
+      write_file inline_file "U0 Included(){CLI;}";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        expect_ast include_output |> expect_one_definition
+        |> expect_function_body |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_inline_assembly_statement
+        |> fun statement -> List.hd statement.inline_assembly_operations
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.inline_assembly_opcode.assembly_token_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included inline opcode keeps its canonical source path"
+        (Unix.realpath inline_file)
+        (Source_file.path included_source))
+
+let inline_assembly_failures () =
+  let _, _, top_level = parse_string "CLI" in
+  Alcotest.(check string)
+    "top-level direct opcode diagnostic" "HCPARSE0147"
+    (first_diagnostic top_level).code;
+  Alcotest.(check bool)
+    "top-level diagnostic recommends a block" true
+    (contains (first_diagnostic top_level).message "asm { ... }");
+  let _, _, operands = parse_string "U0 Bad(){MOV RAX,RBX}" in
+  Alcotest.(check string)
+    "operand-bearing direct opcode diagnostic" "HCPARSE0148"
+    (first_diagnostic operands).code;
+  Alcotest.(check bool)
+    "operand diagnostic reports the first-form arity" true
+    (contains (first_diagnostic operands).message "requires 2 operands");
+  let _, _, local = parse_string "U0 Local(){I64 value;}" in
+  ignore (expect_ast local);
+  let _, _, shadow = parse_string "U0 Shadow(){I64 CLI;CLI;}" in
+  let body =
+    expect_ast shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  (match body.block_statements with
+  | [ Ast.Sequence_statement sequence ] -> (
+      match sequence.sequence_elements with
+      | [ first; second ] -> (
+          match (first.sequence_statement, second.sequence_statement) with
+          | Ast.Local_declaration_statement _, Ast.Expression_statement _ -> ()
+          | _ -> Alcotest.fail "CLI shadow did not remain an expression")
+      | elements ->
+          Alcotest.failf "CLI shadow sequence has %d elements"
+            (List.length elements))
+  | statements ->
+      Alcotest.failf
+        "a local named CLI should shadow the opcode, got %d statements"
+        (List.length statements));
+  let _, _, adjacent_shadow =
+    parse_string "U0 Adjacent(){I64 CLI;PUSHFD CLI;}"
+  in
+  let body =
+    expect_ast adjacent_shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  let rec flatten_statement = function
+    | Ast.Sequence_statement sequence ->
+        List.concat_map
+          (fun element -> flatten_statement element.Ast.sequence_statement)
+          sequence.sequence_elements
+    | statement -> [ statement ]
+  in
+  let statements = List.concat_map flatten_statement body.block_statements in
+  match statements with
+  | [ declaration; direct; expression ] ->
+      ignore (declaration |> expect_local_declaration);
+      Alcotest.(check (list string))
+        "a shadowed adjacent spelling ends the direct assembly run" [ "PUSHFD" ]
+        (direct |> expect_inline_assembly_statement
+       |> inline_assembly_opcode_spellings);
+      ignore (expression |> expect_expression_statement)
+  | statements ->
+      Alcotest.failf
+        "an adjacent shadow should produce three ordered statements, got %d"
+        (List.length statements)
+
+let deterministic_inline_assembly_dumps () =
+  let session, _, output = parse_string "U0 Dump(){PUSHFD CLI;BPT;}" in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human inline assembly dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON inline assembly dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies inline assembly" true
+    (contains human "inline_assembly_statement");
+  Alcotest.(check bool)
+    "human dump retains the alias identity" true
+    (contains human "canonical=\"INT3\" alias=true");
+  Alcotest.(check bool)
+    "JSON identifies inline assembly" true
+    (contains json "\"kind\": \"inline_assembly_statement\"")
+
 let lock_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -17437,6 +17808,19 @@ let tests =
     Alcotest.test_case "assembly block failures" `Quick assembly_block_failures;
     Alcotest.test_case "deterministic assembly block dumps" `Quick
       deterministic_assembly_block_dumps;
+    Alcotest.test_case "pinned inline assembly behavior" `Quick
+      inline_assembly_source_behavior;
+    Alcotest.test_case "pinned inline assembly snippets" `Quick
+      pinned_inline_assembly_snippets;
+    Alcotest.test_case "inline assembly shapes" `Quick inline_assembly_shapes;
+    Alcotest.test_case "inline assembly statement contexts" `Quick
+      inline_assembly_statement_contexts;
+    Alcotest.test_case "inline assembly provenance" `Quick
+      inline_assembly_provenance;
+    Alcotest.test_case "inline assembly failures" `Quick
+      inline_assembly_failures;
+    Alcotest.test_case "deterministic inline assembly dumps" `Quick
+      deterministic_inline_assembly_dumps;
     Alcotest.test_case "pinned lock behavior" `Quick
       lock_statement_source_behavior;
     Alcotest.test_case "lock statement shapes" `Quick lock_statement_shapes;

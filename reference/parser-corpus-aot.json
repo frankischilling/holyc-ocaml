@@ -13,12 +13,12 @@
     "internal_errors": 0,
     "failed": 508,
     "bytes": 4190323,
-    "diagnostics": 37452,
-    "errors": 37452,
+    "diagnostics": 37420,
+    "errors": 37420,
     "warnings": 0,
     "notes": 0,
     "diagnostic_codes": {
-      "HCPARSE0001": 10600,
+      "HCPARSE0001": 10455,
       "HCPARSE0002": 19,
       "HCPARSE0003": 28,
       "HCPARSE0009": 597,
@@ -34,8 +34,8 @@
       "HCPARSE0044": 1,
       "HCPARSE0046": 71,
       "HCPARSE0047": 52,
-      "HCPARSE0048": 18558,
-      "HCPARSE0050": 4011,
+      "HCPARSE0048": 18502,
+      "HCPARSE0050": 4006,
       "HCPARSE0055": 2541,
       "HCPARSE0082": 118,
       "HCPARSE0093": 2,
@@ -46,6 +46,8 @@
       "HCPARSE0115": 1,
       "HCPARSE0121": 13,
       "HCPARSE0127": 21,
+      "HCPARSE0147": 170,
+      "HCPARSE0148": 4,
       "HCPP0003": 349,
       "HCPP0008": 38,
       "HCPP0009": 10,
@@ -426,12 +428,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 17,
+        "HCPARSE0001": 11,
         "HCPARSE0009": 1,
         "HCPARSE0020": 3,
         "HCPARSE0048": 18,
         "HCPARSE0050": 9,
         "HCPARSE0055": 2,
+        "HCPARSE0147": 6,
         "HCPP0022": 1
       },
       "first_error": {
@@ -498,13 +501,13 @@
       "path": "Adam/ASnd.HC",
       "status": "parser-diagnostics",
       "bytes": 8095,
-      "diagnostics": 65,
-      "errors": 65,
+      "diagnostics": 62,
+      "errors": 62,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 2,
-        "HCPARSE0048": 58,
+        "HCPARSE0048": 55,
         "HCPARSE0050": 2,
         "HCPARSE0055": 2,
         "HCPARSE0112": 1
@@ -671,9 +674,10 @@
       "diagnostic_codes": {
         "HCPARSE0001": 63,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 88,
+        "HCPARSE0048": 84,
         "HCPARSE0050": 17,
-        "HCPARSE0055": 13
+        "HCPARSE0055": 13,
+        "HCPARSE0147": 4
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -1308,11 +1312,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 109,
+        "HCPARSE0001": 107,
         "HCPARSE0009": 1,
         "HCPARSE0048": 267,
         "HCPARSE0050": 52,
         "HCPARSE0055": 71,
+        "HCPARSE0147": 2,
         "HCPP0022": 1
       },
       "first_error": {
@@ -1883,15 +1888,16 @@
       "path": "Adam/Gr/GrPalette.HC",
       "status": "parser-diagnostics",
       "bytes": 2737,
-      "diagnostics": 37,
-      "errors": 37,
+      "diagnostics": 36,
+      "errors": 36,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 20,
+        "HCPARSE0001": 16,
         "HCPARSE0009": 2,
-        "HCPARSE0048": 11,
-        "HCPARSE0050": 4
+        "HCPARSE0048": 10,
+        "HCPARSE0050": 4,
+        "HCPARSE0147": 4
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -1942,10 +1948,11 @@
         "HCPARSE0001": 32,
         "HCPARSE0009": 1,
         "HCPARSE0047": 1,
-        "HCPARSE0048": 49,
+        "HCPARSE0048": 48,
         "HCPARSE0050": 16,
         "HCPARSE0055": 7,
-        "HCPARSE0082": 3
+        "HCPARSE0082": 3,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -2694,16 +2701,17 @@
       "path": "Adam/Opt/Utils/HeapLog.HC",
       "status": "parser-diagnostics",
       "bytes": 5345,
-      "diagnostics": 55,
-      "errors": 55,
+      "diagnostics": 52,
+      "errors": 52,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 11,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 35,
+        "HCPARSE0048": 28,
         "HCPARSE0050": 6,
-        "HCPARSE0055": 2
+        "HCPARSE0055": 2,
+        "HCPARSE0147": 4
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -2793,11 +2801,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 22,
+        "HCPARSE0001": 20,
         "HCPARSE0009": 1,
         "HCPARSE0046": 1,
         "HCPARSE0048": 34,
-        "HCPARSE0050": 9
+        "HCPARSE0050": 9,
+        "HCPARSE0147": 2
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -3052,13 +3061,13 @@
       "path": "Adam/Snd/SndMusic.HC",
       "status": "parser-diagnostics",
       "bytes": 4484,
-      "diagnostics": 38,
-      "errors": 38,
+      "diagnostics": 35,
+      "errors": 35,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 1,
-        "HCPARSE0048": 36,
+        "HCPARSE0048": 33,
         "HCPARSE0112": 1
       },
       "first_error": {
@@ -3080,11 +3089,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 6,
+        "HCPARSE0001": 5,
         "HCPARSE0009": 1,
         "HCPARSE0046": 1,
         "HCPARSE0048": 2,
-        "HCPARSE0050": 2
+        "HCPARSE0050": 2,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -3179,11 +3189,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 60,
+        "HCPARSE0001": 41,
         "HCPARSE0009": 3,
-        "HCPARSE0048": 87,
+        "HCPARSE0048": 86,
         "HCPARSE0050": 22,
-        "HCPARSE0055": 18
+        "HCPARSE0055": 18,
+        "HCPARSE0147": 20
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -3205,10 +3216,11 @@
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 63,
-        "HCPARSE0048": 154,
+        "HCPARSE0048": 150,
         "HCPARSE0050": 49,
         "HCPARSE0055": 20,
-        "HCPARSE0098": 1
+        "HCPARSE0098": 1,
+        "HCPARSE0147": 4
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -5639,9 +5651,10 @@
       "diagnostic_codes": {
         "HCPARSE0001": 52,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 95,
+        "HCPARSE0048": 94,
         "HCPARSE0050": 33,
-        "HCPARSE0055": 35
+        "HCPARSE0055": 35,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -6122,11 +6135,11 @@
       "errors": 1,
       "warnings": 0,
       "notes": 0,
-      "diagnostic_codes": { "HCPARSE0048": 1 },
+      "diagnostic_codes": { "HCPARSE0148": 1 },
       "first_error": {
-        "code": "HCPARSE0048",
+        "code": "HCPARSE0148",
         "severity": "error",
-        "message": "label or declaration syntax for unresolved identifier \"MOV\" after a statement comma is not implemented",
+        "message": "inline assembly opcode \"MOV\" requires 2 operands; operand parsing is not implemented yet",
         "path": "Demo/Asm/AsmAndC3.HC",
         "line": 13,
         "column": 5
@@ -7645,9 +7658,9 @@
       "first_error": {
         "code": "HCPARSE0048",
         "severity": "error",
-        "message": "label or declaration syntax for unresolved identifier \"CLI\" after a statement comma is not implemented",
+        "message": "label or declaration syntax for unresolved identifier \"OutU8\" after a statement comma is not implemented",
         "path": "Demo/Graphics/Balloon.HC",
-        "line": 13,
+        "line": 15,
         "column": 3
       },
       "failure_message": null
@@ -9002,21 +9015,23 @@
       "path": "Demo/Lectures/Ring3.HC",
       "status": "parser-diagnostics",
       "bytes": 1457,
-      "diagnostics": 9,
-      "errors": 9,
+      "diagnostics": 8,
+      "errors": 8,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 4,
-        "HCPARSE0048": 4,
-        "HCPARSE0050": 1
+        "HCPARSE0001": 2,
+        "HCPARSE0048": 2,
+        "HCPARSE0050": 1,
+        "HCPARSE0147": 2,
+        "HCPARSE0148": 1
       },
       "first_error": {
         "code": "HCPARSE0048",
         "severity": "error",
-        "message": "label or declaration syntax for unresolved identifier \"CLI\" after a statement comma is not implemented",
+        "message": "label or declaration syntax for unresolved identifier \"TSSBusy\" after a statement comma is not implemented",
         "path": "Demo/Lectures/Ring3.HC",
-        "line": 31,
+        "line": 34,
         "column": 3
       },
       "failure_message": null
@@ -10027,14 +10042,13 @@
       "path": "Doc/Comm.HC",
       "status": "parser-diagnostics",
       "bytes": 2671,
-      "diagnostics": 43,
-      "errors": 43,
+      "diagnostics": 33,
+      "errors": 33,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 22,
-        "HCPARSE0048": 14,
-        "HCPARSE0050": 5,
+        "HCPARSE0001": 1,
+        "HCPARSE0048": 30,
         "HCPARSE0055": 1,
         "HCPARSE0112": 1
       },
@@ -10760,10 +10774,11 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 16,
+        "HCPARSE0001": 12,
         "HCPARSE0048": 21,
         "HCPARSE0050": 4,
-        "HCPARSE0055": 3
+        "HCPARSE0055": 3,
+        "HCPARSE0147": 4
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -10784,10 +10799,11 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 31,
+        "HCPARSE0001": 30,
         "HCPARSE0048": 42,
         "HCPARSE0050": 7,
-        "HCPARSE0055": 4
+        "HCPARSE0055": 4,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -10860,12 +10876,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 81,
+        "HCPARSE0001": 73,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 70,
+        "HCPARSE0048": 61,
         "HCPARSE0050": 38,
         "HCPARSE0055": 11,
-        "HCPARSE0082": 2
+        "HCPARSE0082": 2,
+        "HCPARSE0147": 17
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -10913,11 +10930,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 36,
+        "HCPARSE0001": 22,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 33,
+        "HCPARSE0048": 31,
         "HCPARSE0050": 27,
-        "HCPARSE0055": 6
+        "HCPARSE0055": 6,
+        "HCPARSE0147": 16
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -10938,10 +10956,11 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 48,
-        "HCPARSE0048": 26,
+        "HCPARSE0001": 46,
+        "HCPARSE0048": 25,
         "HCPARSE0050": 11,
-        "HCPARSE0055": 1
+        "HCPARSE0055": 1,
+        "HCPARSE0147": 3
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -10962,12 +10981,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 99,
+        "HCPARSE0001": 74,
         "HCPARSE0009": 1,
         "HCPARSE0046": 1,
-        "HCPARSE0048": 68,
+        "HCPARSE0048": 67,
         "HCPARSE0050": 36,
-        "HCPARSE0055": 15
+        "HCPARSE0055": 15,
+        "HCPARSE0147": 26
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -11126,12 +11146,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 22,
+        "HCPARSE0001": 21,
         "HCPARSE0009": 1,
         "HCPARSE0018": 1,
         "HCPARSE0048": 41,
         "HCPARSE0050": 17,
-        "HCPARSE0055": 9
+        "HCPARSE0055": 9,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -11147,17 +11168,17 @@
       "path": "Kernel/KInts.HC",
       "status": "parser-diagnostics",
       "bytes": 4846,
-      "diagnostics": 31,
-      "errors": 31,
+      "diagnostics": 27,
+      "errors": 27,
       "warnings": 0,
       "notes": 0,
-      "diagnostic_codes": { "HCPARSE0048": 31 },
+      "diagnostic_codes": { "HCPARSE0048": 25, "HCPARSE0148": 2 },
       "first_error": {
         "code": "HCPARSE0048",
         "severity": "error",
-        "message": "label or declaration syntax for unresolved identifier \"PUSHFD\" after a statement comma is not implemented",
+        "message": "label or declaration syntax for unresolved identifier \"OutU8\" after a statement comma is not implemented",
         "path": "Kernel/KInts.HC",
-        "line": 115,
+        "line": 131,
         "column": 3
       },
       "failure_message": null
@@ -11258,11 +11279,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 22,
+        "HCPARSE0001": 19,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 29,
+        "HCPARSE0048": 25,
         "HCPARSE0050": 33,
-        "HCPARSE0055": 11
+        "HCPARSE0055": 11,
+        "HCPARSE0147": 7
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -11283,9 +11305,10 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 19,
+        "HCPARSE0001": 18,
         "HCPARSE0047": 3,
         "HCPARSE0050": 1,
+        "HCPARSE0147": 1,
         "HCPP0008": 2,
         "HCPP0022": 5
       },
@@ -11308,8 +11331,9 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 36,
+        "HCPARSE0001": 35,
         "HCPARSE0047": 1,
+        "HCPARSE0147": 1,
         "HCPP0008": 1,
         "HCPP0022": 1
       },
@@ -11344,12 +11368,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 86,
+        "HCPARSE0001": 81,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 85,
+        "HCPARSE0048": 81,
         "HCPARSE0050": 24,
         "HCPARSE0055": 8,
         "HCPARSE0082": 1,
+        "HCPARSE0147": 9,
         "HCPP0008": 2
       },
       "first_error": {
@@ -11504,11 +11529,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 19,
+        "HCPARSE0001": 17,
         "HCPARSE0009": 1,
         "HCPARSE0048": 8,
         "HCPARSE0050": 2,
-        "HCPARSE0055": 4
+        "HCPARSE0055": 4,
+        "HCPARSE0147": 2
       },
       "first_error": {
         "code": "HCPARSE0009",
@@ -11530,8 +11556,9 @@
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 7,
-        "HCPARSE0048": 6,
-        "HCPARSE0050": 2
+        "HCPARSE0048": 4,
+        "HCPARSE0050": 2,
+        "HCPARSE0147": 2
       },
       "first_error": {
         "code": "HCPARSE0001",
@@ -11598,12 +11625,13 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 11,
+        "HCPARSE0001": 8,
         "HCPARSE0009": 1,
         "HCPARSE0047": 1,
-        "HCPARSE0048": 25,
+        "HCPARSE0048": 24,
         "HCPARSE0050": 9,
         "HCPARSE0055": 5,
+        "HCPARSE0147": 4,
         "HCPP0022": 2
       },
       "first_error": {
@@ -11661,11 +11689,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 87,
+        "HCPARSE0001": 76,
         "HCPARSE0046": 1,
-        "HCPARSE0048": 22,
+        "HCPARSE0048": 18,
         "HCPARSE0050": 14,
         "HCPARSE0055": 1,
+        "HCPARSE0147": 15,
         "HCPP0022": 1
       },
       "first_error": {
@@ -11682,18 +11711,18 @@
       "path": "Kernel/PCIBIOS.HC",
       "status": "parser-diagnostics",
       "bytes": 5430,
-      "diagnostics": 21,
-      "errors": 21,
+      "diagnostics": 14,
+      "errors": 14,
       "warnings": 0,
       "notes": 0,
-      "diagnostic_codes": { "HCPARSE0048": 21 },
+      "diagnostic_codes": { "HCPARSE0048": 14 },
       "first_error": {
         "code": "HCPARSE0048",
         "severity": "error",
-        "message": "label or declaration syntax for unresolved identifier \"PUSHFD\" after a statement comma is not implemented",
+        "message": "label or declaration syntax for unresolved identifier \"Yield\" after a statement comma is not implemented",
         "path": "Kernel/PCIBIOS.HC",
-        "line": 166,
-        "column": 3
+        "line": 169,
+        "column": 5
       },
       "failure_message": null
     },
@@ -11725,9 +11754,10 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 17,
+        "HCPARSE0001": 11,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 7
+        "HCPARSE0048": 7,
+        "HCPARSE0147": 6
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -11793,10 +11823,11 @@
       "diagnostic_codes": {
         "HCPARSE0001": 9,
         "HCPARSE0009": 1,
-        "HCPARSE0048": 43,
+        "HCPARSE0048": 40,
         "HCPARSE0050": 12,
         "HCPARSE0055": 5,
-        "HCPARSE0082": 1
+        "HCPARSE0082": 1,
+        "HCPARSE0147": 3
       },
       "first_error": {
         "code": "HCPARSE0048",
@@ -11817,11 +11848,12 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 87,
+        "HCPARSE0001": 86,
         "HCPARSE0048": 57,
         "HCPARSE0050": 17,
         "HCPARSE0055": 12,
-        "HCPARSE0082": 5
+        "HCPARSE0082": 5,
+        "HCPARSE0147": 1
       },
       "first_error": {
         "code": "HCPARSE0048",

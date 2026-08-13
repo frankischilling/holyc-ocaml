@@ -580,8 +580,15 @@ type assembly_line = {
   assembly_line_location : location;
 }
 
+type inline_assembly_operation = {
+  inline_assembly_opcode : assembly_token;
+  inline_assembly_semicolon : location option;
+  inline_assembly_operation_location : location;
+}
+
 type statement =
   | Assembly_block_statement of assembly_block_statement
+  | Inline_assembly_statement of inline_assembly_statement
   | Block_statement of block_statement
   | Break_statement of break_statement
   | Do_while_statement of do_while_statement
@@ -606,6 +613,11 @@ and assembly_block_statement = {
   assembly_lines : assembly_line list;
   assembly_closing_brace : location;
   assembly_block_location : location;
+}
+
+and inline_assembly_statement = {
+  inline_assembly_operations : inline_assembly_operation list;
+  inline_assembly_location : location;
 }
 
 and block_statement = {
@@ -1292,6 +1304,19 @@ let make_assembly_block_statement ~keyword ~opening_brace ~lines ~closing_brace
     assembly_block_location = location;
   }
 
+let make_inline_assembly_operation ~opcode ~semicolon ~location =
+  {
+    inline_assembly_opcode = opcode;
+    inline_assembly_semicolon = semicolon;
+    inline_assembly_operation_location = location;
+  }
+
+let make_inline_assembly_statement ~operations ~location =
+  {
+    inline_assembly_operations = operations;
+    inline_assembly_location = location;
+  }
+
 let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
   {
     block_opening_brace = opening_brace;
@@ -1472,6 +1497,7 @@ let make_function_definition ~modifiers ~return_type ~return_pointer_layers
 
 let statement_location = function
   | Assembly_block_statement statement -> statement.assembly_block_location
+  | Inline_assembly_statement statement -> statement.inline_assembly_location
   | Block_statement statement -> statement.block_location
   | Break_statement statement -> statement.break_location
   | Do_while_statement statement -> statement.do_while_location

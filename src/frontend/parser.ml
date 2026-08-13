@@ -205,10 +205,37 @@ let is_canonical_u64_register spelling =
       String.equal register.spelling spelling)
     canonical_u64_registers
 
+let resolve_assembly_opcode token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> Asm.Opcode.resolve token.raw
+  | _ -> None
+
+let resolve_assembly_directive token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> Asm.Directive.find token.raw
+  | _ -> None
+
+let resolve_visible_assembly_opcode cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols token.raw
+      with
+      | Symbol_visibility.Present entry
+        when Symbol_visibility.kind entry = Symbol_visibility.Opcode ->
+          resolve_assembly_opcode token
+      | Symbol_visibility.Absent
+      | Symbol_visibility.Shadowed_by_local
+      | Symbol_visibility.Present _ -> None)
+  | _ -> None
+
+let token_starts_inline_assembly cursor token =
+  Option.is_some (resolve_visible_assembly_opcode cursor token)
+
 let assembly_token_kind token =
   match token.Token.kind with
   | Token_kind.Identifier -> (
-      match Asm.Opcode.resolve token.raw with
+      match resolve_assembly_opcode token with
       | Some resolved ->
           let opcode = Asm.Opcode.resolved_opcode resolved in
           Ast.Assembly_opcode_token
@@ -217,7 +244,7 @@ let assembly_token_kind token =
               source_is_alias = Asm.Opcode.resolved_is_alias resolved;
             }
       | None -> (
-          match Asm.Directive.find token.raw with
+          match resolve_assembly_directive token with
           | Some directive ->
               Ast.Assembly_directive_token
                 { templeos_id = Asm.Directive.templeos_id directive }
@@ -4418,6 +4445,12 @@ let assembly_lines cursor tokens =
   in
   collect [] None None [] tokens
 
+let classified_assembly_token source_token =
+  Ast.make_assembly_token
+    ~kind:(assembly_token_kind source_token)
+    ~source_token
+    ~location:(token_location source_token)
+
 let parse_assembly_block_statement cursor ~boundary : parsed_statement option =
   let keyword_item = take cursor in
   let opening_item = peek cursor in
@@ -4461,10 +4494,86 @@ let parse_assembly_block_statement cursor ~boundary : parsed_statement option =
     in
     take_body []
 
+let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
+  let first_item = peek cursor in
+  if Option.is_none cursor.local_context then (
+    report cursor first_item ~code:"HCPARSE0147"
+      ~message:
+        (Printf.sprintf
+           "inline assembly operation %S requires a function body; use an 'asm \
+            { ... }' block at top level"
+           first_item.token.raw);
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let unsupported_operation item =
+      match resolve_visible_assembly_opcode cursor item.token with
+      | Some resolved ->
+          let opcode = Asm.Opcode.resolved_opcode resolved in
+          let argument_count = Asm.Opcode.first_form_argument_count opcode in
+          report cursor item ~code:"HCPARSE0148"
+            ~message:
+              (Printf.sprintf
+                 "inline assembly opcode %S requires %d operand%s; operand \
+                  parsing is not implemented yet"
+                 item.token.raw argument_count
+                 (if argument_count = 1 then "" else "s"))
+      | None -> invalid_arg "unsupported inline assembly token is not an opcode"
+    in
+    let rec collect operations_rev tokens_rev =
+      let item = peek cursor in
+      match resolve_visible_assembly_opcode cursor item.token with
+      | Some resolved ->
+          let opcode = Asm.Opcode.resolved_opcode resolved in
+          if Asm.Opcode.first_form_argument_count opcode <> 0 then (
+            unsupported_operation item;
+            recover_statement cursor ~boundary;
+            None)
+          else
+            let opcode_item = take cursor in
+            let semicolon_item =
+              if (peek cursor).token.kind = Token_kind.Punctuation ';' then
+                Some (take cursor)
+              else None
+            in
+            let operation_tokens =
+              match semicolon_item with
+              | None -> [ opcode_item.token ]
+              | Some semicolon -> [ opcode_item.token; semicolon.token ]
+            in
+            let operation =
+              Ast.make_inline_assembly_operation
+                ~opcode:(classified_assembly_token opcode_item.token)
+                ~semicolon:
+                  (Option.map
+                     (fun semicolon -> token_location semicolon.token)
+                     semicolon_item)
+                ~location:(location_from_expression_tokens operation_tokens)
+            in
+            collect
+              (operation :: operations_rev)
+              (List.rev_append operation_tokens tokens_rev)
+      | None ->
+          let operations = List.rev operations_rev in
+          let tokens = List.rev tokens_rev in
+          if operations = [] then
+            invalid_arg "inline assembly parser needs an assembly operation";
+          let statement =
+            Ast.make_inline_assembly_statement ~operations
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Some
+            ({ node = Ast.Inline_assembly_statement statement; tokens }
+              : parsed_statement)
+    in
+    collect [] []
+
 let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | Token_kind.Identifier when token_starts_inline_assembly cursor item.token ->
+      parse_inline_assembly_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Asm ->
       parse_assembly_block_statement cursor ~boundary
   | Token_kind.Punctuation '{' ->
@@ -5671,6 +5780,16 @@ let parse ~sources ~definitions ~symbols ~config source =
         ignore (take cursor);
         finished := true
     | Token_kind.Identifier when token_starts_function_label cursor item.token
+      -> (
+        match
+          parse_statement_sequence cursor ~boundary:Top_level_boundary
+            ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
+            ~try_depth:0 ~switch_depth:0
+        with
+        | Some statement ->
+            items_rev := Ast.Top_level_statement statement.node :: !items_rev
+        | None -> ())
+    | Token_kind.Identifier when token_starts_inline_assembly cursor item.token
       -> (
         match
           parse_statement_sequence cursor ~boundary:Top_level_boundary

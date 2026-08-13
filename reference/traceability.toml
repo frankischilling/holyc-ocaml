@@ -3039,7 +3039,50 @@ missing_closing_diagnostic = "HCPARSE0146"
 operand_parsing = "not implemented"
 directive_semantics = "not implemented"
 label_resolution = "not implemented"
-single_instruction_form = "not implemented"
+single_instruction_form = "operand-free opcodes and aliases implemented by issue 155; operand-bearing forms and directives remain pending"
+encoding = "not implemented"
+execution = "not implemented"
+
+[[feature]]
+id = "HC-PARSER-INLINE-ASSEMBLY"
+description = "Function-local direct assembly retains operand-free opcode runs as explicit source-positioned operations."
+sources = [
+  "Compiler/CompilerA.HH:CMPF_ONE_ASM_INS",
+  "Compiler/PrsStmt.HC:PrsStmt direct opcode branch",
+  "Compiler/Asm.HC:PrsAsmBlk",
+  "Adam/AMem.HC:40-46",
+  "Kernel/Job.HC:28-36",
+  "Demo/Graphics/Balloon.HC:13-17 and 34-35"
+]
+implementation = [
+  "src/asm/opcode.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-inline-assembly.hc",
+  "test/cli/parse-inline-assembly.human",
+  "test/cli/parse-inline-assembly.json",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 155
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+compilation_modes = ["jit", "aot"]
+contexts = ["function bodies", "blocks", "conditionals", "loops", "lock bodies", "for updates"]
+operation_boundary = "adjacent operand-free opcode forms remain one direct assembly statement; physical newlines are not delimiters"
+operand_count_source = "the first instruction form, matching tmpo->ins[0] in PrsAsmBlk"
+alias_identity = "source spelling and canonical opcode are both retained"
+symbol_visibility = "a visible local or newer non-opcode symbol prevents direct assembly dispatch"
+definition_and_include_provenance = "preserved"
+top_level_diagnostic = "HCPARSE0147"
+operand_diagnostic = "HCPARSE0148"
+operand_parsing = "not implemented"
+direct_directives = "not implemented"
+lowering = "not implemented"
 encoding = "not implemented"
 execution = "not implemented"
 
@@ -3073,7 +3116,8 @@ frontend_diagnostics = 16
 parser_diagnostics = 492
 read_errors = 0
 internal_errors = 0
-diagnostics = 37452
+diagnostics = 37420
+baseline_sha256 = "d2dd14409b26dd407333452950c242ad69bc8ed12b56fa79228df70f4212be9d"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"

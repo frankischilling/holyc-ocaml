@@ -10,6 +10,17 @@ let aliases (opcode : t) =
     (fun (alias : Generated.Opcode_keywords.opcode_alias) -> alias.spelling)
     opcode.aliases
 
+let first_form_argument_count (opcode : t) =
+  match opcode.instructions with
+  | [] ->
+      invalid_arg
+        (Printf.sprintf "checked opcode %S has no instruction forms"
+           opcode.spelling)
+  | (instruction : Generated.Opcode_keywords.instruction) :: _ ->
+      if instruction.argument1 = 0 then 0
+      else if instruction.argument2 = 0 then 1
+      else 2
+
 let entries =
   List.concat_map
     (fun (opcode : t) ->

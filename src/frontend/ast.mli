@@ -585,8 +585,15 @@ type assembly_line = private {
   assembly_line_location : location;
 }
 
+type inline_assembly_operation = private {
+  inline_assembly_opcode : assembly_token;
+  inline_assembly_semicolon : location option;
+  inline_assembly_operation_location : location;
+}
+
 type statement =
   | Assembly_block_statement of assembly_block_statement
+  | Inline_assembly_statement of inline_assembly_statement
   | Block_statement of block_statement
   | Break_statement of break_statement
   | Do_while_statement of do_while_statement
@@ -611,6 +618,11 @@ and assembly_block_statement = private {
   assembly_lines : assembly_line list;
   assembly_closing_brace : location;
   assembly_block_location : location;
+}
+
+and inline_assembly_statement = private {
+  inline_assembly_operations : inline_assembly_operation list;
+  inline_assembly_location : location;
 }
 
 and block_statement = private {
@@ -1233,6 +1245,17 @@ val make_assembly_block_statement :
   closing_brace:location ->
   location:location ->
   assembly_block_statement
+
+val make_inline_assembly_operation :
+  opcode:assembly_token ->
+  semicolon:location option ->
+  location:location ->
+  inline_assembly_operation
+
+val make_inline_assembly_statement :
+  operations:inline_assembly_operation list ->
+  location:location ->
+  inline_assembly_statement
 
 val make_block_statement :
   opening_brace:location ->
