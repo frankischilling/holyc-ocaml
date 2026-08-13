@@ -45,6 +45,7 @@ module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
+module Semantic_global_resolution = Sema.Global_resolution
 
 let lex _session ~source = Frontend.Lexer.lex_all source
 
@@ -129,3 +130,9 @@ let resolve_function_identities session ~declarations ~functions
   Driver.Function_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~compilation_mode module_
+
+let resolve_global_records session ~declarations ~globals ~compilation_mode
+    module_ =
+  Driver.Global_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~globals ~compilation_mode module_

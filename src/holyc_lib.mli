@@ -45,6 +45,7 @@ module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
+module Semantic_global_resolution = Sema.Global_resolution
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -176,3 +177,15 @@ val resolve_function_identities :
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
     Header comparison, task-parent lookup, alternate target resolution, and
     linkage remain separate passes. *)
+
+val resolve_global_records :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  globals:Semantic_global_type_resolution.t ->
+  compilation_mode:Preprocessor.compilation_mode ->
+  Ast.module_ ->
+  (Semantic_global_resolution.t, string) result
+(** Retain one semantic record per parsed global and attach immediate alias
+    edges using the pinned JIT or AOT rule. Target-address resolution,
+    compiler-option execution, allocation, and linkage remain separate passes.
+*)
