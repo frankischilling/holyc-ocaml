@@ -3231,7 +3231,7 @@ nth_match = "continues through the parent chain"
 session_seed = "17 Compiler/CInit.HC internal type spellings"
 provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
 foreign_scope_mutation = "rejected"
-ast_declaration_collection = "top-level declarations are implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS, direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS, and parameters and locals in HC-SEMA-FUNCTION-BINDINGS; labels and assembler symbols are not implemented"
+ast_declaration_collection = "top-level declarations are implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS, direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS, parameters and locals in HC-SEMA-FUNCTION-BINDINGS, and function-local language plus structural assembly labels in HC-SEMA-FUNCTION-LABELS"
 reference_resolution = "not implemented"
 duplicate_policy = "not implemented"
 jit_aot_linkage = "not implemented"
@@ -3269,7 +3269,7 @@ provenance = ["primary span", "source segments", "generated source origin", "def
 top_level_executable_statements = "no declaration entry"
 forward_definition_merging = "not implemented"
 duplicate_validation = "not implemented"
-nested_declaration_collection = "direct aggregate members are implemented in HC-SEMA-AGGREGATE-MEMBERS and parameters and locals in HC-SEMA-FUNCTION-BINDINGS; labels and assembler symbols are not implemented"
+nested_declaration_collection = "direct aggregate members are implemented in HC-SEMA-AGGREGATE-MEMBERS, parameters and locals in HC-SEMA-FUNCTION-BINDINGS, and function-local language plus structural assembly labels in HC-SEMA-FUNCTION-LABELS"
 jit_task_publication = "not implemented"
 linkage_and_reference_resolution = "not implemented"
 native_oracle_status = "not required for this collection boundary; insertion order is explicit in PrsClass, PrsGlblVarLst, and PrsFunJoin"
@@ -3356,9 +3356,58 @@ type_resolution = "not implemented"
 default_and_initializer_evaluation = "not implemented"
 register_and_storage_assignment = "not implemented"
 duplicate_validation = "not implemented"
-label_and_reference_resolution = "not implemented"
+label_resolution = "implemented by the separate HC-SEMA-FUNCTION-LABELS feature"
+ordinary_reference_resolution = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsVarLst, PrsDotDotDot, MemberAdd, and MemberFind state the insertion order and shared function namespace directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-LABELS"
+description = "Language gotos and language or structural assembly-block labels receive stable function-local identities."
+sources = [
+  "Compiler/PrsStmt.HC:goto and identifier-label branches",
+  "Compiler/PrsLib.HC:COCGoToLabelFind",
+  "Compiler/PrsLib.HC:COCDel",
+  "Compiler/Asm.HC:function-local label publication",
+  "Compiler/Asm.HC:1032-1062 repeated-label address rule",
+  "Compiler/AsmResolve.HC:unresolved function label references",
+  "Kernel/KernelA.HH:CCodeMisc",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/label_resolution.ml",
+  "src/driver/label_resolution.ml",
+  "src/sema/symbol_table.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_label_resolution.ml"
+]
+status = "implemented"
+issue = 172
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one namespace per collected function scope; prototypes have no occurrences"
+definition_kinds = ["language", "assembly global", "assembly exported global", "assembly local"]
+identity_order = "first occurrence of each spelling"
+symbol_origin = "the retained definition, even when a forward goto appears first"
+language_references = "forward and backward gotos resolve to the matching function-local identity"
+recursive_statements = ["block", "do-while", "for initializer, update, and body", "if/else", "lock", "statement sequence", "switch", "sub-switch", "try/catch", "while"]
+assembly_namespace = "structural brace-block definitions can satisfy a language goto"
+assembly_definition_use = "one source-compatible use suppresses the ordinary unused-label warning"
+repeated_assembly_definitions = "retained with a definition count; output-address equality remains issue 174"
+top_level_language_occurrences = "rejected before mutation"
+missing_language_targets = "rejected before mutation"
+duplicate_definitions = "duplicate language and mixed language/assembly definitions are rejected before mutation"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included canonical source"]
+pre_mutation_validation = "function ownership, AST association, ordering, definition completeness, and existing label identities are checked before insertion"
+assembly_operand_references = "not implemented"
+assembly_address_validation = "not implemented; issue 174"
+direct_assembly_labels = "not implemented"
+unused_label_warnings = "not implemented"
+global_object_collision_checks = "not implemented"
+control_flow_and_ir = "not implemented"
+native_oracle_status = "not required for this identity boundary; PrsStmt, COCGoToLabelFind, COCDel, and Asm.HC state the namespace, use count, and definition behavior directly"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"

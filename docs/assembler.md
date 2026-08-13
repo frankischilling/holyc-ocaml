@@ -26,6 +26,8 @@ Tokens are classified without rewriting their source spelling:
 
 Leading `name:`, `name::`, and `@@name:` pairs are also recorded as ordinary global, exported global, and local labels. Their source tokens stay in the line rather than disappearing into the label annotation. Includes and definition expansions retain their canonical source, invocation site, and definition site in both AST dump formats.
 
+When a block appears in a collected function, `Driver.Label_resolution` adds all three structural forms to the function's semantic label batch. `Compiler/Asm.HC:1081-1091` places the corresponding native record in the code-control namespace used by language `goto`, so the OCaml pass lets a language goto bind to the same stable identity. It also records the source-compatible warning-suppression use on an assembly definition. A repeated assembly spelling remains provisional: `Compiler/Asm.HC:1032-1062` accepts it only when both definitions have the same output address. Issue #174 tracks that layout-dependent check, along with local assembler scope. Operand references, direct-assembly labels, fixups, and emitted `IC_LABEL` operations remain unimplemented.
+
 The checked inventory in `reference/assembly-blocks.json` lists every brace-delimited block found by a raw-token scan of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. At the pinned commit it contains 45 blocks in 40 files: 39 at brace depth zero and six nested inside another source block. Focused tests parse the top-level and function-local blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC`. `HCPARSE0145` reports a missing opening brace, and `HCPARSE0146` reports an unterminated block.
 
 ## Function-local direct assembly
