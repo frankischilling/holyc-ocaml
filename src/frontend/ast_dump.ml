@@ -719,8 +719,13 @@ let rec print_statement buffer sources ~indent = function
                 (location_text sources initial_value.local_initializer_location);
               Printf.bprintf buffer "%s  equals span=%s\n" declarator_indent
                 (location_text sources initial_value.local_initializer_equals);
-              print_expression buffer sources ~indent:(declarator_indent ^ "  ")
-                initial_value.local_initializer_value)
+              match initial_value.local_initializer_value with
+              | Ast.Scalar_initializer expression ->
+                  print_expression buffer sources
+                    ~indent:(declarator_indent ^ "  ") expression
+              | Ast.Braced_initializer _ as value ->
+                  print_initializer buffer sources
+                    ~indent:(declarator_indent ^ "  ") value)
             declarator.local_initializer;
           Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
             declarator_indent
@@ -1968,15 +1973,20 @@ let rec statement_to_yojson sources = function
             ("location", location_to_yojson sources dimension.location);
           ]
       in
-      let initializer_to_yojson (initial_value : Ast.local_initializer) =
+      let local_initializer_to_yojson (initial_value : Ast.local_initializer) =
+        let value =
+          match initial_value.local_initializer_value with
+          | Ast.Scalar_initializer expression ->
+              expression_to_yojson sources expression
+          | Ast.Braced_initializer _ as value ->
+              initializer_to_yojson sources value
+        in
         `Assoc
           [
             ( "equals",
               location_to_yojson sources initial_value.local_initializer_equals
             );
-            ( "value",
-              expression_to_yojson sources initial_value.local_initializer_value
-            );
+            ("value", value);
             ( "location",
               location_to_yojson sources
                 initial_value.local_initializer_location );
@@ -2006,7 +2016,7 @@ let rec statement_to_yojson sources = function
           @ (match declarator.local_initializer with
             | None -> []
             | Some initial_value ->
-                [ ("initializer", initializer_to_yojson initial_value) ])
+                [ ("initializer", local_initializer_to_yojson initial_value) ])
           @ [
               ( "delimiter",
                 delimiter_to_yojson sources declarator.local_delimiter );

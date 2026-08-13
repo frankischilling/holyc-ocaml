@@ -1,0 +1,1620 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-static-local-initializers.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 59
+    },
+    "items": [
+      {
+        "kind": "function_definition",
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 2
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Configure",
+          "location": {
+            "span": {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 12
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 1,
+                "column": 4,
+                "source_id": 0,
+                "start": 3,
+                "stop": 12
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-static-local-initializers.hc",
+            "line": 1,
+            "column": 13,
+            "source_id": 0,
+            "start": 12,
+            "stop": 13
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 13,
+              "source_id": 0,
+              "start": 12,
+              "stop": 13
+            }
+          ]
+        },
+        "parameters": [],
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-static-local-initializers.hc",
+            "line": 1,
+            "column": 14,
+            "source_id": 0,
+            "start": 13,
+            "stop": 14
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            }
+          ]
+        },
+        "body": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "statement_sequence",
+              "leading_commas": [],
+              "elements": [
+                {
+                  "statement": {
+                    "kind": "local_declaration_statement",
+                    "storage": "static",
+                    "modifiers": [
+                      {
+                        "kind": "static",
+                        "spelling": "static",
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-static-local-initializers.hc",
+                            "line": 3,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 19,
+                            "stop": 25
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 3,
+                              "source_id": 0,
+                              "start": 19,
+                              "stop": 25
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "type": {
+                      "kind": "primitive",
+                      "primitive": "I64",
+                      "spelling": "I64",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 29
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-static-local-initializers.hc",
+                            "line": 3,
+                            "column": 10,
+                            "source_id": 0,
+                            "start": 26,
+                            "stop": 29
+                          }
+                        ]
+                      }
+                    },
+                    "declarators": [
+                      {
+                        "name": {
+                          "spelling": "values",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 14,
+                              "source_id": 0,
+                              "start": 30,
+                              "stop": 36
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 14,
+                                "source_id": 0,
+                                "start": 30,
+                                "stop": 36
+                              }
+                            ]
+                          }
+                        },
+                        "array_dimensions": [
+                          {
+                            "opening_bracket": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 36,
+                                "stop": 37
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 36,
+                                  "stop": 37
+                                }
+                              ]
+                            },
+                            "expression": {
+                              "kind": "integer_literal",
+                              "spelling": "2",
+                              "value": "0x0000000000000002",
+                              "location": {
+                                "span": {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 21,
+                                  "source_id": 0,
+                                  "start": 37,
+                                  "stop": 38
+                                },
+                                "source_segments": [
+                                  {
+                                    "path": "cli/parse-static-local-initializers.hc",
+                                    "line": 3,
+                                    "column": 21,
+                                    "source_id": 0,
+                                    "start": 37,
+                                    "stop": 38
+                                  }
+                                ]
+                              }
+                            },
+                            "closing_bracket": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 22,
+                                "source_id": 0,
+                                "start": 38,
+                                "stop": 39
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 22,
+                                  "source_id": 0,
+                                  "start": 38,
+                                  "stop": 39
+                                }
+                              ]
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 36,
+                                "stop": 39
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 20,
+                                  "source_id": 0,
+                                  "start": 36,
+                                  "stop": 37
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 21,
+                                  "source_id": 0,
+                                  "start": 37,
+                                  "stop": 38
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 22,
+                                  "source_id": 0,
+                                  "start": 38,
+                                  "stop": 39
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "initializer": {
+                          "equals": {
+                            "span": {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 23,
+                              "source_id": 0,
+                              "start": 39,
+                              "stop": 40
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 23,
+                                "source_id": 0,
+                                "start": 39,
+                                "stop": 40
+                              }
+                            ]
+                          },
+                          "value": {
+                            "kind": "braced",
+                            "opening_brace": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 24,
+                                "source_id": 0,
+                                "start": 40,
+                                "stop": 41
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 24,
+                                  "source_id": 0,
+                                  "start": 40,
+                                  "stop": 41
+                                }
+                              ]
+                            },
+                            "elements": [
+                              {
+                                "value": {
+                                  "kind": "scalar",
+                                  "expression": {
+                                    "kind": "integer_literal",
+                                    "spelling": "1",
+                                    "value": "0x0000000000000001",
+                                    "location": {
+                                      "span": {
+                                        "path": "cli/parse-static-local-initializers.hc",
+                                        "line": 3,
+                                        "column": 25,
+                                        "source_id": 0,
+                                        "start": 41,
+                                        "stop": 42
+                                      },
+                                      "source_segments": [
+                                        {
+                                          "path": "cli/parse-static-local-initializers.hc",
+                                          "line": 3,
+                                          "column": 25,
+                                          "source_id": 0,
+                                          "start": 41,
+                                          "stop": 42
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "location": {
+                                    "span": {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 25,
+                                      "source_id": 0,
+                                      "start": 41,
+                                      "stop": 42
+                                    },
+                                    "source_segments": [
+                                      {
+                                        "path": "cli/parse-static-local-initializers.hc",
+                                        "line": 3,
+                                        "column": 25,
+                                        "source_id": 0,
+                                        "start": 41,
+                                        "stop": 42
+                                      }
+                                    ]
+                                  }
+                                },
+                                "comma": {
+                                  "span": {
+                                    "path": "cli/parse-static-local-initializers.hc",
+                                    "line": 3,
+                                    "column": 26,
+                                    "source_id": 0,
+                                    "start": 42,
+                                    "stop": 43
+                                  },
+                                  "source_segments": [
+                                    {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 26,
+                                      "source_id": 0,
+                                      "start": 42,
+                                      "stop": 43
+                                    }
+                                  ]
+                                },
+                                "location": {
+                                  "span": {
+                                    "path": "cli/parse-static-local-initializers.hc",
+                                    "line": 3,
+                                    "column": 25,
+                                    "source_id": 0,
+                                    "start": 41,
+                                    "stop": 43
+                                  },
+                                  "source_segments": [
+                                    {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 25,
+                                      "source_id": 0,
+                                      "start": 41,
+                                      "stop": 42
+                                    },
+                                    {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 26,
+                                      "source_id": 0,
+                                      "start": 42,
+                                      "stop": 43
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "value": {
+                                  "kind": "scalar",
+                                  "expression": {
+                                    "kind": "integer_literal",
+                                    "spelling": "2",
+                                    "value": "0x0000000000000002",
+                                    "location": {
+                                      "span": {
+                                        "path": "cli/parse-static-local-initializers.hc",
+                                        "line": 3,
+                                        "column": 27,
+                                        "source_id": 0,
+                                        "start": 43,
+                                        "stop": 44
+                                      },
+                                      "source_segments": [
+                                        {
+                                          "path": "cli/parse-static-local-initializers.hc",
+                                          "line": 3,
+                                          "column": 27,
+                                          "source_id": 0,
+                                          "start": 43,
+                                          "stop": 44
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "location": {
+                                    "span": {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 27,
+                                      "source_id": 0,
+                                      "start": 43,
+                                      "stop": 44
+                                    },
+                                    "source_segments": [
+                                      {
+                                        "path": "cli/parse-static-local-initializers.hc",
+                                        "line": 3,
+                                        "column": 27,
+                                        "source_id": 0,
+                                        "start": 43,
+                                        "stop": 44
+                                      }
+                                    ]
+                                  }
+                                },
+                                "comma": null,
+                                "location": {
+                                  "span": {
+                                    "path": "cli/parse-static-local-initializers.hc",
+                                    "line": 3,
+                                    "column": 27,
+                                    "source_id": 0,
+                                    "start": 43,
+                                    "stop": 44
+                                  },
+                                  "source_segments": [
+                                    {
+                                      "path": "cli/parse-static-local-initializers.hc",
+                                      "line": 3,
+                                      "column": 27,
+                                      "source_id": 0,
+                                      "start": 43,
+                                      "stop": 44
+                                    }
+                                  ]
+                                }
+                              }
+                            ],
+                            "closing_brace": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 28,
+                                "source_id": 0,
+                                "start": 44,
+                                "stop": 45
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 28,
+                                  "source_id": 0,
+                                  "start": 44,
+                                  "stop": 45
+                                }
+                              ]
+                            },
+                            "location": {
+                              "span": {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 24,
+                                "source_id": 0,
+                                "start": 40,
+                                "stop": 45
+                              },
+                              "source_segments": [
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 24,
+                                  "source_id": 0,
+                                  "start": 40,
+                                  "stop": 41
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 25,
+                                  "source_id": 0,
+                                  "start": 41,
+                                  "stop": 42
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 26,
+                                  "source_id": 0,
+                                  "start": 42,
+                                  "stop": 43
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 27,
+                                  "source_id": 0,
+                                  "start": 43,
+                                  "stop": 44
+                                },
+                                {
+                                  "path": "cli/parse-static-local-initializers.hc",
+                                  "line": 3,
+                                  "column": 28,
+                                  "source_id": 0,
+                                  "start": 44,
+                                  "stop": 45
+                                }
+                              ]
+                            }
+                          },
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 23,
+                              "source_id": 0,
+                              "start": 39,
+                              "stop": 45
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 23,
+                                "source_id": 0,
+                                "start": 39,
+                                "stop": 40
+                              },
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 24,
+                                "source_id": 0,
+                                "start": 40,
+                                "stop": 41
+                              },
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 25,
+                                "source_id": 0,
+                                "start": 41,
+                                "stop": 42
+                              },
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 26,
+                                "source_id": 0,
+                                "start": 42,
+                                "stop": 43
+                              },
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 27,
+                                "source_id": 0,
+                                "start": 43,
+                                "stop": 44
+                              },
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 28,
+                                "source_id": 0,
+                                "start": 44,
+                                "stop": 45
+                              }
+                            ]
+                          }
+                        },
+                        "delimiter": {
+                          "kind": "semicolon",
+                          "spelling": ";",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 29,
+                              "source_id": 0,
+                              "start": 45,
+                              "stop": 46
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-static-local-initializers.hc",
+                                "line": 3,
+                                "column": 29,
+                                "source_id": 0,
+                                "start": 45,
+                                "stop": 46
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-static-local-initializers.hc",
+                            "line": 3,
+                            "column": 14,
+                            "source_id": 0,
+                            "start": 30,
+                            "stop": 46
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 14,
+                              "source_id": 0,
+                              "start": 30,
+                              "stop": 36
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 36,
+                              "stop": 37
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 21,
+                              "source_id": 0,
+                              "start": 37,
+                              "stop": 38
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 22,
+                              "source_id": 0,
+                              "start": 38,
+                              "stop": 39
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 23,
+                              "source_id": 0,
+                              "start": 39,
+                              "stop": 40
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 24,
+                              "source_id": 0,
+                              "start": 40,
+                              "stop": 41
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 25,
+                              "source_id": 0,
+                              "start": 41,
+                              "stop": 42
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 26,
+                              "source_id": 0,
+                              "start": 42,
+                              "stop": 43
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 27,
+                              "source_id": 0,
+                              "start": 43,
+                              "stop": 44
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 28,
+                              "source_id": 0,
+                              "start": 44,
+                              "stop": 45
+                            },
+                            {
+                              "path": "cli/parse-static-local-initializers.hc",
+                              "line": 3,
+                              "column": 29,
+                              "source_id": 0,
+                              "start": 45,
+                              "stop": 46
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 46
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 19,
+                          "stop": 25
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 10,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 29
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 36
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 36,
+                          "stop": 37
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 21,
+                          "source_id": 0,
+                          "start": 37,
+                          "stop": 38
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 22,
+                          "source_id": 0,
+                          "start": 38,
+                          "stop": 39
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 23,
+                          "source_id": 0,
+                          "start": 39,
+                          "stop": 40
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 24,
+                          "source_id": 0,
+                          "start": 40,
+                          "stop": 41
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 41,
+                          "stop": 42
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 26,
+                          "source_id": 0,
+                          "start": 42,
+                          "stop": 43
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 27,
+                          "source_id": 0,
+                          "start": 43,
+                          "stop": 44
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 28,
+                          "source_id": 0,
+                          "start": 44,
+                          "stop": 45
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 3,
+                          "column": 29,
+                          "source_id": 0,
+                          "start": 45,
+                          "stop": 46
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-static-local-initializers.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 19,
+                      "stop": 46
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 19,
+                        "stop": 25
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 10,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 29
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 14,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 36
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 36,
+                        "stop": 37
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 21,
+                        "source_id": 0,
+                        "start": 37,
+                        "stop": 38
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 22,
+                        "source_id": 0,
+                        "start": 38,
+                        "stop": 39
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 23,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 40
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 40,
+                        "stop": 41
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 41,
+                        "stop": 42
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 26,
+                        "source_id": 0,
+                        "start": 42,
+                        "stop": 43
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 27,
+                        "source_id": 0,
+                        "start": 43,
+                        "stop": 44
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 28,
+                        "source_id": 0,
+                        "start": 44,
+                        "stop": 45
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 3,
+                        "column": 29,
+                        "source_id": 0,
+                        "start": 45,
+                        "stop": 46
+                      }
+                    ]
+                  }
+                },
+                {
+                  "statement": {
+                    "kind": "expression_statement",
+                    "expression": {
+                      "kind": "identifier",
+                      "spelling": "values",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 55
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-static-local-initializers.hc",
+                            "line": 4,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 49,
+                            "stop": 55
+                          }
+                        ]
+                      }
+                    },
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 4,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 55,
+                        "stop": 56
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 4,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 55,
+                          "stop": 56
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 56
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 49,
+                          "stop": 55
+                        },
+                        {
+                          "path": "cli/parse-static-local-initializers.hc",
+                          "line": 4,
+                          "column": 9,
+                          "source_id": 0,
+                          "start": 55,
+                          "stop": 56
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-static-local-initializers.hc",
+                      "line": 4,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 49,
+                      "stop": 56
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 49,
+                        "stop": 55
+                      },
+                      {
+                        "path": "cli/parse-static-local-initializers.hc",
+                        "line": 4,
+                        "column": 9,
+                        "source_id": 0,
+                        "start": 55,
+                        "stop": 56
+                      }
+                    ]
+                  }
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-static-local-initializers.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 19,
+                  "stop": 56
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 19,
+                    "stop": 25
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 29
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 36
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 36,
+                    "stop": 37
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 21,
+                    "source_id": 0,
+                    "start": 37,
+                    "stop": 38
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 22,
+                    "source_id": 0,
+                    "start": 38,
+                    "stop": 39
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 23,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 40
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 40,
+                    "stop": 41
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 41,
+                    "stop": 42
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 26,
+                    "source_id": 0,
+                    "start": 42,
+                    "stop": 43
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 27,
+                    "source_id": 0,
+                    "start": 43,
+                    "stop": 44
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 28,
+                    "source_id": 0,
+                    "start": 44,
+                    "stop": 45
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 3,
+                    "column": 29,
+                    "source_id": 0,
+                    "start": 45,
+                    "stop": 46
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 49,
+                    "stop": 55
+                  },
+                  {
+                    "path": "cli/parse-static-local-initializers.hc",
+                    "line": 4,
+                    "column": 9,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 56
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 57,
+                "stop": 58
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 15,
+              "stop": 58
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 15,
+                "stop": 16
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 19,
+                "stop": 25
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 10,
+                "source_id": 0,
+                "start": 26,
+                "stop": 29
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 14,
+                "source_id": 0,
+                "start": 30,
+                "stop": 36
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 20,
+                "source_id": 0,
+                "start": 36,
+                "stop": 37
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 21,
+                "source_id": 0,
+                "start": 37,
+                "stop": 38
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 22,
+                "source_id": 0,
+                "start": 38,
+                "stop": 39
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 23,
+                "source_id": 0,
+                "start": 39,
+                "stop": 40
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 24,
+                "source_id": 0,
+                "start": 40,
+                "stop": 41
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 25,
+                "source_id": 0,
+                "start": 41,
+                "stop": 42
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 26,
+                "source_id": 0,
+                "start": 42,
+                "stop": 43
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 27,
+                "source_id": 0,
+                "start": 43,
+                "stop": 44
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 28,
+                "source_id": 0,
+                "start": 44,
+                "stop": 45
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 3,
+                "column": 29,
+                "source_id": 0,
+                "start": 45,
+                "stop": 46
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 49,
+                "stop": 55
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 4,
+                "column": 9,
+                "source_id": 0,
+                "start": 55,
+                "stop": 56
+              },
+              {
+                "path": "cli/parse-static-local-initializers.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 57,
+                "stop": 58
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-static-local-initializers.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 58
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 13,
+              "source_id": 0,
+              "start": 12,
+              "stop": 13
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 14
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 15,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 19,
+              "stop": 25
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 10,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 14,
+              "source_id": 0,
+              "start": 30,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 20,
+              "source_id": 0,
+              "start": 36,
+              "stop": 37
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 21,
+              "source_id": 0,
+              "start": 37,
+              "stop": 38
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 22,
+              "source_id": 0,
+              "start": 38,
+              "stop": 39
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 23,
+              "source_id": 0,
+              "start": 39,
+              "stop": 40
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 24,
+              "source_id": 0,
+              "start": 40,
+              "stop": 41
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 25,
+              "source_id": 0,
+              "start": 41,
+              "stop": 42
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 26,
+              "source_id": 0,
+              "start": 42,
+              "stop": 43
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 27,
+              "source_id": 0,
+              "start": 43,
+              "stop": 44
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 28,
+              "source_id": 0,
+              "start": 44,
+              "stop": 45
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 3,
+              "column": 29,
+              "source_id": 0,
+              "start": 45,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 49,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 4,
+              "column": 9,
+              "source_id": 0,
+              "start": 55,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-static-local-initializers.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 57,
+              "stop": 58
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

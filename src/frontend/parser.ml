@@ -65,6 +65,10 @@ type parsed_array_dimension = {
 
 type parsed_initializer = { node : Ast.initial_value; tokens : Token.t list }
 
+type initializer_declarator_context =
+  | Global_initializer_declarator
+  | Static_local_initializer_declarator of statement_boundary
+
 type parsed_aggregate_member_declarator = {
   node : Ast.aggregate_member_declarator;
   tokens : Token.t list;
@@ -421,6 +425,25 @@ let rec recover_statement cursor ~boundary =
   | _ ->
       ignore (take cursor);
       recover_statement cursor ~boundary
+
+let recover_static_initializer cursor ~boundary ~open_braces =
+  let rec skip open_braces =
+    if open_braces = 0 then recover_statement cursor ~boundary
+    else
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Eof -> ()
+      | Token_kind.Punctuation '{' ->
+          ignore (take cursor);
+          skip (open_braces + 1)
+      | Token_kind.Punctuation '}' ->
+          ignore (take cursor);
+          skip (open_braces - 1)
+      | _ ->
+          ignore (take cursor);
+          skip open_braces
+  in
+  skip open_braces
 
 let recover_switch_tail cursor ~boundary =
   let rec skip_body depth =
@@ -2187,29 +2210,58 @@ let rec parse_array_dimensions cursor index dimensions_rev token_groups_rev =
           (dimension.node :: dimensions_rev)
           (dimension.tokens :: token_groups_rev)
 
-let initializer_failure ?(secondary = []) cursor item ~code ~message =
-  declaration_failure ~secondary cursor item ~code ~message
+let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
+    ~declarator_context item ~global_code ~local_code ~global_message
+    ~local_message =
+  match declarator_context with
+  | Global_initializer_declarator ->
+      declaration_failure ~secondary cursor item ~code:global_code
+        ~message:global_message
+  | Static_local_initializer_declarator boundary ->
+      report ~secondary cursor item ~code:local_code ~message:local_message;
+      recover_static_initializer cursor ~boundary ~open_braces:local_open_braces;
+      None
 
-let rec parse_initializer_value cursor ~depth : parsed_initializer option =
+let rec parse_initializer_value cursor ~declarator_context ~depth :
+    parsed_initializer option =
   let item = peek cursor in
   if depth >= max_initializer_depth then
-    initializer_failure cursor item ~code:"HCPARSE0130"
-      ~message:
+    initializer_failure cursor ~declarator_context item
+      ~local_open_braces:depth
+      ~global_code:"HCPARSE0130" ~local_code:"HCPARSE0141"
+      ~global_message:
         (Printf.sprintf
            "global initializer nesting exceeds the hosted limit of %d"
            max_initializer_depth)
+      ~local_message:
+        (Printf.sprintf
+           "static local initializer nesting exceeds the hosted limit of %d"
+           max_initializer_depth)
   else
     match item.token.kind with
-    | Token_kind.Punctuation '{' -> parse_braced_initializer cursor ~depth
+    | Token_kind.Punctuation '{' ->
+        parse_braced_initializer cursor ~declarator_context ~depth
     | Token_kind.Punctuation (';' | ',' | '}') | Token_kind.Eof ->
-        initializer_failure cursor item ~code:"HCPARSE0127"
-          ~message:
+        initializer_failure cursor ~declarator_context item
+          ~local_open_braces:depth
+          ~global_code:"HCPARSE0127" ~local_code:"HCPARSE0138"
+          ~global_message:
             (Printf.sprintf "expected a global initializer value, but found %s"
                (token_description item.token))
+          ~local_message:
+            (Printf.sprintf
+               "expected a static local initializer value, but found %s"
+               (token_description item.token))
     | _ -> (
+        let expression_context =
+          match declarator_context with
+          | Global_initializer_declarator -> Global_initializer_expression
+          | Static_local_initializer_declarator _ ->
+              Local_initializer_expression
+        in
         match
-          parse_expression cursor ~context:Global_initializer_expression
-            ~depth:0 ~minimum_binding_power:0
+          parse_expression cursor ~context:expression_context ~depth:0
+            ~minimum_binding_power:0
         with
         | None -> None
         | Some expression ->
@@ -2219,7 +2271,8 @@ let rec parse_initializer_value cursor ~depth : parsed_initializer option =
                 tokens = expression.tokens;
               })
 
-and parse_braced_initializer cursor ~depth : parsed_initializer option =
+and parse_braced_initializer cursor ~declarator_context ~depth :
+    parsed_initializer option =
   let opening_item = take cursor in
   let opening_brace = token_location opening_item.token in
   let rec parse_elements elements_rev token_groups_rev :
@@ -2241,7 +2294,9 @@ and parse_braced_initializer cursor ~depth : parsed_initializer option =
         in
         Some ({ node; tokens } : parsed_initializer)
     | Token_kind.Eof ->
-        initializer_failure cursor item ~code:"HCPARSE0129"
+        initializer_failure cursor ~declarator_context item
+          ~local_open_braces:(depth + 1)
+          ~global_code:"HCPARSE0129" ~local_code:"HCPARSE0140"
           ~secondary:
             [
               ({
@@ -2250,9 +2305,13 @@ and parse_braced_initializer cursor ~depth : parsed_initializer option =
                }
                 : Common.Diagnostic.related);
             ]
-          ~message:"expected '}' to close the global initializer list"
+          ~global_message:"expected '}' to close the global initializer list"
+          ~local_message:
+            "expected '}' to close the static local initializer list"
     | _ -> (
-        match parse_initializer_value cursor ~depth:(depth + 1) with
+        match
+          parse_initializer_value cursor ~declarator_context ~depth:(depth + 1)
+        with
         | None -> None
         | Some value ->
             let following_item = peek cursor in
@@ -2266,11 +2325,18 @@ and parse_braced_initializer cursor ~depth : parsed_initializer option =
               | _ -> (None, [])
             in
             if element_tokens = [] then
-              initializer_failure cursor following_item ~code:"HCPARSE0128"
-                ~message:
+              initializer_failure cursor ~declarator_context following_item
+                ~local_open_braces:(depth + 1)
+                ~global_code:"HCPARSE0128" ~local_code:"HCPARSE0139"
+                ~global_message:
                   (Printf.sprintf
                      "expected ',' or '}' after a global initializer element, \
                       but found %s"
+                     (token_description following_item.token))
+                ~local_message:
+                  (Printf.sprintf
+                     "expected ',' or '}' after a static local initializer \
+                      element, but found %s"
                      (token_description following_item.token))
             else
               let element =
@@ -2287,7 +2353,10 @@ let parse_global_initializer cursor =
   if equals_item.token.kind <> Token_kind.Punctuation '=' then Some (None, [])
   else
     let equals_item = take cursor in
-    match parse_initializer_value cursor ~depth:0 with
+    match
+      parse_initializer_value cursor
+        ~declarator_context:Global_initializer_declarator ~depth:0
+    with
     | None -> None
     | Some value ->
         let tokens = equals_item.token :: value.tokens in
@@ -3839,8 +3908,8 @@ let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
         (item.token :: tokens_rev)
   | _ -> (List.rev nodes_rev, List.rev tokens_rev)
 
-let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
-    ~qualifier_tokens : parsed_local_declarator option =
+let parse_local_declarator cursor ~boundary ~storage ~base_spelling
+    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
   match
     parse_pointer_layers_with_recovery cursor
       ~recover:(fun cursor -> recover_statement cursor ~boundary)
@@ -3902,6 +3971,22 @@ let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
                           its declaration; declare it first and assign it in a \
                           following statement"
                          name.spelling)
+                else if storage = Ast.Static_local then
+                  let equals_item = take cursor in
+                  Option.map
+                    (fun (value : parsed_initializer) ->
+                      let tokens = equals_item.token :: value.tokens in
+                      let initial_value =
+                        Ast.make_local_initializer
+                          ~equals:(token_location equals_item.token)
+                          ~value:value.node
+                          ~location:(location_from_expression_tokens tokens)
+                      in
+                      (Some initial_value, tokens))
+                    (parse_initializer_value cursor
+                       ~declarator_context:
+                         (Static_local_initializer_declarator boundary)
+                       ~depth:0)
                 else
                   let equals_item = take cursor in
                   let value_item = peek cursor in
@@ -3917,12 +4002,12 @@ let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
                               %S, but found %s"
                              name.spelling
                              (token_description value_item.token))
-                  | Token_kind.Punctuation '{' ->
-                      local_declaration_failure cursor ~boundary value_item
-                        ~code:"HCPARSE0104"
-                        ~message:
-                          "aggregate local initializers are not implemented in \
-                           this parser slice"
+                   | Token_kind.Punctuation '{' ->
+                       local_declaration_failure cursor ~boundary value_item
+                         ~code:"HCPARSE0104"
+                         ~message:
+                           "braced initializers are not accepted on automatic \
+                            local declarations by the pinned parser"
                   | _ -> (
                       match
                         parse_expression cursor
@@ -3932,11 +4017,11 @@ let parse_local_declarator cursor ~boundary ~base_spelling ~register_qualifiers
                       | None -> None
                       | Some (value : parsed_expression) ->
                           let tokens = equals_item.token :: value.tokens in
-                          let initial_value =
-                            Ast.make_local_initializer
-                              ~equals:(token_location equals_item.token)
-                              ~value:value.node
-                              ~location:(location_from_expression_tokens tokens)
+                           let initial_value =
+                             Ast.make_local_initializer
+                               ~equals:(token_location equals_item.token)
+                               ~value:(Ast.Scalar_initializer value.node)
+                               ~location:(location_from_expression_tokens tokens)
                           in
                           Some (Some initial_value, tokens))
               in
@@ -4009,8 +4094,8 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
                declarations by the pinned parser"
         else
           match
-            parse_local_declarator cursor ~boundary ~base_spelling:spelling
-              ~register_qualifiers:qualifiers.nodes
+            parse_local_declarator cursor ~boundary ~storage
+              ~base_spelling:spelling ~register_qualifiers:qualifiers.nodes
               ~qualifier_tokens:qualifiers.tokens
           with
           | None -> None

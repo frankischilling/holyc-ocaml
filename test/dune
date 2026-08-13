@@ -1340,6 +1340,89 @@
 
 (rule
  (alias runtest)
+ (targets parse-static-local-initializers.human.actual)
+ (deps
+  cli/parse-static-local-initializers.hc
+  cli/parse-static-local-initializers.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-static-local-initializers.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-static-local-initializers.hc))
+   (diff
+    cli/parse-static-local-initializers.human
+    parse-static-local-initializers.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-static-local-initializers.json.actual)
+ (deps
+  cli/parse-static-local-initializers.hc
+  cli/parse-static-local-initializers.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-static-local-initializers.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-static-local-initializers.hc))
+   (diff
+    cli/parse-static-local-initializers.json
+    parse-static-local-initializers.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-static-local-initializer-error.human.actual
+  parse-static-local-initializer-error.human.stdout.actual)
+ (deps
+  cli/parse-static-local-initializer-error.hc
+  cli/parse-static-local-initializer-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-static-local-initializer-error.human.stdout.actual
+    (with-stderr-to
+     parse-static-local-initializer-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-static-local-initializer-error.hc))))
+   (diff
+    cli/parse-static-local-initializer-error.human
+    parse-static-local-initializer-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-static-local-initializer-error.json.actual
+  parse-static-local-initializer-error.json.stdout.actual)
+ (deps
+  cli/parse-static-local-initializer-error.hc
+  cli/parse-static-local-initializer-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-static-local-initializer-error.json.stdout.actual
+    (with-stderr-to
+     parse-static-local-initializer-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-static-local-initializer-error.hc))))
+   (diff
+    cli/parse-static-local-initializer-error.json
+    parse-static-local-initializer-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-function-pointer-global.human.actual)
  (deps
   cli/parse-function-pointer-global.hc

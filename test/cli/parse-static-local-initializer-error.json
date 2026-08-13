@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0139",
+    "severity": "error",
+    "message": "expected ',' or '}' after a static local initializer element, but found \"2\"",
+    "primary": {
+      "path": "cli/parse-static-local-initializer-error.hc",
+      "line": 3,
+      "column": 27,
+      "source_id": 0,
+      "start": 40,
+      "stop": 41
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

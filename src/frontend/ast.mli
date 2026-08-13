@@ -476,7 +476,7 @@ type local_storage = Automatic_local | Static_local
 
 type local_initializer = private {
   local_initializer_equals : location;
-  local_initializer_value : expression;
+  local_initializer_value : initial_value;
   local_initializer_location : location;
 }
 
@@ -1079,7 +1079,7 @@ val make_expression_statement :
   expression_statement
 
 val make_local_initializer :
-  equals:location -> value:expression -> location:location -> local_initializer
+  equals:location -> value:initial_value -> location:location -> local_initializer
 
 val make_local_declarator :
   register_qualifiers:register_qualifier list ->
