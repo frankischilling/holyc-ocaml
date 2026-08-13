@@ -343,9 +343,47 @@ type global_initializer = private {
   global_initializer_location : location;
 }
 
+type lastclass_default = private {
+  lastclass_spelling : string;
+  lastclass_location : location;
+}
+
+type parameter_default_value =
+  | Expression_default of expression
+  | Lastclass_default of lastclass_default
+
+type parameter_default = private {
+  equals : location;
+  value : parameter_default_value;
+  location : location;
+}
+
+type function_parameter = private {
+  register_qualifiers : register_qualifier list;
+  type_specifier : type_specifier;
+  pointer_layers : pointer_layer list;
+  name : identifier option;
+  function_pointer : function_pointer_declarator option;
+  default : parameter_default option;
+  delimiter : declaration_delimiter option;
+  location : location;
+}
+
+and function_pointer_declarator = private {
+  declarator_opening_parenthesis : location;
+  indirection_layers : pointer_layer list;
+  declarator_closing_parenthesis : location;
+  signature_opening_parenthesis : location;
+  signature_parameters : function_parameter list;
+  signature_variadic : variadic_marker option;
+  signature_closing_parenthesis : location;
+  function_pointer_location : location;
+}
+
 type global_declarator = private {
   pointer_layers : pointer_layer list;
   name : identifier;
+  function_pointer : function_pointer_declarator option;
   array_dimensions : array_dimension list;
   global_initial_value : global_initializer option;
   delimiter : declaration_delimiter;
@@ -385,43 +423,6 @@ type global_declaration = private {
   type_specifier : type_specifier;
   declarators : global_declarator list;
   location : location;
-}
-
-type lastclass_default = private {
-  lastclass_spelling : string;
-  lastclass_location : location;
-}
-
-type parameter_default_value =
-  | Expression_default of expression
-  | Lastclass_default of lastclass_default
-
-type parameter_default = private {
-  equals : location;
-  value : parameter_default_value;
-  location : location;
-}
-
-type function_parameter = private {
-  register_qualifiers : register_qualifier list;
-  type_specifier : type_specifier;
-  pointer_layers : pointer_layer list;
-  name : identifier option;
-  function_pointer : function_pointer_declarator option;
-  default : parameter_default option;
-  delimiter : declaration_delimiter option;
-  location : location;
-}
-
-and function_pointer_declarator = private {
-  declarator_opening_parenthesis : location;
-  indirection_layers : pointer_layer list;
-  declarator_closing_parenthesis : location;
-  signature_opening_parenthesis : location;
-  signature_parameters : function_parameter list;
-  signature_variadic : variadic_marker option;
-  signature_closing_parenthesis : location;
-  function_pointer_location : location;
 }
 
 type function_prototype = private {
@@ -829,6 +830,7 @@ val make_global_initializer :
 val make_global_declarator :
   pointer_layers:pointer_layer list ->
   name:identifier ->
+  function_pointer:function_pointer_declarator option ->
   array_dimensions:array_dimension list ->
   initial_value:global_initializer option ->
   delimiter:declaration_delimiter ->

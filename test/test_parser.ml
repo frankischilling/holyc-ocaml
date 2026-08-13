@@ -192,6 +192,11 @@ let expect_function_pointer (parameter : Ast.function_parameter) =
   | Some function_pointer -> function_pointer
   | None -> Alcotest.fail "expected a function-pointer parameter"
 
+let expect_global_function_pointer (declarator : Ast.global_declarator) =
+  match declarator.function_pointer with
+  | Some function_pointer -> function_pointer
+  | None -> Alcotest.fail "expected a function-pointer global"
+
 let expect_parameter_default (parameter : Ast.function_parameter) =
   match parameter.default with
   | Some default -> default
@@ -648,7 +653,6 @@ let pointer_failures () =
   let cases =
     [
       ("excessive depth", "I64 *****value;", "HCPARSE0004");
-      ("function pointer", "I64 (*function)();", "HCPARSE0005");
       ("missing name", "I64 *;", "HCPARSE0002");
       ("missing semicolon", "I64 *value", "HCPARSE0003");
     ]
@@ -7328,6 +7332,422 @@ let function_prototype_source_behavior () =
   Alcotest.(check bool)
     "ordinary parameterless prototype" true
     (contains compiler_api "extern U8 *CmdLinePmt();")
+
+let function_pointer_global_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ( "global callback uses the shared declarator branch",
+        "if (cc->token=='(') {" );
+      ("callback signature is retained", "if (_fun_ptr)\t*_fun_ptr=fun_ptr;");
+      ( "array dimensions follow the callback signature",
+        "PrsArrayDims(cc,mode,tmpad);" );
+    ];
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("callback globals use pointer-sized storage", "j=sizeof(U8 *);");
+      ("callback globals retain their signature", "tmpg->fun_ptr=tmpf_fun_ptr;");
+      ("callback globals receive the function flag", "tmpg->flags|=GVF_FUN;");
+      ("comma groups restart the saved type", "if (cc->token==',')");
+    ];
+  List.iter
+    (fun (path, fragments) ->
+      let source = pinned path in
+      List.iter
+        (fun fragment ->
+          Alcotest.(check bool)
+            (path ^ " contains " ^ fragment)
+            true (contains source fragment))
+        fragments)
+    [
+      ( "Kernel/KGlbls.HC",
+        [
+          "U8  *(*fp_getstr2)(I64 flags=0);";
+          "U0 (*fp_update_ctrls)(CTask *task);";
+          "CDoc *(*fp_doc_put)(CTask *task=NULL);";
+          "U0 (*fp_set_std_palette)();";
+        ] );
+      ( "Kernel/KernelC.HH",
+        [
+          "extern CDoc *(*fp_doc_put)(CTask *task=NULL);";
+          "extern U0 (*fp_set_std_palette)();";
+          "extern U8  *(*fp_getstr2)(I64 flags=0);";
+          "extern U0 (*fp_update_ctrls)(CTask *task);";
+        ] );
+      ("Adam/ABlkDev/FileMgr.HC", [ "U0 (*fp_old_final_scrn_update)(CDC *dc);" ]);
+      ( "Demo/Graphics/WallPaperFish.HC",
+        [ "U0 (*old_wall_paper)(CTask *task);" ] );
+    ]
+
+let pinned_function_pointer_globals () =
+  let forwards = "extern class CTask;\nextern class CDoc;\n" in
+  let definitions =
+    forwards ^ pinned_lines "Kernel/KGlbls.HC" ~first:32 ~last:35
+  in
+  let externs =
+    forwards
+    ^ String.concat "\n"
+        [
+          "extern CDoc *(*fp_doc_put)(CTask *task=NULL);";
+          "extern U0 (*fp_set_std_palette)();";
+          "extern U8  *(*fp_getstr2)(I64 flags=0);";
+          "extern U0 (*fp_update_ctrls)(CTask *task);";
+        ]
+  in
+  let check_source ~bound source compilation_mode =
+    let _, _, output =
+      parse_string ~path:"Kernel/function-pointer-globals.HC" ~compilation_mode
+        source
+    in
+    let declarations =
+      (expect_ast output).items
+      |> List.filter_map (function
+        | Ast.Global_declaration declaration -> Some declaration
+        | Ast.Aggregate_forward_declaration _ -> None
+        | _ -> Alcotest.fail "pinned callback slice produced another item")
+    in
+    Alcotest.(check int) "four callback globals" 4 (List.length declarations);
+    let declarators =
+      List.map
+        (fun (declaration : Ast.global_declaration) ->
+          Alcotest.(check bool)
+            "binding presence" bound
+            (Option.is_some declaration.binding);
+          match declaration.declarators with
+          | [ declarator ] -> declarator
+          | items ->
+              Alcotest.failf "expected one callback declarator, got %d"
+                (List.length items))
+        declarations
+    in
+    let expected_names =
+      if bound then
+        [ "fp_doc_put"; "fp_set_std_palette"; "fp_getstr2"; "fp_update_ctrls" ]
+      else
+        [ "fp_getstr2"; "fp_update_ctrls"; "fp_doc_put"; "fp_set_std_palette" ]
+    in
+    Alcotest.(check (list string))
+      "pinned callback names" expected_names
+      (List.map
+         (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+         declarators);
+    let pointers = List.map expect_global_function_pointer declarators in
+    Alcotest.(check (list int))
+      "all pinned globals have one declarator star" [ 1; 1; 1; 1 ]
+      (List.map
+         (fun (pointer : Ast.function_pointer_declarator) ->
+           List.length pointer.indirection_layers)
+         pointers);
+    let arities = if bound then [ 1; 0; 1; 1 ] else [ 1; 1; 1; 0 ] in
+    Alcotest.(check (list int))
+      "pinned callback arities" arities
+      (List.map
+         (fun (pointer : Ast.function_pointer_declarator) ->
+           List.length pointer.signature_parameters)
+         pointers)
+  in
+  List.iter
+    (fun mode ->
+      check_source ~bound:false definitions mode;
+      check_source ~bound:true externs mode)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let direct_function_pointer_globals () =
+  let source =
+    "U8 *(*get)(I64 flags=0,U0 (*done)(I64 value)),(*empty)(),**ordinary;\n\
+     U0 Handler(){}\n\
+     U0 (*initialized)(I64 value)=&Handler;\n\
+     U0 (*callbacks)()[2];\n\
+     class Owner {} (*factory)(I64 value);"
+  in
+  let session, _, output = parse_string source in
+  let ast = expect_ast output in
+  let first_group =
+    match ast.items with
+    | Ast.Global_declaration declaration :: _ -> declaration
+    | _ -> Alcotest.fail "expected a callback declaration group"
+  in
+  let get, empty, ordinary =
+    match first_group.declarators with
+    | [ get; empty; ordinary ] -> (get, empty, ordinary)
+    | declarators ->
+        Alcotest.failf "expected three grouped declarators, got %d"
+          (List.length declarators)
+  in
+  Alcotest.(check int)
+    "return pointer remains outside the callback declarator" 1
+    (List.length get.pointer_layers);
+  let get_pointer = expect_global_function_pointer get in
+  Alcotest.(check int)
+    "callback signature parameter count" 2
+    (List.length get_pointer.signature_parameters);
+  let flags = List.hd get_pointer.signature_parameters in
+  Alcotest.(check bool)
+    "non-trailing callback default is retained" true
+    (Option.is_some flags.default);
+  let done_parameter = List.nth get_pointer.signature_parameters 1 in
+  ignore (expect_function_pointer done_parameter);
+  Alcotest.(check int)
+    "second callback has no return pointer" 0
+    (List.length empty.pointer_layers);
+  ignore (expect_global_function_pointer empty);
+  Alcotest.(check bool)
+    "ordinary declarator stays ordinary" true
+    (Option.is_none ordinary.function_pointer);
+  Alcotest.(check int)
+    "ordinary declarator retains its stars" 2
+    (List.length ordinary.pointer_layers);
+  let initialized =
+    match List.nth ast.items 2 with
+    | Ast.Global_declaration declaration -> List.hd declaration.declarators
+    | _ -> Alcotest.fail "expected the initialized callback global"
+  in
+  ignore (expect_global_function_pointer initialized);
+  ignore (expect_global_initial_value initialized);
+  let callbacks =
+    match List.nth ast.items 3 with
+    | Ast.Global_declaration declaration -> List.hd declaration.declarators
+    | _ -> Alcotest.fail "expected the callback array"
+  in
+  ignore (expect_global_function_pointer callbacks);
+  Alcotest.(check int)
+    "array dimensions follow the callback signature" 1
+    (List.length callbacks.array_dimensions);
+  let owner =
+    match List.nth ast.items 4 with
+    | Ast.Aggregate_definition definition -> definition
+    | _ -> Alcotest.fail "expected the aggregate-attached callback"
+  in
+  let factory = List.hd owner.attached_declarators in
+  ignore (expect_global_function_pointer factory);
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human callback-global dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON callback-global dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies callback globals" true
+    (contains human "function_pointer");
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "declarators" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check string)
+    "JSON callback-global kind" "function_pointer"
+    (json_pointer |> member "kind" |> to_string)
+
+let function_pointer_global_modes_and_visibility () =
+  let source =
+    "U0 (*callback)();\n\
+     #ifdef callback\n\
+     I64 selected;\n\
+     #else\n\
+     Missing rejected;\n\
+     #endif\n\
+     callback;"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, output = parse_string ~compilation_mode source in
+      match (expect_ast output).items with
+      | [
+       Ast.Global_declaration callback;
+       Ast.Global_variable selected;
+       Ast.Top_level_statement statement;
+      ] ->
+          ignore
+            (callback.declarators |> List.hd |> expect_global_function_pointer);
+          Alcotest.(check string)
+            "conditional sees callback global" "selected" selected.name.spelling;
+          let expression = expect_expression_statement statement in
+          Alcotest.(check string)
+            "callback global is an ordinary expression" "callback"
+            (expect_identifier_expression
+               expression.expression_statement_expression)
+              .spelling;
+          let entry =
+            match
+              Symbol_visibility.Environment.find_preprocessor
+                (Session.symbols session) "callback"
+            with
+            | Symbol_visibility.Present entry -> entry
+            | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+                Alcotest.fail "callback global is not visible"
+          in
+          Alcotest.(check string)
+            "callback remains a variable symbol" "global-variable"
+            (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+      | items ->
+          Alcotest.failf "callback visibility fixture produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_pointer_global_provenance () =
+  let source =
+    "#define OPEN (\n\
+     #define STAR *\n\
+     #define NAME generated_callback\n\
+     #define CLOSE )\n\
+     #define SIGNATURE ()\n\
+     U0 OPEN STAR NAME CLOSE SIGNATURE;"
+  in
+  let session, root, output = parse_string source in
+  let declarator =
+    expect_ast output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators
+  in
+  let pointer = expect_global_function_pointer declarator in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps its invocation")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps its definition")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("opening parenthesis", pointer.declarator_opening_parenthesis);
+      ("star", (List.hd pointer.indirection_layers).location);
+      ("name", declarator.name.location);
+      ("declarator close", pointer.declarator_closing_parenthesis);
+      ("signature open", pointer.signature_opening_parenthesis);
+      ("signature close", pointer.signature_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "declarators" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated global callback provenance" true
+    (json_pointer
+    |> member "opening_parenthesis"
+    |> member "defined_at" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let declaration_file = Filename.concat directory "callback.HC" in
+      write_file root_file "#include \"callback\"";
+      write_file declaration_file "U0 (*included_callback)(I64 value);";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        expect_ast include_output |> expect_one_declaration
+        |> fun declaration -> List.hd declaration.declarators
+      in
+      ignore (expect_global_function_pointer included);
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included callback keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
+
+let function_pointer_global_failures () =
+  List.iter
+    (fun (description, source, rejected_name, code, message_fragment) ->
+      let session, _, output = parse_string (source ^ " I64 after;") in
+      Alcotest.(check bool)
+        (description ^ " has no public AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          match
+            Symbol_visibility.Environment.find_preprocessor
+              (Session.symbols session) name
+          with
+          | Symbol_visibility.Absent -> ()
+          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "rejected callback global %s became visible" name)
+        rejected_name;
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present _ -> ()
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not recover to the next declaration"
+            description)
+    [
+      ( "missing declarator star",
+        "U0 (missing_star)();",
+        Some "missing_star",
+        "HCPARSE0131",
+        "expected '*' after '('" );
+      ( "missing global name",
+        "U0 (*)();",
+        None,
+        "HCPARSE0132",
+        "expected a global function-pointer name" );
+      ( "missing declarator close",
+        "U0 (*missing_close();",
+        Some "missing_close",
+        "HCPARSE0131",
+        "expected ')' after function-pointer name" );
+      ( "missing signature opening",
+        "U0 (*missing_signature);",
+        Some "missing_signature",
+        "HCPARSE0131",
+        "expected '(' for function-pointer signature" );
+      ( "fifth declarator star",
+        "U0 (*****too_deep)();",
+        Some "too_deep",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+    ];
+  let rec nested depth =
+    if depth = 0 then "I64 value"
+    else Printf.sprintf "I64 (*level%d)(%s)" depth (nested (depth - 1))
+  in
+  let source = Printf.sprintf "U0 (*too_nested)(%s);" (nested 32) in
+  let session, _, output = parse_string source in
+  Alcotest.(check bool)
+    "excessively nested global has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check string)
+    "global nesting diagnostic" "HCPARSE0017" (first_diagnostic output).code;
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "too_nested"
+  with
+  | Symbol_visibility.Absent -> ()
+  | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "excessively nested callback global became visible"
 
 let function_pointer_parameter_source_behavior () =
   let variable_parser = pinned "Compiler/PrsVar.HC" in
@@ -14542,6 +14962,18 @@ let tests =
       default_expression_failures;
     Alcotest.test_case "function prototype failures" `Quick
       function_prototype_failures;
+    Alcotest.test_case "pinned function-pointer global behavior" `Quick
+      function_pointer_global_source_behavior;
+    Alcotest.test_case "pinned function-pointer globals" `Quick
+      pinned_function_pointer_globals;
+    Alcotest.test_case "function-pointer globals" `Quick
+      direct_function_pointer_globals;
+    Alcotest.test_case "function-pointer global modes and visibility" `Quick
+      function_pointer_global_modes_and_visibility;
+    Alcotest.test_case "function-pointer global provenance" `Quick
+      function_pointer_global_provenance;
+    Alcotest.test_case "function-pointer global failures" `Quick
+      function_pointer_global_failures;
     Alcotest.test_case "pinned function-pointer parameter behavior" `Quick
       function_pointer_parameter_source_behavior;
     Alcotest.test_case "pinned function-pointer prototypes" `Quick
