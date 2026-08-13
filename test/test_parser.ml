@@ -197,6 +197,12 @@ let expect_global_function_pointer (declarator : Ast.global_declarator) =
   | Some function_pointer -> function_pointer
   | None -> Alcotest.fail "expected a function-pointer global"
 
+let expect_member_function_pointer
+    (declarator : Ast.aggregate_member_declarator) =
+  match declarator.member_function_pointer with
+  | Some function_pointer -> function_pointer
+  | None -> Alcotest.fail "expected an aggregate function-pointer member"
+
 let expect_parameter_default (parameter : Ast.function_parameter) =
   match parameter.default with
   | Some default -> default
@@ -2549,10 +2555,6 @@ let aggregate_definition_failures () =
         "class Meta { I64 value format 3; };",
         "HCPARSE0118",
         "metadata" );
-      ( "function pointer member is excluded",
-        "class Callbacks { I64 (*callback)(I64 value); };",
-        "HCPARSE0123",
-        "function-pointer" );
     ];
   let nested_unions = Parser.max_aggregate_depth + 1 in
   let source =
@@ -7332,6 +7334,331 @@ let function_prototype_source_behavior () =
   Alcotest.(check bool)
     "ordinary parameterless prototype" true
     (contains compiler_api "extern U8 *CmdLinePmt();")
+
+let function_pointer_member_source_behavior () =
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains variable_parser fragment))
+    [
+      ( "member parsing retains the callback signature",
+        "&tmpm->fun_ptr,NULL,&tmpm->dim,0" );
+      ("callback members receive the source flag", "tmpm->flags|=MLF_FUN;");
+      ("class handling uses the parsed member class", "case PRS1B_CLASS:");
+    ];
+  let kernel_header = pinned "Kernel/KernelA.HH" in
+  let callback_lines =
+    kernel_header |> String.split_on_char '\n'
+    |> List.filter (fun line -> contains line "(*" && contains line ")(")
+  in
+  Alcotest.(check int)
+    "line-anchored callback member count" 26
+    (List.length callback_lines);
+  List.iter
+    (fun fragment ->
+      Alcotest.(check bool)
+        ("KernelA contains " ^ fragment)
+        true
+        (List.exists (fun line -> contains line fragment) callback_lines))
+    [ "(*derive)"; "*(*tag_cb)"; "(**fp_ctrl_alt_cbs)" ]
+
+let pinned_function_pointer_members () =
+  let definitions ast =
+    List.filter_map
+      (function
+        | Ast.Aggregate_definition definition -> Some definition
+        | _ -> None)
+      ast.Ast.items
+  in
+  let rec callback_declarators members =
+    List.concat_map
+      (function
+        | Ast.Aggregate_member_declaration declaration ->
+            List.filter
+              (fun (declarator : Ast.aggregate_member_declarator) ->
+                Option.is_some declarator.member_function_pointer)
+              declaration.member_declarators
+        | Ast.Anonymous_union_member anonymous_union ->
+            callback_declarators anonymous_union.anonymous_union_members
+        | Ast.Empty_aggregate_member _ -> [])
+      members
+  in
+  let check_slice ~path source expected_names compilation_mode =
+    let _, _, output = parse_string ~path ~compilation_mode source in
+    let names =
+      expect_ast output |> definitions
+      |> List.concat_map (fun definition ->
+          callback_declarators definition.Ast.members)
+      |> List.map (fun declarator -> declarator.Ast.member_name.spelling)
+    in
+    Alcotest.(check (list string))
+      (path ^ " callback member names")
+      expected_names names
+  in
+  let math_ode =
+    "extern class CTask;\nextern class CMass;\nextern class CSpring;\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:251 ~last:289
+  in
+  let doc_entry =
+    "extern class CDocEntryBase;\n\
+     extern class CDoc;\n\
+     extern class CTask;\n\
+     extern class CDocBin;\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:1191 ~last:1220
+    ^ "\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:1222 ~last:1222
+  in
+  let key_devices = pinned_lines "Kernel/KernelA.HH" ~first:3754 ~last:3771 in
+  List.iter
+    (fun compilation_mode ->
+      check_slice ~path:"Kernel/KernelA.HH:251-289" math_ode
+        [ "derive"; "mp_derive" ] compilation_mode;
+      check_slice ~path:"Kernel/KernelA.HH:1191-1222" doc_entry
+        [ "left_cb"; "right_cb"; "tag_cb" ]
+        compilation_mode;
+      check_slice ~path:"Kernel/KernelA.HH:3754-3771" key_devices
+        [ "put_key"; "put_s"; "fp_ctrl_alt_cbs" ]
+        compilation_mode)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let direct_function_pointer_members () =
+  let source =
+    "class CallbackBox {\n\
+     U8 *(*convert)(I64 value=1,U0 (*done)(I64 result));\n\
+     U0 (**handlers)(I64 code),(*empty)();\n\
+     U0 (*table)()[2];\n\
+     U0 (*variadic)(...);\n\
+     union { I64 raw; Bool (*predicate)(I64 value); };\n\
+     };"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, output = parse_string ~compilation_mode source in
+      let definition = expect_ast output |> expect_one_aggregate_definition in
+      Alcotest.(check int) "member groups" 5 (List.length definition.members);
+      let convert =
+        List.nth definition.members 0 |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      Alcotest.(check int)
+        "return pointer remains outside the callback" 1
+        (List.length convert.member_pointer_layers);
+      let convert_pointer = expect_member_function_pointer convert in
+      Alcotest.(check int)
+        "fixed signature parameters" 2
+        (List.length convert_pointer.signature_parameters);
+      let value = List.hd convert_pointer.signature_parameters in
+      ignore (expect_parameter_default value);
+      let done_parameter = List.nth convert_pointer.signature_parameters 1 in
+      ignore (expect_function_pointer done_parameter);
+      let handlers =
+        List.nth definition.members 1 |> expect_aggregate_member_declaration
+      in
+      Alcotest.(check int)
+        "callback member comma group" 2
+        (List.length handlers.member_declarators);
+      let handlers_pointer =
+        List.hd handlers.member_declarators |> expect_member_function_pointer
+      in
+      Alcotest.(check int)
+        "double callback indirection" 2
+        (List.length handlers_pointer.indirection_layers);
+      let table =
+        List.nth definition.members 2 |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      ignore (expect_member_function_pointer table);
+      Alcotest.(check int)
+        "array follows callback signature" 1
+        (List.length table.member_array_dimensions);
+      let variadic =
+        List.nth definition.members 3 |> expect_aggregate_member_declaration
+        |> fun declaration ->
+        List.hd declaration.member_declarators |> expect_member_function_pointer
+      in
+      Alcotest.(check bool)
+        "variadic callback marker" true
+        (Option.is_some variadic.signature_variadic);
+      let anonymous_union =
+        List.nth definition.members 4 |> expect_anonymous_union_member
+      in
+      let predicate =
+        List.nth anonymous_union.anonymous_union_members 1
+        |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      ignore (expect_member_function_pointer predicate);
+      let sources = Session.sources session in
+      let human = Ast_dump.human sources (expect_ast output) in
+      let json = Ast_dump.json sources (expect_ast output) in
+      Alcotest.(check string)
+        "human callback-member dump is deterministic" human
+        (Ast_dump.human sources (expect_ast output));
+      Alcotest.(check string)
+        "JSON callback-member dump is deterministic" json
+        (Ast_dump.json sources (expect_ast output));
+      Alcotest.(check bool)
+        "human dump identifies callback member" true
+        (contains human "function_pointer"))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_pointer_member_provenance () =
+  let source =
+    "#define OPEN (\n\
+     #define STAR *\n\
+     #define NAME generated_member\n\
+     #define CLOSE )\n\
+     #define SIGNATURE ()\n\
+     class Generated { U0 OPEN STAR NAME CLOSE SIGNATURE; };"
+  in
+  let session, root, output = parse_string source in
+  let declarator =
+    expect_ast output |> expect_one_aggregate_definition |> fun definition ->
+    List.hd definition.members |> expect_aggregate_member_declaration
+    |> fun declaration -> List.hd declaration.member_declarators
+  in
+  let pointer = expect_member_function_pointer declarator in
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " uses generated source")
+        false
+        (Source_id.equal location.span.source (Source_file.id root));
+      Alcotest.(check bool)
+        (description ^ " keeps its invocation")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps its definition")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("opening parenthesis", pointer.declarator_opening_parenthesis);
+      ("star", (List.hd pointer.indirection_layers).location);
+      ("name", declarator.member_name.location);
+      ("declarator close", pointer.declarator_closing_parenthesis);
+      ("signature open", pointer.signature_opening_parenthesis);
+      ("signature close", pointer.signature_closing_parenthesis);
+    ];
+  let open Yojson.Safe.Util in
+  let json_pointer =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "members" |> to_list |> List.hd |> member "declarators" |> to_list
+    |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check string)
+    "JSON callback-member kind" "function_pointer"
+    (json_pointer |> member "kind" |> to_string);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let declaration_file = Filename.concat directory "member.HC" in
+      write_file root_file "#include \"member\"";
+      write_file declaration_file "class Included { U0 (*callback)(); };";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        expect_ast include_output |> expect_one_aggregate_definition
+        |> fun definition ->
+        List.hd definition.members |> expect_aggregate_member_declaration
+        |> fun declaration -> List.hd declaration.member_declarators
+      in
+      ignore (expect_member_function_pointer included);
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.member_name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included callback member keeps its canonical path"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
+
+let function_pointer_member_failures () =
+  List.iter
+    (fun (description, member, rejected_name, code, message_fragment) ->
+      let source =
+        Printf.sprintf "class Broken { %s I64 later; }; I64 after;" member
+      in
+      let session, _, output = parse_string source in
+      Alcotest.(check bool)
+        (description ^ " has no public AST")
+        true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (description ^ " code") code diagnostic.code;
+      Alcotest.(check bool)
+        (description ^ " message") true
+        (contains diagnostic.message message_fragment);
+      Option.iter
+        (fun name ->
+          Alcotest.(check bool)
+            (description ^ " does not publish a member as a global")
+            false
+            (match
+               Symbol_visibility.Environment.find_preprocessor
+                 (Session.symbols session) name
+             with
+            | Symbol_visibility.Present _ -> true
+            | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+                false))
+        rejected_name;
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) "after"
+      with
+      | Symbol_visibility.Present _ -> ()
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "%s did not recover to the following global"
+            description)
+    [
+      ( "missing member star",
+        "U0 (missing_star)();",
+        Some "missing_star",
+        "HCPARSE0133",
+        "expected '*' after '('" );
+      ( "missing member name",
+        "U0 (*)();",
+        None,
+        "HCPARSE0134",
+        "expected an aggregate member name" );
+      ( "missing member declarator close",
+        "U0 (*missing_close();",
+        Some "missing_close",
+        "HCPARSE0133",
+        "expected ')' after function-pointer name" );
+      ( "missing member signature opening",
+        "U0 (*missing_signature);",
+        Some "missing_signature",
+        "HCPARSE0133",
+        "expected '(' for function-pointer signature" );
+      ( "fifth member declarator star",
+        "U0 (*****too_deep)();",
+        Some "too_deep",
+        "HCPARSE0004",
+        "at most 4 pointer stars" );
+    ];
+  let rec nested depth =
+    if depth = 0 then "I64 value"
+    else Printf.sprintf "I64 (*level%d)(%s)" depth (nested (depth - 1))
+  in
+  let source =
+    Printf.sprintf "class Nested { U0 (*too_nested)(%s); }; I64 after;"
+      (nested 32)
+  in
+  let _, _, output = parse_string source in
+  Alcotest.(check bool)
+    "excessively nested member has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check string)
+    "member nesting diagnostic" "HCPARSE0017" (first_diagnostic output).code
 
 let function_pointer_global_source_behavior () =
   let variable_parser = pinned "Compiler/PrsVar.HC" in
@@ -14962,6 +15289,16 @@ let tests =
       default_expression_failures;
     Alcotest.test_case "function prototype failures" `Quick
       function_prototype_failures;
+    Alcotest.test_case "pinned function-pointer member behavior" `Quick
+      function_pointer_member_source_behavior;
+    Alcotest.test_case "pinned function-pointer members" `Quick
+      pinned_function_pointer_members;
+    Alcotest.test_case "function-pointer members" `Quick
+      direct_function_pointer_members;
+    Alcotest.test_case "function-pointer member provenance" `Quick
+      function_pointer_member_provenance;
+    Alcotest.test_case "function-pointer member failures" `Quick
+      function_pointer_member_failures;
     Alcotest.test_case "pinned function-pointer global behavior" `Quick
       function_pointer_global_source_behavior;
     Alcotest.test_case "pinned function-pointer globals" `Quick

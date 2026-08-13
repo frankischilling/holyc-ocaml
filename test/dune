@@ -1174,6 +1174,89 @@
 
 (rule
  (alias runtest)
+ (targets parse-function-pointer-member.human.actual)
+ (deps
+  cli/parse-function-pointer-member.hc
+  cli/parse-function-pointer-member.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-member.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-function-pointer-member.hc))
+   (diff
+    cli/parse-function-pointer-member.human
+    parse-function-pointer-member.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-function-pointer-member.json.actual)
+ (deps
+  cli/parse-function-pointer-member.hc
+  cli/parse-function-pointer-member.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-member.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-function-pointer-member.hc))
+   (diff
+    cli/parse-function-pointer-member.json
+    parse-function-pointer-member.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-member-error.human.actual
+  parse-function-pointer-member-error.human.stdout.actual)
+ (deps
+  cli/parse-function-pointer-member-error.hc
+  cli/parse-function-pointer-member-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-member-error.human.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-member-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       cli/parse-function-pointer-member-error.hc))))
+   (diff
+    cli/parse-function-pointer-member-error.human
+    parse-function-pointer-member-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-function-pointer-member-error.json.actual
+  parse-function-pointer-member-error.json.stdout.actual)
+ (deps
+  cli/parse-function-pointer-member-error.hc
+  cli/parse-function-pointer-member-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-function-pointer-member-error.json.stdout.actual
+    (with-stderr-to
+     parse-function-pointer-member-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-function-pointer-member-error.hc))))
+   (diff
+    cli/parse-function-pointer-member-error.json
+    parse-function-pointer-member-error.json.actual))))
+
+(rule
+ (alias runtest)
  (targets parse-function-pointer-global.human.actual)
  (deps
   cli/parse-function-pointer-global.hc

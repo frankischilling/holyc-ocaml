@@ -2113,7 +2113,7 @@ semantic_duplicate_and_linkage_checks = "planned"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-DEFINITIONS"
-description = "Named class and union bodies retain ordinary member declarations, recursive anonymous unions, punctuation, and source provenance."
+description = "Named class and union bodies retain ordinary and function-pointer member declarations, recursive anonymous unions, punctuation, and source provenance."
 sources = [
   "Compiler/PrsStmt.HC:PrsClass",
   "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
@@ -2141,7 +2141,7 @@ status = "implemented"
 issue = 129
 ast_schema = "holyc-ast-v1"
 accepted_forms = ["modifier* class identifier { aggregate-member* } ;", "modifier* union identifier { aggregate-member* } ;"]
-ordinary_member_shape = "one primitive, internal storage, or visible named type followed by one or more pointer and array declarators"
+ordinary_member_shape = "one primitive, internal storage, or visible named type followed by one or more pointer, function-pointer, and array declarators"
 member_delimiters = "commas continue a shared type group; a semicolon completes it"
 anonymous_union_shape = "recursive union { aggregate-member* } with an optional following semicolon"
 empty_member_semicolons = "retained as ordered AST nodes"
@@ -2155,7 +2155,7 @@ missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
 missing_final_semicolon_diagnostic = "HCPARSE0115"
-deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0118 and HCPARSE0123"
+deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0118"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
 backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
@@ -2163,8 +2163,55 @@ inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
 inherited_layout_metadata_and_explicit_offsets = "planned"
 nested_named_definitions = "planned"
 attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
-function_pointer_members = "planned"
+function_pointer_members = "implemented in HC-PARSER-FUNCTION-POINTER-MEMBERS"
 semantic_identity_layout_overlap_and_linkage = "planned"
+
+[[feature]]
+id = "HC-PARSER-FUNCTION-POINTER-MEMBERS"
+description = "Class, union, and anonymous-union member declarators retain recursive function-pointer signatures separately from return-pointer layers, arrays, and group delimiters."
+sources = [
+  "Compiler/PrsVar.HC:285-370 PrsType",
+  "Compiler/PrsVar.HC:419-689 PrsVarLst",
+  "Compiler/CompilerA.HH:CMemberLst.fun_ptr and MLF_FUN",
+  "Kernel/KernelA.HH:251-289 CMathODE",
+  "Kernel/KernelA.HH:1191-1222 CDocEntry",
+  "Kernel/KernelA.HH:3754-3771 CKeyDevEntry and CKeyDevGlbls"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-function-pointer-member.hc",
+  "test/cli/parse-function-pointer-member.human",
+  "test/cli/parse-function-pointer-member.json",
+  "test/cli/parse-function-pointer-member-error.hc",
+  "test/cli/parse-function-pointer-member-error.human",
+  "test/cli/parse-function-pointer-member-error.json"
+]
+status = "implemented"
+issue = 139
+ast_schema = "holyc-ast-v1"
+accepted_contexts = ["class members", "union members", "anonymous-union members"]
+declarator_shape = "zero through four return-pointer layers, one through four callback-indirection layers, a required member name, a recursive fixed or variadic signature, array suffixes, and a comma or semicolon delimiter"
+recursive_parameter_shape = "ordinary and nested function-pointer parameters retain names, defaults, and delimiters through the shared signature node"
+member_symbol_publication = "none; aggregate members do not enter the top-level streaming symbol environment"
+compilation_modes = ["jit", "aot"]
+reference_members = ["derive", "mp_derive", "left_cb", "right_cb", "tag_cb", "put_key", "put_s", "fp_ctrl_alt_cbs"]
+reference_fixture_ranges = ["Kernel/KernelA.HH:251-289", "Kernel/KernelA.HH:1191-1222", "Kernel/KernelA.HH:3754-3771"]
+c_doc_entry_fixture_note = "line 1221, #assert !($$&7), is omitted because runtime $$ is outside the constant preprocessor; line 1222 retains the closing brace"
+kernel_a_line_anchored_forms = 26
+corpus_scan_scope = "exact lines containing (*name)( or (**name)( in the pinned Kernel/KernelA.HH; not a complete declarator census"
+definition_and_include_provenance = "preserved"
+punctuation_diagnostic = "HCPARSE0133"
+missing_name_diagnostic = "HCPARSE0134"
+indirection_depth_diagnostic = "HCPARSE0004 at the source-grounded limit of four stars"
+signature_depth_diagnostic = "HCPARSE0017 at a fixed hosted limit of 32 recursive callback declarators"
+native_oracle_status = "not required for syntax; PrsType and PrsVarLst state the callback handoff, member storage, and MLF_FUN branch directly"
+semantic_function_pointer_identity_member_flag_layout_lookup_lowering_and_execution = "planned"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-BACKING-TYPES"

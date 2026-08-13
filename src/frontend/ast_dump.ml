@@ -1011,9 +1011,14 @@ let rec print_aggregate_member buffer sources ~indent index = function
             (location_text sources declarator.member_declarator_location);
           print_pointer_layers buffer sources ~indent:declarator_indent
             declarator.member_pointer_layers;
-          Printf.bprintf buffer "%sname spelling=%S span=%s\n" declarator_indent
-            declarator.member_name.spelling
-            (location_text sources declarator.member_name.location);
+          (match declarator.member_function_pointer with
+          | None ->
+              Printf.bprintf buffer "%sname spelling=%S span=%s\n"
+                declarator_indent declarator.member_name.spelling
+                (location_text sources declarator.member_name.location)
+          | Some function_pointer ->
+              print_function_pointer buffer sources ~indent:declarator_indent
+                ~name:(Some declarator.member_name) function_pointer);
           print_array_dimensions buffer sources ~indent:declarator_indent
             declarator.member_array_dimensions;
           Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n"
@@ -1048,7 +1053,7 @@ let rec print_aggregate_member buffer sources ~indent index = function
         index
         (location_text sources semicolon)
 
-let print_parameter_default buffer sources ~indent
+and print_parameter_default buffer sources ~indent
     (default : Ast.parameter_default) =
   let child_indent = indent ^ "  " in
   Printf.bprintf buffer "%sdefault span=%s\n" indent
@@ -1063,7 +1068,7 @@ let print_parameter_default buffer sources ~indent
         lastclass.lastclass_spelling
         (location_text sources lastclass.lastclass_location)
 
-let rec print_function_parameter buffer sources ~indent index
+and print_function_parameter buffer sources ~indent index
     (parameter : Ast.function_parameter) =
   let child_indent = indent ^ "  " in
   Printf.bprintf buffer "%sparameter index=%d span=%s\n" indent index
@@ -2256,11 +2261,19 @@ let global_initializer_to_yojson sources
         location_to_yojson sources initial_value.global_initializer_location );
     ]
 
-let aggregate_member_declarator_to_yojson sources
+let rec aggregate_member_declarator_to_yojson sources
     (declarator : Ast.aggregate_member_declarator) =
   `Assoc
     (pointer_layer_fields sources declarator.member_pointer_layers
-    @ [ ("name", identifier_to_yojson sources declarator.member_name) ]
+    @ (match declarator.member_function_pointer with
+      | None ->
+          [ ("name", identifier_to_yojson sources declarator.member_name) ]
+      | Some function_pointer ->
+          [
+            ( "function_pointer",
+              function_pointer_to_yojson sources
+                ~name:(Some declarator.member_name) function_pointer );
+          ])
     @ array_dimension_fields sources declarator.member_array_dimensions
     @ [
         ("delimiter", delimiter_to_yojson sources declarator.member_delimiter);
@@ -2268,7 +2281,7 @@ let aggregate_member_declarator_to_yojson sources
           location_to_yojson sources declarator.member_declarator_location );
       ])
 
-let rec aggregate_member_to_yojson sources = function
+and aggregate_member_to_yojson sources = function
   | Ast.Aggregate_member_declaration declaration ->
       `Assoc
         [
@@ -2324,13 +2337,13 @@ let rec aggregate_member_to_yojson sources = function
           ("semicolon", location_to_yojson sources semicolon);
         ]
 
-let aggregate_backing_to_yojson sources (backing : Ast.aggregate_backing) =
+and aggregate_backing_to_yojson sources (backing : Ast.aggregate_backing) =
   `Assoc
     ([ ("type", type_to_yojson sources backing.backing_type_specifier) ]
     @ pointer_layer_fields sources backing.backing_pointer_layers
     @ [ ("location", location_to_yojson sources backing.backing_location) ])
 
-let aggregate_base_to_yojson sources (base : Ast.aggregate_base) =
+and aggregate_base_to_yojson sources (base : Ast.aggregate_base) =
   `Assoc
     [
       ( "colon",
@@ -2343,7 +2356,7 @@ let aggregate_base_to_yojson sources (base : Ast.aggregate_base) =
       ("location", location_to_yojson sources base.base_location);
     ]
 
-let parameter_default_to_yojson sources (default : Ast.parameter_default) =
+and parameter_default_to_yojson sources (default : Ast.parameter_default) =
   let value =
     match default.value with
     | Ast.Expression_default expression ->
@@ -2363,7 +2376,7 @@ let parameter_default_to_yojson sources (default : Ast.parameter_default) =
       ("location", location_to_yojson sources default.location);
     ]
 
-let rec parameter_to_yojson sources (parameter : Ast.function_parameter) =
+and parameter_to_yojson sources (parameter : Ast.function_parameter) =
   `Assoc
     (register_qualifier_fields sources parameter.register_qualifiers
     @ [ ("type", type_to_yojson sources parameter.type_specifier) ]
