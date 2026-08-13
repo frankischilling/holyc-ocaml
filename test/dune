@@ -1348,7 +1348,10 @@
   (progn
    (with-stdout-to
     parse-static-local-initializers.human.actual
-    (run %{exe:../bin/holyc.exe} parse cli/parse-static-local-initializers.hc))
+    (run
+     %{exe:../bin/holyc.exe}
+     parse
+     cli/parse-static-local-initializers.hc))
    (diff
     cli/parse-static-local-initializers.human
     parse-static-local-initializers.human.actual))))

@@ -1079,7 +1079,10 @@ val make_expression_statement :
   expression_statement
 
 val make_local_initializer :
-  equals:location -> value:initial_value -> location:location -> local_initializer
+  equals:location ->
+  value:initial_value ->
+  location:location ->
+  local_initializer
 
 val make_local_declarator :
   register_qualifiers:register_qualifier list ->

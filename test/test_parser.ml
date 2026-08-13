@@ -10141,7 +10141,8 @@ let static_local_braced_initializer_source_behavior () =
   List.iter
     (fun (location, source, declaration) ->
       Alcotest.(check bool)
-        (location ^ " retains its declaration") true
+        (location ^ " retains its declaration")
+        true
         (contains source declaration))
     audited_declarations
 
@@ -10565,8 +10566,8 @@ let pinned_static_local_braced_initializers () =
   List.iter
     (fun compilation_mode ->
       let _, _, output =
-        parse_string ~path:"Demo/static-local-initializers.HC"
-          ~compilation_mode source
+        parse_string ~path:"Demo/static-local-initializers.HC" ~compilation_mode
+          source
       in
       let declarators =
         (expect_ast output).items
@@ -10586,7 +10587,8 @@ let pinned_static_local_braced_initializers () =
                 "pinned static initializer slice produced another item")
       in
       Alcotest.(check (list string))
-        "pinned static local names" [ "single_ms"; "s1"; "s2" ]
+        "pinned static local names"
+        [ "single_ms"; "s1"; "s2" ]
         (List.map
            (fun declarator -> declarator.Ast.local_name.spelling)
            declarators);
@@ -10636,11 +10638,10 @@ let static_local_braced_initializer_shapes () =
         |> Option.get
       in
       let declarations =
-        function_body_statements definition
-        |> List.map expect_local_declaration
+        function_body_statements definition |> List.map expect_local_declaration
       in
-      Alcotest.(check int) "four static declaration groups" 4
-        (List.length declarations);
+      Alcotest.(check int)
+        "four static declaration groups" 4 (List.length declarations);
       List.iter
         (fun declaration ->
           Alcotest.(check bool)
@@ -10648,7 +10649,8 @@ let static_local_braced_initializer_shapes () =
             (declaration.Ast.local_storage = Ast.Static_local))
         declarations;
       let pair = List.hd (List.nth declarations 0).local_declarators in
-      Alcotest.(check int) "aggregate scalar fields" 2
+      Alcotest.(check int)
+        "aggregate scalar fields" 2
         (List.length (local_braced_initializer pair).initializer_elements);
       let matrix, empty =
         match (List.nth declarations 1).local_declarators with
@@ -10657,15 +10659,19 @@ let static_local_braced_initializer_shapes () =
             Alcotest.failf "expected two grouped static arrays, got %d"
               (List.length declarators)
       in
-      Alcotest.(check int) "matrix dimensions" 2
+      Alcotest.(check int)
+        "matrix dimensions" 2
         (List.length matrix.local_array_dimensions);
       let matrix_initializer = local_braced_initializer matrix in
-      Alcotest.(check int) "matrix rows" 2
+      Alcotest.(check int)
+        "matrix rows" 2
         (List.length matrix_initializer.initializer_elements);
       let last_row = List.nth matrix_initializer.initializer_elements 1 in
-      Alcotest.(check bool) "outer trailing comma" true
+      Alcotest.(check bool)
+        "outer trailing comma" true
         (Option.is_some last_row.initializer_element_comma);
-      Alcotest.(check int) "empty list has no elements" 0
+      Alcotest.(check int)
+        "empty list has no elements" 0
         (List.length (local_braced_initializer empty).initializer_elements);
       let dynamic =
         List.hd (List.nth declarations 2).local_declarators
@@ -10676,7 +10682,8 @@ let static_local_braced_initializer_shapes () =
         (first_dynamic.initializer_element_value |> expect_scalar_initial_value
        |> expect_binary_expression);
       let scalar = List.hd (List.nth declarations 3).local_declarators in
-      Alcotest.(check int64) "static scalar remains a scalar expression" 1L
+      Alcotest.(check int64)
+        "static scalar remains a scalar expression" 1L
         (local_initializer_value scalar |> expect_integer_expression))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -10702,13 +10709,16 @@ let static_local_braced_initializer_provenance_and_dumps () =
   List.iter
     (fun (description, (location : Ast.location)) ->
       Alcotest.(check bool)
-        (description ^ " uses generated source") false
+        (description ^ " uses generated source")
+        false
         (Source_id.equal location.span.source (Source_file.id root));
       Alcotest.(check bool)
-        (description ^ " keeps invocation provenance") true
+        (description ^ " keeps invocation provenance")
+        true
         (Option.is_some location.generated_from);
       Alcotest.(check bool)
-        (description ^ " keeps definition provenance") true
+        (description ^ " keeps definition provenance")
+        true
         (Option.is_some location.defined_at))
     [
       ("opening brace", braced.initializer_opening_brace);
@@ -10737,16 +10747,16 @@ let static_local_braced_initializer_provenance_and_dumps () =
   let declaration_values =
     statements
     |> List.filter (fun statement ->
-         statement |> member "kind" |> to_string
-         = "local_declaration_statement")
+        statement |> member "kind" |> to_string = "local_declaration_statement")
     |> List.map (fun statement ->
-         statement |> member "declarators" |> to_list |> List.hd
-         |> member "initializer" |> member "value")
+        statement |> member "declarators" |> to_list |> List.hd
+        |> member "initializer" |> member "value")
   in
   Alcotest.(check (list string))
     "JSON keeps the additive braced form and existing scalar form"
     [ "braced"; "integer_literal" ]
-    (List.map (fun value -> value |> member "kind" |> to_string)
+    (List.map
+       (fun value -> value |> member "kind" |> to_string)
        declaration_values)
 
 let static_local_braced_initializer_failures () =
@@ -10755,7 +10765,8 @@ let static_local_braced_initializer_failures () =
       parse_string (Printf.sprintf "U0 Broken(){%s} I64 after;" declaration)
     in
     Alcotest.(check bool)
-      (description ^ " has no public AST") true
+      (description ^ " has no public AST")
+      true
       (Option.is_none output.ast);
     let diagnostic = first_diagnostic output in
     Alcotest.(check string) (description ^ " code") code diagnostic.code;
@@ -10774,22 +10785,15 @@ let static_local_braced_initializer_failures () =
     "static local initializer value";
   check_recovery "missing static separator" "static I64 values[2]={1 2};"
     "HCPARSE0139" "after a static local initializer element";
-  let _, _, unclosed =
-    parse_string "U0 Broken(){static I64 values[2]={"
-  in
+  let _, _, unclosed = parse_string "U0 Broken(){static I64 values[2]={" in
   Alcotest.(check string)
-    "unclosed static list code" "HCPARSE0140"
-    (first_diagnostic unclosed).code;
+    "unclosed static list code" "HCPARSE0140" (first_diagnostic unclosed).code;
   let nesting = Parser.max_initializer_depth + 1 in
-  let nested =
-    String.make nesting '{' ^ "0" ^ String.make nesting '}'
-  in
+  let nested = String.make nesting '{' ^ "0" ^ String.make nesting '}' in
   check_recovery "static initializer nesting"
     ("static I64 values[1]=" ^ nested ^ ";")
     "HCPARSE0141" "nesting exceeds";
-  let _, _, automatic =
-    parse_string "U0 Broken(){I64 values[1]={1};}"
-  in
+  let _, _, automatic = parse_string "U0 Broken(){I64 values[1]={1};}" in
   Alcotest.(check string)
     "automatic braced initializer remains rejected" "HCPARSE0104"
     (first_diagnostic automatic).code

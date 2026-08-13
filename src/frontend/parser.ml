@@ -2226,8 +2226,7 @@ let rec parse_initializer_value cursor ~declarator_context ~depth :
     parsed_initializer option =
   let item = peek cursor in
   if depth >= max_initializer_depth then
-    initializer_failure cursor ~declarator_context item
-      ~local_open_braces:depth
+    initializer_failure cursor ~declarator_context item ~local_open_braces:depth
       ~global_code:"HCPARSE0130" ~local_code:"HCPARSE0141"
       ~global_message:
         (Printf.sprintf
@@ -2243,8 +2242,8 @@ let rec parse_initializer_value cursor ~declarator_context ~depth :
         parse_braced_initializer cursor ~declarator_context ~depth
     | Token_kind.Punctuation (';' | ',' | '}') | Token_kind.Eof ->
         initializer_failure cursor ~declarator_context item
-          ~local_open_braces:depth
-          ~global_code:"HCPARSE0127" ~local_code:"HCPARSE0138"
+          ~local_open_braces:depth ~global_code:"HCPARSE0127"
+          ~local_code:"HCPARSE0138"
           ~global_message:
             (Printf.sprintf "expected a global initializer value, but found %s"
                (token_description item.token))
@@ -2295,8 +2294,8 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
         Some ({ node; tokens } : parsed_initializer)
     | Token_kind.Eof ->
         initializer_failure cursor ~declarator_context item
-          ~local_open_braces:(depth + 1)
-          ~global_code:"HCPARSE0129" ~local_code:"HCPARSE0140"
+          ~local_open_braces:(depth + 1) ~global_code:"HCPARSE0129"
+          ~local_code:"HCPARSE0140"
           ~secondary:
             [
               ({
@@ -2326,8 +2325,8 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
             in
             if element_tokens = [] then
               initializer_failure cursor ~declarator_context following_item
-                ~local_open_braces:(depth + 1)
-                ~global_code:"HCPARSE0128" ~local_code:"HCPARSE0139"
+                ~local_open_braces:(depth + 1) ~global_code:"HCPARSE0128"
+                ~local_code:"HCPARSE0139"
                 ~global_message:
                   (Printf.sprintf
                      "expected ',' or '}' after a global initializer element, \
@@ -3985,8 +3984,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       (Some initial_value, tokens))
                     (parse_initializer_value cursor
                        ~declarator_context:
-                         (Static_local_initializer_declarator boundary)
-                       ~depth:0)
+                         (Static_local_initializer_declarator boundary) ~depth:0)
                 else
                   let equals_item = take cursor in
                   let value_item = peek cursor in
@@ -4002,12 +4000,12 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                               %S, but found %s"
                              name.spelling
                              (token_description value_item.token))
-                   | Token_kind.Punctuation '{' ->
-                       local_declaration_failure cursor ~boundary value_item
-                         ~code:"HCPARSE0104"
-                         ~message:
-                           "braced initializers are not accepted on automatic \
-                            local declarations by the pinned parser"
+                  | Token_kind.Punctuation '{' ->
+                      local_declaration_failure cursor ~boundary value_item
+                        ~code:"HCPARSE0104"
+                        ~message:
+                          "braced initializers are not accepted on automatic \
+                           local declarations by the pinned parser"
                   | _ -> (
                       match
                         parse_expression cursor
@@ -4017,11 +4015,11 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                       | None -> None
                       | Some (value : parsed_expression) ->
                           let tokens = equals_item.token :: value.tokens in
-                           let initial_value =
-                             Ast.make_local_initializer
-                               ~equals:(token_location equals_item.token)
-                               ~value:(Ast.Scalar_initializer value.node)
-                               ~location:(location_from_expression_tokens tokens)
+                          let initial_value =
+                            Ast.make_local_initializer
+                              ~equals:(token_location equals_item.token)
+                              ~value:(Ast.Scalar_initializer value.node)
+                              ~location:(location_from_expression_tokens tokens)
                           in
                           Some (Some initial_value, tokens))
               in
