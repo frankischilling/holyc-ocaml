@@ -136,14 +136,12 @@ let index_aggregate_members session ~declarations ~headers ~members ~layouts =
 
 let analyze_aggregate_layouts session module_ =
   Result.bind (collect_declarations session module_) (fun declarations ->
-      Result.bind
-        (resolve_aggregates session ~declarations module_)
+      Result.bind (resolve_aggregates session ~declarations module_)
         (fun aggregates ->
           Result.bind
             (resolve_aggregate_headers session ~declarations ~aggregates module_)
             (fun headers ->
-              Result.bind
-                (collect_members session ~declarations module_)
+              Result.bind (collect_members session ~declarations module_)
                 (fun collected_members ->
                   Result.bind
                     (resolve_member_types session ~declarations ~aggregates
@@ -151,8 +149,7 @@ let analyze_aggregate_layouts session module_ =
                     (fun members ->
                       Result.bind
                         (layout_aggregates session ~declarations ~aggregates
-                           ~headers ~members module_)
-                        (fun layouts ->
+                           ~headers ~members module_) (fun layouts ->
                           index_aggregate_members session ~declarations ~headers
                             ~members ~layouts))))))
 

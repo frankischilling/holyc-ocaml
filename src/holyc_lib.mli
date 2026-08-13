@@ -179,9 +179,7 @@ val index_aggregate_members :
     resolution. Lookup itself does not update use counts. *)
 
 val analyze_aggregate_layouts :
-  Session.t ->
-  Ast.module_ ->
-  (Semantic_aggregate_member_index.t, string) result
+  Session.t -> Ast.module_ -> (Semantic_aggregate_member_index.t, string) result
 (** Run the checked declaration, aggregate, header, member-type, closed-layout,
     and member-index passes needed by layout tooling. This does not resolve
     symbol-dependent layout expressions or allocate runtime storage. *)

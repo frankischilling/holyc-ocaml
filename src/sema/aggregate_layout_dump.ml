@@ -1,5 +1,4 @@
 let schema = "holyc-aggregate-layout-v1"
-
 let int64_to_yojson value = `Intlit (Int64.to_string value)
 
 let source_position sources span offset =
@@ -26,7 +25,8 @@ let span_text sources span =
 let segments_are_covered source =
   List.for_all
     (fun segment ->
-      Common.Source_id.equal segment.Common.Span.source source.Symbol.span.source
+      Common.Source_id.equal segment.Common.Span.source
+        source.Symbol.span.source
       && source.span.start <= segment.start
       && segment.stop <= source.span.stop)
     source.Symbol.source_segments
@@ -53,8 +53,7 @@ let origin_text sources = function
       let defined_at =
         match source.defined_at with
         | None -> ""
-        | Some span ->
-            Printf.sprintf " defined_at=%s" (span_text sources span)
+        | Some span -> Printf.sprintf " defined_at=%s" (span_text sources span)
       in
       primary ^ segments ^ generated_from ^ defined_at
 
@@ -76,7 +75,7 @@ let span_to_yojson sources span =
         | Ok item -> [ ("line", `Int item.line); ("column", `Int item.column) ]
       in
       `Assoc
-        (("path", `String (Common.Source_file.display_path source)) :: location
+        ((("path", `String (Common.Source_file.display_path source)) :: location)
         @ base)
 
 let origin_to_yojson sources = function
@@ -90,8 +89,7 @@ let origin_to_yojson sources = function
   | Symbol.Synthesized description ->
       `Assoc
         [
-          ("kind", `String "synthesized");
-          ("description", `String description);
+          ("kind", `String "synthesized"); ("description", `String description);
         ]
   | Symbol.Source_location source ->
       `Assoc
@@ -99,8 +97,7 @@ let origin_to_yojson sources = function
            ("kind", `String "source");
            ("span", span_to_yojson sources source.span);
            ( "source_segments",
-             `List
-               (List.map (span_to_yojson sources) source.source_segments) );
+             `List (List.map (span_to_yojson sources) source.source_segments) );
          ]
         @ (match source.generated_from with
           | None -> []
@@ -139,7 +136,9 @@ let type_to_yojson type_ =
   let kind, form, name, symbol_id, pointer_depth = type_fields type_ in
   `Assoc
     ([ ("kind", `String kind); ("name", `String name) ]
-    @ (match form with None -> [] | Some form -> [ ("form", `String form) ])
+    @ (match form with
+      | None -> []
+      | Some form -> [ ("form", `String form) ])
     @ (match symbol_id with
       | None -> []
       | Some symbol_id -> [ ("symbol_id", `Int symbol_id) ])
@@ -152,7 +151,9 @@ let type_text type_ =
   let kind, form, name, symbol_id, pointer_depth = type_fields type_ in
   let form = Option.value form ~default:"none" in
   let symbol =
-    match symbol_id with None -> "none" | Some value -> string_of_int value
+    match symbol_id with
+    | None -> "none"
+    | Some value -> string_of_int value
   in
   Printf.sprintf "type_kind=%s type_form=%s type_name=%S type_symbol=%s ptr=%d"
     kind form name symbol pointer_depth
@@ -182,9 +183,9 @@ let member_to_yojson sources (member : Aggregate_member_index.member) =
       ("offset", int64_to_yojson layout.offset);
       ("size", int64_to_yojson layout.size);
       ("element_size", int64_to_yojson layout.element_size);
-      ( "dimensions",
-        `List (List.map int64_to_yojson layout.dimensions) );
-      ("signedness", `String (Aggregate_layout.signedness_name layout.signedness));
+      ("dimensions", `List (List.map int64_to_yojson layout.dimensions));
+      ( "signedness",
+        `String (Aggregate_layout.signedness_name layout.signedness) );
       ("alignment", `Int layout.alignment);
       ("origin", origin_to_yojson sources layout.origin);
     ]
@@ -205,7 +206,8 @@ let aggregate_to_yojson sources (aggregate : Aggregate_member_index.aggregate) =
         | None -> `Null
         | Some base -> base_to_yojson sources base );
       ("origin", origin_to_yojson sources layout.origin);
-      ("members", `List (List.map (member_to_yojson sources) aggregate.direct_members));
+      ( "members",
+        `List (List.map (member_to_yojson sources) aggregate.direct_members) );
     ]
 
 let to_yojson sources index =
@@ -231,18 +233,20 @@ let print_base buffer sources = function
 let print_member buffer sources (member : Aggregate_member_index.member) =
   let layout = member.layout in
   Printf.bprintf buffer
-    "  member id=%d name=%S declaring=%d path=%s declarator=%d %s \
-     callback=%B offset=%Ld size=%Ld element_size=%Ld dimensions=%s \
-     signedness=%s alignment=%d origin=%s\n"
+    "  member id=%d name=%S declaring=%d path=%s declarator=%d %s callback=%B \
+     offset=%Ld size=%Ld element_size=%Ld dimensions=%s signedness=%s \
+     alignment=%d origin=%s\n"
     (Symbol.Id.to_int (Symbol.id member.symbol))
     (Symbol.name member.symbol)
     (Symbol.Id.to_int (Symbol.id member.declaring_aggregate))
     (list_text string_of_int layout.path)
-    layout.declarator_index (type_text member.member_type)
+    layout.declarator_index
+    (type_text member.member_type)
     member.is_function_pointer layout.offset layout.size layout.element_size
     (list_text Int64.to_string layout.dimensions)
     (Aggregate_layout.signedness_name layout.signedness)
-    layout.alignment (origin_text sources layout.origin)
+    layout.alignment
+    (origin_text sources layout.origin)
 
 let print_aggregate buffer sources
     (aggregate : Aggregate_member_index.aggregate) =
@@ -252,8 +256,9 @@ let print_aggregate buffer sources
      negative_offset=%Ld origin=%s\n"
     (Symbol.Id.to_int (Symbol.id aggregate.symbol))
     (Symbol.name aggregate.symbol)
-    (aggregate_kind_name layout.kind) aggregate.item_index layout.size
-    layout.alignment layout.negative_offset (origin_text sources layout.origin);
+    (aggregate_kind_name layout.kind)
+    aggregate.item_index layout.size layout.alignment layout.negative_offset
+    (origin_text sources layout.origin);
   print_base buffer sources layout.base;
   List.iter (print_member buffer sources) aggregate.direct_members
 

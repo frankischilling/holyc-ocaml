@@ -431,7 +431,7 @@ let dump_layout_file format include_roots templeos_root max_include_depth
           print_command_error format ~command:"dump-layout"
             ("invalid preprocessor configuration: " ^ message);
           1
-      | Ok config ->
+      | Ok config -> (
           let output = Holyc_lib.parse_detailed session ~config ~source in
           if output.diagnostics <> [] then
             print_diagnostics format session output.diagnostics;
@@ -444,7 +444,7 @@ let dump_layout_file format include_roots templeos_root max_include_depth
                   1
               | Ok layouts ->
                   print_aggregate_layouts format session layouts;
-                  0))
+                  0)))
 
 let dump_layout_command =
   let documentation =
@@ -457,7 +457,8 @@ let dump_layout_command =
         "on a source-read, preprocessing, parsing, or aggregate semantic error"
     :: Cmd.Exit.defaults
   in
-  Cmd.v (Cmd.info "dump-layout" ~doc:documentation ~exits)
+  Cmd.v
+    (Cmd.info "dump-layout" ~doc:documentation ~exits)
     (source_parser_term dump_layout_file)
 
 let corpus_root_argument =

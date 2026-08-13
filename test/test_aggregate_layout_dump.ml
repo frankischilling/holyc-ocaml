@@ -71,8 +71,7 @@ let representative_layout_facts () =
   Alcotest.(check string) "repeat JSON dump" json_text repeated_json;
   Alcotest.(check bool)
     "human reference" true
-    (contains human
-       "reference_commit=c26482bb6ad3f80106d28504ec5db3c6a360732c");
+    (contains human "reference_commit=c26482bb6ad3f80106d28504ec5db3c6a360732c");
   Alcotest.(check bool)
     "human callback" true
     (contains human "name=\"callback\"" && contains human "callback=true");
@@ -85,7 +84,8 @@ let representative_layout_facts () =
     "reference commit" "c26482bb6ad3f80106d28504ec5db3c6a360732c"
     (json |> member "reference_commit" |> to_string);
   Alcotest.(check (list string))
-    "aggregate order" [ "Base"; "Derived"; "Choice"; "Negative" ]
+    "aggregate order"
+    [ "Base"; "Derived"; "Choice"; "Negative" ]
     (json |> member "aggregates" |> to_list
     |> List.map (fun aggregate -> aggregate |> member "name" |> to_string));
   let derived = json_aggregate json "Derived" in
@@ -96,7 +96,8 @@ let representative_layout_facts () =
     "base size" 1
     (derived |> member "base" |> member "size" |> to_int);
   Alcotest.(check (list string))
-    "direct member order" [ "small"; "wide"; "data"; "callback" ]
+    "direct member order"
+    [ "small"; "wide"; "data"; "callback" ]
     (derived |> member "members" |> to_list
     |> List.map (fun item -> item |> member "name" |> to_string));
   let small = json_member derived "small" in
@@ -121,14 +122,14 @@ let representative_layout_facts () =
   Alcotest.(check bool)
     "callback marker" true
     (callback |> member "function_pointer" |> to_bool);
-  Alcotest.(check int)
-    "callback storage" 8
-    (callback |> member "size" |> to_int);
+  Alcotest.(check int) "callback storage" 8 (callback |> member "size" |> to_int);
   let choice = json_aggregate json "Choice" in
   Alcotest.(check string)
-    "union kind" "union" (choice |> member "kind" |> to_string);
+    "union kind" "union"
+    (choice |> member "kind" |> to_string);
   Alcotest.(check int)
-    "union largest member" 9 (choice |> member "size" |> to_int);
+    "union largest member" 9
+    (choice |> member "size" |> to_int);
   let negative = json_aggregate json "Negative" in
   Alcotest.(check int)
     "negative adjustment" 2
@@ -150,22 +151,24 @@ let generated_provenance () =
   let generated = json_aggregate json "Generated" in
   let origin = generated |> member "origin" in
   Alcotest.(check bool)
-    "generated source" true (origin |> member "generated_from" <> `Null);
+    "generated source" true
+    (origin |> member "generated_from" <> `Null);
   Alcotest.(check bool)
-    "definition source" true (origin |> member "defined_at" <> `Null)
+    "definition source" true
+    (origin |> member "defined_at" <> `Null)
 
 let empty_dump () =
   let _, _, human, json_text = dump ~path:"aggregate-layout-empty.HC" "" in
   Alcotest.(check string)
     "empty human"
-    ("holyc-aggregate-layout-v1\nreference_commit="
-    ^ Version.reference_commit ^ "\naggregates=0\n")
+    ("holyc-aggregate-layout-v1\nreference_commit=" ^ Version.reference_commit
+   ^ "\naggregates=0\n")
     human;
   let open Yojson.Safe.Util in
   Alcotest.(check int)
     "empty JSON" 0
-    (Yojson.Safe.from_string json_text |> member "aggregates" |> to_list
-    |> List.length)
+    (Yojson.Safe.from_string json_text
+    |> member "aggregates" |> to_list |> List.length)
 
 let modes_and_large_target_values () =
   let source = "class Huge { U8 bytes[4294967296]; };" in
@@ -180,7 +183,8 @@ let modes_and_large_target_values () =
   Alcotest.(check string) "JIT/AOT human" jit_human aot_human;
   Alcotest.(check string) "JIT/AOT JSON" jit_json aot_json;
   Alcotest.(check bool)
-    "full target size" true (contains jit_human "size=4294967296")
+    "full target size" true
+    (contains jit_human "size=4294967296")
 
 let tests =
   [
