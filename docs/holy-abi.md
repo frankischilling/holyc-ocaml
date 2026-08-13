@@ -41,7 +41,13 @@ This is syntax and metadata capture, not ABI implementation. Function type compa
 
 `PrsDotDotDot` appends `argc` and then `argv` after the fixed slots. Both use the compiler's internal `I64` class. `argc` is scalar. `argv` is array-shaped: its source declaration has no extent, while the compiler stores 127 as an internal placeholder dimension. This is not a C-style `char **argv`, and 127 is not reported as a source-written bound. Nested callback ellipses retain their marker but do not create top-level synthetic bindings.
 
-These are checked semantic signature facts, not a calling-convention implementation. Prototype/definition reconciliation, default evaluation, function flags, explicit register requests, argument placement, cleanup, storage, indirect calls, and native entry points remain separate work. [Issue #181](https://github.com/frankischilling/holyc-ocaml/issues/181) records the implemented boundary.
+These are checked semantic signature facts, not a calling-convention implementation. Prototype/definition identities and top-level function record flags are now modeled by separate passes. Header comparison, default evaluation, explicit register requests, argument placement, cleanup emission, storage, indirect calls, and native entry points remain separate work. [Issue #181](https://github.com/frankischilling/holyc-ocaml/issues/181) records the signature boundary, and [issue #191](https://github.com/frankischilling/holyc-ocaml/issues/191) records the function-record boundary.
+
+## Classified function records
+
+`PrsFunJoin` copies staged calling bits only when it creates a `CHashFun`. A later header that joins the same record does not replace those stored bits. The record can still accumulate `Ff_DOT_DOT_DOT` and `Ff_RET1`; `HTF_PUBLIC` is replaced on every header, and `HTF_PRIVATE` may accumulate from `OPTf_KEEP_PRIVATE`. Binding paths then set or clear `Cf_EXTERN`, `Ff_INTERNAL`, `Ff__EXTERN`, `HTF_IMPORT`, `HTF_EXPORT`, and `HTF_RESOLVE` in source order.
+
+`Sema.Function_record_classification` retains those raw domains separately and reports which source consumer would select an internal operation, direct call, JIT extern address slot, AOT import, or AOT extern. It also reports the cleanup predicate through the checked function-flag API. This is ABI input, not ABI implementation: no call sequence, stack layout, prologue, epilogue, register save, interrupt entry, or machine instruction is emitted.
 
 ## Argument cleanup
 

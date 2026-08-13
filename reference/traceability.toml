@@ -3546,7 +3546,7 @@ compilation_modes = ["jit", "aot"]
 default_evaluation_and_substitution = "not implemented"
 prototype_definition_reconciliation = "identity selection is implemented separately by HC-SEMA-FUNCTION-IDENTITIES; header comparison is not implemented"
 call_checking = "not implemented"
-function_flags_register_requests_storage_and_abi = "not implemented"
+function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; register requests, storage, and ABI behavior are not implemented"
 member_callback_signatures = "not implemented by this pass"
 global_local_cast_sizeof_and_offset_types = "not implemented"
 linkage = "not implemented"
@@ -3597,9 +3597,63 @@ default_evaluation = "not implemented"
 parent_task_and_system_symbol_lookup = "not implemented"
 alternate_target_and_address_resolution = "not implemented"
 externs_to_imports_option = "not implemented"
-function_flags_visibility_calls_and_abi = "not implemented"
+function_flags_visibility_calls_and_abi = "record flags and consumer intent are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; call lowering and ABI behavior are not implemented"
 import_export_record_emission = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsGlblVarLst, and the pinned hash routines state the selection and state transitions directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
+description = "Reconciled function identities replay the pinned record-flag transitions and expose the consumer policies selected by those flags."
+sources = [
+  "Kernel/KernelA.HH:HTt_FUN, HTT_FUN, Cf_EXTERN, and Ff_*",
+  "Compiler/CompilerA.HH:FSF_* and FSG_FUN_FLAGS*",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Kernel/KHashB.HC:HashVal and HashSrcFileSet",
+  "Kernel/FunSeg.HC:HashFunSegFind",
+  "Compiler/CHash.HC:MapFileWrite",
+  "Compiler/AsmResolve.HC:import and export resolution",
+  "Compiler/OptPass3.HC",
+  "Compiler/OptPass6.HC",
+  "Compiler/OptPass789A.HC"
+]
+implementation = [
+  "tools/function_flag_source.ml",
+  "tools/function_flag_gen.ml",
+  "src/generated/function_flags.ml",
+  "src/sema/function_flag.ml",
+  "src/sema/function_record_classification.ml",
+  "src/driver/function_record_classification.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_flag_source.ml",
+  "test/test_function_flag.ml",
+  "test/test_function_record_classification.ml"
+]
+status = "implemented"
+issue = 191
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_checks = "the checked generator validates 12 pinned source digests, the function hash type, every shared, stored, and staging flag, parser groups, record transitions, and downstream consumer anchors"
+flag_domains = ["shared CHashClass flag word", "stored CHashFun flags", "hash-table type flags", "function hash type"]
+record_creation = "a new identity starts with Cf_EXTERN and copies only FSG_FUN_FLAGS1 from parser staging"
+joined_headers = "a reused identity keeps its existing stored calling flags; a later staged calling modifier is not copied into the record"
+header_updates = "every header replaces HTF_PUBLIC, may accumulate HTF_PRIVATE from OPTf_KEEP_PRIVATE, and may add Ff_DOT_DOT_DOT or the source-derived Ff_RET1"
+binding_transitions = ["_intern sets Ff_INTERNAL and clears Cf_EXTERN", "_extern clears Cf_EXTERN, sets Ff__EXTERN, and adds HTF_RESOLVE in AOT mode", "import and _import add HTF_IMPORT and retain the exact loader spelling", "an AOT definition adds HTF_EXPORT and HTF_RESOLVE before every definition clears Cf_EXTERN"]
+aot_import_precedence = "AsmResolve handles HTF_IMPORT before HTF_EXPORT or HTF_RESOLVE; classification reports import publication and shadowed resolution when those bits coexist"
+call_access = ["internal IC operation", "direct executable call", "JIT extern address-slot call", "AOT import call", "AOT extern call"]
+hash_value_access = "HashVal returns a function record while Cf_EXTERN is set and the executable address otherwise"
+runtime_lookup = "HashFunSegFind omits records carrying Cf_EXTERN or Ff_INTERNAL"
+map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligible for map output"
+compiler_option_state = "the low-level API accepts a separate option snapshot per declaration; the driver currently applies one explicit option mask to the batch"
+validation = "state count, known staging bits, exact import-name shape, AST item and name association, and resolved identity availability"
+mutation = "none"
+header_comparison_default_evaluation_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEADER_MISMATCH remain separate"
+alternate_address_resolution_fixups_emission_call_lowering_and_abi = "not implemented"
+native_oracle_status = "not required for this classification boundary; the pinned record mutations and named consumers state the retained masks and policy directly"
 
 [[feature]]
 id = "HC-SEMA-GLOBAL-TYPE-REFERENCES"
