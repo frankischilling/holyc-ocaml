@@ -15248,6 +15248,18 @@ let inline_assembly_source_behavior () =
       ("two operands require a comma", "if (cc->token!=',')");
       ( "the direct path may continue to another opcode",
         "tmpo->type&(HTT_OPCODE|HTT_ASM_KEYWORD)" );
+      ("direct imports have their own branch", "case AKW_IMPORT:");
+      ( "origin is forbidden in function assembly",
+        "ORG not allowed in fun asm blk" );
+      ( "alignment is forbidden in function assembly",
+        "ALIGN not allowed in fun asm blk" );
+      ("byte data uses the shared definition parser", "PrsAsmDefine(cc,1);");
+      ("binary files use the checked string parser", "PrsBinFile(cc);");
+      ("listing can be enabled", "case AKW_LIST:");
+      ("listing can be disabled", "case AKW_NOLIST:");
+      ("sixteen-bit mode is represented", "case AKW_USE16:");
+      ("thirty-two-bit mode is represented", "case AKW_USE32:");
+      ("sixty-four-bit mode is represented", "case AKW_USE64:");
     ];
   let operand_parser = pinned "Compiler/Asm.HC" in
   List.iter
@@ -15258,6 +15270,7 @@ let inline_assembly_source_behavior () =
       ("size prefixes set an explicit width", "arg->size=8;");
       ("brackets mark an indirect operand", "arg->indirect=TRUE;");
       ("assembly immediates use expression parsing", "PrsAsmImm(cc,arg);");
+      ("DUP requires an opening parenthesis", "if (Lex(cc)!='(')");
     ];
   Alcotest.(check bool)
     "the direct assembly flag keeps its pinned bit" true
@@ -15282,7 +15295,27 @@ let inline_assembly_source_behavior () =
   in
   Alcotest.(check int) "CLI has no operands" 0 (argument_count "CLI");
   Alcotest.(check int) "MOV has two operands" 2 (argument_count "MOV");
-  Alcotest.(check int) "BPT alias has no operands" 0 (argument_count "BPT")
+  Alcotest.(check int) "BPT alias has no operands" 0 (argument_count "BPT");
+  List.iter
+    (fun (spelling, templeos_id) ->
+      let directive = Asm_directive.find spelling |> Option.get in
+      Alcotest.(check int)
+        (spelling ^ " keeps its assembler-keyword ID")
+        templeos_id
+        (Asm_directive.templeos_id directive))
+    [
+      ("ALIGN", 64);
+      ("ORG", 65);
+      ("DU8", 77);
+      ("DU64", 80);
+      ("DUP", 81);
+      ("USE16", 82);
+      ("USE64", 84);
+      ("IMPORT", 85);
+      ("LIST", 86);
+      ("NOLIST", 87);
+      ("BINFILE", 88);
+    ]
 
 let pinned_inline_assembly_snippets () =
   let cases =
@@ -15381,12 +15414,26 @@ let pinned_inline_assembly_snippets () =
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let inline_assembly_instructions (statement : Ast.inline_assembly_statement) =
+  List.filter_map
+    (function
+      | Ast.Inline_assembly_instruction operation -> Some operation
+      | Ast.Inline_assembly_directive _ -> None)
+    statement.inline_assembly_items
+
+let inline_assembly_directives (statement : Ast.inline_assembly_statement) =
+  List.filter_map
+    (function
+      | Ast.Inline_assembly_instruction _ -> None
+      | Ast.Inline_assembly_directive directive -> Some directive)
+    statement.inline_assembly_items
+
 let inline_assembly_opcode_spellings (statement : Ast.inline_assembly_statement)
     =
   List.map
     (fun (operation : Ast.inline_assembly_operation) ->
       operation.inline_assembly_opcode.assembly_source_token.raw)
-    statement.inline_assembly_operations
+    (inline_assembly_instructions statement)
 
 let inline_assembly_operand_spellings (operand : Ast.inline_assembly_operand) =
   List.map
@@ -15413,7 +15460,7 @@ let inline_assembly_shapes () =
             (List.map
                (fun (operation : Ast.inline_assembly_operation) ->
                  Option.is_some operation.inline_assembly_semicolon)
-               first.inline_assembly_operations);
+               (inline_assembly_instructions first));
           let conditional = expect_if_statement conditional in
           let conditional_body =
             conditional.if_then_branch |> expect_block_statement
@@ -15428,7 +15475,8 @@ let inline_assembly_shapes () =
             "an alias stays in the same opcode run" [ "POPFD"; "BPT" ]
             (inline_assembly_opcode_spellings last);
           match
-            (List.nth last.inline_assembly_operations 1).inline_assembly_opcode
+            (List.nth (inline_assembly_instructions last) 1)
+              .inline_assembly_opcode
               .assembly_token_kind
           with
           | Ast.Assembly_opcode_token
@@ -15461,7 +15509,7 @@ let inline_assembly_operand_shapes () =
         |> fun block ->
         List.hd block.block_statements |> expect_inline_assembly_statement
       in
-      let operations = statement.inline_assembly_operations in
+      let operations = inline_assembly_instructions statement in
       Alcotest.(check (list int))
         "the first opcode forms control direct operand arity"
         [ 2; 2; 1; 2; 2; 2; 1 ]
@@ -15562,6 +15610,192 @@ let pinned_inline_assembly_operand_snippets () =
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let inline_assembly_directive_shapes () =
+  let source =
+    "U0 Directives(){\n\
+     IMPORT Alpha Beta,Gamma;\n\
+     DU8 \"A\",0 1,256 DUP(0);\n\
+     DU16;\n\
+     BINFILE \"Blob.BIN\";\n\
+     LIST USE16 MOV AX,1 NOLIST; USE64\n\
+     }"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let statement =
+        expect_ast output |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+        |> fun block ->
+        List.hd block.block_statements |> expect_inline_assembly_statement
+      in
+      let item_spellings =
+        List.map
+          (function
+            | Ast.Inline_assembly_instruction operation ->
+                operation.inline_assembly_opcode.assembly_source_token.raw
+            | Ast.Inline_assembly_directive directive ->
+                directive.inline_assembly_directive_token.assembly_source_token
+                  .raw)
+          statement.inline_assembly_items
+      in
+      Alcotest.(check (list string))
+        "direct instructions and directives retain source order"
+        [
+          "IMPORT";
+          "DU8";
+          "DU16";
+          "BINFILE";
+          "LIST";
+          "USE16";
+          "MOV";
+          "NOLIST";
+          "USE64";
+        ]
+        item_spellings;
+      let directives = inline_assembly_directives statement in
+      let instructions = inline_assembly_instructions statement in
+      Alcotest.(check int)
+        "eight directives are retained" 8 (List.length directives);
+      Alcotest.(check int)
+        "one instruction is retained" 1 (List.length instructions);
+      match directives with
+      | [ import; data8; data16; binfile; list; use16; nolist; use64 ] ->
+          (match import.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_import_directive -> ()
+          | _ -> Alcotest.fail "IMPORT has the wrong directive kind");
+          Alcotest.(check (list string))
+            "IMPORT accepts adjacent names and retains its comma"
+            [ "Alpha"; "Beta"; ","; "Gamma" ]
+            (List.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               import.inline_assembly_directive_arguments);
+          Alcotest.(check int)
+            "IMPORT retains one separator" 1
+            (List.length import.inline_assembly_directive_separators);
+          (match data8.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_data_directive { element_width_bytes = 1 } -> ()
+          | _ -> Alcotest.fail "DU8 has the wrong element width");
+          Alcotest.(check (list string))
+            "DU8 keeps strings, optional separators, and DUP punctuation"
+            [ "\"A\""; ","; "0"; "1"; ","; "256"; "DUP"; "("; "0"; ")" ]
+            (List.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               data8.inline_assembly_directive_arguments);
+          Alcotest.(check int)
+            "DU8 retains two separators" 2
+            (List.length data8.inline_assembly_directive_separators);
+          (match data16.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_data_directive { element_width_bytes = 2 } -> ()
+          | _ -> Alcotest.fail "DU16 has the wrong element width");
+          Alcotest.(check int)
+            "an empty DU16 list remains empty" 0
+            (List.length data16.inline_assembly_directive_arguments);
+          (match binfile.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_binfile_directive -> ()
+          | _ -> Alcotest.fail "BINFILE has the wrong directive kind");
+          Alcotest.(check (list string))
+            "BINFILE keeps its string" [ "\"Blob.BIN\"" ]
+            (List.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               binfile.inline_assembly_directive_arguments);
+          (match list.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_list_directive -> ()
+          | _ -> Alcotest.fail "LIST has the wrong directive kind");
+          (match use16.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_use_directive { segment_width_bits = 16 } -> ()
+          | _ -> Alcotest.fail "USE16 has the wrong segment width");
+          (match nolist.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_nolist_directive -> ()
+          | _ -> Alcotest.fail "NOLIST has the wrong directive kind");
+          (match use64.inline_assembly_directive_kind with
+          | Ast.Inline_assembly_use_directive { segment_width_bits = 64 } -> ()
+          | _ -> Alcotest.fail "USE64 has the wrong segment width");
+          Alcotest.(check (list bool))
+            "required and optional semicolons remain distinguishable"
+            [ true; true; true; true; false; false; true; false ]
+            (List.map
+               (fun (directive : Ast.inline_assembly_directive) ->
+                 Option.is_some directive.inline_assembly_directive_semicolon)
+               directives)
+      | directives ->
+          Alcotest.failf "expected eight direct directives, got %d"
+            (List.length directives))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_directive_provenance_and_shadowing () =
+  let session, _, output =
+    parse_string "#define MODE USE32\nU0 Generated(){MODE MOV EAX,1;}"
+  in
+  let statement =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    List.hd block.block_statements |> expect_inline_assembly_statement
+  in
+  let directive = List.hd (inline_assembly_directives statement) in
+  let location =
+    directive.inline_assembly_directive_token.assembly_token_location
+  in
+  Alcotest.(check bool)
+    "a generated direct directive keeps its expansion site" true
+    (Option.is_some location.generated_from);
+  Alcotest.(check bool)
+    "a generated direct directive keeps its definition site" true
+    (Option.is_some location.defined_at);
+  let json = Ast_dump.json (Session.sources session) (expect_ast output) in
+  Alcotest.(check bool)
+    "JSON keeps the generated directive kind" true
+    (contains json "\"directive_kind\": \"use\"");
+  let _, _, shadow = parse_string "U0 Shadow(){I64 LIST;LIST;}" in
+  let statements =
+    expect_ast shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block -> block.block_statements
+  in
+  (match statements with
+  | [ Ast.Sequence_statement sequence ] -> (
+      match sequence.sequence_elements with
+      | [ first; second ] -> (
+          match (first.sequence_statement, second.sequence_statement) with
+          | Ast.Local_declaration_statement _, Ast.Expression_statement _ -> ()
+          | _ ->
+              Alcotest.fail "a local LIST shadow did not remain an expression")
+      | elements ->
+          Alcotest.failf "LIST shadow sequence has %d elements"
+            (List.length elements))
+  | statements ->
+      Alcotest.failf "LIST shadow produced %d statements"
+        (List.length statements));
+  let _, _, declaration = parse_string "I64 ordinary;" in
+  ignore (expect_ast declaration)
+
+let inline_assembly_directive_failures () =
+  List.iter
+    (fun (description, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string) description code (first_diagnostic output).code)
+    [
+      ("top-level direct directive", "IMPORT Name;", "HCPARSE0147");
+      ("function ORG restriction", "U0 Bad(){ORG 0;}", "HCPARSE0153");
+      ("function ALIGN restriction", "U0 Bad(){ALIGN 8,0;}", "HCPARSE0153");
+      ("standalone DUP", "U0 Bad(){DUP(2);}", "HCPARSE0153");
+      ("invalid import argument", "U0 Bad(){IMPORT 1;}", "HCPARSE0154");
+      ("missing import semicolon", "U0 Bad(){IMPORT Name}", "HCPARSE0154");
+      ("leading data comma", "U0 Bad(){DU8 ,1;}", "HCPARSE0155");
+      ("missing data semicolon", "U0 Bad(){DU8 1}", "HCPARSE0155");
+      ("DUP missing opening", "U0 Bad(){DU8 1 DUP;}", "HCPARSE0155");
+      ("empty DUP value", "U0 Bad(){DU8 1 DUP();}", "HCPARSE0155");
+      ("unclosed DUP value", "U0 Bad(){DU8 1 DUP(2;}", "HCPARSE0155");
+      ("BINFILE requires a string", "U0 Bad(){BINFILE 1;}", "HCPARSE0156");
+      ( "BINFILE requires a semicolon",
+        "U0 Bad(){BINFILE \"Blob.BIN\"}",
+        "HCPARSE0156" );
+    ]
+
 let inline_assembly_statement_contexts () =
   let _, _, output =
     parse_string
@@ -15596,7 +15830,7 @@ let inline_assembly_provenance () =
     |> expect_block_statement
     |> fun block ->
     List.hd block.block_statements |> expect_inline_assembly_statement
-    |> fun statement -> List.hd statement.inline_assembly_operations
+    |> fun statement -> List.hd (inline_assembly_instructions statement)
   in
   let location = generated.inline_assembly_opcode.assembly_token_location in
   Alcotest.(check bool)
@@ -15618,7 +15852,7 @@ let inline_assembly_provenance () =
     |> fun block ->
     List.hd block.block_statements |> expect_inline_assembly_statement
     |> fun statement ->
-    List.hd statement.inline_assembly_operations |> fun operation ->
+    List.hd (inline_assembly_instructions statement) |> fun operation ->
     List.nth operation.inline_assembly_operands 1 |> fun operand ->
     List.hd operand.inline_assembly_operand_tokens
   in
@@ -15646,7 +15880,7 @@ let inline_assembly_provenance () =
         |> expect_function_body |> expect_block_statement
         |> fun block ->
         List.hd block.block_statements |> expect_inline_assembly_statement
-        |> fun statement -> List.hd statement.inline_assembly_operations
+        |> fun statement -> List.hd (inline_assembly_instructions statement)
       in
       let included_source =
         Source_manager.find
@@ -15743,7 +15977,7 @@ let inline_assembly_failures () =
     List.concat_map flatten_statement block.block_statements
     |> List.find_map (function
       | Ast.Inline_assembly_statement statement ->
-          Some (List.hd statement.inline_assembly_operations)
+          Some (List.hd (inline_assembly_instructions statement))
       | _ -> None)
     |> Option.get
   in
@@ -15754,7 +15988,8 @@ let inline_assembly_failures () =
 
 let deterministic_inline_assembly_dumps () =
   let session, _, output =
-    parse_string "U0 Dump(){PUSHFD MOV RAX,U64 8[RBP] CLI;BPT;}"
+    parse_string
+      "U0 Dump(){LIST PUSHFD MOV RAX,U64 8[RBP] DU8 2 DUP(0); USE64 CLI;BPT;}"
   in
   let ast = expect_ast output in
   let sources = Session.sources session in
@@ -15780,7 +16015,13 @@ let deterministic_inline_assembly_dumps () =
     (contains human "kind=memory size_prefix=\"U64\"");
   Alcotest.(check bool)
     "JSON dump identifies a memory operand" true
-    (contains json "\"kind\": \"memory\"")
+    (contains json "\"kind\": \"memory\"");
+  Alcotest.(check bool)
+    "human dump identifies a direct data directive" true
+    (contains human "kind=data element_width_bytes=1");
+  Alcotest.(check bool)
+    "JSON dump identifies a direct mode directive" true
+    (contains json "\"segment_width_bits\": 64")
 
 let lock_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
@@ -18013,6 +18254,12 @@ let tests =
       inline_assembly_operand_shapes;
     Alcotest.test_case "pinned inline assembly operand snippets" `Quick
       pinned_inline_assembly_operand_snippets;
+    Alcotest.test_case "inline assembly directive shapes" `Quick
+      inline_assembly_directive_shapes;
+    Alcotest.test_case "inline assembly directive provenance and shadowing"
+      `Quick inline_assembly_directive_provenance_and_shadowing;
+    Alcotest.test_case "inline assembly directive failures" `Quick
+      inline_assembly_directive_failures;
     Alcotest.test_case "inline assembly statement contexts" `Quick
       inline_assembly_statement_contexts;
     Alcotest.test_case "inline assembly provenance" `Quick

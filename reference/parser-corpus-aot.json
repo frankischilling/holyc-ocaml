@@ -18,7 +18,7 @@
     "warnings": 0,
     "notes": 0,
     "diagnostic_codes": {
-      "HCPARSE0001": 10453,
+      "HCPARSE0001": 10434,
       "HCPARSE0002": 19,
       "HCPARSE0003": 28,
       "HCPARSE0009": 597,
@@ -46,7 +46,7 @@
       "HCPARSE0115": 1,
       "HCPARSE0121": 13,
       "HCPARSE0127": 21,
-      "HCPARSE0147": 168,
+      "HCPARSE0147": 187,
       "HCPP0003": 349,
       "HCPP0008": 38,
       "HCPP0009": 10,
@@ -11291,10 +11291,10 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 18,
+        "HCPARSE0001": 5,
         "HCPARSE0047": 3,
         "HCPARSE0050": 1,
-        "HCPARSE0147": 1,
+        "HCPARSE0147": 14,
         "HCPP0008": 2,
         "HCPP0022": 5
       },
@@ -11317,9 +11317,9 @@
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 35,
+        "HCPARSE0001": 29,
         "HCPARSE0047": 1,
-        "HCPARSE0147": 1,
+        "HCPARSE0147": 7,
         "HCPP0008": 1,
         "HCPP0022": 1
       },

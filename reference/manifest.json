@@ -23,7 +23,7 @@
     "read_errors": 0,
     "internal_errors": 0,
     "diagnostics": 37415,
-    "baseline_sha256": "2c6a1dee6f05318c2a7be4c3bffa3e005323fb3d6b09b8b16dc774f7242bd04f"
+    "baseline_sha256": "3dee7472529e439c38ee91af86b3e24b99c2953d5499cb609ed5a8baa739b530"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

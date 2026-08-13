@@ -37,6 +37,17 @@ type parsed_inline_assembly_operand = {
   tokens : Token.t list;
 }
 
+type direct_inline_assembly_directive_form =
+  | Direct_inline_import
+  | Direct_inline_data of int
+  | Direct_inline_binfile
+  | Direct_inline_list
+  | Direct_inline_nolist
+  | Direct_inline_use of int
+  | Direct_inline_forbidden_in_function
+  | Direct_inline_operand_prefix
+  | Direct_inline_invalid_standalone
+
 type parsed_local_declarator = {
   node : Ast.local_declarator;
   tokens : Token.t list;
@@ -235,8 +246,49 @@ let resolve_visible_assembly_opcode cursor token =
       | Symbol_visibility.Present _ -> None)
   | _ -> None
 
+let resolve_visible_assembly_directive cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols token.raw
+      with
+      | Symbol_visibility.Present entry
+        when Symbol_visibility.kind entry = Symbol_visibility.Assembly_keyword
+        -> resolve_assembly_directive token
+      | Symbol_visibility.Absent
+      | Symbol_visibility.Shadowed_by_local
+      | Symbol_visibility.Present _ -> None)
+  | _ -> None
+
+let direct_inline_assembly_directive_form directive =
+  match Asm.Directive.templeos_id directive with
+  | 64 | 65 -> Direct_inline_forbidden_in_function
+  | 66 | 67 | 68 | 69 | 70 | 71 | 72 | 73 | 74 | 75 | 76 ->
+      Direct_inline_operand_prefix
+  | 77 -> Direct_inline_data 1
+  | 78 -> Direct_inline_data 2
+  | 79 -> Direct_inline_data 4
+  | 80 -> Direct_inline_data 8
+  | 81 -> Direct_inline_invalid_standalone
+  | 82 -> Direct_inline_use 16
+  | 83 -> Direct_inline_use 32
+  | 84 -> Direct_inline_use 64
+  | 85 -> Direct_inline_import
+  | 86 -> Direct_inline_list
+  | 87 -> Direct_inline_nolist
+  | 88 -> Direct_inline_binfile
+  | templeos_id ->
+      invalid_arg
+        (Printf.sprintf "unknown checked assembler-keyword ID %d" templeos_id)
+
 let token_starts_inline_assembly cursor token =
   Option.is_some (resolve_visible_assembly_opcode cursor token)
+  ||
+  match resolve_visible_assembly_directive cursor token with
+  | Some directive ->
+      direct_inline_assembly_directive_form directive
+      <> Direct_inline_operand_prefix
+  | None -> false
 
 let assembly_token_kind token =
   match token.Token.kind with
@@ -4684,12 +4736,39 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
     report cursor first_item ~code:"HCPARSE0147"
       ~message:
         (Printf.sprintf
-           "inline assembly operation %S requires a function body; use an 'asm \
-            { ... }' block at top level"
+           "inline assembly item %S requires a function body; use an 'asm { \
+            ... }' block at top level"
            first_item.token.raw);
     recover_statement cursor ~boundary;
     None)
   else
+    let optional_semicolon () =
+      let item = peek cursor in
+      if item.token.kind = Token_kind.Punctuation ';' then Some (take cursor)
+      else None
+    in
+    let make_directive directive_item ~kind ~arguments ~separators
+        ~semicolon_item =
+      let directive_tokens =
+        (directive_item.token :: arguments)
+        @
+        match semicolon_item with
+        | None -> []
+        | Some semicolon -> [ semicolon.token ]
+      in
+      let directive =
+        Ast.make_inline_assembly_directive ~kind
+          ~directive:(classified_assembly_token directive_item.token)
+          ~arguments:(List.map classified_assembly_token arguments)
+          ~separators
+          ~semicolon:
+            (Option.map
+               (fun semicolon -> token_location semicolon.token)
+               semicolon_item)
+          ~location:(location_from_expression_tokens directive_tokens)
+      in
+      Some (Ast.Inline_assembly_directive directive, directive_tokens)
+    in
     let parse_operation item resolved =
       let opcode = Asm.Opcode.resolved_opcode resolved in
       let argument_count = Asm.Opcode.first_form_argument_count opcode in
@@ -4748,11 +4827,7 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
                    (if argument_count = 1 then "" else "s"));
             None)
           else
-            let semicolon_item =
-              if following_item.token.kind = Token_kind.Punctuation ';' then
-                Some (take cursor)
-              else None
-            in
+            let semicolon_item = optional_semicolon () in
             let operation_tokens =
               [ opcode_item.token ] @ operand_tokens
               @
@@ -4774,9 +4849,249 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
                      semicolon_item)
                 ~location:(location_from_expression_tokens operation_tokens)
             in
-            Some (operation, operation_tokens)
+            Some (Ast.Inline_assembly_instruction operation, operation_tokens)
     in
-    let rec collect operations_rev tokens_rev =
+    let parse_import directive_item =
+      let rec collect arguments_rev separators_rev =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Punctuation ';' ->
+            let semicolon_item = take cursor in
+            make_directive directive_item
+              ~kind:Ast.Inline_assembly_import_directive
+              ~arguments:(List.rev arguments_rev)
+              ~separators:(List.rev separators_rev)
+              ~semicolon_item:(Some semicolon_item)
+        | Token_kind.Identifier ->
+            let name_item = take cursor in
+            let arguments_rev = name_item.token :: arguments_rev in
+            let comma_item = peek cursor in
+            if comma_item.token.kind = Token_kind.Punctuation ',' then
+              let comma_item = take cursor in
+              collect
+                (comma_item.token :: arguments_rev)
+                (token_location comma_item.token :: separators_rev)
+            else collect arguments_rev separators_rev
+        | Token_kind.Eof | Token_kind.Punctuation '}' ->
+            report cursor item ~code:"HCPARSE0154"
+              ~message:
+                (Printf.sprintf
+                   "expected ';' to finish inline assembly IMPORT, but found %s"
+                   (token_description item.token));
+            None
+        | _ ->
+            report cursor item ~code:"HCPARSE0154"
+              ~message:
+                (Printf.sprintf
+                   "expected an imported symbol name or ';' after inline \
+                    assembly IMPORT, but found %s"
+                   (token_description item.token));
+            None
+      in
+      collect [] []
+    in
+    let parse_data directive_item element_width_bytes =
+      let dup_directive token =
+        match resolve_visible_assembly_directive cursor token with
+        | Some directive -> Asm.Directive.templeos_id directive = 81
+        | None -> false
+      in
+      let parse_dup_suffix value_tokens =
+        let dup_item = peek cursor in
+        if not (dup_directive dup_item.token) then Some value_tokens
+        else
+          let dup_item = take cursor in
+          let opening_item = peek cursor in
+          if opening_item.token.kind <> Token_kind.Punctuation '(' then (
+            report cursor opening_item ~code:"HCPARSE0155"
+              ~message:
+                (Printf.sprintf
+                   "expected '(' after DUP in inline assembly %S data, but \
+                    found %s"
+                   directive_item.token.raw
+                   (token_description opening_item.token));
+            None)
+          else
+            let opening_item = take cursor in
+            let count_item = peek cursor in
+            if count_item.token.kind = Token_kind.Punctuation ')' then (
+              report cursor count_item ~code:"HCPARSE0155"
+                ~message:
+                  (Printf.sprintf
+                     "expected a repeated value inside DUP(...) for inline \
+                      assembly %S data"
+                     directive_item.token.raw);
+              None)
+            else
+              match
+                parse_expression ~allow_parenthesis_free_call:false cursor
+                  ~context:Inline_assembly_operand_expression ~depth:0
+                  ~minimum_binding_power:0
+              with
+              | None -> None
+              | Some count_expression ->
+                  let closing_item = peek cursor in
+                  if closing_item.token.kind <> Token_kind.Punctuation ')' then (
+                    report cursor closing_item ~code:"HCPARSE0155"
+                      ~message:
+                        (Printf.sprintf
+                           "expected ')' after the DUP value for inline \
+                            assembly %S data, but found %s"
+                           directive_item.token.raw
+                           (token_description closing_item.token));
+                    None)
+                  else
+                    let closing_item = take cursor in
+                    Some
+                      (value_tokens
+                      @ dup_item.token :: opening_item.token
+                        :: count_expression.tokens
+                      @ [ closing_item.token ])
+      in
+      let parse_value () =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.String ->
+            let item = take cursor in
+            Some [ item.token ]
+        | Token_kind.Eof | Token_kind.Punctuation (',' | ';' | '}') ->
+            report cursor item ~code:"HCPARSE0155"
+              ~message:
+                (Printf.sprintf
+                   "expected a value in inline assembly %S data, but found %s"
+                   directive_item.token.raw
+                   (token_description item.token));
+            None
+        | _ when token_starts_inline_assembly cursor item.token ->
+            report cursor item ~code:"HCPARSE0155"
+              ~message:
+                (Printf.sprintf
+                   "expected ';' before inline assembly item %S after %S data"
+                   item.token.raw directive_item.token.raw);
+            None
+        | _ -> (
+            match
+              parse_expression ~allow_parenthesis_free_call:false cursor
+                ~context:Inline_assembly_operand_expression ~depth:0
+                ~minimum_binding_power:0
+            with
+            | None -> None
+            | Some expression -> parse_dup_suffix expression.tokens)
+      in
+      let rec collect arguments_rev separators_rev =
+        let item = peek cursor in
+        match item.token.kind with
+        | Token_kind.Punctuation ';' ->
+            let semicolon_item = take cursor in
+            make_directive directive_item
+              ~kind:(Ast.Inline_assembly_data_directive { element_width_bytes })
+              ~arguments:(List.rev arguments_rev)
+              ~separators:(List.rev separators_rev)
+              ~semicolon_item:(Some semicolon_item)
+        | Token_kind.Eof | Token_kind.Punctuation '}' ->
+            report cursor item ~code:"HCPARSE0155"
+              ~message:
+                (Printf.sprintf
+                   "expected ';' to finish inline assembly %S data, but found \
+                    %s"
+                   directive_item.token.raw
+                   (token_description item.token));
+            None
+        | _ -> (
+            match parse_value () with
+            | None -> None
+            | Some value_tokens ->
+                let arguments_rev =
+                  List.rev_append value_tokens arguments_rev
+                in
+                let comma_item = peek cursor in
+                if comma_item.token.kind = Token_kind.Punctuation ',' then
+                  let comma_item = take cursor in
+                  collect
+                    (comma_item.token :: arguments_rev)
+                    (token_location comma_item.token :: separators_rev)
+                else collect arguments_rev separators_rev)
+      in
+      collect [] []
+    in
+    let parse_binfile directive_item =
+      let argument_item = peek cursor in
+      if argument_item.token.kind <> Token_kind.String then (
+        report cursor argument_item ~code:"HCPARSE0156"
+          ~message:
+            (Printf.sprintf
+               "expected a file-name string after inline assembly BINFILE, but \
+                found %s"
+               (token_description argument_item.token));
+        None)
+      else
+        let argument_item = take cursor in
+        let semicolon_item = peek cursor in
+        if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
+          report cursor semicolon_item ~code:"HCPARSE0156"
+            ~message:
+              (Printf.sprintf
+                 "expected ';' after the inline assembly BINFILE string, but \
+                  found %s"
+                 (token_description semicolon_item.token));
+          None)
+        else
+          let semicolon_item = take cursor in
+          make_directive directive_item
+            ~kind:Ast.Inline_assembly_binfile_directive
+            ~arguments:[ argument_item.token ] ~separators:[]
+            ~semicolon_item:(Some semicolon_item)
+    in
+    let parse_directive item directive =
+      match direct_inline_assembly_directive_form directive with
+      | Direct_inline_import ->
+          let directive_item = take cursor in
+          parse_import directive_item
+      | Direct_inline_data element_width_bytes ->
+          let directive_item = take cursor in
+          parse_data directive_item element_width_bytes
+      | Direct_inline_binfile ->
+          let directive_item = take cursor in
+          parse_binfile directive_item
+      | (Direct_inline_list | Direct_inline_nolist | Direct_inline_use _) as
+        form ->
+          let directive_item = take cursor in
+          let kind =
+            match form with
+            | Direct_inline_list -> Ast.Inline_assembly_list_directive
+            | Direct_inline_nolist -> Ast.Inline_assembly_nolist_directive
+            | Direct_inline_use segment_width_bits ->
+                Ast.Inline_assembly_use_directive { segment_width_bits }
+            | Direct_inline_import
+            | Direct_inline_data _
+            | Direct_inline_binfile
+            | Direct_inline_forbidden_in_function
+            | Direct_inline_operand_prefix
+            | Direct_inline_invalid_standalone -> assert false
+          in
+          make_directive directive_item ~kind ~arguments:[] ~separators:[]
+            ~semicolon_item:(optional_semicolon ())
+      | Direct_inline_forbidden_in_function ->
+          report cursor item ~code:"HCPARSE0153"
+            ~message:
+              (Printf.sprintf
+                 "inline assembly directive %S is not allowed in a function \
+                  body; use a top-level 'asm { ... }' block"
+                 item.token.raw);
+          None
+      | Direct_inline_operand_prefix ->
+          invalid_arg
+            "an inline assembly operand prefix cannot start a direct item"
+      | Direct_inline_invalid_standalone ->
+          report cursor item ~code:"HCPARSE0153"
+            ~message:
+              (Printf.sprintf
+                 "assembler keyword %S cannot start a direct function-body \
+                  assembly item"
+                 item.token.raw);
+          None
+    in
+    let rec collect items_rev tokens_rev =
       let item = peek cursor in
       match resolve_visible_assembly_opcode cursor item.token with
       | Some resolved -> (
@@ -4784,22 +5099,33 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
           | None ->
               recover_statement cursor ~boundary;
               None
-          | Some (operation, operation_tokens) ->
-              collect
-                (operation :: operations_rev)
-                (List.rev_append operation_tokens tokens_rev))
-      | None ->
-          let operations = List.rev operations_rev in
-          let tokens = List.rev tokens_rev in
-          if operations = [] then
-            invalid_arg "inline assembly parser needs an assembly operation";
-          let statement =
-            Ast.make_inline_assembly_statement ~operations
-              ~location:(location_from_expression_tokens tokens)
-          in
-          Some
-            ({ node = Ast.Inline_assembly_statement statement; tokens }
-              : parsed_statement)
+          | Some (parsed_item, item_tokens) ->
+              collect (parsed_item :: items_rev)
+                (List.rev_append item_tokens tokens_rev))
+      | None -> (
+          match resolve_visible_assembly_directive cursor item.token with
+          | Some directive
+            when direct_inline_assembly_directive_form directive
+                 <> Direct_inline_operand_prefix -> (
+              match parse_directive item directive with
+              | None ->
+                  recover_statement cursor ~boundary;
+                  None
+              | Some (parsed_item, item_tokens) ->
+                  collect (parsed_item :: items_rev)
+                    (List.rev_append item_tokens tokens_rev))
+          | Some _ | None ->
+              let items = List.rev items_rev in
+              let tokens = List.rev tokens_rev in
+              if items = [] then
+                invalid_arg "inline assembly parser needs an assembly item";
+              let statement =
+                Ast.make_inline_assembly_statement ~items
+                  ~location:(location_from_expression_tokens tokens)
+              in
+              Some
+                ({ node = Ast.Inline_assembly_statement statement; tokens }
+                  : parsed_statement))
     in
     collect [] []
 
