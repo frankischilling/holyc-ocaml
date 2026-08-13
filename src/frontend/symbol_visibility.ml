@@ -235,7 +235,8 @@ module Environment = struct
 
   let print_call_shape buffer shape =
     Printf.bprintf buffer "  call-shape fixed=%d variadic=%b\n"
-      (List.length shape.parameters) shape.variadic;
+      (List.length shape.parameters)
+      shape.variadic;
     List.iteri
       (fun index parameter ->
         let name =
@@ -250,11 +251,11 @@ module Environment = struct
   let selected_entries source_only environment =
     all environment
     |> List.filter (fun entry ->
-           (not source_only)
-           ||
-           match entry.origin with
-           | Source_span _ | Source_location _ -> true
-           | Pinned_source _ | Session_registration -> false)
+        (not source_only)
+        ||
+        match entry.origin with
+        | Source_span _ | Source_location _ -> true
+        | Pinned_source _ | Session_registration -> false)
 
   let human ?(source_only = false) sources environment =
     let buffer = Buffer.create 512 in
@@ -303,8 +304,9 @@ module Environment = struct
               ]
         in
         `Assoc
-          (fields @ position_fields "" span.start
-         @ position_fields "end_" span.stop)
+          (fields
+          @ position_fields "" span.start
+          @ position_fields "end_" span.stop)
 
   let option_span_to_yojson sources = function
     | None -> `Null
@@ -330,7 +332,8 @@ module Environment = struct
             ("kind", `String "source-location");
             ("span", span_to_yojson sources source.span);
             ( "source_segments",
-              `List (List.map (span_to_yojson sources) source.source_segments) );
+              `List (List.map (span_to_yojson sources) source.source_segments)
+            );
             ( "generated_from",
               option_span_to_yojson sources source.generated_from );
             ("defined_at", option_span_to_yojson sources source.defined_at);
@@ -375,8 +378,7 @@ module Environment = struct
     `Assoc
       [
         ("schema", `String "holyc-symbol-visibility-v2");
-        ( "reference_commit",
-          `String Generated.Opcode_keywords.reference_commit );
+        ("reference_commit", `String Generated.Opcode_keywords.reference_commit);
         ( "symbols",
           `List
             (List.map (entry_to_yojson sources)
@@ -385,19 +387,18 @@ module Environment = struct
           `List
             (List.rev environment.local_contexts
             |> List.map (fun (context, names) ->
-                   `Assoc
-                     [
-                       ("id", `Int context);
-                       ( "names",
-                         `List
-                           (String_set.elements names
-                           |> List.map (fun name -> `String name)) );
-                     ])) );
+                `Assoc
+                  [
+                    ("id", `Int context);
+                    ( "names",
+                      `List
+                        (String_set.elements names
+                        |> List.map (fun name -> `String name)) );
+                  ])) );
       ]
 
   let json ?(source_only = false) sources environment =
-    to_yojson ~source_only sources environment
-    |> Yojson.Safe.pretty_to_string
+    to_yojson ~source_only sources environment |> Yojson.Safe.pretty_to_string
 
   let dump sources environment = human sources environment
 end

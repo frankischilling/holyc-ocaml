@@ -770,13 +770,15 @@ let publish_global cursor (name : Ast.identifier) =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Global_variable
-       ~origin:(symbol_source_origin name.location) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_class cursor (name : Ast.identifier) =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Class
-       ~origin:(symbol_source_origin name.location) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_function cursor (name : Ast.identifier) parameters variadic =
   let function_call_shape : Symbol_visibility.function_call_shape =
@@ -798,7 +800,8 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Function ~function_call_shape
-       ~origin:(symbol_source_origin name.location) ())
+       ~origin:(symbol_source_origin name.location)
+       ())
 
 let publish_local cursor (name : Ast.identifier) =
   match cursor.local_context with

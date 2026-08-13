@@ -72,6 +72,7 @@ module Environment : sig
   val begin_local_context : t -> local_context
   val add_local : t -> local_context -> name:string -> (unit, string) result
   val end_local_context : t -> local_context -> (unit, string) result
+
   val to_yojson :
     ?source_only:bool -> Common.Source_manager.t -> t -> Yojson.Safe.t
 

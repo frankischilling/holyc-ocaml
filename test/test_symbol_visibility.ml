@@ -250,7 +250,9 @@ let deterministic_json () =
   let local = Symbol_visibility.Environment.begin_local_context symbols in
   checked (Symbol_visibility.Environment.add_local symbols local ~name:"zeta");
   checked (Symbol_visibility.Environment.add_local symbols local ~name:"alpha");
-  let first = Symbol_visibility.Environment.json (Session.sources session) symbols in
+  let first =
+    Symbol_visibility.Environment.json (Session.sources session) symbols
+  in
   let second =
     Symbol_visibility.Environment.json (Session.sources session) symbols
   in
@@ -275,14 +277,14 @@ let deterministic_json () =
   Alcotest.(check int)
     "two fixed parameters" 2
     (callable |> member "call_shape" |> member "parameters" |> to_list
-    |> List.length);
+   |> List.length);
   Alcotest.(check bool)
     "variadic shape" true
     (callable |> member "call_shape" |> member "variadic" |> to_bool);
   Alcotest.(check (list string))
     "local names are sorted" [ "alpha"; "zeta" ]
     (json |> member "local_contexts" |> index 0 |> member "names" |> to_list
-    |> List.map to_string);
+   |> List.map to_string);
   let source_symbols = source_only |> member "symbols" |> to_list in
   Alcotest.(check int) "source-only entry count" 1 (List.length source_symbols);
   Alcotest.(check string)
