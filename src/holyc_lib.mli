@@ -154,3 +154,14 @@ val resolve_function_types :
 (** Resolve function return and recursive parameter types at each declaration's
     source position. Default evaluation, declaration reconciliation, call
     checking, storage, and linkage remain separate passes. *)
+
+val resolve_function_identities :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  functions:Semantic_function_type_resolution.t ->
+  compilation_mode:Preprocessor.compilation_mode ->
+  Ast.module_ ->
+  (Semantic_function_resolution.t, string) result
+(** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
+    Header comparison, task-parent lookup, alternate target resolution, and
+    linkage remain separate passes. *)

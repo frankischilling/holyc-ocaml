@@ -18,6 +18,7 @@ let config mode = checked (Preprocessor.Config.create ~compilation_mode:mode ())
 
 type prepared = {
   session : Session.t;
+  ast : Ast.module_;
   declarations : Semantic_declaration_collection.t;
   function_types : Semantic_function_type_resolution.t;
 }
@@ -41,7 +42,7 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
       (Holyc_lib.resolve_function_types session ~declarations ~aggregates
          ~functions ast)
   in
-  { session; declarations; function_types }
+  { session; ast; declarations; function_types }
 
 let semantic_mode = function
   | Preprocessor.Jit -> Semantic_function_resolution.Jit
@@ -213,6 +214,76 @@ let explicit_bindings_resolve () =
     |> List.map Semantic_function_resolution.declaration_site_kind
     |> List.map Semantic_function_resolution.declaration_kind_name)
 
+let driver_classifies_source_bindings () =
+  let mode = Preprocessor.Aot in
+  let prepared =
+    prepare ~mode ~path:"source-function-bindings.HC"
+      "extern U0 Forward();\n\
+       _extern REMOTE_BOUND U0 Bound();\n\
+       import U0 Imported();\n\
+       _import REMOTE_IMPORT U0 Aliased();\n\
+       _intern 42 U0 Internal();\n\
+       U0 Defined(){}"
+  in
+  let resolution =
+    checked
+      (Holyc_lib.resolve_function_identities prepared.session
+         ~declarations:prepared.declarations ~functions:prepared.function_types
+         ~compilation_mode:mode prepared.ast)
+  in
+  Alcotest.(check (list string))
+    "driver keeps each source binding form"
+    [ "extern"; "bound-extern"; "import"; "import"; "intern"; "definition" ]
+    (Semantic_function_resolution.declarations resolution
+    |> List.map Semantic_function_resolution.resolved_declaration_site
+    |> List.map Semantic_function_resolution.declaration_site_kind
+    |> List.map Semantic_function_resolution.declaration_kind_name);
+  Alcotest.(check (list string))
+    "driver applies the binding state"
+    [
+      "unresolved-extern";
+      "resolved";
+      "imported";
+      "imported";
+      "resolved";
+      "resolved";
+    ]
+    (final_states resolution)
+
+let driver_rejects_mismatched_inputs () =
+  let aot =
+    prepare ~mode:Preprocessor.Aot ~path:"aot-import.HC" "import U0 Imported();"
+  in
+  let table = Session.semantic_symbols aot.session in
+  let scope_count = Semantic_symbol_table.all_scopes table |> List.length in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let rejected =
+    Holyc_lib.resolve_function_identities aot.session
+      ~declarations:aot.declarations ~functions:aot.function_types
+      ~compilation_mode:Preprocessor.Jit aot.ast
+    |> Result.is_error
+  in
+  Alcotest.(check bool) "JIT rejects an imported AST" true rejected;
+  Alcotest.(check int)
+    "mode mismatch preserves scopes" scope_count
+    (Semantic_symbol_table.all_scopes table |> List.length);
+  Alcotest.(check int)
+    "mode mismatch preserves symbols" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let other = prepare ~path:"other-driver-input.HC" "U0 Other(){}" in
+  Alcotest.(check bool)
+    "an unrelated AST is rejected" true
+    (Holyc_lib.resolve_function_identities aot.session
+       ~declarations:aot.declarations ~functions:aot.function_types
+       ~compilation_mode:Preprocessor.Aot other.ast
+    |> Result.is_error);
+  Alcotest.(check int)
+    "AST mismatch preserves scopes" scope_count
+    (Semantic_symbol_table.all_scopes table |> List.length);
+  Alcotest.(check int)
+    "AST mismatch preserves symbols" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length)
+
 let invalid_batches_do_not_mutate () =
   let prepared =
     prepare ~path:"invalid-function-identities.HC"
@@ -294,6 +365,10 @@ let tests =
       aot_import_barrier_matrix;
     Alcotest.test_case "explicit bindings resolve" `Quick
       explicit_bindings_resolve;
+    Alcotest.test_case "driver classifies source bindings" `Quick
+      driver_classifies_source_bindings;
+    Alcotest.test_case "driver rejects mismatched inputs" `Quick
+      driver_rejects_mismatched_inputs;
     Alcotest.test_case "invalid batches do not mutate" `Quick
       invalid_batches_do_not_mutate;
     Alcotest.test_case "deterministic resolution" `Quick

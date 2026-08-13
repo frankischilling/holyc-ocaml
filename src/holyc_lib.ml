@@ -117,3 +117,9 @@ let resolve_function_types session ~declarations ~aggregates ~functions module_
   Driver.Function_type_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions module_
+
+let resolve_function_identities session ~declarations ~functions
+    ~compilation_mode module_ =
+  Driver.Function_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~functions ~compilation_mode module_
