@@ -215,7 +215,7 @@ let resolve_assembly_directive token =
   | Token_kind.Identifier -> Asm.Directive.find token.raw
   | _ -> None
 
-let token_starts_inline_assembly cursor token =
+let resolve_visible_assembly_opcode cursor token =
   match token.Token.kind with
   | Token_kind.Identifier -> (
       match
@@ -223,11 +223,14 @@ let token_starts_inline_assembly cursor token =
       with
       | Symbol_visibility.Present entry
         when Symbol_visibility.kind entry = Symbol_visibility.Opcode ->
-          Option.is_some (resolve_assembly_opcode token)
+          resolve_assembly_opcode token
       | Symbol_visibility.Absent
       | Symbol_visibility.Shadowed_by_local
-      | Symbol_visibility.Present _ -> false)
-  | _ -> false
+      | Symbol_visibility.Present _ -> None)
+  | _ -> None
+
+let token_starts_inline_assembly cursor token =
+  Option.is_some (resolve_visible_assembly_opcode cursor token)
 
 let assembly_token_kind token =
   match token.Token.kind with
@@ -4502,7 +4505,7 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
     None)
   else
     let unsupported_operation item =
-      match resolve_assembly_opcode item.token with
+      match resolve_visible_assembly_opcode cursor item.token with
       | Some resolved ->
           let opcode = Asm.Opcode.resolved_opcode resolved in
           let argument_count = Asm.Opcode.first_form_argument_count opcode in
@@ -4518,7 +4521,7 @@ let parse_inline_assembly_statement cursor ~boundary : parsed_statement option =
     in
     let rec collect operations_rev tokens_rev =
       let item = peek cursor in
-      match resolve_assembly_opcode item.token with
+      match resolve_visible_assembly_opcode cursor item.token with
       | Some resolved ->
           let opcode = Asm.Opcode.resolved_opcode resolved in
           if Asm.Opcode.first_form_argument_count opcode <> 0 then (

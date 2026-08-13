@@ -15544,6 +15544,34 @@ let inline_assembly_failures () =
   | statements ->
       Alcotest.failf
         "a local named CLI should shadow the opcode, got %d statements"
+        (List.length statements));
+  let _, _, adjacent_shadow =
+    parse_string "U0 Adjacent(){I64 CLI;PUSHFD CLI;}"
+  in
+  let body =
+    expect_ast adjacent_shadow |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  let rec flatten_statement = function
+    | Ast.Sequence_statement sequence ->
+        List.concat_map
+          (fun element -> flatten_statement element.Ast.sequence_statement)
+          sequence.sequence_elements
+    | statement -> [ statement ]
+  in
+  let statements = List.concat_map flatten_statement body.block_statements in
+  (match statements with
+  | [ declaration; direct; expression ] ->
+      ignore (declaration |> expect_local_declaration);
+      Alcotest.(check (list string))
+        "a shadowed adjacent spelling ends the direct assembly run"
+        [ "PUSHFD" ]
+        (direct |> expect_inline_assembly_statement
+        |> inline_assembly_opcode_spellings);
+      ignore (expression |> expect_expression_statement)
+  | statements ->
+      Alcotest.failf
+        "an adjacent shadow should produce three ordered statements, got %d"
         (List.length statements))
 
 let deterministic_inline_assembly_dumps () =
