@@ -47,6 +47,7 @@ module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_global_resolution = Sema.Global_resolution
+module Semantic_global_record_classification = Sema.Global_record_classification
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -190,3 +191,14 @@ val resolve_global_records :
     edges using the pinned JIT or AOT rule. Target-address resolution,
     compiler-option execution, allocation, and linkage remain separate passes.
 *)
+
+val classify_global_records :
+  ?compiler_option_mask:int64 ->
+  Session.t ->
+  resolution:Semantic_global_resolution.t ->
+  Ast.module_ ->
+  (Semantic_global_record_classification.t, string) result
+(** Derive source-grounded hash and global-variable flags, import naming, value
+    access, cleanup, map visibility, and AOT publication intent. The optional
+    mask is explicit because compile-time option snapshots are not executed yet;
+    allocation, address resolution, and record emission remain separate. *)
