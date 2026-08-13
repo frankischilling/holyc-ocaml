@@ -534,7 +534,54 @@ type switch_case_pattern =
   | Single_case of expression
   | Ranged_case of switch_case_range
 
+type assembly_token_kind =
+  | Assembly_opcode_token of {
+      canonical_spelling : string;
+      source_is_alias : bool;
+    }
+  | Assembly_directive_token of { templeos_id : int }
+  | Assembly_register_token of {
+      register_kind : Asm.Register.kind;
+      register_number : int;
+    }
+  | Assembly_identifier_token
+  | Assembly_keyword_token
+  | Assembly_integer_token
+  | Assembly_float_token
+  | Assembly_string_token
+  | Assembly_character_token
+  | Assembly_operator_token
+  | Assembly_punctuation_token
+  | Assembly_newline_token
+
+type assembly_token = {
+  assembly_token_kind : assembly_token_kind;
+  assembly_source_token : Token.t;
+  assembly_token_location : location;
+}
+
+type assembly_label_kind =
+  | Assembly_global_label
+  | Assembly_exported_global_label
+  | Assembly_local_label
+
+type assembly_label = {
+  assembly_label_kind : assembly_label_kind;
+  assembly_label_name : identifier;
+  assembly_label_delimiter_spelling : string;
+  assembly_label_delimiter : location;
+  assembly_label_location : location;
+}
+
+type assembly_line = {
+  assembly_line_source_line : int;
+  assembly_line_labels : assembly_label list;
+  assembly_line_tokens : assembly_token list;
+  assembly_line_location : location;
+}
+
 type statement =
+  | Assembly_block_statement of assembly_block_statement
   | Block_statement of block_statement
   | Break_statement of break_statement
   | Do_while_statement of do_while_statement
@@ -552,6 +599,14 @@ type statement =
   | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
+
+and assembly_block_statement = {
+  assembly_keyword : location;
+  assembly_opening_brace : location;
+  assembly_lines : assembly_line list;
+  assembly_closing_brace : location;
+  assembly_block_location : location;
+}
 
 and block_statement = {
   block_opening_brace : location;
@@ -1203,6 +1258,40 @@ let make_local_declaration ~storage ~modifiers ~type_specifier ~declarators
     local_declaration_location = location;
   }
 
+let make_assembly_token ~kind ~source_token ~location =
+  {
+    assembly_token_kind = kind;
+    assembly_source_token = source_token;
+    assembly_token_location = location;
+  }
+
+let make_assembly_label ~kind ~name ~delimiter_spelling ~delimiter ~location =
+  {
+    assembly_label_kind = kind;
+    assembly_label_name = name;
+    assembly_label_delimiter_spelling = delimiter_spelling;
+    assembly_label_delimiter = delimiter;
+    assembly_label_location = location;
+  }
+
+let make_assembly_line ~source_line ~labels ~tokens ~location =
+  {
+    assembly_line_source_line = source_line;
+    assembly_line_labels = labels;
+    assembly_line_tokens = tokens;
+    assembly_line_location = location;
+  }
+
+let make_assembly_block_statement ~keyword ~opening_brace ~lines ~closing_brace
+    ~location =
+  {
+    assembly_keyword = keyword;
+    assembly_opening_brace = opening_brace;
+    assembly_lines = lines;
+    assembly_closing_brace = closing_brace;
+    assembly_block_location = location;
+  }
+
 let make_block_statement ~opening_brace ~statements ~closing_brace ~location =
   {
     block_opening_brace = opening_brace;
@@ -1382,6 +1471,7 @@ let make_function_definition ~modifiers ~return_type ~return_pointer_layers
   }
 
 let statement_location = function
+  | Assembly_block_statement statement -> statement.assembly_block_location
   | Block_statement statement -> statement.block_location
   | Break_statement statement -> statement.break_location
   | Do_while_statement statement -> statement.do_while_location

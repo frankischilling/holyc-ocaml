@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0145",
+    "severity": "error",
+    "message": "expected '{' after 'asm', but found identifier \"MOV\"",
+    "primary": {
+      "path": "cli/parse-assembly-block-error.hc",
+      "line": 1,
+      "column": 5,
+      "source_id": 0,
+      "start": 4,
+      "stop": 7
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

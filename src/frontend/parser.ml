@@ -10,6 +10,7 @@ type located_token = {
 
 type cursor = {
   stream : Preprocessor.t;
+  sources : Common.Source_manager.t;
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
   mutable lookahead : located_token list;
@@ -203,6 +204,42 @@ let is_canonical_u64_register spelling =
     (fun (register : Generated.Opcode_keywords.register) ->
       String.equal register.spelling spelling)
     canonical_u64_registers
+
+let assembly_token_kind token =
+  match token.Token.kind with
+  | Token_kind.Identifier -> (
+      match Asm.Opcode.resolve token.raw with
+      | Some resolved ->
+          let opcode = Asm.Opcode.resolved_opcode resolved in
+          Ast.Assembly_opcode_token
+            {
+              canonical_spelling = Asm.Opcode.spelling opcode;
+              source_is_alias = Asm.Opcode.resolved_is_alias resolved;
+            }
+      | None -> (
+          match Asm.Directive.find token.raw with
+          | Some directive ->
+              Ast.Assembly_directive_token
+                { templeos_id = Asm.Directive.templeos_id directive }
+          | None -> (
+              match Asm.Register.find token.raw with
+              | Some register ->
+                  Ast.Assembly_register_token
+                    {
+                      register_kind = Asm.Register.kind register;
+                      register_number = Asm.Register.number register;
+                    }
+              | None -> Ast.Assembly_identifier_token)))
+  | Token_kind.Keyword _ -> Ast.Assembly_keyword_token
+  | Token_kind.Integer -> Ast.Assembly_integer_token
+  | Token_kind.Float -> Ast.Assembly_float_token
+  | Token_kind.String -> Ast.Assembly_string_token
+  | Token_kind.Character -> Ast.Assembly_character_token
+  | Token_kind.Operator _ -> Ast.Assembly_operator_token
+  | Token_kind.Punctuation _ -> Ast.Assembly_punctuation_token
+  | Token_kind.Newline -> Ast.Assembly_newline_token
+  | Token_kind.Eof ->
+      invalid_arg "end-of-input cannot be an assembly body token"
 
 let has_error diagnostics =
   List.exists
@@ -4288,10 +4325,148 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
       in
       local_declaration_failure cursor ~boundary type_item ~code ~message
 
+let source_line_of_token cursor token =
+  match Common.Source_manager.find cursor.sources token.Token.span.source with
+  | None -> invalid_arg "assembly token source is not registered"
+  | Some source -> (
+      match Common.Source_file.position source token.span.start with
+      | Ok position -> position.line
+      | Error message -> invalid_arg message)
+
+let token_is_assembly_label_delimiter token =
+  match token.Token.kind with
+  | Token_kind.Punctuation ':' -> true
+  | Token_kind.Operator Operator.Double_colon -> true
+  | _ -> false
+
+let assembly_label_kind name delimiter =
+  if String.length name >= 2 && String.sub name 0 2 = "@@" then
+    Ast.Assembly_local_label
+  else
+    match delimiter.Token.kind with
+    | Token_kind.Operator Operator.Double_colon ->
+        Ast.Assembly_exported_global_label
+    | Token_kind.Punctuation ':' -> Ast.Assembly_global_label
+    | _ -> invalid_arg "assembly label delimiter was not a colon"
+
+let assembly_labels tokens =
+  let rec collect labels_rev = function
+    | name_token :: delimiter_token :: remaining
+      when name_token.Token.kind = Token_kind.Identifier
+           && token_is_assembly_label_delimiter delimiter_token ->
+        let name =
+          Ast.make_identifier ~spelling:name_token.raw
+            ~location:(token_location name_token)
+        in
+        let label_tokens = [ name_token; delimiter_token ] in
+        let label =
+          Ast.make_assembly_label
+            ~kind:(assembly_label_kind name_token.raw delimiter_token)
+            ~name ~delimiter_spelling:delimiter_token.raw
+            ~delimiter:(token_location delimiter_token)
+            ~location:(location_from_expression_tokens label_tokens)
+        in
+        collect (label :: labels_rev) remaining
+    | _ -> List.rev labels_rev
+  in
+  collect [] tokens
+
+let assembly_lines cursor tokens =
+  let make_line source_line line_tokens =
+    let classified_tokens =
+      List.map
+        (fun source_token ->
+          Ast.make_assembly_token
+            ~kind:(assembly_token_kind source_token)
+            ~source_token
+            ~location:(token_location source_token))
+        line_tokens
+    in
+    Ast.make_assembly_line ~source_line
+      ~labels:(assembly_labels line_tokens)
+      ~tokens:classified_tokens
+      ~location:(location_from_expression_tokens line_tokens)
+  in
+  let finish lines_rev current_line current_tokens_rev =
+    match current_line with
+    | None -> List.rev lines_rev
+    | Some source_line ->
+        List.rev
+          (make_line source_line (List.rev current_tokens_rev) :: lines_rev)
+  in
+  let rec collect lines_rev current_source current_line current_tokens_rev =
+    function
+    | [] -> finish lines_rev current_line current_tokens_rev
+    | token :: remaining ->
+        let source = token.Token.span.source in
+        let source_line = source_line_of_token cursor token in
+        if
+          Option.equal Common.Source_id.equal current_source (Some source)
+          && current_line = Some source_line
+        then
+          collect lines_rev current_source current_line
+            (token :: current_tokens_rev)
+            remaining
+        else
+          let lines_rev =
+            match current_line with
+            | None -> lines_rev
+            | Some line ->
+                make_line line (List.rev current_tokens_rev) :: lines_rev
+          in
+          collect lines_rev (Some source) (Some source_line) [ token ] remaining
+  in
+  collect [] None None [] tokens
+
+let parse_assembly_block_statement cursor ~boundary : parsed_statement option =
+  let keyword_item = take cursor in
+  let opening_item = peek cursor in
+  if opening_item.token.kind <> Token_kind.Punctuation '{' then (
+    report cursor opening_item ~code:"HCPARSE0145"
+      ~message:
+        (Printf.sprintf "expected '{' after 'asm', but found %s"
+           (token_description opening_item.token));
+    recover_statement cursor ~boundary;
+    None)
+  else
+    let opening_item = take cursor in
+    let rec take_body body_tokens_rev =
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Eof ->
+          report cursor item ~code:"HCPARSE0146"
+            ~message:"expected '}' to close the assembly block";
+          None
+      | Token_kind.Punctuation '}' ->
+          let closing_item = take cursor in
+          let body_tokens = List.rev body_tokens_rev in
+          let tokens =
+            (keyword_item.token :: opening_item.token :: body_tokens)
+            @ [ closing_item.token ]
+          in
+          let statement =
+            Ast.make_assembly_block_statement
+              ~keyword:(token_location keyword_item.token)
+              ~opening_brace:(token_location opening_item.token)
+              ~lines:(assembly_lines cursor body_tokens)
+              ~closing_brace:(token_location closing_item.token)
+              ~location:(location_from_expression_tokens tokens)
+          in
+          Some
+            ({ node = Ast.Assembly_block_statement statement; tokens }
+              : parsed_statement)
+      | _ ->
+          let item = take cursor in
+          take_body (item.token :: body_tokens_rev)
+    in
+    take_body []
+
 let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | Token_kind.Keyword Keyword.Asm ->
+      parse_assembly_block_statement cursor ~boundary
   | Token_kind.Punctuation '{' ->
       parse_block_statement cursor ~block_depth ~conditional_depth ~loop_depth
         ~lock_depth ~try_depth ~switch_depth
@@ -5479,6 +5654,7 @@ let parse ~sources ~definitions ~symbols ~config source =
   let cursor =
     {
       stream;
+      sources;
       symbols;
       compilation_mode = Preprocessor.Config.compilation_mode config;
       lookahead = [];

@@ -1,0 +1,67 @@
+schema holyc-ast-v1
+reference c26482bb6ad3f80106d28504ec5db3c6a360732c
+module span=cli/parse-assembly-block.hc:1:1..17:1 items=2
+  top_level_statement span=cli/parse-assembly-block.hc:1:1..8:2
+    assembly_block_statement span=cli/parse-assembly-block.hc:1:1..8:2 lines=6 tokens=30
+      keyword span=cli/parse-assembly-block.hc:1:1..1:4
+      opening_brace span=cli/parse-assembly-block.hc:1:5..1:6
+      line index=0 source_line=2 span=cli/parse-assembly-block.hc:2:1..2:6 labels=1 tokens=2
+        label index=0 kind=global name="ROOT" delimiter=":" span=cli/parse-assembly-block.hc:2:1..2:6
+        token index=0 category=identifier spelling="ROOT" lexical_kind=identifier value="ROOT" span=cli/parse-assembly-block.hc:2:1..2:5
+        token index=1 category=punctuation spelling=":" lexical_kind=punctuation(':') span=cli/parse-assembly-block.hc:2:5..2:6
+      line index=1 source_line=3 span=cli/parse-assembly-block.hc:3:1..3:28 labels=1 tokens=11
+        label index=0 kind=local name="@@loop" delimiter=":" span=cli/parse-assembly-block.hc:3:1..3:8
+        token index=0 category=identifier spelling="@@loop" lexical_kind=identifier value="@@loop" span=cli/parse-assembly-block.hc:3:1..3:7
+        token index=1 category=punctuation spelling=":" lexical_kind=punctuation(':') span=cli/parse-assembly-block.hc:3:7..3:8
+        token index=2 category=opcode spelling="MOV" lexical_kind=identifier value="MOV" canonical="MOV" alias=false span=cli/parse-assembly-block.hc:3:9..3:12
+        token index=3 category=register spelling="RAX" lexical_kind=identifier value="RAX" register_kind=r64 register_number=0 span=cli/parse-assembly-block.hc:3:13..3:16
+        token index=4 category=punctuation spelling="," lexical_kind=punctuation(',') span=cli/parse-assembly-block.hc:3:16..3:17
+        token index=5 category=directive spelling="I64" lexical_kind=identifier value="I64" templeos_id=70 span=cli/parse-assembly-block.hc:3:17..3:20
+        token index=6 category=punctuation spelling="[" lexical_kind=punctuation('[') span=cli/parse-assembly-block.hc:3:21..3:22
+        token index=7 category=register spelling="RBP" lexical_kind=identifier value="RBP" register_kind=r64 register_number=5 span=cli/parse-assembly-block.hc:3:22..3:25
+        token index=8 category=punctuation spelling="+" lexical_kind=punctuation('+') span=cli/parse-assembly-block.hc:3:25..3:26
+        token index=9 category=integer spelling="8" lexical_kind=integer value="0x0000000000000008" span=cli/parse-assembly-block.hc:3:26..3:27
+        token index=10 category=punctuation spelling="]" lexical_kind=punctuation(']') span=cli/parse-assembly-block.hc:3:27..3:28
+      line index=2 source_line=4 span=cli/parse-assembly-block.hc:4:1..4:11 labels=1 tokens=2
+        label index=0 kind=exported_global name="EXPORTED" delimiter="::" span=cli/parse-assembly-block.hc:4:1..4:11
+        token index=0 category=identifier spelling="EXPORTED" lexical_kind=identifier value="EXPORTED" span=cli/parse-assembly-block.hc:4:1..4:9
+        token index=1 category=operator spelling="::" lexical_kind=operator(::) span=cli/parse-assembly-block.hc:4:9..4:11
+      line index=3 source_line=5 span=cli/parse-assembly-block.hc:5:1..5:11 labels=0 tokens=5
+        token index=0 category=directive spelling="DU8" lexical_kind=identifier value="DU8" templeos_id=77 span=cli/parse-assembly-block.hc:5:1..5:4
+        token index=1 category=string spelling="\"A\"" lexical_kind=string value="A" span=cli/parse-assembly-block.hc:5:5..5:8
+        token index=2 category=punctuation spelling="," lexical_kind=punctuation(',') span=cli/parse-assembly-block.hc:5:8..5:9
+        token index=3 category=integer spelling="0" lexical_kind=integer value="0x0000000000000000" span=cli/parse-assembly-block.hc:5:9..5:10
+        token index=4 category=punctuation spelling=";" lexical_kind=punctuation(';') span=cli/parse-assembly-block.hc:5:10..5:11
+      line index=4 source_line=6 span=cli/parse-assembly-block.hc:6:1..6:24 labels=0 tokens=8
+        token index=0 category=directive spelling="USE64" lexical_kind=identifier value="USE64" templeos_id=84 span=cli/parse-assembly-block.hc:6:1..6:6
+        token index=1 category=opcode spelling="MOV" lexical_kind=identifier value="MOV" canonical="MOV" alias=false span=cli/parse-assembly-block.hc:6:7..6:10
+        token index=2 category=register spelling="RSP" lexical_kind=identifier value="RSP" register_kind=r64 register_number=4 span=cli/parse-assembly-block.hc:6:11..6:14
+        token index=3 category=punctuation spelling="," lexical_kind=punctuation(',') span=cli/parse-assembly-block.hc:6:14..6:15
+        token index=4 category=directive spelling="I64" lexical_kind=identifier value="I64" templeos_id=70 span=cli/parse-assembly-block.hc:6:15..6:18
+        token index=5 category=punctuation spelling="[" lexical_kind=punctuation('[') span=cli/parse-assembly-block.hc:6:19..6:20
+        token index=6 category=register spelling="RBP" lexical_kind=identifier value="RBP" register_kind=r64 register_number=5 span=cli/parse-assembly-block.hc:6:20..6:23
+        token index=7 category=punctuation spelling="]" lexical_kind=punctuation(']') span=cli/parse-assembly-block.hc:6:23..6:24
+      line index=5 source_line=7 span=cli/parse-assembly-block.hc:7:1..7:10 labels=0 tokens=2
+        token index=0 category=opcode spelling="JZ" lexical_kind=identifier value="JZ" canonical="JE" alias=true span=cli/parse-assembly-block.hc:7:1..7:3
+        token index=1 category=identifier spelling="@@loop" lexical_kind=identifier value="@@loop" span=cli/parse-assembly-block.hc:7:4..7:10
+      closing_brace span=cli/parse-assembly-block.hc:8:1..8:2
+  function_definition span=cli/parse-assembly-block.hc:10:1..16:2 parameters=0 variadic=false body=present
+    return_type primitive=U0 spelling="U0" span=cli/parse-assembly-block.hc:10:1..10:3
+    name spelling="Nested" span=cli/parse-assembly-block.hc:10:4..10:10
+    opening_parenthesis span=cli/parse-assembly-block.hc:10:10..10:11
+    closing_parenthesis span=cli/parse-assembly-block.hc:10:11..10:12
+    body span=cli/parse-assembly-block.hc:11:1..16:2
+      block_statement span=cli/parse-assembly-block.hc:11:1..16:2 statements=1
+        opening_brace span=cli/parse-assembly-block.hc:11:1..11:2
+        statement index=0
+          assembly_block_statement span=cli/parse-assembly-block.hc:12:3..15:4 lines=2 tokens=4
+            keyword span=cli/parse-assembly-block.hc:12:3..12:6
+            opening_brace span=cli/parse-assembly-block.hc:12:7..12:8
+            line index=0 source_line=13 span=cli/parse-assembly-block.hc:13:5..13:9 labels=0 tokens=1
+              token index=0 category=directive spelling="LIST" lexical_kind=identifier value="LIST" templeos_id=86 span=cli/parse-assembly-block.hc:13:5..13:9
+            line index=1 source_line=14 span=cli/parse-assembly-block.hc:14:5..14:17 labels=0 tokens=3
+              token index=0 category=opcode spelling="CALL" lexical_kind=identifier value="CALL" canonical="CALL" alias=false span=cli/parse-assembly-block.hc:14:5..14:9
+              token index=1 category=punctuation spelling="&" lexical_kind=punctuation('&') span=cli/parse-assembly-block.hc:14:10..14:11
+              token index=2 category=identifier spelling="Target" lexical_kind=identifier value="Target" span=cli/parse-assembly-block.hc:14:11..14:17
+            closing_brace span=cli/parse-assembly-block.hc:15:3..15:4
+        closing_brace span=cli/parse-assembly-block.hc:16:1..16:2

@@ -399,6 +399,18 @@ let expect_block_statement = function
   | Ast.Block_statement statement -> statement
   | _ -> Alcotest.fail "expected a compound block statement"
 
+let expect_assembly_block_statement = function
+  | Ast.Assembly_block_statement statement -> statement
+  | _ -> Alcotest.fail "expected an assembly block statement"
+
+let expect_one_top_level_assembly ast =
+  match ast.Ast.items with
+  | [ Ast.Top_level_statement statement ] ->
+      expect_assembly_block_statement statement
+  | items ->
+      Alcotest.failf "expected one top-level assembly block, got %d items"
+        (List.length items)
+
 let expect_if_statement = function
   | Ast.If_statement statement -> statement
   | _ -> Alcotest.fail "expected an if statement"
@@ -14675,6 +14687,534 @@ let deterministic_goto_label_dumps () =
     "JSON keeps the label name" "done"
     (label |> member "name" |> member "spelling" |> to_string)
 
+let assembly_label_kind_name = function
+  | Ast.Assembly_global_label -> "global"
+  | Ast.Assembly_exported_global_label -> "exported_global"
+  | Ast.Assembly_local_label -> "local"
+
+let assembly_tokens (statement : Ast.assembly_block_statement) =
+  List.concat_map
+    (fun (line : Ast.assembly_line) -> line.assembly_line_tokens)
+    statement.assembly_lines
+
+let assembly_block_fixture =
+  "asm {\n\
+   ROOT:\n\
+   @@loop: MOV RAX,I64 [RBP+8]\n\
+   EXPORTED::\n\
+   DU8 \"A\",0;\n\
+   USE64 MOV RSP,I64 [RBP]\n\
+   JZ @@loop\n\
+   }\n\
+   U0 Nested()\n\
+   {\n\
+   asm {\n\
+   LIST\n\
+   CALL &Target\n\
+   }\n\
+   }"
+
+let assembly_block_source_behavior () =
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches asm", "case KW_ASM:");
+      ("top-level AOT calls PrsAsmBlk", "PrsAsmBlk(cc,0);");
+      ("function-local asm joins a block", "CmpJoin(cc,CMPF_ASM_BLK)");
+      ("single-instruction asm is a separate path", "CMPF_ONE_ASM_INS");
+    ];
+  let assembly_parser = pinned "Compiler/Asm.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains assembly_parser fragment))
+    [
+      ( "PrsAsmBlk is the source parser",
+        "U0 PrsAsmBlk(CCmpCtrl *cc,I64 cmp_flags)" );
+      ("brace-delimited asm requires an opening brace", "if (cc->token!='{')");
+      ( "brace-delimited asm stops at its close",
+        "while (cc->token && cc->token!='}')" );
+      ("assembly directives use their checked hash type", "HTT_ASM_KEYWORD");
+      ("instructions use their checked hash type", "HTT_OPCODE");
+      ( "local labels have a double-at prefix",
+        "*tmpex->str=='@' && tmpex->str[1]=='@'" );
+      ("double-colon labels become exports", "cc->token==TK_DBL_COLON");
+    ];
+  let assembly_initialization = pinned "Compiler/AsmInit.HC" in
+  Alcotest.(check bool)
+    "opcode aliases retain their source identity" true
+    (contains assembly_initialization "tmpo2->oc_flags|=OCF_ALIAS;");
+  Alcotest.(check bool)
+    "assembly directives retain their source identity" true
+    (contains assembly_initialization "tmph->type=HTT_ASM_KEYWORD;");
+  let assembly_library = pinned "Compiler/AsmLib.HC" in
+  Alcotest.(check bool)
+    "assembly expression parsing is a distinct source routine" true
+    (contains assembly_library "I64 AsmLexExpression(CCmpCtrl *cc)");
+  Alcotest.(check bool)
+    "assembly listing is consulted for each operation" true
+    (contains assembly_library "U0 AsmLineLst(CCmpCtrl *cc)");
+  let guide = pinned "Doc/Asm.DD" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains guide fragment))
+    [
+      ("the guide defines exported labels", "Defines an exported glbl label.");
+      ( "the guide defines ordinary global labels",
+        "Defines an non-exported glbl label." );
+      ( "the guide defines scoped local labels",
+        "scope valid between two global labels" );
+      ( "the guide defines typed data directives",
+        "Define BYTE, WORD, DWORD or QWORD." );
+    ];
+  Alcotest.(check bool)
+    "the pinned kernel places a directive and instruction on one line" true
+    (contains (pinned "Kernel/PCIBIOS.HC") "USE64\tMOV\tRSP");
+  Alcotest.(check int)
+    "checked canonical opcode count" 325
+    (List.length Asm_opcode.all);
+  Alcotest.(check int)
+    "checked opcode alias count" 49
+    (List.fold_left
+       (fun count opcode -> count + List.length (Asm_opcode.aliases opcode))
+       0 Asm_opcode.all);
+  Alcotest.(check int)
+    "checked assembly directive count" 25
+    (List.length Asm_directive.all);
+  Alcotest.(check int)
+    "checked register count" 106
+    (List.length Asm_register.all)
+
+let assembly_block_inventory () =
+  let repository_path relative =
+    [ relative; Filename.concat ".." relative ] |> List.find_opt Sys.file_exists
+    |> function
+    | Some path -> path
+    | None -> Alcotest.failf "repository file is unavailable: %s" relative
+  in
+  let reference_root = repository_path "third_party/TempleOS" in
+  let inventory_path = repository_path "reference/assembly-blocks.json" in
+  let open Yojson.Safe.Util in
+  let inventory = read_file inventory_path |> Yojson.Safe.from_string in
+  Alcotest.(check string)
+    "inventory schema" "holyc-reference-assembly-blocks-v1"
+    (inventory |> member "schema" |> to_string);
+  Alcotest.(check string)
+    "inventory reference commit" Version.reference_commit
+    (inventory |> member "reference_commit" |> to_string);
+  let entries = inventory |> member "blocks" |> to_list in
+  let source_extensions = [ ".HC"; ".HH" ] in
+  let rec source_files relative =
+    let absolute = Filename.concat reference_root relative in
+    Sys.readdir absolute |> Array.to_list |> List.sort String.compare
+    |> List.concat_map (fun name ->
+        let child_relative = Filename.concat relative name in
+        let child_absolute = Filename.concat reference_root child_relative in
+        match (Unix.lstat child_absolute).st_kind with
+        | Unix.S_DIR -> source_files child_relative
+        | _ when List.mem (Filename.extension name) source_extensions ->
+            [ child_relative ]
+        | _ -> [])
+  in
+  let normalize_path path =
+    String.map
+      (function
+        | '\\' -> '/'
+        | character -> character)
+      path
+  in
+  let scan_file source_index path =
+    let contents = read_file (Filename.concat reference_root path) in
+    let source_id = Source_id.of_int source_index |> Result.get_ok in
+    let source =
+      Source_file.create ~id:source_id ~path ~display_path:path ~contents
+    in
+    let tokens =
+      match Lexer.lex_all ~mode:Token.Holyc ~nul_terminates:true source with
+      | Ok tokens -> tokens
+      | Error diagnostics ->
+          Alcotest.failf "raw assembly audit could not lex %s: %s" path
+            (diagnostics
+            |> List.map (fun diagnostic ->
+                Printf.sprintf "%s: %s" diagnostic.Diagnostic.code
+                  diagnostic.message)
+            |> String.concat "; ")
+    in
+    let rec collect depth blocks_rev = function
+      | asm_token :: opening_brace :: remaining
+        when asm_token.Token.kind = Token_kind.Keyword Keyword.Asm
+             && opening_brace.Token.kind = Token_kind.Punctuation '{' ->
+          let position =
+            Source_file.position source asm_token.span.start |> Result.get_ok
+          in
+          let context = if depth = 0 then "top_level" else "nested" in
+          collect (depth + 1)
+            ((normalize_path path, position.line, context) :: blocks_rev)
+            remaining
+      | token :: remaining ->
+          let depth =
+            match token.Token.kind with
+            | Token_kind.Punctuation '{' -> depth + 1
+            | Token_kind.Punctuation '}' -> max 0 (depth - 1)
+            | _ -> depth
+          in
+          collect depth blocks_rev remaining
+      | [] -> List.rev blocks_rev
+    in
+    collect 0 [] tokens
+  in
+  let actual =
+    [ "Compiler"; "Kernel"; "Adam"; "Demo" ]
+    |> List.concat_map source_files
+    |> List.mapi scan_file |> List.concat |> List.sort Stdlib.compare
+  in
+  let expected =
+    entries
+    |> List.map (fun entry ->
+        ( entry |> member "path" |> to_string,
+          entry |> member "line" |> to_int,
+          entry |> member "context" |> to_string ))
+    |> List.sort Stdlib.compare
+  in
+  Alcotest.(check (list (triple string int string)))
+    "inventory matches the pinned tree" expected actual;
+  Alcotest.(check int) "brace-delimited block count" 45 (List.length actual);
+  Alcotest.(check int)
+    "files containing brace-delimited blocks" 40
+    (actual
+    |> List.map (fun (path, _, _) -> path)
+    |> List.sort_uniq String.compare
+    |> List.length);
+  Alcotest.(check int)
+    "nested block count" 6
+    (List.fold_left
+       (fun count (_, _, context) ->
+         if String.equal context "nested" then count + 1 else count)
+       0 actual)
+
+let pinned_assembly_block_shapes () =
+  let cases =
+    [
+      ("AsmAndC1 top level", "Demo/Asm/AsmAndC1.HC", 8, 33);
+      ("AsmAndC1 nested", "Demo/Asm/AsmAndC1.HC", 48, 70);
+      ("AsmAndC2 top level", "Demo/Asm/AsmAndC2.HC", 12, 51);
+      ("AsmAndC2 nested", "Demo/Asm/AsmAndC2.HC", 64, 81);
+    ]
+  in
+  List.iter
+    (fun (name, path, first, last) ->
+      let source = pinned_lines path ~first ~last in
+      let _, _, output = parse_string ~path source in
+      let statement = expect_ast output |> expect_one_top_level_assembly in
+      Alcotest.(check bool)
+        (name ^ " retains source lines")
+        true
+        (statement.assembly_lines <> []);
+      Alcotest.(check bool)
+        (name ^ " retains classified tokens")
+        true
+        (assembly_tokens statement <> []))
+    cases
+
+let assembly_block_shapes () =
+  List.iter
+    (fun mode ->
+      let _, _, output =
+        parse_string ~compilation_mode:mode assembly_block_fixture
+      in
+      match (expect_ast output).Ast.items with
+      | [ Ast.Top_level_statement top_level; Ast.Function_definition nested ] ->
+          let top_level = expect_assembly_block_statement top_level in
+          Alcotest.(check (list int))
+            "assembly lines retain physical source numbers" [ 2; 3; 4; 5; 6; 7 ]
+            (List.map
+               (fun (line : Ast.assembly_line) ->
+                 line.assembly_line_source_line)
+               top_level.assembly_lines);
+          let labels =
+            top_level.assembly_lines
+            |> List.concat_map (fun (line : Ast.assembly_line) ->
+                line.assembly_line_labels)
+          in
+          Alcotest.(check (list string))
+            "global, local, and exported labels remain distinct"
+            [ "global"; "local"; "exported_global" ]
+            (List.map
+               (fun (label : Ast.assembly_label) ->
+                 assembly_label_kind_name label.assembly_label_kind)
+               labels);
+          Alcotest.(check (list string))
+            "labels retain their source spellings"
+            [ "ROOT"; "@@loop"; "EXPORTED" ]
+            (List.map
+               (fun (label : Ast.assembly_label) ->
+                 label.assembly_label_name.spelling)
+               labels);
+          let same_line = List.nth top_level.assembly_lines 4 in
+          Alcotest.(check (list string))
+            "source-line grouping does not split consecutive operations"
+            [ "USE64"; "MOV"; "RSP"; ","; "I64"; "["; "RBP"; "]" ]
+            (List.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               same_line.assembly_line_tokens);
+          (match
+             (List.hd same_line.assembly_line_tokens).assembly_token_kind
+           with
+          | Ast.Assembly_directive_token _ -> ()
+          | _ -> Alcotest.fail "USE64 was not classified as a directive");
+          (match
+             (List.nth same_line.assembly_line_tokens 1).assembly_token_kind
+           with
+          | Ast.Assembly_opcode_token
+              { canonical_spelling = "MOV"; source_is_alias = false } -> ()
+          | _ -> Alcotest.fail "MOV was not classified as a canonical opcode");
+          let alias_line = List.nth top_level.assembly_lines 5 in
+          (match
+             (List.hd alias_line.assembly_line_tokens).assembly_token_kind
+           with
+          | Ast.Assembly_opcode_token
+              { canonical_spelling = "JE"; source_is_alias = true } -> ()
+          | _ -> Alcotest.fail "JZ did not retain its JE alias relationship");
+          let body = nested |> expect_function_body |> expect_block_statement in
+          let nested_block =
+            match body.block_statements with
+            | [ statement ] -> expect_assembly_block_statement statement
+            | statements ->
+                Alcotest.failf
+                  "expected one function-local assembly block, got %d \
+                   statements"
+                  (List.length statements)
+          in
+          Alcotest.(check (list string))
+            "function-local assembly uses the same structural tokens"
+            [ "LIST"; "CALL"; "&"; "Target" ]
+            (nested_block |> assembly_tokens
+            |> List.map (fun (token : Ast.assembly_token) ->
+                token.assembly_source_token.raw))
+      | items ->
+          Alcotest.failf
+            "expected a top-level block and one function definition, got %d \
+             items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let assembly_checked_table_classification () =
+  let parse_words words =
+    let source = "asm {\n" ^ String.concat "\n" words ^ "\n}" in
+    let _, _, output = parse_string source in
+    expect_ast output |> expect_one_top_level_assembly |> assembly_tokens
+  in
+  let canonical_tokens =
+    Asm_opcode.all |> List.map Asm_opcode.spelling |> parse_words
+  in
+  Alcotest.(check int)
+    "one token per canonical opcode"
+    (List.length Asm_opcode.all)
+    (List.length canonical_tokens);
+  List.iter2
+    (fun opcode (token : Ast.assembly_token) ->
+      Alcotest.(check string)
+        "canonical opcode spelling"
+        (Asm_opcode.spelling opcode)
+        token.assembly_source_token.raw;
+      match token.assembly_token_kind with
+      | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
+          Alcotest.(check string)
+            "canonical opcode identity"
+            (Asm_opcode.spelling opcode)
+            canonical_spelling;
+          Alcotest.(check bool)
+            "canonical opcode is not an alias" false source_is_alias
+      | _ -> Alcotest.fail "checked opcode was not classified as an opcode")
+    Asm_opcode.all canonical_tokens;
+  let aliases =
+    List.concat_map
+      (fun opcode ->
+        List.map (fun alias -> (alias, opcode)) (Asm_opcode.aliases opcode))
+      Asm_opcode.all
+  in
+  let alias_tokens = aliases |> List.map fst |> parse_words in
+  Alcotest.(check int)
+    "one token per opcode alias" (List.length aliases)
+    (List.length alias_tokens);
+  List.iter2
+    (fun (alias, opcode) (token : Ast.assembly_token) ->
+      Alcotest.(check string)
+        "alias source spelling" alias token.assembly_source_token.raw;
+      match token.assembly_token_kind with
+      | Ast.Assembly_opcode_token { canonical_spelling; source_is_alias } ->
+          Alcotest.(check string)
+            "alias canonical identity"
+            (Asm_opcode.spelling opcode)
+            canonical_spelling;
+          Alcotest.(check bool) "alias marker" true source_is_alias
+      | _ -> Alcotest.fail "checked alias was not classified as an opcode")
+    aliases alias_tokens;
+  let directive_tokens =
+    Asm_directive.all |> List.map Asm_directive.spelling |> parse_words
+  in
+  List.iter2
+    (fun directive (token : Ast.assembly_token) ->
+      match token.assembly_token_kind with
+      | Ast.Assembly_directive_token { templeos_id } ->
+          Alcotest.(check int)
+            "directive TempleOS ID"
+            (Asm_directive.templeos_id directive)
+            templeos_id
+      | _ -> Alcotest.fail "checked directive was not classified as a directive")
+    Asm_directive.all directive_tokens;
+  let register_tokens =
+    Asm_register.all |> List.map Asm_register.spelling |> parse_words
+  in
+  List.iter2
+    (fun register (token : Ast.assembly_token) ->
+      match token.assembly_token_kind with
+      | Ast.Assembly_register_token { register_kind; register_number } ->
+          Alcotest.(check bool)
+            "register kind" true
+            (register_kind = Asm_register.kind register);
+          Alcotest.(check int)
+            "register number"
+            (Asm_register.number register)
+            register_number
+      | _ -> Alcotest.fail "checked register was not classified as a register")
+    Asm_register.all register_tokens
+
+let assembly_block_provenance () =
+  let source = "#define INST MOV\n#define DEST RAX\nasm {\nINST DEST,RBX\n}" in
+  let session, _, output = parse_string source in
+  let statement = expect_ast output |> expect_one_top_level_assembly in
+  let generated spelling =
+    statement |> assembly_tokens
+    |> List.find (fun (token : Ast.assembly_token) ->
+        String.equal token.assembly_source_token.raw spelling)
+  in
+  List.iter
+    (fun spelling ->
+      let location = (generated spelling).assembly_token_location in
+      Alcotest.(check bool)
+        (spelling ^ " retains its expansion site")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (spelling ^ " retains its definition site")
+        true
+        (Option.is_some location.defined_at))
+    [ "MOV"; "RAX" ];
+  let open Yojson.Safe.Util in
+  let tokens =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement" |> member "lines" |> to_list |> List.hd
+    |> member "tokens" |> to_list
+  in
+  Alcotest.(check bool)
+    "JSON keeps generated assembly provenance" true
+    (tokens |> List.hd |> member "location" |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let assembly_file = Filename.concat directory "assembly.HC" in
+      write_file root_file "#include \"assembly\"";
+      write_file assembly_file "asm { MOV RAX,RBX }";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        expect_ast include_output |> expect_one_top_level_assembly
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.assembly_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included assembly keeps its canonical source path"
+        (Unix.realpath assembly_file)
+        (Source_file.path included_source))
+
+let assembly_block_failures () =
+  let session, _, missing_opening =
+    parse_string "asm MOV RAX,RBX; I64 after;"
+  in
+  Alcotest.(check bool)
+    "missing opening brace has no public AST" true
+    (Option.is_none missing_opening.ast);
+  Alcotest.(check string)
+    "missing opening brace diagnostic" "HCPARSE0145"
+    (first_diagnostic missing_opening).code;
+  Alcotest.(check bool)
+    "missing opening brace message identifies asm" true
+    (contains (first_diagnostic missing_opening).message "after 'asm'");
+  (match
+     Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "after"
+   with
+  | Symbol_visibility.Present _ -> ()
+  | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+      Alcotest.fail "assembly recovery did not reach the following global");
+  let _, _, missing_closing = parse_string "asm { MOV RAX,RBX" in
+  Alcotest.(check string)
+    "missing closing brace diagnostic" "HCPARSE0146"
+    (first_diagnostic missing_closing).code;
+  Alcotest.(check bool)
+    "missing closing brace message identifies the block" true
+    (contains (first_diagnostic missing_closing).message "assembly block");
+  let _, _, empty = parse_string "asm {}" in
+  let empty = expect_ast empty |> expect_one_top_level_assembly in
+  Alcotest.(check int)
+    "empty assembly block has no lines" 0
+    (List.length empty.assembly_lines)
+
+let deterministic_assembly_block_dumps () =
+  let session, _, output = parse_string assembly_block_fixture in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human assembly dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON assembly dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies assembly blocks" true
+    (contains human "assembly_block_statement");
+  Alcotest.(check bool)
+    "human dump explains opcode aliases" true
+    (contains human "canonical=\"JE\" alias=true");
+  let open Yojson.Safe.Util in
+  let statement =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement"
+  in
+  Alcotest.(check string)
+    "JSON keeps the assembly statement kind" "assembly_block_statement"
+    (statement |> member "kind" |> to_string);
+  let lines = statement |> member "lines" |> to_list in
+  let local_label = List.nth lines 1 |> member "labels" |> to_list |> List.hd in
+  Alcotest.(check string)
+    "JSON keeps local label scope" "local"
+    (local_label |> member "kind" |> to_string);
+  let alias = List.nth lines 5 |> member "tokens" |> to_list |> List.hd in
+  Alcotest.(check string)
+    "JSON keeps an alias's canonical opcode" "JE"
+    (alias |> member "canonical_spelling" |> to_string);
+  Alcotest.(check bool)
+    "JSON marks an opcode alias" true
+    (alias |> member "source_is_alias" |> to_bool)
+
 let lock_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -16883,6 +17423,20 @@ let tests =
     Alcotest.test_case "goto and label failures" `Quick goto_label_failures;
     Alcotest.test_case "deterministic goto and label dumps" `Quick
       deterministic_goto_label_dumps;
+    Alcotest.test_case "pinned assembly block behavior" `Quick
+      assembly_block_source_behavior;
+    Alcotest.test_case "pinned assembly block inventory" `Quick
+      assembly_block_inventory;
+    Alcotest.test_case "pinned assembly demo blocks" `Quick
+      pinned_assembly_block_shapes;
+    Alcotest.test_case "assembly block shapes" `Quick assembly_block_shapes;
+    Alcotest.test_case "checked assembly table classification" `Quick
+      assembly_checked_table_classification;
+    Alcotest.test_case "assembly block provenance" `Quick
+      assembly_block_provenance;
+    Alcotest.test_case "assembly block failures" `Quick assembly_block_failures;
+    Alcotest.test_case "deterministic assembly block dumps" `Quick
+      deterministic_assembly_block_dumps;
     Alcotest.test_case "pinned lock behavior" `Quick
       lock_statement_source_behavior;
     Alcotest.test_case "lock statement shapes" `Quick lock_statement_shapes;

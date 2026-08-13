@@ -539,7 +539,54 @@ type switch_case_pattern =
   | Single_case of expression
   | Ranged_case of switch_case_range
 
+type assembly_token_kind =
+  | Assembly_opcode_token of {
+      canonical_spelling : string;
+      source_is_alias : bool;
+    }
+  | Assembly_directive_token of { templeos_id : int }
+  | Assembly_register_token of {
+      register_kind : Asm.Register.kind;
+      register_number : int;
+    }
+  | Assembly_identifier_token
+  | Assembly_keyword_token
+  | Assembly_integer_token
+  | Assembly_float_token
+  | Assembly_string_token
+  | Assembly_character_token
+  | Assembly_operator_token
+  | Assembly_punctuation_token
+  | Assembly_newline_token
+
+type assembly_token = private {
+  assembly_token_kind : assembly_token_kind;
+  assembly_source_token : Token.t;
+  assembly_token_location : location;
+}
+
+type assembly_label_kind =
+  | Assembly_global_label
+  | Assembly_exported_global_label
+  | Assembly_local_label
+
+type assembly_label = private {
+  assembly_label_kind : assembly_label_kind;
+  assembly_label_name : identifier;
+  assembly_label_delimiter_spelling : string;
+  assembly_label_delimiter : location;
+  assembly_label_location : location;
+}
+
+type assembly_line = private {
+  assembly_line_source_line : int;
+  assembly_line_labels : assembly_label list;
+  assembly_line_tokens : assembly_token list;
+  assembly_line_location : location;
+}
+
 type statement =
+  | Assembly_block_statement of assembly_block_statement
   | Block_statement of block_statement
   | Break_statement of break_statement
   | Do_while_statement of do_while_statement
@@ -557,6 +604,14 @@ type statement =
   | Switch_statement of switch_statement
   | Try_catch_statement of try_catch_statement
   | While_statement of while_statement
+
+and assembly_block_statement = private {
+  assembly_keyword : location;
+  assembly_opening_brace : location;
+  assembly_lines : assembly_line list;
+  assembly_closing_brace : location;
+  assembly_block_location : location;
+}
 
 and block_statement = private {
   block_opening_brace : location;
@@ -1149,6 +1204,35 @@ val make_local_declaration :
   declarators:local_declarator list ->
   location:location ->
   local_declaration
+
+val make_assembly_token :
+  kind:assembly_token_kind ->
+  source_token:Token.t ->
+  location:location ->
+  assembly_token
+
+val make_assembly_label :
+  kind:assembly_label_kind ->
+  name:identifier ->
+  delimiter_spelling:string ->
+  delimiter:location ->
+  location:location ->
+  assembly_label
+
+val make_assembly_line :
+  source_line:int ->
+  labels:assembly_label list ->
+  tokens:assembly_token list ->
+  location:location ->
+  assembly_line
+
+val make_assembly_block_statement :
+  keyword:location ->
+  opening_brace:location ->
+  lines:assembly_line list ->
+  closing_brace:location ->
+  location:location ->
+  assembly_block_statement
 
 val make_block_statement :
   opening_brace:location ->

@@ -1,0 +1,3 @@
+cli/parse-assembly-block-error.hc:1:5: error[HCPARSE0145]: expected '{' after 'asm', but found identifier "MOV"
+    1 | asm MOV RAX,RBX;
+      |     ^^^
