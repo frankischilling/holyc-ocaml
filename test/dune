@@ -17,6 +17,7 @@
   test_function_collection
   test_label_resolution
   test_aggregate_resolution
+  test_aggregate_header_resolution
   test_diagnostic
   test_version
   test_corpus
