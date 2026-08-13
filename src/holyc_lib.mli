@@ -44,6 +44,7 @@ module Semantic_type_reference = Sema.Type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
+module Semantic_aggregate_member_index = Sema.Aggregate_member_index
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_function_resolution = Sema.Function_resolution
@@ -164,6 +165,17 @@ val layout_aggregates :
 (** Calculate source-ordered layouts whose dimensions, offsets, bases, and
     by-value members have closed values. Unresolved semantic constants and later
     aggregate definitions remain explicit errors. *)
+
+val index_aggregate_members :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  headers:Semantic_aggregate_header_resolution.t ->
+  members:Semantic_member_type_resolution.t ->
+  layouts:Semantic_aggregate_layout.t ->
+  (Semantic_aggregate_member_index.t, string) result
+(** Validate direct and inherited duplicate names, then build the immutable
+    source-ordered member index used by later member, [sizeof], and [offset]
+    resolution. Lookup itself does not update use counts. *)
 
 val resolve_function_types :
   Session.t ->
