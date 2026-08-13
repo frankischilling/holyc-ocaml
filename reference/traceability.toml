@@ -3036,23 +3036,28 @@ line_grouping = "deterministic display grouping by source ID and physical line; 
 definition_and_include_provenance = "preserved"
 missing_opening_diagnostic = "HCPARSE0145"
 missing_closing_diagnostic = "HCPARSE0146"
-operand_parsing = "not implemented"
+operand_parsing = "not implemented inside brace-delimited assembly blocks"
 directive_semantics = "not implemented"
 label_resolution = "not implemented"
-single_instruction_form = "operand-free opcodes and aliases implemented by issue 155; operand-bearing forms and directives remain pending"
+single_instruction_form = "zero-, one-, and two-operand opcodes and aliases implemented by issues 155 and 157; direct directives and labels remain pending"
 encoding = "not implemented"
 execution = "not implemented"
 
 [[feature]]
 id = "HC-PARSER-INLINE-ASSEMBLY"
-description = "Function-local direct assembly retains operand-free opcode runs as explicit source-positioned operations."
+description = "Function-local direct assembly retains opcode runs and first-form operands as explicit source-positioned syntax."
 sources = [
   "Compiler/CompilerA.HH:CMPF_ONE_ASM_INS",
   "Compiler/PrsStmt.HC:PrsStmt direct opcode branch",
   "Compiler/Asm.HC:PrsAsmBlk",
+  "Compiler/Asm.HC:PrsAsmArg",
+  "Compiler/PrsExp.HC:IsLexExpression2Bin",
   "Adam/AMem.HC:40-46",
   "Kernel/Job.HC:28-36",
-  "Demo/Graphics/Balloon.HC:13-17 and 34-35"
+  "Demo/Graphics/Balloon.HC:13-17 and 34-35",
+  "Demo/Asm/AsmAndC3.HC:13-18",
+  "Demo/Lectures/Ring3.HC:31 and 36",
+  "Kernel/KInts.HC:156"
 ]
 implementation = [
   "src/asm/opcode.ml",
@@ -3068,20 +3073,27 @@ tests = [
   "reference/parser-corpus-aot.json"
 ]
 status = "implemented"
-issue = 155
+issue = 157
+foundation_issue = 155
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 ast_schema = "holyc-ast-v1"
 compilation_modes = ["jit", "aot"]
 contexts = ["function bodies", "blocks", "conditionals", "loops", "lock bodies", "for updates"]
-operation_boundary = "adjacent operand-free opcode forms remain one direct assembly statement; physical newlines are not delimiters"
+operation_boundary = "adjacent opcode forms remain one direct assembly statement; physical newlines are not delimiters"
 operand_count_source = "the first instruction form, matching tmpo->ins[0] in PrsAsmBlk"
+operand_forms = ["register", "immediate expression", "bracketed or indexed memory"]
+size_prefixes = ["I8", "U8", "I16", "U16", "I32", "U32", "I64", "U64"]
+segment_prefixes = "retained when a visible segment register is followed by a colon"
+separator = "the comma between two operands is retained"
 alias_identity = "source spelling and canonical opcode are both retained"
-symbol_visibility = "a visible local or newer non-opcode symbol prevents direct assembly dispatch"
+symbol_visibility = "a visible local or newer symbol can shadow an opcode or register spelling"
 definition_and_include_provenance = "preserved"
 top_level_diagnostic = "HCPARSE0147"
-operand_diagnostic = "HCPARSE0148"
-operand_parsing = "not implemented"
+operand_diagnostics = ["HCPARSE0149", "HCPARSE0150", "HCPARSE0151", "HCPARSE0152"]
+operand_structure = "implemented"
+operand_validation = "not implemented"
 direct_directives = "not implemented"
+direct_labels = "not implemented as assembly-label nodes; ordinary function-label parsing remains available"
 lowering = "not implemented"
 encoding = "not implemented"
 execution = "not implemented"
@@ -3111,13 +3123,13 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 report_schema = "holyc-corpus-parse-v1"
 default_mode = "aot"
 source_objects = 528
-parses = 20
+parses = 21
 frontend_diagnostics = 16
-parser_diagnostics = 492
+parser_diagnostics = 491
 read_errors = 0
 internal_errors = 0
-diagnostics = 37420
-baseline_sha256 = "d2dd14409b26dd407333452950c242ad69bc8ed12b56fa79228df70f4212be9d"
+diagnostics = 37415
+baseline_sha256 = "2c6a1dee6f05318c2a7be4c3bffa3e005323fb3d6b09b8b16dc774f7242bd04f"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"

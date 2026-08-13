@@ -394,17 +394,19 @@ The AST retains the `try` keyword, recursively parsed body, `catch` keyword, rec
 
 The AST retains a brace-delimited assembly statement as structure rather than opaque text. It keeps the keyword, both braces, every source token, and display groups based on physical source lines. It also records ordinary global `name:`, exported global `name::`, and local `@@name:` labels. Canonical opcodes retain their spelling; aliases retain both their source spelling and canonical opcode. Directives retain their TempleOS IDs, and registers retain their source family and number. Other identifiers, language keywords, literals, operators, and punctuation remain explicitly classified. Definition-generated tokens and included blocks keep the same provenance used elsewhere in the parser.
 
-Physical lines are only a deterministic dump aid. The source assembler can place more than one operation on a line, and the parser does not infer instruction boundaries from newline positions. It also does not parse operands, validate directive arguments, select an encoding form, resolve labels, create fixups, or emit bytes.
+Physical lines are only a deterministic dump aid. The source assembler can place more than one operation on a line, and the parser does not infer instruction boundaries from newline positions. Brace-delimited body tokens are not yet split into operand nodes. The parser also does not validate directive arguments, select an encoding form, resolve labels, create fixups, or emit bytes.
 
 A raw-token audit at the pinned commit finds 45 brace-delimited blocks in 40 `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. Six occur inside another source block. `reference/assembly-blocks.json` records every path, line, and top-level or nested context. `HCPARSE0145` reports a missing opening brace, and `HCPARSE0146` reports end of input before the close.
 
-## Operand-free direct assembly statements
+## Function-local direct assembly statements
 
 `PrsStmt` also recognizes an `HTT_OPCODE` record directly inside a function. It rejects the form without a current function and otherwise joins `PrsAsmBlk` with `CMPF_ASM_BLK | CMPF_ONE_ASM_INS`. That entry skips the opening brace. `PrsAsmBlk` checks the first instruction form's `arg1` and `arg2` fields and may continue when another opcode or assembler keyword follows. The continuation is token-based rather than line-based.
 
-The AST implements this path for operand-free opcodes and aliases. One `inline_assembly_statement` retains the adjacent run, while each operation keeps its source spelling, canonical alias identity, optional semicolon, source span, and generated-source provenance. A visible local or newer non-opcode compiler symbol prevents the initial opcode dispatch. Exact function excerpts from `Adam/AMem.HC:40-46`, `Kernel/Job.HC:28-36`, and `Demo/Graphics/Balloon.HC:13-17,34-35` parse in JIT and AOT modes.
+The AST implements zero-, one-, and two-operand opcode forms. One `inline_assembly_statement` retains an adjacent opcode run. Each operation keeps its source spelling, canonical alias identity, operand list, separating comma, optional semicolon, source span, and generated-source provenance. Operands remain classified as register, immediate, or memory forms. Size prefixes such as `U64`, segment prefixes such as `FS:`, and every token inside an address remain available to later assembler passes.
 
-`HCPARSE0147` rejects direct assembly at top level and points to `asm { ... }`. `HCPARSE0148` reports how many operands the first form requires. Operand expressions, direct assembler keywords, semantic lowering, encoding, and execution remain pending.
+Immediate syntax uses the ordinary HolyC expression parser without parenthesis-free function calls. Direct bracketed addresses stay lossless rather than being forced into the language-expression AST. Visible local or newer compiler symbols can shadow opcode and register spellings. Exact excerpts from `Adam/AMem.HC`, `Kernel/Job.HC`, `Demo/Graphics/Balloon.HC`, `Demo/Asm/AsmAndC3.HC`, `Demo/Lectures/Ring3.HC`, and `Kernel/KInts.HC` parse in JIT and AOT modes.
+
+`HCPARSE0147` rejects direct assembly at top level and points to `asm { ... }`. `HCPARSE0149` through `HCPARSE0152` cover a missing operand, missing comma, unclosed address bracket, and extra operand. Direct assembler keywords and label definitions, operand validation, instruction-form selection, lowering, encoding, and execution remain pending. A parsed operand is not evidence that the instruction would assemble.
 
 ## Statement-position output literals
 

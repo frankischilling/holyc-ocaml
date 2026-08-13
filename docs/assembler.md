@@ -4,9 +4,9 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation boundary
 
-The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output. The HolyC parser accepts brace-delimited `asm { ... }` statements and function-local direct assembly when each opcode's first form has no operands. Both forms retain their structure in the AST.
+The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output. The HolyC parser accepts brace-delimited `asm { ... }` statements and function-local direct assembly with the zero, one, or two operands named by each opcode's first form. Both paths retain their source structure in the AST.
 
-This is still not an assembler implementation. Body tokens are classified, but operands, address expressions, and directive arguments are not parsed or validated. Form selection, ModRM and SIB construction, instruction encoding, fixups, directive execution, and disassembly are not available. There is no `holyc asm` command, and no current command emits instruction bytes.
+This is still not an assembler implementation. Brace-block body tokens are classified but not split into operations. Direct operands are structurally classified without checking whether their register, immediate, or address shape matches an instruction form. Form selection, ModRM and SIB construction, instruction encoding, fixups, directive execution, and disassembly are not available. There is no `holyc asm` command, and no current command emits instruction bytes.
 
 ## Brace-delimited HolyC assembly
 
@@ -28,13 +28,17 @@ Leading `name:`, `name::`, and `@@name:` pairs are also recorded as ordinary glo
 
 The checked inventory in `reference/assembly-blocks.json` lists every brace-delimited block found by a raw-token scan of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. At the pinned commit it contains 45 blocks in 40 files: 39 at brace depth zero and six nested inside another source block. Focused tests parse the top-level and function-local blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC`. `HCPARSE0145` reports a missing opening brace, and `HCPARSE0146` reports an unterminated block.
 
-## Operand-free direct assembly
+## Function-local direct assembly
 
 Before ordinary identifier-statement parsing, `Compiler/PrsStmt.HC:PrsStmt` checks whether the current hash entry is `HTT_OPCODE`. It rejects that form when no function is active. Inside a function it joins compilation with `CMPF_ASM_BLK | CMPF_ONE_ASM_INS`. `Compiler/Asm.HC:PrsAsmBlk` then skips the opening-brace check, uses `tmpo->ins[0].arg1` and `arg2` to decide whether to parse operands, and can continue while the next hash entry is another opcode or assembler keyword. A physical newline is not a grammar boundary.
 
-The current parser implements the part of that path in which every opcode's first form has no operands. The `inline_assembly_statement` node contains one or more operations. Each operation keeps the classified opcode, its source spelling, canonical alias identity, optional semicolon, full span, and include or definition provenance. The visible compiler-symbol kind controls entry into this path, so a local or newer non-opcode declaration can shadow an opcode name. Exact snippets from `Adam/AMem.HC`, `Kernel/Job.HC`, and `Demo/Graphics/Balloon.HC` parse in JIT and AOT modes.
+`Compiler/Asm.HC:PrsAsmArg` distinguishes register operands, the eight integer size prefixes, segment prefixes, direct expressions, and bracketed addresses. `PrsAsmBlk` requires a comma before `arg2`; the first checked form supplies the structural arity. Assembly immediates use the ordinary expression compiler, with `CCF_ASM_EXPRESSIONS` changing symbol and `$$` behavior.
 
-`HCPARSE0147` rejects a direct opcode at top level and recommends a brace-delimited block. `HCPARSE0148` reports the first-form operand count when an opcode needs operands. Direct assembler keywords, operand expressions, lowering, encoding, fixups, and execution remain unimplemented. The AST therefore records syntax only and cannot be used to claim that the instruction would assemble or run.
+The `inline_assembly_statement` node contains one or more adjacent operations. Each operation keeps the classified opcode, source spelling, canonical alias identity, zero to two operands, separating comma, optional semicolon, full span, and include or definition provenance. Each operand is marked register, immediate, or memory and retains every classified source token. An optional size prefix and segment prefix are also exposed directly. Physical newlines remain trivia rather than instruction delimiters.
+
+Visible compiler symbols control opcode and register recognition, so a local or newer declaration can shadow those spellings. Exact operand-free snippets from `Adam/AMem.HC`, `Kernel/Job.HC`, and `Demo/Graphics/Balloon.HC` parse in JIT and AOT modes. Operand-bearing tests use `MOV AL,0x41`, `CALL PUT_HEX_U8`, and the delay-loop sequence from `Demo/Asm/AsmAndC3.HC`; `CLI` and `LTR AX` from `Demo/Lectures/Ring3.HC`; and `MOV RAX,U64 8[RBP]` from `Kernel/KInts.HC`.
+
+`HCPARSE0147` rejects a direct opcode at top level and recommends a brace-delimited block. `HCPARSE0149` reports a missing operand, `HCPARSE0150` a missing comma, `HCPARSE0151` an unclosed address bracket, and `HCPARSE0152` a third operand. Direct assembler keywords and labels, detailed address validation, form selection, lowering, encoding, fixups, and execution remain unimplemented. The AST records syntax only and cannot establish that an instruction would assemble or run.
 
 ## Source grammar
 
