@@ -3231,7 +3231,7 @@ nth_match = "continues through the parent chain"
 session_seed = "17 Compiler/CInit.HC internal type spellings"
 provenance = ["pinned source", "source location", "generated source ancestry", "synthesized description"]
 foreign_scope_mutation = "rejected"
-ast_declaration_collection = "top-level declarations implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS and direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS; parameters, locals, labels, and assembler symbols are not implemented"
+ast_declaration_collection = "top-level declarations are implemented in HC-SEMA-TOP-LEVEL-DECLARATIONS, direct aggregate members in HC-SEMA-AGGREGATE-MEMBERS, and parameters and locals in HC-SEMA-FUNCTION-BINDINGS; labels and assembler symbols are not implemented"
 reference_resolution = "not implemented"
 duplicate_policy = "not implemented"
 jit_aot_linkage = "not implemented"
@@ -3269,7 +3269,7 @@ provenance = ["primary span", "source segments", "generated source origin", "def
 top_level_executable_statements = "no declaration entry"
 forward_definition_merging = "not implemented"
 duplicate_validation = "not implemented"
-nested_declaration_collection = "direct aggregate members implemented in HC-SEMA-AGGREGATE-MEMBERS; parameters, locals, labels, and assembler symbols are not implemented"
+nested_declaration_collection = "direct aggregate members are implemented in HC-SEMA-AGGREGATE-MEMBERS and parameters and locals in HC-SEMA-FUNCTION-BINDINGS; labels and assembler symbols are not implemented"
 jit_task_publication = "not implemented"
 linkage_and_reference_resolution = "not implemented"
 native_oracle_status = "not required for this collection boundary; insertion order is explicit in PrsClass, PrsGlblVarLst, and PrsFunJoin"
@@ -3310,6 +3310,55 @@ layout = "not implemented"
 member_metadata_evaluation = "not implemented"
 reference_resolution = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-BINDINGS"
+description = "Accepted function prototypes and definitions receive function-wide scopes with source-ordered parameter and local identities."
+sources = [
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsStmt.HC:PrsFun",
+  "Compiler/PrsStmt.HC:PrsStmt automatic and static local branches",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/LexLib.HC:MemberAdd",
+  "Compiler/LexLib.HC:MemberFind",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashFun",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/function_collection.ml",
+  "src/driver/function_collection.ml",
+  "src/sema/symbol_table.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_collection.ml"
+]
+status = "implemented"
+issue = 170
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope_parent = "the module scope from the matching top-level declaration collection"
+function_order = "function prototypes and definitions by module item index"
+fixed_parameters = "named parameters retain signature order and their original zero-based indexes"
+unnamed_parameters = "no symbol is created and later fixed indexes are not renumbered"
+variadic_parameters = ["argc", "argv"]
+variadic_origin = "both synthetic symbols use the ellipsis location"
+local_order = "parameters first, then automatic and static local declarators in recursive parser order"
+recursive_statements = ["block", "do-while", "for", "if/else", "lock", "statement sequence", "switch", "sub-switch", "try/catch", "while"]
+block_local_scopes = "not created; accepted locals share the function scope"
+local_positions = ["declaration index", "grouped declarator index"]
+repeated_names = "preserved as separate entries with newest-first lookup"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
+prototype_definition_reconciliation = "not implemented"
+type_resolution = "not implemented"
+default_and_initializer_evaluation = "not implemented"
+register_and_storage_assignment = "not implemented"
+duplicate_validation = "not implemented"
+label_and_reference_resolution = "not implemented"
+linkage = "not implemented"
+native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsVarLst, PrsDotDotDot, MemberAdd, and MemberFind state the insertion order and shared function namespace directly"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"
