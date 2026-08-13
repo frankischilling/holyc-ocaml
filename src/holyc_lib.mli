@@ -37,6 +37,7 @@ module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
 module Semantic_function_collection = Sema.Function_collection
 module Semantic_label_resolution = Sema.Label_resolution
+module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 
 val lex :
   Session.t -> source:Source_file.t -> (Token.t list, Diagnostic.t list) result
@@ -106,3 +107,11 @@ val resolve_labels :
 (** Bind function-local [goto] occurrences to language and assembly-block label
     definitions from the same AST. Assembly operand references and control-flow
     lowering remain separate passes. *)
+
+val resolve_aggregates :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  Ast.module_ ->
+  (Semantic_aggregate_resolution.t, string) result
+(** Reconcile aggregate forwards and definitions from the same AST. Type
+    resolution, inheritance, layout, and linkage remain separate passes. *)

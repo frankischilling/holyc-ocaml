@@ -15,6 +15,7 @@ let () =
       ("semantic member collection", Test_member_collection.tests);
       ("semantic function collection", Test_function_collection.tests);
       ("semantic label resolution", Test_label_resolution.tests);
+      ("semantic aggregate resolution", Test_aggregate_resolution.tests);
       ("diagnostic", Test_diagnostic.tests);
       ("version", Test_version.tests);
       ("corpus", Test_corpus.tests);
