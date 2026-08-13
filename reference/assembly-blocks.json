@@ -3,7 +3,18 @@
   "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "roots": ["Compiler", "Kernel", "Adam", "Demo"],
   "extensions": [".HC", ".HH"],
-  "start_pattern": "^[ \\t]*asm[ \\t]*\\{",
+  "discovery": {
+    "method": "raw_lexer_tokens",
+    "sequence": ["keyword(asm)", "punctuation({)"],
+    "nul_terminates": true,
+    "context": "brace depth before the asm token"
+  },
+  "summary": {
+    "blocks": 45,
+    "files": 40,
+    "top_level": 39,
+    "nested": 6
+  },
   "blocks": [
     {"path": "Adam/Gr/GrAsm.HC", "line": 2, "context": "top_level"},
     {"path": "Adam/Gr/GrTextBase.HC", "line": 4, "context": "top_level"},

@@ -4,9 +4,29 @@ Every source claim on this page refers to TempleOS commit `c26482bb6ad3f80106d28
 
 ## Current implementation boundary
 
-The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output.
+The project has a checked OCaml representation of the complete `Compiler/OpCodes.DD` file. It includes registers, language keywords, assembler directives, canonical opcode records, instruction forms, and aliases. The generator verifies the pinned blob checksum and CI rejects stale output. The HolyC parser also accepts brace-delimited `asm { ... }` statements and retains their structure in the AST.
 
-This is the assembler's source database, not an assembler implementation. Operand parsing, form selection, ModRM and SIB construction, instruction encoding, fixups, directives, and disassembly are not available yet. No current command accepts an assembly source file or emits instruction bytes.
+This is still not an assembler implementation. Body tokens are classified, but operands, address expressions, and directive arguments are not parsed or validated. Form selection, ModRM and SIB construction, instruction encoding, fixups, directive execution, and disassembly are not available. There is no `holyc asm` command, and no current command emits instruction bytes.
+
+## Brace-delimited HolyC assembly
+
+`Compiler/PrsStmt.HC:PrsStmt` sends the `asm` keyword through two source paths. The top-level AOT path calls `PrsAsmBlk` directly. Top-level JIT and function compilation join the block through `CMPF_ASM_BLK`. `Compiler/Asm.HC:PrsAsmBlk` requires an opening brace, consumes assembly operations until the block close, and distinguishes assembler directives, opcode records, and label definitions by their hash types. The separate `CMPF_ONE_ASM_INS` path handles parenthesis-free single-instruction assembly and is not implemented here.
+
+The OCaml AST has a distinct `assembly_block_statement` node. It records the keyword, both braces, every body token, and source-line groups used for readable dumps. Newlines do not terminate TempleOS assembly operations, so these groups have no grammatical meaning. An instruction and a directive on the same physical line remain in one group.
+
+Tokens are classified without rewriting their source spelling:
+
+| AST category | Retained information |
+| --- | --- |
+| Canonical opcode | Canonical spelling and `alias=false` |
+| Opcode alias | Source spelling, canonical spelling, and `alias=true` |
+| Assembler directive | TempleOS directive ID |
+| Register | Register family and number |
+| Identifier, keyword, literal, operator, punctuation | Original token and category |
+
+Leading `name:`, `name::`, and `@@name:` pairs are also recorded as ordinary global, exported global, and local labels. Their source tokens stay in the line rather than disappearing into the label annotation. Includes and definition expansions retain their canonical source, invocation site, and definition site in both AST dump formats.
+
+The checked inventory in `reference/assembly-blocks.json` lists every brace-delimited block found by a raw-token scan of committed `.HC` and `.HH` files under `Compiler`, `Kernel`, `Adam`, and `Demo`. At the pinned commit it contains 45 blocks in 40 files: 39 at brace depth zero and six nested inside another source block. Focused tests parse the top-level and function-local blocks in `Demo/Asm/AsmAndC1.HC` and `Demo/Asm/AsmAndC2.HC`. `HCPARSE0145` reports a missing opening brace, and `HCPARSE0146` reports an unterminated block.
 
 ## Source grammar
 
