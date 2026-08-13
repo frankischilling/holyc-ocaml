@@ -34,9 +34,34 @@ let stable_ids () =
       (Semantic_symbol_table.create_scope table ~parent:module_scope
          ~kind:Semantic_symbol_table.Function ~name:"Lex" ())
   in
+  let block_scope =
+    checked
+      (Semantic_symbol_table.create_scope table ~parent:function_scope
+         ~kind:Semantic_symbol_table.Block ())
+  in
+  let aggregate_scope =
+    checked
+      (Semantic_symbol_table.create_scope table ~parent:module_scope
+         ~kind:Semantic_symbol_table.Aggregate ~name:"CLexFile" ())
+  in
+  let assembler_scope =
+    checked
+      (Semantic_symbol_table.create_scope table ~parent:function_scope
+         ~kind:Semantic_symbol_table.Assembler_block ())
+  in
   Alcotest.(check (list int))
-    "scope creation order" [ 0; 1; 2 ]
+    "scope creation order" [ 0; 1; 2; 3; 4; 5 ]
     (Semantic_symbol_table.all_scopes table |> List.map scope_id);
+  Alcotest.(check (list string))
+    "scope categories"
+    [ "task"; "module"; "function"; "block"; "aggregate"; "assembler-block" ]
+    (Semantic_symbol_table.all_scopes table
+    |> List.map (fun scope ->
+        Semantic_symbol_table.scope_kind scope
+        |> Semantic_symbol_table.scope_kind_name));
+  ignore block_scope;
+  ignore aggregate_scope;
+  ignore assembler_scope;
   let first =
     checked
       (Semantic_symbol_table.add table ~scope:module_scope ~name:"Lex"
@@ -140,6 +165,11 @@ let rejected_lookup_is_nonmutating () =
   let foreign = Semantic_symbol_table.create () in
   let foreign_root = Semantic_symbol_table.root foreign in
   Alcotest.(check bool)
+    "foreign parent fails" true
+    (Semantic_symbol_table.create_scope table ~parent:foreign_root
+       ~kind:Semantic_symbol_table.Block ()
+    |> Result.is_error);
+  Alcotest.(check bool)
     "foreign add fails" true
     (Semantic_symbol_table.add table ~scope:foreign_root ~name:"Wrong"
        ~kind:Semantic_symbol.Function
@@ -155,6 +185,19 @@ let rejected_lookup_is_nonmutating () =
     (Semantic_symbol_table.lookup table ~scope:(Semantic_symbol_table.root table)
        ~name:"Name" ~kinds:[] ()
     |> Result.is_error);
+  Alcotest.(check bool)
+    "foreign lookup fails" true
+    (Semantic_symbol_table.lookup table ~scope:foreign_root ~name:"Name"
+       ~kinds:[ Semantic_symbol.Function ] ()
+    |> Result.is_error);
+  let first_scope =
+    checked
+      (Semantic_symbol_table.create_scope table
+         ~parent:(Semantic_symbol_table.root table)
+         ~kind:Semantic_symbol_table.Block ())
+  in
+  Alcotest.(check int)
+    "failed scope creation did not consume an ID" 1 (scope_id first_scope);
   let first =
     checked
       (Semantic_symbol_table.add table ~scope:(Semantic_symbol_table.root table)
