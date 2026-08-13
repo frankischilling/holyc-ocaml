@@ -288,7 +288,7 @@ The OCaml AST represents the complete pair as one `Try_catch_statement` containi
 
 `holyc dump-symbols` runs the same bounded preprocessing and parser path as `parse`. Its default output includes the complete pinned seed, while `--source-only` selects declarations that came from source spans. Diagnostics go to stderr. Even when an error suppresses the public AST, the command prints the state accumulated before the error and returns status 1. The dump explains parser routing only. Semantic declaration reconciliation, imports, exports, aliases, addresses, storage, runtime task construction, and loader records remain work for issue #161.
 
-## Semantic symbol order, scopes, and top-level collection
+## Semantic symbol order and declaration scopes
 
 `Kernel/KHashA.HC:_HASH_ADD` prepends an entry to its bucket. `SYS_HASH_SINGLE_TABLE_FIND` visits that chain in order and decrements `RCX` for each matching spelling and type mask. `SYS_HASH_FIND` then follows `CHashTable.next` with the remaining counter. `Compiler/CMain.HC:CmpJoin` builds the compiler-local chain: the local table points to the compilation global table, which points to `Fs->hash_table` in JIT mode or to the relevant compiler tables in AOT mode. `Doc/ScopingLinkage.DD` describes the visible consequence as newest-name shadowing followed by parent-task lookup. `Kernel/KHashB.HC:HashSrcFileSet` keeps source metadata on the selected entry.
 
@@ -296,7 +296,9 @@ The OCaml AST represents the complete pair as one `Try_catch_statement` containi
 
 `Compiler/PrsStmt.HC:PrsClass` inserts an aggregate before handing any attached declarators to `PrsGlblVarLst`; `PrsFunJoin` supplies function entries and `HashSrcFileSet` records their source. `Driver.Semantic_collection` walks the completed AST in that order and creates checked declarations for `Sema.Declaration_collection`. The semantic batch creates one module scope below the task root and retains module-item and grouped-declarator positions without using AST values as hash keys.
 
-Issues #164 and #166 record the checked scope and top-level collection boundaries. No semantic pass merges repeated declarations, performs class-base lookup, creates nested source scopes, constructs runtime task inheritance, applies JIT or AOT linkage, or resolves a reference. Epic #161 tracks those consumers.
+`Compiler/PrsVar.HC:PrsVarLst` calls `MemberAdd` as each declarator is completed. A recursive anonymous union passes the same `CHashClass`, so its fields enter the containing member list. `Compiler/LexLib.HC:MemberAdd` appends the list entry while maintaining a separate lookup tree; `MemberFind` searches the current class before following `base_class`. `Driver.Member_collection` retains the AST member path, flattens anonymous-union fields into the containing aggregate namespace, and associates the resulting `Sema.Member_collection` scope with the existing top-level aggregate symbol. Offset directives, empty separators, and metadata names add no member symbol.
+
+Issues #164, #166, and #168 record the checked scope, top-level collection, and direct-member boundaries. No semantic pass merges repeated declarations, applies the special duplicate rules for `pad`, `reserved`, or `_anon_`, performs class-base lookup, calculates layout, creates function or block source scopes, constructs runtime task inheritance, applies JIT or AOT linkage, or resolves a reference. Epic #161 tracks those consumers.
 
 ## Compiler option state
 
