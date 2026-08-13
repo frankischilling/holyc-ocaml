@@ -14,9 +14,7 @@ val make_primitive :
   pointer_depth:int ->
   (t, string) result
 
-val make_aggregate :
-  symbol:Symbol.t -> pointer_depth:int -> (t, string) result
-
+val make_aggregate : symbol:Symbol.t -> pointer_depth:int -> (t, string) result
 val base : t -> base
 val pointer_depth : t -> int
 val primitive_form_name : primitive_form -> string

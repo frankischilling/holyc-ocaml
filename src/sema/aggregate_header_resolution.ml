@@ -65,23 +65,16 @@ let make_backing_site ~spelling ~origin ~spelling_origin ~pointer_origins
     if not (String.equal spelling expected) then
       Error
         (Printf.sprintf
-           "semantic aggregate backing spelling %S does not match %S"
-           spelling expected)
+           "semantic aggregate backing spelling %S does not match %S" spelling
+           expected)
     else
-      Ok
-        {
-          spelling;
-          origin;
-          spelling_origin;
-          pointer_origins;
-          resolved_type;
-        }
+      Ok { spelling; origin; spelling_origin; pointer_origins; resolved_type }
 
 let make_base_site ~spelling ~origin ~colon_origin ~name_origin ~symbol =
   if String.equal spelling "" then
     Error "semantic aggregate base spelling cannot be empty"
-  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type) then
-    Error "semantic aggregate base requires an aggregate-type symbol"
+  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+  then Error "semantic aggregate base requires an aggregate-type symbol"
   else if not (String.equal spelling (Symbol.name symbol)) then
     Error
       (Printf.sprintf "semantic aggregate base spelling %S does not match %S"
@@ -111,9 +104,10 @@ module Int_set = Set.Make (Int)
 let validate_aggregate_symbol ~table ~parent ~role symbol =
   if not (Symbol_table.owns_symbol table symbol) then
     Error
-      (Printf.sprintf "semantic aggregate %s belongs to a different symbol table"
-         role)
-  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type) then
+      (Printf.sprintf
+         "semantic aggregate %s belongs to a different symbol table" role)
+  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+  then
     Error
       (Printf.sprintf "semantic aggregate %s is not an aggregate-type symbol"
          role)
@@ -123,8 +117,8 @@ let validate_aggregate_symbol ~table ~parent ~role symbol =
          (Symbol_table.scope_id parent))
   then
     Error
-      (Printf.sprintf "semantic aggregate %s does not belong to the module scope"
-         role)
+      (Printf.sprintf
+         "semantic aggregate %s does not belong to the module scope" role)
   else Ok ()
 
 let validate_backing ~table ~parent backing =
@@ -150,13 +144,10 @@ let validate_header ~table ~parent ~previous_item_index ~seen header =
           | Error _ as error -> error
           | Ok () -> (
               match header.base with
-              | None ->
-                  Ok
-                    (header.item_index, Int_set.add symbol_id seen)
+              | None -> Ok (header.item_index, Int_set.add symbol_id seen)
               | Some base ->
                   Result.map
-                    (fun () ->
-                      (header.item_index, Int_set.add symbol_id seen))
+                    (fun () -> (header.item_index, Int_set.add symbol_id seen))
                     (validate_aggregate_symbol ~table ~parent
                        ~role:"base target" base.symbol)))
       | None -> (

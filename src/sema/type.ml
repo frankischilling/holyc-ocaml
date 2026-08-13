@@ -9,12 +9,10 @@ type t = { base : base; pointer_depth : int }
 let max_pointer_depth = 4
 
 let validate_pointer_depth pointer_depth =
-  if pointer_depth < 0 then
-    Error "semantic pointer depth cannot be negative"
+  if pointer_depth < 0 then Error "semantic pointer depth cannot be negative"
   else if pointer_depth > max_pointer_depth then
     Error
-      (Printf.sprintf
-         "semantic pointer depth %d exceeds HolyC's limit of %d"
+      (Printf.sprintf "semantic pointer depth %d exceeds HolyC's limit of %d"
          pointer_depth max_pointer_depth)
   else Ok ()
 

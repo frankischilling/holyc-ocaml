@@ -17,10 +17,7 @@ type ast_declaration = {
   definition : Frontend.Ast.aggregate_definition option;
 }
 
-type event = {
-  ast : ast_declaration;
-  identity_symbol : Sema.Symbol.t;
-}
+type event = { ast : ast_declaration; identity_symbol : Sema.Symbol.t }
 
 let aggregate_kind = function
   | Frontend.Ast.Class_aggregate -> Sema.Aggregate_resolution.Class
@@ -78,16 +75,15 @@ let same_symbol left right =
 let validate_event ~table ~scope entry resolved ast =
   let entry_kind = Sema.Declaration_collection.entry_kind entry in
   let entry_symbol = Sema.Declaration_collection.entry_symbol entry in
-  let site =
-    Sema.Aggregate_resolution.resolved_declaration_site resolved
-  in
+  let site = Sema.Aggregate_resolution.resolved_declaration_site resolved in
   let site_symbol = Sema.Aggregate_resolution.declaration_site_symbol site in
   let identity_symbol =
     Sema.Aggregate_resolution.resolved_declaration_identity_symbol resolved
   in
   if entry_kind <> ast.declaration_kind then
     Error "semantic aggregate header declaration does not match the AST kind"
-  else if Sema.Declaration_collection.entry_item_index entry <> ast.item_index then
+  else if Sema.Declaration_collection.entry_item_index entry <> ast.item_index
+  then
     Error
       "semantic aggregate header declaration does not match the AST item order"
   else if Sema.Declaration_collection.entry_declarator_index entry <> None then
@@ -96,14 +92,15 @@ let validate_event ~table ~scope entry resolved ast =
     not (String.equal (Sema.Symbol.name entry_symbol) ast.identifier.spelling)
   then Error "semantic aggregate header declaration does not match the AST name"
   else if Sema.Symbol.origin entry_symbol <> origin ast.identifier.location then
-    Error
-      "semantic aggregate header declaration does not match the AST origin"
+    Error "semantic aggregate header declaration does not match the AST origin"
   else if not (same_symbol entry_symbol site_symbol) then
     Error
-      "semantic aggregate reconciliation does not match the declaration collection"
+      "semantic aggregate reconciliation does not match the declaration \
+       collection"
   else if
     Sema.Aggregate_resolution.declaration_site_item_index site <> ast.item_index
-  then Error "semantic aggregate reconciliation does not match the AST item order"
+  then
+    Error "semantic aggregate reconciliation does not match the AST item order"
   else if
     Sema.Aggregate_resolution.declaration_site_aggregate_kind site
     <> ast.aggregate_kind
@@ -112,16 +109,18 @@ let validate_event ~table ~scope entry resolved ast =
     Error "semantic aggregate identity belongs to a different symbol table"
   else if
     not
-      (Sema.Symbol.Scope_id.equal (Sema.Symbol.scope_id identity_symbol)
+      (Sema.Symbol.Scope_id.equal
+         (Sema.Symbol.scope_id identity_symbol)
          (Sema.Symbol_table.scope_id scope))
   then Error "semantic aggregate identity does not belong to the module scope"
   else
     match expected_resolution_kind entry_kind with
     | Error _ as error -> error
     | Ok expected_kind ->
-        if
-          Sema.Aggregate_resolution.declaration_site_kind site <> expected_kind
-        then Error "semantic aggregate reconciliation has the wrong declaration role"
+        if Sema.Aggregate_resolution.declaration_site_kind site <> expected_kind
+        then
+          Error
+            "semantic aggregate reconciliation has the wrong declaration role"
         else Ok { ast; identity_symbol }
 
 let events ~table ~declarations ~aggregates module_ =
@@ -157,8 +156,7 @@ let pointer_depth pointer_layers =
 let primitive_type ~form primitive pointer_layers =
   match pointer_depth pointer_layers with
   | Error _ as error -> error
-  | Ok pointer_depth ->
-      Sema.Type.make_primitive ~form ~primitive ~pointer_depth
+  | Ok pointer_depth -> Sema.Type.make_primitive ~form ~primitive ~pointer_depth
 
 let aggregate_type symbol pointer_layers =
   match pointer_depth pointer_layers with
@@ -209,9 +207,11 @@ let resolve_base visible (base : Frontend.Ast.aggregate_base) =
            base.base_name.spelling)
   | Some symbol ->
       Sema.Aggregate_header_resolution.make_base_site
-        ~spelling:base.base_name.spelling ~origin:(origin base.base_location)
+        ~spelling:base.base_name.spelling
+        ~origin:(origin base.base_location)
         ~colon_origin:(origin base.base_colon_location)
-        ~name_origin:(origin base.base_name.location) ~symbol
+        ~name_origin:(origin base.base_name.location)
+        ~symbol
 
 let resolve_events ~table ~scope events =
   let rec resolve visible headers_rev = function
@@ -222,26 +222,29 @@ let resolve_events ~table ~scope events =
         let name = event.ast.identifier.spelling in
         match event.ast.definition with
         | None ->
-            resolve (String_map.add name event.identity_symbol visible)
+            resolve
+              (String_map.add name event.identity_symbol visible)
               headers_rev rest
         | Some definition -> (
             let backing =
               match definition.backing with
               | None -> Ok None
-              | Some backing -> Result.map Option.some (resolve_backing visible backing)
+              | Some backing ->
+                  Result.map Option.some (resolve_backing visible backing)
             in
             match backing with
             | Error _ as error -> error
-            | Ok backing ->
+            | Ok backing -> (
                 let visible =
                   String_map.add name event.identity_symbol visible
                 in
                 let base =
                   match definition.base with
                   | None -> Ok None
-                  | Some base -> Result.map Option.some (resolve_base visible base)
+                  | Some base ->
+                      Result.map Option.some (resolve_base visible base)
                 in
-                (match base with
+                match base with
                 | Error _ as error -> error
                 | Ok base -> (
                     match
@@ -255,7 +258,8 @@ let resolve_events ~table ~scope events =
                         ~backing ~base
                     with
                     | Error _ as error -> error
-                    | Ok header -> resolve visible (header :: headers_rev) rest))))
+                    | Ok header -> resolve visible (header :: headers_rev) rest)
+                )))
   in
   resolve String_map.empty [] events
 
