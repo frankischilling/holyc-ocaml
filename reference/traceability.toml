@@ -2104,13 +2104,14 @@ missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
 missing_final_semicolon_diagnostic = "HCPARSE0115"
-deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0119 and HCPARSE0123"
+deferred_form_diagnostics = "HCPARSE0116 through HCPARSE0118 and HCPARSE0123"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
 backing_types = "implemented in HC-PARSER-AGGREGATE-BACKING-TYPES"
 inheritance_syntax = "implemented in HC-PARSER-AGGREGATE-INHERITANCE"
 inherited_layout_metadata_and_explicit_offsets = "planned"
-nested_named_definitions_and_trailing_objects = "planned"
+nested_named_definitions = "planned"
+attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
 function_pointer_members = "planned"
 semantic_identity_layout_overlap_and_linkage = "planned"
 
@@ -2204,6 +2205,62 @@ multiple_base_diagnostic = "HCPARSE0126"
 recovery = "an invalid base form is consumed through its aggregate body and final semicolon so the following top-level declaration remains parseable"
 native_oracle_status = "not required; token order, HTT_CLASS lookup, and the one-base rejection are explicit in the pinned source"
 inherited_size_alignment_member_lookup_metadata_and_cycle_checks = "planned"
+
+[[feature]]
+id = "HC-PARSER-AGGREGATE-GLOBALS"
+description = "A completed top-level aggregate can continue into source-positioned global declarators with recursive scalar or braced initializers."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsVarInit",
+  "Compiler/PrsVar.HC:PrsVarInit2",
+  "Compiler/PrsVar.HC:PrsGlblInit",
+  "Compiler/CInit.HC:3-14",
+  "Adam/WallPaper.HC:3-8",
+  "Demo/RadixSort.HC:6-10",
+  "Demo/Games/Talons.HC:161-169"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-aggregate-globals.hc",
+  "test/cli/parse-aggregate-globals.human",
+  "test/cli/parse-aggregate-globals.json",
+  "test/cli/parse-error.hc",
+  "test/cli/parse-error.human",
+  "test/cli/parse-error.json"
+]
+status = "implemented"
+issue = 135
+ast_schema = "holyc-ast-v1"
+accepted_attached_form = "aggregate-definition-body global-declarator (, global-declarator)* ;"
+accepted_global_initializer = "= scalar-expression or recursively braced initializer list"
+declarator_shape = "independent pointer layers, array dimensions, optional initializer, and comma or semicolon delimiter"
+initializer_shape = "an equals location plus either one expression or a brace pair containing ordered recursive elements and optional following commas"
+single_initialized_global_representation = "Global_declaration with one declarator; uninitialized singleton globals retain the earlier Global_variable shape"
+publication_order = "each accepted object is published before the stream requests the next declarator or following directive"
+intended_corpus_attached_definitions = 40
+intended_corpus_pointer_forms = 6
+intended_corpus_array_forms = 18
+intended_corpus_comma_group_forms = 8
+intended_corpus_initializer_forms = 4
+corpus_scan_mode = "byte-preserving structural scan of Compiler, Kernel, Adam, and Demo .HC and .HH files"
+corpus_scan_exclusions = "parenthesis-free calls after function bodies and the missing semicolon after PCSprite in Demo/Graphics/Pick3D.HC are not classified as attached aggregate globals"
+reference_fixture = "Compiler/CInit.HC:1-14 parses all 17 initialized CInternalType rows without filtering"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved for equals signs, braces, elements, commas, expressions, attached declarators, and complete declarations"
+missing_value_diagnostic = "HCPARSE0127"
+missing_element_separator_diagnostic = "HCPARSE0128"
+unclosed_list_diagnostic = "HCPARSE0129"
+initializer_depth_diagnostic = "HCPARSE0130 at a fixed hosted limit of 256"
+invalid_declarator_delimiter_diagnostic = "HCPARSE0003"
+native_oracle_status = "not required for syntax; the saved-type handoff and recursive initializer grammar are explicit in the pinned parser"
+initializer_type_checking_evaluation_storage_and_emission = "planned"
 
 [[feature]]
 id = "HC-PARSER-NAMED-AGGREGATE-TYPES"

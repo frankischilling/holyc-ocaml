@@ -19,7 +19,7 @@
   {
     "code": "HCPARSE0003",
     "severity": "error",
-    "message": "expected ';' after global variable \"right\", but found end of input",
+    "message": "expected ',' or ';' after global variable \"right\", but found end of input",
     "primary": {
       "path": "cli/parse-comma-errors.hc",
       "line": 4,

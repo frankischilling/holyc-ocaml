@@ -1,15 +1,15 @@
 [
   {
-    "code": "HCPARSE0003",
+    "code": "HCPARSE0127",
     "severity": "error",
-    "message": "expected ';' after global variable \"count\", but found \"=\"",
+    "message": "expected a global initializer value, but found \";\"",
     "primary": {
       "path": "cli/parse-error.hc",
       "line": 2,
-      "column": 10,
+      "column": 11,
       "source_id": 0,
-      "start": 55,
-      "stop": 56
+      "start": 56,
+      "stop": 57
     },
     "secondary": [],
     "include_stack": [],

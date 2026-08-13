@@ -948,6 +948,34 @@ let print_binding buffer sources ~indent = function
           Printf.bprintf buffer "%s  target_expression\n" indent;
           print_expression buffer sources ~indent:(indent ^ "    ") expression)
 
+let rec print_initializer buffer sources ~indent = function
+  | Ast.Scalar_initializer expression ->
+      Printf.bprintf buffer "%svalue kind=scalar span=%s\n" indent
+        (location_text sources (Ast.expression_location expression));
+      print_expression buffer sources ~indent:(indent ^ "  ") expression
+  | Ast.Braced_initializer braced ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%svalue kind=braced span=%s elements=%d\n" indent
+        (location_text sources braced.initializer_location)
+        (List.length braced.initializer_elements);
+      Printf.bprintf buffer "%sopening_brace span=%s\n" child_indent
+        (location_text sources braced.initializer_opening_brace);
+      List.iteri
+        (fun index (element : Ast.initializer_element) ->
+          Printf.bprintf buffer "%selement index=%d span=%s\n" child_indent
+            index
+            (location_text sources element.initializer_element_location);
+          print_initializer buffer sources ~indent:(child_indent ^ "  ")
+            element.initializer_element_value;
+          Option.iter
+            (fun comma ->
+              Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+                (location_text sources comma))
+            element.initializer_element_comma)
+        braced.initializer_elements;
+      Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+        (location_text sources braced.initializer_closing_brace)
+
 let print_array_dimensions buffer sources ~indent dimensions =
   List.iteri
     (fun index (dimension : Ast.array_dimension) ->
@@ -965,6 +993,32 @@ let print_array_dimensions buffer sources ~indent dimensions =
       Printf.bprintf buffer "%sclosing_bracket span=%s\n" child_indent
         (location_text sources dimension.closing_bracket))
     dimensions
+
+let print_global_declarator buffer sources ~indent ~label index
+    (declarator : Ast.global_declarator) =
+  let child_indent = indent ^ "  " in
+  Printf.bprintf buffer "%s%s index=%d span=%s\n" indent label index
+    (location_text sources declarator.location);
+  print_pointer_layers buffer sources ~indent:child_indent
+    declarator.pointer_layers;
+  Printf.bprintf buffer "%sname spelling=%S span=%s\n" child_indent
+    declarator.name.spelling
+    (location_text sources declarator.name.location);
+  print_array_dimensions buffer sources ~indent:child_indent
+    declarator.array_dimensions;
+  Option.iter
+    (fun (initial_value : Ast.global_initializer) ->
+      Printf.bprintf buffer "%sinitializer span=%s\n" child_indent
+        (location_text sources initial_value.global_initializer_location);
+      Printf.bprintf buffer "%s  equals span=%s\n" child_indent
+        (location_text sources initial_value.global_initializer_equals);
+      print_initializer buffer sources ~indent:(child_indent ^ "  ")
+        initial_value.global_initializer_value)
+    declarator.global_initial_value;
+  Printf.bprintf buffer "%sdelimiter kind=%s spelling=%S span=%s\n" child_indent
+    (delimiter_kind_name declarator.delimiter.kind)
+    declarator.delimiter.spelling
+    (location_text sources declarator.delimiter.location)
 
 let rec print_aggregate_member buffer sources ~indent index = function
   | Ast.Aggregate_member_declaration declaration ->
@@ -1149,6 +1203,10 @@ let human sources module_ =
             definition.members;
           Printf.bprintf buffer "    closing_brace span=%s\n"
             (location_text sources definition.closing_brace);
+          List.iteri
+            (print_global_declarator buffer sources ~indent:"    "
+               ~label:"attached_declarator")
+            definition.attached_declarators;
           Printf.bprintf buffer "    semicolon span=%s\n"
             (location_text sources definition.semicolon)
       | Ast.Global_variable variable ->
@@ -1174,21 +1232,8 @@ let human sources module_ =
           print_binding buffer sources ~indent:"    " declaration.binding;
           print_type buffer sources ~indent:"    " declaration.type_specifier;
           List.iteri
-            (fun index (declarator : Ast.global_declarator) ->
-              Printf.bprintf buffer "    declarator index=%d span=%s\n" index
-                (location_text sources declarator.Ast.location);
-              print_pointer_layers buffer sources ~indent:"      "
-                declarator.pointer_layers;
-              Printf.bprintf buffer "      name spelling=%S span=%s\n"
-                declarator.name.spelling
-                (location_text sources declarator.name.location);
-              print_array_dimensions buffer sources ~indent:"      "
-                declarator.array_dimensions;
-              Printf.bprintf buffer
-                "      delimiter kind=%s spelling=%S span=%s\n"
-                (delimiter_kind_name declarator.delimiter.kind)
-                declarator.delimiter.spelling
-                (location_text sources declarator.delimiter.location))
+            (print_global_declarator buffer sources ~indent:"    "
+               ~label:"declarator")
             declaration.declarators
       | Ast.Function_prototype prototype ->
           Printf.bprintf buffer
@@ -2157,11 +2202,66 @@ let array_dimension_fields sources dimensions =
           `List (List.map (array_dimension_to_yojson sources) dimensions) );
       ]
 
+let rec initializer_to_yojson sources = function
+  | Ast.Scalar_initializer expression ->
+      `Assoc
+        [
+          ("kind", `String "scalar");
+          ("expression", expression_to_yojson sources expression);
+          ( "location",
+            location_to_yojson sources (Ast.expression_location expression) );
+        ]
+  | Ast.Braced_initializer braced ->
+      `Assoc
+        [
+          ("kind", `String "braced");
+          ( "opening_brace",
+            location_to_yojson sources braced.initializer_opening_brace );
+          ( "elements",
+            `List
+              (List.map
+                 (initializer_element_to_yojson sources)
+                 braced.initializer_elements) );
+          ( "closing_brace",
+            location_to_yojson sources braced.initializer_closing_brace );
+          ("location", location_to_yojson sources braced.initializer_location);
+        ]
+
+and initializer_element_to_yojson sources (element : Ast.initializer_element) =
+  `Assoc
+    [
+      ("value", initializer_to_yojson sources element.initializer_element_value);
+      ( "comma",
+        match element.initializer_element_comma with
+        | None -> `Null
+        | Some comma -> location_to_yojson sources comma );
+      ( "location",
+        location_to_yojson sources element.initializer_element_location );
+    ]
+
+let global_initializer_to_yojson sources
+    (initial_value : Ast.global_initializer) =
+  `Assoc
+    [
+      ( "equals",
+        location_to_yojson sources initial_value.global_initializer_equals );
+      ( "value",
+        initializer_to_yojson sources initial_value.global_initializer_value );
+      ( "location",
+        location_to_yojson sources initial_value.global_initializer_location );
+    ]
+
 let declarator_to_yojson sources (declarator : Ast.global_declarator) =
   `Assoc
     (pointer_layer_fields sources declarator.pointer_layers
     @ [ ("name", identifier_to_yojson sources declarator.name) ]
     @ array_dimension_fields sources declarator.array_dimensions
+    @ (match declarator.global_initial_value with
+      | None -> []
+      | Some initial_value ->
+          [
+            ("initializer", global_initializer_to_yojson sources initial_value);
+          ])
     @ [
         ("delimiter", delimiter_to_yojson sources declarator.delimiter);
         ("location", location_to_yojson sources declarator.location);
@@ -2397,6 +2497,15 @@ let item_to_yojson sources = function
                    definition.members) );
             ( "closing_brace",
               location_to_yojson sources definition.closing_brace );
+          ]
+        @ (match definition.attached_declarators with
+          | [] -> []
+          | declarators ->
+              [
+                ( "attached_declarators",
+                  `List (List.map (declarator_to_yojson sources) declarators) );
+              ])
+        @ [
             ("semicolon", location_to_yojson sources definition.semicolon);
             ("location", location_to_yojson sources definition.location);
           ])

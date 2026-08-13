@@ -315,6 +315,38 @@ type aggregate_base = {
   base_location : location;
 }
 
+type initial_value =
+  | Scalar_initializer of expression
+  | Braced_initializer of braced_initializer
+
+and braced_initializer = {
+  initializer_opening_brace : location;
+  initializer_elements : initializer_element list;
+  initializer_closing_brace : location;
+  initializer_location : location;
+}
+
+and initializer_element = {
+  initializer_element_value : initial_value;
+  initializer_element_comma : location option;
+  initializer_element_location : location;
+}
+
+type global_initializer = {
+  global_initializer_equals : location;
+  global_initializer_value : initial_value;
+  global_initializer_location : location;
+}
+
+type global_declarator = {
+  pointer_layers : pointer_layer list;
+  name : identifier;
+  array_dimensions : array_dimension list;
+  global_initial_value : global_initializer option;
+  delimiter : declaration_delimiter;
+  location : location;
+}
+
 type aggregate_definition = {
   modifiers : declaration_modifier list;
   backing : aggregate_backing option;
@@ -326,15 +358,8 @@ type aggregate_definition = {
   opening_brace : location;
   members : aggregate_member list;
   closing_brace : location;
+  attached_declarators : global_declarator list;
   semicolon : location;
-  location : location;
-}
-
-type global_declarator = {
-  pointer_layers : pointer_layer list;
-  name : identifier;
-  array_dimensions : array_dimension list;
-  delimiter : declaration_delimiter;
   location : location;
 }
 
@@ -776,9 +801,43 @@ let make_aggregate_base ~colon_spelling ~colon_location ~name ~location =
     base_location = location;
   }
 
+let make_braced_initializer ~opening_brace ~elements ~closing_brace ~location =
+  {
+    initializer_opening_brace = opening_brace;
+    initializer_elements = elements;
+    initializer_closing_brace = closing_brace;
+    initializer_location = location;
+  }
+
+let make_initializer_element ~value ~comma ~location =
+  {
+    initializer_element_value = value;
+    initializer_element_comma = comma;
+    initializer_element_location = location;
+  }
+
+let make_global_initializer ~equals ~value ~location =
+  {
+    global_initializer_equals = equals;
+    global_initializer_value = value;
+    global_initializer_location = location;
+  }
+
+let make_global_declarator ~pointer_layers ~name ~array_dimensions
+    ~initial_value ~delimiter ~location =
+  {
+    pointer_layers;
+    name;
+    array_dimensions;
+    global_initial_value = initial_value;
+    delimiter;
+    location;
+  }
+
 let make_aggregate_definition ~modifiers ~backing ~aggregate_kind
     ~aggregate_keyword_spelling ~aggregate_keyword_location ~name ~base
-    ~opening_brace ~members ~closing_brace ~semicolon ~location =
+    ~opening_brace ~members ~closing_brace ~attached_declarators ~semicolon
+    ~location =
   {
     modifiers;
     backing;
@@ -790,13 +849,10 @@ let make_aggregate_definition ~modifiers ~backing ~aggregate_kind
     opening_brace;
     members;
     closing_brace;
+    attached_declarators;
     semicolon;
     location;
   }
-
-let make_global_declarator ~pointer_layers ~name ~array_dimensions ~delimiter
-    ~location =
-  { pointer_layers; name; array_dimensions; delimiter; location }
 
 let make_global_variable ~modifiers ~binding ~type_specifier ~pointer_layers
     ~name ~array_dimensions ~semicolon ~location =
@@ -984,6 +1040,10 @@ let expression_location = function
   | Call_expression expression -> expression.call_location
   | Index_expression expression -> expression.index_location
   | Member_expression expression -> expression.member_location
+
+let initial_value_location = function
+  | Scalar_initializer expression -> expression_location expression
+  | Braced_initializer braced -> braced.initializer_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }

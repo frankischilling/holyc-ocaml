@@ -1,4 +1,4 @@
 cli/parse-comma-errors.hc:2:15: error[HCPARSE0004]: HolyC types may have at most 4 pointer stars; this star exceeds that limit
     2 | I64 first,*****second;
       |               ^
-cli/parse-comma-errors.hc:4:1: error[HCPARSE0003]: expected ';' after global variable "right", but found end of input
+cli/parse-comma-errors.hc:4:1: error[HCPARSE0003]: expected ',' or ';' after global variable "right", but found end of input

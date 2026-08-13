@@ -66,6 +66,7 @@
   ../third_party/TempleOS/Compiler/PrsExp.HC
   ../third_party/TempleOS/Compiler/UAsm.HC
   ../third_party/TempleOS/Adam/Gr/GrGlbls.HC
+  ../third_party/TempleOS/Adam/WallPaper.HC
   ../third_party/TempleOS/Adam/Opt/Utils/StrUtils.HC
   ../third_party/TempleOS/Adam/AMem.HC
   ../third_party/TempleOS/Adam/Snd/SndMath.HC
@@ -74,6 +75,8 @@
   ../third_party/TempleOS/Demo/MultiCore/LoadTest.HC
   ../third_party/TempleOS/Demo/MultiCore/Lock.HC
   ../third_party/TempleOS/Demo/Exceptions.HC
+  ../third_party/TempleOS/Demo/RadixSort.HC
+  ../third_party/TempleOS/Demo/Games/Talons.HC
   ../third_party/TempleOS/Demo/NullCase.HC
   ../third_party/TempleOS/Demo/SubSwitch.HC
   ../third_party/TempleOS/Kernel/Compress.HC
@@ -2904,6 +2907,36 @@
    (diff
     cli/parse-aggregate-definition.json
     parse-aggregate-definition.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-globals.human.actual)
+ (deps cli/parse-aggregate-globals.hc cli/parse-aggregate-globals.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-globals.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-aggregate-globals.hc))
+   (diff
+    cli/parse-aggregate-globals.human
+    parse-aggregate-globals.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-aggregate-globals.json.actual)
+ (deps cli/parse-aggregate-globals.hc cli/parse-aggregate-globals.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-aggregate-globals.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-aggregate-globals.hc))
+   (diff
+    cli/parse-aggregate-globals.json
+    parse-aggregate-globals.json.actual))))
 
 (rule
  (alias runtest)
