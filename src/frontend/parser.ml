@@ -142,6 +142,7 @@ type parsed_parameter_list = {
 type function_pointer_declarator_context =
   | Function_parameter_declarator
   | Global_variable_declarator
+  | Aggregate_member_declarator
 
 type parsed_modifier = { node : Ast.declaration_modifier; item : located_token }
 
@@ -2339,7 +2340,7 @@ let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   Error { recovery_depth }
 
 let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
-    members_rev tokens_rev :
+    ~parse_member_function_pointer members_rev tokens_rev :
     (parsed_aggregate_members, aggregate_parse_failure) result =
   let item = peek cursor in
   match item.token.kind with
@@ -2366,14 +2367,19 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
   | Token_kind.Punctuation ';' ->
       let semicolon_item = take cursor in
       parse_aggregate_members cursor ~opening_brace ~depth
+        ~parse_member_function_pointer
         (Ast.Empty_aggregate_member (token_location semicolon_item.token)
         :: members_rev)
         (semicolon_item.token :: tokens_rev)
   | Token_kind.Keyword Keyword.Union -> (
-      match parse_anonymous_union_member cursor ~depth with
+      match
+        parse_anonymous_union_member cursor ~depth
+          ~parse_member_function_pointer
+      with
       | Error failure -> Error failure
       | Ok member ->
           parse_aggregate_members cursor ~opening_brace ~depth
+            ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | Token_kind.Keyword Keyword.Class ->
@@ -2391,14 +2397,16 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
   | _ -> (
       match
         parse_aggregate_member_declaration cursor ~recovery_depth:(depth + 1)
+          ~parse_member_function_pointer
       with
       | Error failure -> Error failure
       | Ok member ->
           parse_aggregate_members cursor ~opening_brace ~depth
+            ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
 
-and parse_anonymous_union_member cursor ~depth :
+and parse_anonymous_union_member cursor ~depth ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let keyword_item = take cursor in
   if depth >= max_aggregate_depth then
@@ -2421,7 +2429,8 @@ and parse_anonymous_union_member cursor ~depth :
       let opening_item = take cursor in
       let opening_brace = token_location opening_item.token in
       match
-        parse_aggregate_members cursor ~opening_brace ~depth:(depth + 1) [] []
+        parse_aggregate_members cursor ~opening_brace ~depth:(depth + 1)
+          ~parse_member_function_pointer [] []
       with
       | Error failure -> Error failure
       | Ok parsed_members ->
@@ -2449,7 +2458,8 @@ and parse_anonymous_union_member cursor ~depth :
           in
           Ok { node = Ast.Anonymous_union_member node; tokens }
 
-and parse_aggregate_member_declaration cursor ~recovery_depth :
+and parse_aggregate_member_declaration cursor ~recovery_depth
+    ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let type_item = peek cursor in
   match type_specifier_of_item cursor type_item with
@@ -2467,7 +2477,7 @@ and parse_aggregate_member_declaration cursor ~recovery_depth :
           (parsed_aggregate_member, aggregate_parse_failure) result =
         match
           parse_aggregate_member_declarator cursor ~base_spelling
-            ~recovery_depth
+            ~recovery_depth ~parse_member_function_pointer
         with
         | Error failure -> Error failure
         | Ok declarator -> (
@@ -2491,75 +2501,83 @@ and parse_aggregate_member_declaration cursor ~recovery_depth :
       in
       collect [] []
 
-and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth :
+and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
+    ~parse_member_function_pointer :
     (parsed_aggregate_member_declarator, aggregate_parse_failure) result =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> Error { recovery_depth }
   | Some (pointer_layers, pointer_items) -> (
       let pointer_tokens = List.map (fun item -> item.token) pointer_items in
       let name_item = peek cursor in
-      if name_item.token.kind = Token_kind.Punctuation '(' then
-        aggregate_member_failure cursor name_item ~recovery_depth
-          ~code:"HCPARSE0123"
-          ~message:
-            "function-pointer aggregate members are not implemented in this \
-             parser slice"
-      else if name_item.token.kind <> Token_kind.Identifier then
-        aggregate_member_failure cursor name_item ~recovery_depth
-          ~code:"HCPARSE0113"
-          ~message:
-            (Printf.sprintf "expected a member name after type %S, but found %s"
-               (type_spelling base_spelling pointer_layers)
-               (token_description name_item.token))
-      else
-        let name_item = take cursor in
-        let name =
-          Ast.make_identifier ~spelling:name_item.token.raw
-            ~location:(token_location name_item.token)
-        in
-        match parse_array_dimensions cursor 0 [] [] with
-        | None -> Error { recovery_depth }
-        | Some (array_dimensions, array_tokens) -> (
-            let delimiter_item = peek cursor in
-            match delimiter_item.token.kind with
-            | Token_kind.Identifier ->
-                aggregate_member_failure cursor delimiter_item ~recovery_depth
-                  ~code:"HCPARSE0118"
-                  ~message:
-                    "aggregate member metadata is not implemented in this \
-                     parser slice"
-            | _ -> (
-                match delimiter_kind delimiter_item.token with
-                | None ->
-                    aggregate_member_failure cursor delimiter_item
-                      ~recovery_depth ~code:"HCPARSE0114"
-                      ~message:
-                        (Printf.sprintf
-                           "expected ',' or ';' after aggregate member %S, but \
-                            found %s"
-                           name.spelling
-                           (token_description delimiter_item.token))
-                | Some kind ->
-                    let delimiter_item = take cursor in
-                    let delimiter =
-                      Ast.make_declaration_delimiter ~kind
-                        ~spelling:delimiter_item.token.raw
-                        ~location:(token_location delimiter_item.token)
-                    in
-                    let tokens =
-                      pointer_tokens
-                      @ (name_item.token :: array_tokens)
-                      @ [ delimiter_item.token ]
-                    in
-                    let node =
-                      Ast.make_aggregate_member_declarator ~pointer_layers ~name
-                        ~array_dimensions ~delimiter
-                        ~location:(location_from_expression_tokens tokens)
-                    in
-                    Ok { node; tokens })))
+      let parsed_core =
+        if name_item.token.kind = Token_kind.Punctuation '(' then
+          match parse_member_function_pointer () with
+          | None -> None
+          | Some (parsed : parsed_function_pointer) ->
+              Option.map
+                (fun name ->
+                  (name, Some parsed.node, pointer_tokens @ parsed.tokens))
+                parsed.name
+        else if name_item.token.kind <> Token_kind.Identifier then (
+          report cursor name_item ~code:"HCPARSE0113"
+            ~message:
+              (Printf.sprintf
+                 "expected a member name after type %S, but found %s"
+                 (type_spelling base_spelling pointer_layers)
+                 (token_description name_item.token));
+          None)
+        else
+          let name_item = take cursor in
+          let name =
+            Ast.make_identifier ~spelling:name_item.token.raw
+              ~location:(token_location name_item.token)
+          in
+          Some (name, None, pointer_tokens @ [ name_item.token ])
+      in
+      match parsed_core with
+      | None -> Error { recovery_depth }
+      | Some (name, function_pointer, core_tokens) -> (
+          match parse_array_dimensions cursor 0 [] [] with
+          | None -> Error { recovery_depth }
+          | Some (array_dimensions, array_tokens) -> (
+              let delimiter_item = peek cursor in
+              match delimiter_item.token.kind with
+              | Token_kind.Identifier ->
+                  aggregate_member_failure cursor delimiter_item ~recovery_depth
+                    ~code:"HCPARSE0118"
+                    ~message:
+                      "aggregate member metadata is not implemented in this \
+                       parser slice"
+              | _ -> (
+                  match delimiter_kind delimiter_item.token with
+                  | None ->
+                      aggregate_member_failure cursor delimiter_item
+                        ~recovery_depth ~code:"HCPARSE0114"
+                        ~message:
+                          (Printf.sprintf
+                             "expected ',' or ';' after aggregate member %S, \
+                              but found %s"
+                             name.spelling
+                             (token_description delimiter_item.token))
+                  | Some kind ->
+                      let delimiter_item = take cursor in
+                      let delimiter =
+                        Ast.make_declaration_delimiter ~kind
+                          ~spelling:delimiter_item.token.raw
+                          ~location:(token_location delimiter_item.token)
+                      in
+                      let tokens =
+                        core_tokens @ array_tokens @ [ delimiter_item.token ]
+                      in
+                      let node =
+                        Ast.make_aggregate_member_declarator ~pointer_layers
+                          ~name ~function_pointer ~array_dimensions ~delimiter
+                          ~location:(location_from_expression_tokens tokens)
+                      in
+                      Ok { node; tokens }))))
 
 let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
-    ~aggregate_kind ~parse_function_pointer =
+    ~aggregate_kind ~parse_function_pointer ~parse_member_function_pointer =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
   if name_item.token.kind <> Token_kind.Identifier then (
@@ -2593,7 +2611,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
           let opening_item = take cursor in
           let opening_brace = token_location opening_item.token in
           match
-            parse_aggregate_members cursor ~opening_brace ~depth:0 [] []
+            parse_aggregate_members cursor ~opening_brace ~depth:0
+              ~parse_member_function_pointer [] []
           with
           | Error failure ->
               recover_aggregate_declaration cursor ~depth:failure.recovery_depth;
@@ -2814,7 +2833,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
         ~code:
           (match declarator_context with
           | Function_parameter_declarator -> "HCPARSE0014"
-          | Global_variable_declarator -> "HCPARSE0131")
+          | Global_variable_declarator -> "HCPARSE0131"
+          | Aggregate_member_declarator -> "HCPARSE0133")
         ~message:
           (match declarator_context with
           | Function_parameter_declarator ->
@@ -2825,6 +2845,11 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
           | Global_variable_declarator ->
               Printf.sprintf
                 "expected '*' after '(' in global function-pointer declarator, \
+                 but found %s"
+                (token_description first_star.token)
+          | Aggregate_member_declarator ->
+              Printf.sprintf
+                "expected '*' after '(' in aggregate function-pointer member, \
                  but found %s"
                 (token_description first_star.token))
     else
@@ -2850,7 +2875,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                   ~code:
                     (match declarator_context with
                     | Function_parameter_declarator -> "HCPARSE0014"
-                    | Global_variable_declarator -> "HCPARSE0132")
+                    | Global_variable_declarator -> "HCPARSE0132"
+                    | Aggregate_member_declarator -> "HCPARSE0134")
                   ~message:
                     (match declarator_context with
                     | Function_parameter_declarator ->
@@ -2862,6 +2888,11 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                         Printf.sprintf
                           "expected a global function-pointer name after \
                            pointer stars, but found %s"
+                          (token_description name_item.token)
+                    | Aggregate_member_declarator ->
+                        Printf.sprintf
+                          "expected an aggregate member name after \
+                           function-pointer stars, but found %s"
                           (token_description name_item.token));
                 recover_declaration cursor;
                 None
@@ -2881,7 +2912,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                 ~code:
                   (match declarator_context with
                   | Function_parameter_declarator -> "HCPARSE0014"
-                  | Global_variable_declarator -> "HCPARSE0131")
+                  | Global_variable_declarator -> "HCPARSE0131"
+                  | Aggregate_member_declarator -> "HCPARSE0133")
                 ~message:
                   (Printf.sprintf
                      "expected ')' after function-pointer name, but found %s"
@@ -2894,7 +2926,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                   ~code:
                     (match declarator_context with
                     | Function_parameter_declarator -> "HCPARSE0014"
-                    | Global_variable_declarator -> "HCPARSE0131")
+                    | Global_variable_declarator -> "HCPARSE0131"
+                    | Aggregate_member_declarator -> "HCPARSE0133")
                   ~message:
                     (Printf.sprintf
                        "expected '(' for function-pointer signature, but found \
@@ -3042,6 +3075,10 @@ let parse_global cursor ~parse_function_definition =
     parse_function_pointer_declarator cursor ~function_pointer_depth:0
       ~declarator_context:Global_variable_declarator
   in
+  let parse_member_function_pointer () =
+    parse_function_pointer_declarator cursor ~function_pointer_depth:0
+      ~declarator_context:Aggregate_member_declarator
+  in
   let parsed_modifiers = parse_modifiers cursor [] in
   let modifiers =
     List.map
@@ -3146,6 +3183,7 @@ let parse_global cursor ~parse_function_definition =
           parse_aggregate_definition cursor ~modifier_tokens ~modifiers
             ~backing:None ~aggregate_kind
             ~parse_function_pointer:parse_global_function_pointer
+            ~parse_member_function_pointer
       | None -> (
           match parse_binding cursor with
           | Bad_binding -> None
@@ -3192,7 +3230,8 @@ let parse_global cursor ~parse_function_definition =
                                 ~modifiers ~backing:(Some backing)
                                 ~aggregate_kind
                                 ~parse_function_pointer:
-                                  parse_global_function_pointer))
+                                  parse_global_function_pointer
+                                ~parse_member_function_pointer))
                   | None -> (
                       let spelling =
                         Ast.type_specifier_spelling type_specifier

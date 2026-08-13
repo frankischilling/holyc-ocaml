@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0133",
+    "severity": "error",
+    "message": "expected '*' after '(' in aggregate function-pointer member, but found identifier \"missing_star\"",
+    "primary": {
+      "path": "cli/parse-function-pointer-member-error.hc",
+      "line": 4,
+      "column": 7,
+      "source_id": 0,
+      "start": 97,
+      "stop": 109
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

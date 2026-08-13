@@ -1,0 +1,3 @@
+cli/parse-function-pointer-member-error.hc:4:7: error[HCPARSE0133]: expected '*' after '(' in aggregate function-pointer member, but found identifier "missing_star"
+    4 |   U0 (missing_star)();
+      |       ^^^^^^^^^^^^

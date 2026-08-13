@@ -273,35 +273,6 @@ type array_dimension = {
   location : location;
 }
 
-type aggregate_member =
-  | Aggregate_member_declaration of aggregate_member_declaration
-  | Anonymous_union_member of anonymous_union_member
-  | Empty_aggregate_member of location
-
-and aggregate_member_declarator = {
-  member_pointer_layers : pointer_layer list;
-  member_name : identifier;
-  member_array_dimensions : array_dimension list;
-  member_delimiter : declaration_delimiter;
-  member_declarator_location : location;
-}
-
-and aggregate_member_declaration = {
-  member_type_specifier : type_specifier;
-  member_declarators : aggregate_member_declarator list;
-  member_declaration_location : location;
-}
-
-and anonymous_union_member = {
-  anonymous_union_keyword_spelling : string;
-  anonymous_union_keyword_location : location;
-  anonymous_union_opening_brace : location;
-  anonymous_union_members : aggregate_member list;
-  anonymous_union_closing_brace : location;
-  anonymous_union_semicolon : location option;
-  anonymous_union_location : location;
-}
-
 type aggregate_backing = {
   backing_type_specifier : type_specifier;
   backing_pointer_layers : pointer_layer list;
@@ -373,6 +344,36 @@ and function_pointer_declarator = {
   signature_variadic : variadic_marker option;
   signature_closing_parenthesis : location;
   function_pointer_location : location;
+}
+
+type aggregate_member =
+  | Aggregate_member_declaration of aggregate_member_declaration
+  | Anonymous_union_member of anonymous_union_member
+  | Empty_aggregate_member of location
+
+and aggregate_member_declarator = {
+  member_pointer_layers : pointer_layer list;
+  member_name : identifier;
+  member_function_pointer : function_pointer_declarator option;
+  member_array_dimensions : array_dimension list;
+  member_delimiter : declaration_delimiter;
+  member_declarator_location : location;
+}
+
+and aggregate_member_declaration = {
+  member_type_specifier : type_specifier;
+  member_declarators : aggregate_member_declarator list;
+  member_declaration_location : location;
+}
+
+and anonymous_union_member = {
+  anonymous_union_keyword_spelling : string;
+  anonymous_union_keyword_location : location;
+  anonymous_union_opening_brace : location;
+  anonymous_union_members : aggregate_member list;
+  anonymous_union_closing_brace : location;
+  anonymous_union_semicolon : location option;
+  anonymous_union_location : location;
 }
 
 type global_declarator = {
@@ -758,11 +759,12 @@ let make_array_dimension ~opening_bracket ~dimension_expression ~closing_bracket
     ~location =
   { opening_bracket; dimension_expression; closing_bracket; location }
 
-let make_aggregate_member_declarator ~pointer_layers ~name ~array_dimensions
-    ~delimiter ~location =
+let make_aggregate_member_declarator ~pointer_layers ~name ~function_pointer
+    ~array_dimensions ~delimiter ~location =
   {
     member_pointer_layers = pointer_layers;
     member_name = name;
+    member_function_pointer = function_pointer;
     member_array_dimensions = array_dimensions;
     member_delimiter = delimiter;
     member_declarator_location = location;
