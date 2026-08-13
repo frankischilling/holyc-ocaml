@@ -3318,6 +3318,49 @@ linkage = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsClass and the pinned hash routines state creation, selection, and completion behavior directly"
 
 [[feature]]
+id = "HC-SEMA-AGGREGATE-HEADERS"
+description = "Aggregate definition backings and bases resolve at the distinct source-order publication points used by PrsType and PrsClass."
+sources = [
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsStmt.HC:PrsClass",
+  "Compiler/PrsLib.HC:PrsClassNew",
+  "Compiler/OptLib.HC:OptClassFwd",
+  "Compiler/CInit.HC:internal_types_table",
+  "Kernel/KernelA.HH:CHashClass",
+  "Kernel/KernelA.HH:PTR_STARS_NUM",
+  "Kernel/KernelA.HH:HTT_CLASS and HTT_INTERNAL_TYPE",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/sema/type.ml",
+  "src/sema/aggregate_header_resolution.ml",
+  "src/driver/aggregate_header_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_aggregate_header_resolution.ml"
+]
+status = "implemented"
+issue = 177
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "module-local class and union definition headers from one checked AST, declaration collection, and aggregate reconciliation"
+type_bases = ["public primitive spelling", "intrinsic storage spelling", "aggregate identity"]
+pointer_depth = "zero through four"
+backing_lookup = "before the current definition identity is published"
+base_lookup = "after the current canonical identity is published"
+canonical_identity = "the identity selected by HC-SEMA-AGGREGATE-RECONCILIATION, including later forward completion"
+backing_relation = "retained separately from extern-forward reconciliation and not flattened through OptClassFwd"
+provenance = ["definition", "aggregate keyword", "backing spelling", "each pointer star", "base colon", "base name"]
+ordering = "one header for each definition in module item order"
+mutation = "none after validated inputs"
+compilation_modes = ["jit", "aot"]
+cycle_validation = "not implemented"
+layout_and_inherited_lookup = "not implemented"
+ordinary_type_use_resolution = "not implemented"
+parent_task_lookup = "not implemented"
+native_oracle_status = "not required for this header boundary; PrsType, PrsClass, PrsClassNew, and OptClassFwd state the lookup order and retained relation directly"
+
+[[feature]]
 id = "HC-SEMA-AGGREGATE-MEMBERS"
 description = "Accepted class and union definitions receive aggregate scopes with source-ordered direct-member identities."
 sources = [
