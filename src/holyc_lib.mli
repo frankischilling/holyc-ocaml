@@ -49,6 +49,7 @@ module Semantic_aggregate_layout_dump = Sema.Aggregate_layout_dump
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
+module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -207,6 +208,17 @@ val resolve_local_types :
     source position. Array extents, initializer evaluation, stack layout,
     register allocation, and ordinary expression binding remain separate passes.
 *)
+
+val index_function_bindings :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  functions:Semantic_function_collection.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  local_types:Semantic_local_type_resolution.t ->
+  (Semantic_function_binding_index.t, string) result
+(** Validate the shared function namespace and build immutable lookup indexes.
+    Expression publication timing, use counts, warnings, storage, and register
+    allocation remain separate passes. *)
 
 val resolve_global_types :
   Session.t ->
