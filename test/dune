@@ -52,6 +52,8 @@
   test_function_flag
   test_global_record_flag_source
   test_global_record_flag
+  test_member_flag_source
+  test_member_flag
   test_bin_record_source
   test_bin_record)
  (libraries
@@ -60,6 +62,7 @@
   compiler_option_tools
   function_flag_tools
   global_record_flag_tools
+  member_flag_tools
   holyc_lib
   intermediate_code_tools
   opcode_table_tools

@@ -46,6 +46,12 @@
  (libraries digestif))
 
 (library
+ (name member_flag_tools)
+ (wrapped false)
+ (modules member_flag_source)
+ (libraries digestif))
+
+(library
  (name bin_record_tools)
  (wrapped false)
  (modules bin_record_source)
@@ -85,6 +91,11 @@
  (name global_record_flag_gen)
  (modules global_record_flag_gen)
  (libraries global_record_flag_tools yojson))
+
+(executable
+ (name member_flag_gen)
+ (modules member_flag_gen)
+ (libraries member_flag_tools yojson))
 
 (executable
  (name bin_record_gen)
@@ -139,6 +150,32 @@
     src/generated/function_flags.ml
     --output-mli
     src/generated/function_flags.mli
+    --check))))
+
+(rule
+ (alias generated-check)
+ (deps
+  ../reference/manifest.json
+  ../third_party/TempleOS/Kernel/KernelA.HH
+  ../third_party/TempleOS/Compiler/LexLib.HC
+  ../third_party/TempleOS/Compiler/PrsVar.HC
+  ../third_party/TempleOS/Compiler/PrsStmt.HC
+  ../third_party/TempleOS/Compiler/PrsExp.HC
+  ../src/generated/member_flags.ml
+  ../src/generated/member_flags.mli)
+ (action
+  (chdir
+   %{workspace_root}
+   (run
+    %{exe:member_flag_gen.exe}
+    --reference-root
+    third_party/TempleOS
+    --manifest
+    reference/manifest.json
+    --output-ml
+    src/generated/member_flags.ml
+    --output-mli
+    src/generated/member_flags.mli
     --check))))
 
 (rule
