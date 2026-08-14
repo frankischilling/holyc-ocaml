@@ -30,6 +30,7 @@
   test_module_expression_binding
   test_outer_expression_binding
   test_global_initializer_binding
+  test_global_dimension_binding
   test_function_resolution
   test_function_record_classification
   test_global_resolution

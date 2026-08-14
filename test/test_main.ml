@@ -34,6 +34,7 @@ let () =
       ("semantic outer expression binding", Test_outer_expression_binding.tests);
       ( "semantic global initializer binding",
         Test_global_initializer_binding.tests );
+      ("semantic global dimension binding", Test_global_dimension_binding.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
       ( "semantic function record classification",
         Test_function_record_classification.tests );

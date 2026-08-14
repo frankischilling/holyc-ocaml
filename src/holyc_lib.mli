@@ -55,6 +55,7 @@ module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
+module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -277,6 +278,17 @@ val resolve_global_initializers :
 (** Bind ordinary identifier occurrences in scalar and recursively braced global
     initializers. The owning global is visible before its initializer, while
     later declarations remain unavailable. *)
+
+val resolve_global_dimensions :
+  Session.t ->
+  environment:Semantic_outer_environment.t ->
+  expressions:Semantic_module_expression_binding.t ->
+  globals:Semantic_global_resolution.t ->
+  Ast.module_ ->
+  (Semantic_global_dimension_binding.t, string) result
+(** Bind ordinary identifier occurrences in global array extents. Earlier
+    declarations are visible, while the owning global and later declarations
+    remain unavailable and can fall through to the outer environment. *)
 
 val resolve_global_types :
   Session.t ->
