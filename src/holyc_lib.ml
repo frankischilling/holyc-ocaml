@@ -242,7 +242,8 @@ let resolve_function_identities ?compiler_option_mask session ~declarations
 
 let analyze_function_headers session ~functions inputs =
   Sema.Function_header_analysis.analyze
-    ~table:(Session.semantic_symbols session) ~functions inputs
+    ~table:(Session.semantic_symbols session)
+    ~functions inputs
 
 let classify_function_records ?compiler_option_mask _session ~resolution module_
     =

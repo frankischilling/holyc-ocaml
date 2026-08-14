@@ -7,8 +7,7 @@ let checked = function
 let checked_header = function
   | Ok value -> value
   | Error error ->
-      Alcotest.fail
-        (Semantic_function_header_analysis.error_to_string error)
+      Alcotest.fail (Semantic_function_header_analysis.error_to_string error)
 
 let expect_ast = function
   | Ok ast -> ast
@@ -81,7 +80,8 @@ let resolve_with_options prepared specifications =
   Semantic_function_resolution.resolve
     ~table:(Session.semantic_symbols prepared.session)
     ~parent:(Semantic_declaration_collection.scope prepared.declarations)
-    ~compilation_mode:(semantic_mode prepared.mode) declarations
+    ~compilation_mode:(semantic_mode prepared.mode)
+    declarations
   |> checked
 
 let declaration_parameters declaration =
@@ -137,6 +137,7 @@ let site_item_index site =
   |> Semantic_function_type_resolution.function_item_index
 
 let bits value = Some (Semantic_function_header_analysis.Bits value)
+
 let string_bytes value =
   Some (Semantic_function_header_analysis.String_bytes value)
 
@@ -149,13 +150,13 @@ let independent_return_and_argument_warnings () =
   let comparison = only_comparison result in
   Alcotest.(check (option bool))
     "return mismatch" (Some false)
-    (Semantic_function_header_analysis.comparison_return_types_match
-       comparison);
+    (Semantic_function_header_analysis.comparison_return_types_match comparison);
   Alcotest.(check (option bool))
     "argument mismatch" (Some false)
     (Semantic_function_header_analysis.comparison_arguments_match comparison);
   Alcotest.(check (list string))
-    "source warning order" [ "HCSEMA0037"; "HCSEMA0038" ]
+    "source warning order"
+    [ "HCSEMA0037"; "HCSEMA0038" ]
     (warning_codes result);
   Alcotest.(check (list string))
     "specific warning messages"
@@ -169,12 +170,12 @@ let independent_return_and_argument_warnings () =
       Alcotest.(check int)
         "warning keeps the current declaration" 1
         (warning |> Semantic_function_header_analysis.warning_declaration
-        |> Semantic_function_resolution.resolved_declaration_site
-        |> site_item_index);
+       |> Semantic_function_resolution.resolved_declaration_site
+       |> site_item_index);
       Alcotest.(check int)
         "warning keeps the replaced declaration" 0
         (warning |> Semantic_function_header_analysis.warning_replaced_header
-        |> site_item_index))
+       |> site_item_index))
     (Semantic_function_header_analysis.warnings result)
 
 let evaluated_defaults_match_source_records () =
@@ -195,8 +196,8 @@ let evaluated_defaults_match_source_records () =
   Alcotest.(check (option bool))
     "lastclass uses the zero record payload" (Some true)
     (Semantic_function_header_analysis.comparison_arguments_match comparison);
-  Alcotest.(check (list string)) "matching defaults do not warn" []
-    (warning_codes result);
+  Alcotest.(check (list string))
+    "matching defaults do not warn" [] (warning_codes result);
   let changed =
     prepare ~path:"function-header-default-changes.HC"
       "extern U0 Values(F64 ratio=1.5,U8 *text=\"alpha\");\n\
@@ -256,20 +257,16 @@ let member_class_projection () =
 let old_header_count_is_asymmetric () =
   let old_variadic =
     prepare ~path:"function-header-old-variadic.HC"
-      "extern U0 Prefix(I64 first,...);\n\
-       U0 Prefix(I64 first,I64 extra){}"
+      "extern U0 Prefix(I64 first,...);\nU0 Prefix(I64 first,I64 extra){}"
   in
-  let result =
-    analyze old_variadic [ [ None ]; [ None; None ] ]
-  in
+  let result = analyze old_variadic [ [ None ]; [ None; None ] ] in
   Alcotest.(check (option bool))
     "old variadic tail caps the comparison" (Some true)
     (only_comparison result
-    |> Semantic_function_header_analysis.comparison_arguments_match);
+   |> Semantic_function_header_analysis.comparison_arguments_match);
   let old_fixed =
     prepare ~path:"function-header-old-fixed.HC"
-      "extern U0 Reverse(I64 first,I64 extra);\n\
-       U0 Reverse(I64 first,...){}"
+      "extern U0 Reverse(I64 first,I64 extra);\nU0 Reverse(I64 first,...){}"
   in
   Alcotest.(check (list string))
     "reversing the declarations exposes the mismatch" [ "HCSEMA0038" ]
@@ -280,7 +277,8 @@ let old_header_count_is_asymmetric () =
   in
   Alcotest.(check (option bool))
     "two nonempty lists match at an old count of zero" (Some true)
-    (analyze zero_variadic [ []; [ None ] ] |> only_comparison
+    (analyze zero_variadic [ []; [ None ] ]
+    |> only_comparison
     |> Semantic_function_header_analysis.comparison_arguments_match);
   let zero_empty =
     prepare ~path:"function-header-zero-empty.HC"
@@ -293,8 +291,7 @@ let old_header_count_is_asymmetric () =
 let register_flags_and_disabled_option_do_not_warn () =
   let ignored =
     prepare ~path:"function-header-ignored-fields.HC"
-      "extern U0 Same(reg R15 I64 value);\n\
-       interrupt U0 Same(noreg I64 value){}"
+      "extern U0 Same(reg R15 I64 value);\ninterrupt U0 Same(noreg I64 value){}"
   in
   Alcotest.(check (list string))
     "register requests and function flags are omitted" []
@@ -315,13 +312,12 @@ let register_flags_and_disabled_option_do_not_warn () =
     (Semantic_function_header_analysis.comparison_option_enabled comparison);
   Alcotest.(check (option bool))
     "disabled comparison has no synthetic result" None
-    (Semantic_function_header_analysis.comparison_return_types_match
-       comparison);
+    (Semantic_function_header_analysis.comparison_return_types_match comparison);
   Alcotest.(check (option bool))
     "disabled arguments have no synthetic result" None
     (Semantic_function_header_analysis.comparison_arguments_match comparison);
-  Alcotest.(check (list string)) "disabled option emits no warning" []
-    (warning_codes result);
+  Alcotest.(check (list string))
+    "disabled option emits no warning" [] (warning_codes result);
   let per_site =
     prepare ~path:"function-header-per-site-options.HC"
       "extern I64 PerSite(I64 before);\nU64 PerSite(U64 after){}"
@@ -329,8 +325,7 @@ let register_flags_and_disabled_option_do_not_warn () =
   let declarations =
     resolve_with_options per_site
       [
-        ( Compiler_option.initial_mask,
-          Semantic_function_resolution.Extern );
+        (Compiler_option.initial_mask, Semantic_function_resolution.Extern);
         (disabled_mask, Semantic_function_resolution.Definition);
       ]
   in
@@ -346,8 +341,7 @@ let register_flags_and_disabled_option_do_not_warn () =
     resolve_with_options per_site
       [
         (disabled_mask, Semantic_function_resolution.Extern);
-        ( Compiler_option.initial_mask,
-          Semantic_function_resolution.Definition );
+        (Compiler_option.initial_mask, Semantic_function_resolution.Definition);
       ]
   in
   let enabled_result =
@@ -418,9 +412,7 @@ let generated_and_included_warning_provenance () =
         Holyc_lib.parse_with_config session ~config ~source |> expect_ast
       in
       let prepared = finish_prepare Preprocessor.Jit session ast in
-      let site =
-        analyze prepared [ [ None ]; [ None ] ] |> warning_source
-      in
+      let site = analyze prepared [ [ None ]; [ None ] ] |> warning_source in
       let source =
         Source_manager.find (Session.sources session) site.span.source
         |> Option.get
@@ -466,8 +458,7 @@ let invalid_inputs_are_stable_and_pure () =
   let inputs =
     make_inputs prepared.functions
       [
-        [ bits 1L; string_bytes "x"; None ];
-        [ bits 1L; string_bytes "x"; None ];
+        [ bits 1L; string_bytes "x"; None ]; [ bits 1L; string_bytes "x"; None ];
       ]
   in
   let table = Session.semantic_symbols prepared.session in
@@ -483,7 +474,8 @@ let invalid_inputs_are_stable_and_pure () =
     |> checked_header
   in
   Alcotest.(check (list string))
-    "repeated analysis is deterministic" (warning_codes first_result)
+    "repeated analysis is deterministic"
+    (warning_codes first_result)
     (warning_codes second_result);
   Alcotest.(check int)
     "analysis does not mutate symbols" before_symbols
@@ -491,10 +483,10 @@ let invalid_inputs_are_stable_and_pure () =
   expect_error
     "function header input count does not match function identity resolution"
     (Holyc_lib.analyze_function_headers prepared.session
-       ~functions:prepared.functions [ List.hd inputs ]);
+       ~functions:prepared.functions
+       [ List.hd inputs ]);
   let foreign = Session.create () in
-  expect_error
-    "function header analysis belongs to a different symbol table"
+  expect_error "function header analysis belongs to a different symbol table"
     (Holyc_lib.analyze_function_headers foreign ~functions:prepared.functions
        inputs)
 
@@ -504,8 +496,7 @@ let tests =
       independent_return_and_argument_warnings;
     Alcotest.test_case "evaluated default payloads" `Quick
       evaluated_defaults_match_source_records;
-    Alcotest.test_case "member class projection" `Quick
-      member_class_projection;
+    Alcotest.test_case "member class projection" `Quick member_class_projection;
     Alcotest.test_case "old header count asymmetry" `Quick
       old_header_count_is_asymmetric;
     Alcotest.test_case "ignored fields and disabled option" `Quick

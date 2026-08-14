@@ -347,8 +347,8 @@ val analyze_function_headers :
   Session.t ->
   functions:Semantic_function_resolution.t ->
   Semantic_function_header_analysis.function_input list ->
-  (Semantic_function_header_analysis.t,
-   Semantic_function_header_analysis.error)
+  ( Semantic_function_header_analysis.t,
+    Semantic_function_header_analysis.error )
   result
 (** Compare joined function headers using evaluated default payloads. The
     compile-time VM remains responsible for producing those payloads. *)

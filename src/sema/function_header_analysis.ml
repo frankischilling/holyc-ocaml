@@ -46,7 +46,8 @@ let error_kind error = error.kind
 let error_origin error = error.origin
 
 let error_message error =
-  match error.kind with Invalid_input message -> message
+  match error.kind with
+  | Invalid_input message -> message
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 let parameter_input_parameter (input : parameter_input) = input.parameter
@@ -105,8 +106,7 @@ let warning_message (warning : warning) =
 let make_parameter_input ~parameter ~evaluated_default =
   let origin = Function_type_resolution.parameter_origin parameter in
   match
-    ( Function_type_resolution.parameter_default parameter,
-      evaluated_default )
+    (Function_type_resolution.parameter_default parameter, evaluated_default)
   with
   | None, None -> Ok { parameter; comparison_default = None }
   | None, Some _ ->
@@ -127,24 +127,24 @@ let make_parameter_input ~parameter ~evaluated_default =
             value")
   | ( Some
         (Function_type_resolution.Expression_default
-          { contains_string_literal = true; _ }),
+           { contains_string_literal = true; _ }),
       Some (String_bytes _ as value) ) ->
       Ok { parameter; comparison_default = Some value }
   | ( Some
         (Function_type_resolution.Expression_default
-          { contains_string_literal = false; _ }),
+           { contains_string_literal = false; _ }),
       Some (Bits _ as value) ) ->
       Ok { parameter; comparison_default = Some value }
   | ( Some
         (Function_type_resolution.Expression_default
-          { contains_string_literal = true; _ }),
+           { contains_string_literal = true; _ }),
       Some (Bits _) ) ->
       Error
         (invalid_input ~origin
            "a string-backed function default requires evaluated string bytes")
   | ( Some
         (Function_type_resolution.Expression_default
-          { contains_string_literal = false; _ }),
+           { contains_string_literal = false; _ }),
       Some (String_bytes _) ) ->
       Error
         (invalid_input ~origin
@@ -175,8 +175,7 @@ let make_function_input ~declaration parameters =
   validate expected parameters
 
 type class_key =
-  | Primitive_class of
-      Type.primitive_form * Primitive_type.t * int
+  | Primitive_class of Type.primitive_form * Primitive_type.t * int
   | Aggregate_class of Symbol.t * int
 
 type member = {
@@ -216,8 +215,8 @@ let same_class_key left right =
       Aggregate_class (right_symbol, right_depth) ) ->
       Symbol.Id.equal (Symbol.id left_symbol) (Symbol.id right_symbol)
       && left_depth = right_depth
-  | Primitive_class _, Aggregate_class _
-  | Aggregate_class _, Primitive_class _ -> false
+  | Primitive_class _, Aggregate_class _ | Aggregate_class _, Primitive_class _
+    -> false
 
 let fixed_member input =
   let parameter = input.parameter in
@@ -247,10 +246,8 @@ let members function_ input =
   | Some bindings ->
       fixed
       @ [
-          bindings |> Function_type_resolution.variadic_argc
-          |> synthetic_member;
-          bindings |> Function_type_resolution.variadic_argv
-          |> synthetic_member;
+          bindings |> Function_type_resolution.variadic_argc |> synthetic_member;
+          bindings |> Function_type_resolution.variadic_argv |> synthetic_member;
         ]
 
 let same_default left right =
@@ -263,9 +260,7 @@ let same_default left right =
         index = String.length right || Char.equal right.[index] '\000'
       in
       if left_finished || right_finished then left_finished && right_finished
-      else
-        Char.equal left.[index] right.[index]
-        && compare (index + 1)
+      else Char.equal left.[index] right.[index] && compare (index + 1)
     in
     compare 0
   in
@@ -274,7 +269,8 @@ let same_default left right =
   | Some (Bits left), Some (Bits right) -> Int64.equal left right
   | Some (String_bytes left), Some (String_bytes right) ->
       c_string_equal left right
-  | None, Some _ | Some _, None
+  | None, Some _
+  | Some _, None
   | Some (Bits _), Some (String_bytes _)
   | Some (String_bytes _), Some (Bits _) -> false
 
@@ -327,13 +323,13 @@ let validate_inputs table functions inputs =
   let rec pair by_symbol expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok by_symbol
-    | declaration :: expected_rest, (input : function_input) :: input_rest ->
+    | declaration :: expected_rest, (input : function_input) :: input_rest -> (
         if declaration != input.declaration then
           Error
             (invalid_input
                "function header inputs do not match function identity \
                 resolution")
-        else (
+        else
           match validate_owner table declaration with
           | Error _ as error -> error
           | Ok () ->
@@ -344,8 +340,9 @@ let validate_inputs table functions inputs =
                   (invalid_input ~origin:(Symbol.origin symbol)
                      "function header input repeats a source declaration")
               else
-                pair (Int_map.add number input by_symbol) expected_rest
-                  input_rest)
+                pair
+                  (Int_map.add number input by_symbol)
+                  expected_rest input_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
@@ -422,16 +419,15 @@ let compare_join by_symbol (input : function_input) replaced_header =
         let warnings =
           []
           |> (fun warnings ->
-               if return_types_match then warnings
-               else
-                 make_warning Return_type_mismatch declaration replaced_header
-                 :: warnings)
+          if return_types_match then warnings
+          else
+            make_warning Return_type_mismatch declaration replaced_header
+            :: warnings)
           |> (fun warnings ->
-               if arguments_match then warnings
-               else
-                 make_warning Argument_list_mismatch declaration
-                   replaced_header
-                 :: warnings)
+          if arguments_match then warnings
+          else
+            make_warning Argument_list_mismatch declaration replaced_header
+            :: warnings)
           |> List.rev
         in
         Ok
@@ -463,7 +459,8 @@ let analyze_validated functions by_symbol inputs =
             match compare_join by_symbol input replaced_header with
             | Error _ as error -> error
             | Ok comparison ->
-                loop (comparison :: comparisons_rev)
+                loop
+                  (comparison :: comparisons_rev)
                   (List.rev_append comparison.warnings warnings_rev)
                   rest))
   in
