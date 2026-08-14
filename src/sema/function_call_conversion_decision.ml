@@ -104,6 +104,14 @@ let rec source_actual_class expression =
   | Function_call_resolution.Float_literal -> F64_result
   | Function_call_resolution.Parenthesized_expression grouped ->
       source_actual_class grouped
+  | Function_call_resolution.Postfix_cast_expression (_, target) -> (
+      let resolved = Type_reference.resolved_type target in
+      if Type.pointer_depth resolved <> 0 then Integer_result
+      else
+        match Type.base resolved with
+        | Type.Primitive (_, Primitive_type.F64) -> F64_result
+        | Type.Primitive _ -> Integer_result
+        | Type.Aggregate _ -> Unresolved_actual_class)
   | Function_call_resolution.Unresolved_expression
       ( Function_call_resolution.Current_position_expression
       | Function_call_resolution.Sizeof_expression

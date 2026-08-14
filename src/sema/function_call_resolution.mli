@@ -21,6 +21,7 @@ type argument_expression_kind =
   | Character_literal
   | String_literal
   | Parenthesized_expression of argument_expression
+  | Postfix_cast_expression of argument_expression * Type_reference.t
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression
