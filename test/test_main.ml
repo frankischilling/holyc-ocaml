@@ -38,6 +38,7 @@ let () =
       ("semantic global dimension binding", Test_global_dimension_binding.tests);
       ("semantic function default binding", Test_function_default_binding.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
+      ("semantic function header analysis", Test_function_header_analysis.tests);
       ("semantic extern-to-import rewriting", Test_externs_to_imports.tests);
       ("semantic global data-heap policy", Test_globals_on_data_heap.tests);
       ( "semantic function record classification",

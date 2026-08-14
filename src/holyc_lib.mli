@@ -61,6 +61,7 @@ module Semantic_global_initializer_binding = Sema.Global_initializer_binding
 module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
+module Semantic_function_header_analysis = Sema.Function_header_analysis
 
 module Semantic_function_record_classification =
   Sema.Function_record_classification
@@ -338,9 +339,19 @@ val resolve_function_identities :
   (Semantic_function_resolution.t, string) result
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
     The optional batch snapshot applies [OPTf_EXTERNS_TO_IMPORTS]; source-
-    positioned option execution remains separate. Header comparison, task-parent
-    lookup, alternate target resolution, and emitted linkage remain separate
-    passes. *)
+    positioned option execution remains separate. Evaluated header analysis,
+    task-parent lookup, alternate target resolution, and emitted linkage remain
+    separate passes. *)
+
+val analyze_function_headers :
+  Session.t ->
+  functions:Semantic_function_resolution.t ->
+  Semantic_function_header_analysis.function_input list ->
+  ( Semantic_function_header_analysis.t,
+    Semantic_function_header_analysis.error )
+  result
+(** Compare joined function headers using evaluated default payloads. The
+    compile-time VM remains responsible for producing those payloads. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->
