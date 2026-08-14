@@ -3773,7 +3773,7 @@ validation = "session ownership, module and function scopes, AST association, de
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
 default_evaluation_and_substitution = "not implemented"
-prototype_definition_reconciliation = "identity selection is implemented separately by HC-SEMA-FUNCTION-IDENTITIES; header comparison is not implemented"
+prototype_definition_reconciliation = "identity selection is implemented separately by HC-SEMA-FUNCTION-IDENTITIES; evaluated header comparison is implemented by HC-SEMA-FUNCTION-HEADER-COMPARISON"
 call_checking = "not implemented"
 function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS and register requests by HC-SEMA-PARAMETER-REGISTER-REQUESTS; allocation, storage, and ABI behavior are not implemented"
 member_callback_signatures = "not implemented by this pass"
@@ -4299,7 +4299,8 @@ provenance = ["source declaration", "canonical function symbol", "module publica
 mutation = "none"
 complexity = "module publications advance once with the ordered function declarations; no full declaration rescan occurs per default"
 compilation_modes = ["jit", "aot"]
-default_evaluation_conversion_string_storage_header_comparison_and_call_substitution = "not implemented"
+default_evaluation_conversion_string_storage_and_call_substitution = "not implemented"
+header_comparison = "implemented separately by HC-SEMA-FUNCTION-HEADER-COMPARISON when evaluated payloads are supplied"
 native_oracle_status = "not required for this binding boundary; PrsFunJoin, PrsFun, PrsVarLst, Lex, and CMain state the publication, local-list, and outer-chain order directly"
 
 [[feature]]
@@ -4343,7 +4344,7 @@ source_forms = ["extern", "_extern", "import", "_import", "_intern", "definition
 validation = "session ownership, module scope, AST and declaration association, source order, symbol uniqueness, function name and origin, and exact binding target shape"
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
-header_comparison_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEADER_MISMATCH are later consumers of the retained replacement pair"
+header_comparison_and_warning = "implemented separately by HC-SEMA-FUNCTION-HEADER-COMPARISON for compile-time evaluated inputs"
 default_evaluation = "not implemented"
 parent_task_and_system_symbol_lookup = "not implemented"
 alternate_target_and_address_resolution = "not implemented"
@@ -4351,6 +4352,52 @@ externs_to_imports_option = "implemented by HC-SEMA-EXTERNS-TO-IMPORTS before id
 function_flags_visibility_calls_and_abi = "record flags and consumer intent are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; call lowering and ABI behavior are not implemented"
 import_export_record_emission = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsGlblVarLst, and the pinned hash routines state the selection and state transitions directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-HEADER-COMPARISON"
+description = "Joined function headers reproduce PrsFunJoin and MemberLstCmp compatibility warnings once compile-time default values are available."
+sources = [
+  "Compiler/PrsStmt.HC:62-137 PrsFunJoin",
+  "Compiler/LexLib.HC:157-180 MemberLstCmp",
+  "Compiler/PrsVar.HC:373-406 PrsDotDotDot",
+  "Compiler/PrsVar.HC:619-659 parameter default storage",
+  "Compiler/CInit.HC:6-14 internal type records",
+  "Compiler/AsmInit.HC:197-207 internal type publication",
+  "Kernel/KernelA.HH:775-819 CMemberLst and pointer depth",
+  "Kernel/KernelA.HH:1543-1557 compiler options",
+  "Doc/Options.DD:OPTf_WARN_HEADER_MISMATCH"
+]
+implementation = [
+  "src/sema/function_header_analysis.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_header_analysis.ml"
+]
+status = "implemented"
+issue = 236
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "joined named top-level prototypes and definitions with supplied compile-time evaluated defaults"
+return_comparison = "resolved CHashClass identity, including primitive spelling form, aggregate identity, and pointer depth"
+argument_fields = ["member spelling", "resolved member class", "default availability", "string-storage classification", "evaluated default payload"]
+member_class_base = "MemberAdd assigns it only for local variables, so function parameters supply NULL on both sides"
+unnamed_spelling = "_anon_"
+callback_member_class = "internal I64i pointer at the declarator indirection depth; callback return and nested signature do not participate"
+lastclass_payload = "zero bits from the CAlloc-initialized CMemberLst default field"
+scalar_default_comparison = "exact 64-bit payload"
+string_default_comparison = "StrCmp-compatible bytes through the first NUL"
+variadic_members = "synthetic argc and argv remain in the member list but not in arg_cnt"
+comparison_limit = "the replaced header's fixed arg_cnt, including MemberLstCmp's asymmetric zero-count and remaining-list behavior"
+ignored_fields = ["register request", "function flags", "member flags other than default availability and string storage", "callback nested signature", "array shape"]
+compiler_option = "the current declaration site's OPTf_WARN_HEADER_MISMATCH snapshot; disabled comparisons produce no invented match result"
+diagnostics = ["HCSEMA0036 invalid input", "HCSEMA0037 return type mismatch", "HCSEMA0038 argument list mismatch"]
+provenance = ["current declaration", "replaced declaration site", "current function origin", "generated invocation and definition", "included source"]
+validation = "exact resolved-declaration order, fixed parameter identity and count, compile-time value availability and storage kind, symbol-table ownership, scope ownership, and replacement input availability"
+mutation = "none"
+default_expression_evaluation = "not implemented; the compile-time VM must supply evaluated payloads"
+call_default_substitution = "not implemented"
+source_positioned_option_execution = "not implemented; low-level declaration snapshots are supported"
+native_oracle_status = "not required for this semantic boundary; PrsFunJoin, MemberLstCmp, PrsVarLst, and PrsDotDotDot state every compared field and boundary directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
@@ -4403,7 +4450,8 @@ map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligi
 compiler_option_state = "the low-level API accepts a separate option snapshot per declaration; the driver defaults to the snapshot retained by function resolution and accepts a batch override"
 validation = "state count, known staging bits, exact import-name shape, AST item and name association, resolved identity availability, and agreement on OPTf_EXTERNS_TO_IMPORTS"
 mutation = "none"
-header_comparison_default_evaluation_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEADER_MISMATCH remain separate"
+header_comparison_and_warning = "implemented separately by HC-SEMA-FUNCTION-HEADER-COMPARISON for compile-time evaluated inputs"
+default_evaluation = "not implemented"
 alternate_address_resolution_fixups_emission_call_lowering_and_abi = "not implemented"
 native_oracle_status = "not required for this classification boundary; the pinned record mutations and named consumers state the retained masks and policy directly"
 
