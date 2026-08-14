@@ -70,6 +70,17 @@ let local_named function_ name =
       local |> Semantic_local_type_resolution.local_symbol
       |> Semantic_symbol.name |> String.equal name)
 
+let check_local_mask description expected local =
+  Alcotest.(check int64)
+    description expected
+    (Semantic_local_type_resolution.local_flag_mask local);
+  Member_flag.all
+  |> List.iter (fun flag ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s: %s" description (Member_flag.to_source_name flag))
+        (Member_flag.is_set ~mask:expected flag)
+        (Semantic_local_type_resolution.local_has_flag local flag))
+
 let resolved_type local =
   local |> Semantic_local_type_resolution.local_type_reference
   |> Semantic_type_reference.resolved_type
@@ -132,6 +143,15 @@ let declaration_shapes () =
     "declarator order" [ 0; 1; 0; 0; 1; 0; 1 ]
     (locals function_
     |> List.map Semantic_local_type_resolution.local_declarator_index);
+  List.iter2
+    (fun local expected ->
+      let name =
+        local |> Semantic_local_type_resolution.local_symbol
+        |> Semantic_symbol.name
+      in
+      check_local_mask (name ^ " member-list mask") expected local)
+    (locals function_)
+    [ 0L; 0L; 0L; 0L; 0L; 0x40L; 0x40L ];
   Alcotest.(check (list string))
     "declaration delimiters"
     [
@@ -326,6 +346,7 @@ let callback_types () =
   let local =
     function_named results "Callbacks" |> fun f -> local_named f "handler"
   in
+  check_local_mask "automatic callback member-list mask" 0x8L local;
   check_primitive ~form:Semantic_type.Public_spelling
     ~primitive:Primitive_type.U8 ~pointer_depth:1 local;
   let pointer = expect_callback local in
@@ -387,17 +408,104 @@ let callback_types () =
     "callback keeps its requested register" (Some "R9")
     (Semantic_local_type_resolution.register_request_explicit_register request)
 
+let local_member_flags () =
+  let results =
+    prepare ~path:"local-member-flags.HC"
+      "U0 Flags(){I64 automatic; U0 (*callback)(); static I64 first,second; \
+       static U0 (*stored_callback)(I64=lastclass); }"
+  in
+  let function_ = function_named results "Flags" in
+  [
+    ("automatic", 0L);
+    ("callback", 0x8L);
+    ("first", 0x40L);
+    ("second", 0x40L);
+    ("stored_callback", 0x48L);
+  ]
+  |> List.iter (fun (name, expected) ->
+      check_local_mask
+        (name ^ " exact member-list mask")
+        expected
+        (local_named function_ name));
+  let nested = local_named function_ "stored_callback" |> expect_callback in
+  Alcotest.(check (list int64))
+    "callback parameter flags do not alter the static callback" [ 0x23L ]
+    (nested |> Semantic_local_type_resolution.function_pointer_signature
+   |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask)
+
+let read_file path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let pinned_source path =
+  [ "third_party/TempleOS"; "../third_party/TempleOS" ]
+  |> List.map (fun root -> Filename.concat root path)
+  |> List.find_opt Sys.file_exists
+  |> function
+  | Some source -> read_file source
+  | None -> Alcotest.failf "pinned source is unavailable: %s" path
+
+let contains text fragment =
+  let fragment_length = String.length fragment in
+  let rec search offset =
+    if offset + fragment_length > String.length text then false
+    else if String.sub text offset fragment_length = fragment then true
+    else search (offset + 1)
+  in
+  fragment_length = 0 || search 0
+
+let pinned_static_local_declarations () =
+  let fixtures =
+    [
+      ( "Kernel/KMisc.HC",
+        "static I64 time_stamp_start=0,timer_start=0,HPET_start=0;",
+        "U0 Timer(){static I64 time_stamp_start=0,timer_start=0,HPET_start=0;}",
+        "Timer",
+        [ 0x40L; 0x40L; 0x40L ] );
+      ( "Adam/WinMgr.HC",
+        "static CD3I64 single_ms={0,0,0};",
+        "class CD3I64 {}; U0 Mouse(){static CD3I64 single_ms={0,0,0};}",
+        "Mouse",
+        [ 0x40L ] );
+      ( "Adam/Gr/SpriteMesh.HC",
+        "static I64 cpu_num=0;",
+        "U0 Mesh(){static I64 cpu_num=0;}",
+        "Mesh",
+        [ 0x40L ] );
+    ]
+  in
+  fixtures
+  |> List.iter (fun (path, fragment, source, function_name, expected) ->
+      Alcotest.(check bool)
+        (path ^ " retains the audited declaration")
+        true
+        (contains (pinned_source path) fragment);
+      let function_ =
+        prepare ~path source |> fun results ->
+        function_named results function_name
+      in
+      Alcotest.(check (list int64))
+        (path ^ " local masks") expected
+        (locals function_
+        |> List.map Semantic_local_type_resolution.local_flag_mask))
+
 let generated_provenance () =
   let results =
     prepare ~path:"generated-local-types.HC"
       "#define TYPE I64i\n\
        #define QUAL reg R14\n\
        #define NAME generated\n\
-       U0 Generated(){TYPE QUAL NAME;}"
+       #define STORAGE static\n\
+       #define STATIC_NAME stored\n\
+       U0 Generated(){TYPE QUAL NAME; STORAGE TYPE STATIC_NAME;}"
   in
-  let local =
-    function_named results "Generated" |> fun f -> local_named f "generated"
-  in
+  let function_ = function_named results "Generated" in
+  let local = local_named function_ "generated" in
+  let stored = local_named function_ "stored" in
+  check_local_mask "generated static member-list mask" 0x40L stored;
   let request =
     Semantic_local_type_resolution.local_register_requests local |> List.hd
   in
@@ -411,6 +519,9 @@ let generated_provenance () =
       request
       |> Semantic_local_type_resolution
          .register_request_explicit_register_origin |> Option.get;
+      stored |> Semantic_local_type_resolution.local_symbol
+      |> Semantic_symbol.origin;
+      stored |> Semantic_local_type_resolution.local_storage_origins |> List.hd;
     ]
   in
   origins
@@ -423,6 +534,55 @@ let generated_provenance () =
         "generated source keeps its definition" true
         (Option.is_some site.defined_at))
 
+let rec remove_tree path =
+  match (Unix.lstat path).st_kind with
+  | Unix.S_DIR ->
+      Sys.readdir path |> Array.to_list |> List.sort String.compare
+      |> List.iter (fun name -> remove_tree (Filename.concat path name));
+      Unix.rmdir path
+  | _ -> Unix.unlink path
+
+let write_file path contents =
+  let channel = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr channel)
+    (fun () -> output_string channel contents)
+
+let included_static_provenance () =
+  let directory = Filename.temp_dir "holyc-local-flags-" "" in
+  Fun.protect
+    ~finally:(fun () -> remove_tree directory)
+    (fun () ->
+      let root_path = Filename.concat directory "root.HC" in
+      let include_path = Filename.concat directory "locals.HC" in
+      write_file root_path "#include \"locals\"";
+      write_file include_path "U0 Included(){static I64 stored;}";
+      let session = Session.create () in
+      let source = checked (Session.load_source session ~path:root_path) in
+      let config =
+        checked (Preprocessor.Config.create ~working_directory:directory ())
+      in
+      let ast =
+        Holyc_lib.parse_with_config session ~config ~source |> expect_ast
+      in
+      let results = resolve session ast in
+      let local =
+        function_named results "Included" |> fun function_ ->
+        local_named function_ "stored"
+      in
+      check_local_mask "included static member-list mask" 0x40L local;
+      let storage_site =
+        local |> Semantic_local_type_resolution.local_storage_origins |> List.hd
+        |> source_origin
+      in
+      let storage_source =
+        Source_manager.find (Session.sources session) storage_site.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "the static token keeps its included source" "locals.HC"
+        (Source_file.path storage_source |> Filename.basename))
+
 let modes_determinism_and_purity () =
   let source =
     "class Value {}; U0 Same(){Value reg R12 *item; static I64 count=1;}"
@@ -433,11 +593,12 @@ let modes_determinism_and_purity () =
     let rows =
       locals function_
       |> List.map (fun local ->
-          ( local |> Semantic_local_type_resolution.local_symbol
-            |> Semantic_symbol.name,
-            local |> Semantic_local_type_resolution.local_storage
-            |> Semantic_local_type_resolution.storage_name,
-            Semantic_type.pointer_depth (resolved_type local) ))
+          ( ( local |> Semantic_local_type_resolution.local_symbol
+              |> Semantic_symbol.name,
+              local |> Semantic_local_type_resolution.local_storage
+              |> Semantic_local_type_resolution.storage_name,
+              Semantic_type.pointer_depth (resolved_type local) ),
+            Semantic_local_type_resolution.local_flag_mask local ))
     in
     Alcotest.(check int)
       "resolution remains read-only" results.symbol_count_before
@@ -447,7 +608,7 @@ let modes_determinism_and_purity () =
   let jit_first = summarize Preprocessor.Jit in
   let jit_second = summarize Preprocessor.Jit in
   let aot = summarize Preprocessor.Aot in
-  let row = Alcotest.(triple string string int) in
+  let row = Alcotest.(pair (triple string string int) int64) in
   Alcotest.(check (list row))
     "repeated JIT resolution is deterministic" jit_first jit_second;
   Alcotest.(check (list row))
@@ -505,6 +666,7 @@ let low_level_validation () =
          ~declarator_kind:Semantic_local_type_resolution.Object
          ~array_dimensions:[] ~initial_value:None ~delimiter ())
   in
+  check_local_mask "low-level automatic object mask" 0L local;
   let function_ =
     checked
       (Semantic_local_type_resolution.make_function ~symbol:function_symbol
@@ -552,7 +714,13 @@ let tests =
     Alcotest.test_case "aggregate visibility" `Quick aggregate_visibility;
     Alcotest.test_case "function-wide traversal" `Quick function_wide_traversal;
     Alcotest.test_case "callback types" `Quick callback_types;
+    Alcotest.test_case "source-derived member-list flags" `Quick
+      local_member_flags;
+    Alcotest.test_case "pinned static-local declarations" `Quick
+      pinned_static_local_declarations;
     Alcotest.test_case "generated provenance" `Quick generated_provenance;
+    Alcotest.test_case "included static provenance" `Quick
+      included_static_provenance;
     Alcotest.test_case "modes, determinism, and purity" `Quick
       modes_determinism_and_purity;
     Alcotest.test_case "low-level validation" `Quick low_level_validation;

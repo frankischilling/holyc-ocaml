@@ -89,6 +89,8 @@ val local_storage_origins : local -> Symbol.origin list
 val local_type_reference : local -> Type_reference.t
 val local_register_requests : local -> register_request list
 val local_declarator_kind : local -> declarator_kind
+val local_flag_mask : local -> int64
+val local_has_flag : local -> Member_flag.t -> bool
 val local_array_dimensions : local -> array_dimension list
 val local_initializer : local -> initial_value option
 val local_delimiter : local -> delimiter

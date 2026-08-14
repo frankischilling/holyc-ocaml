@@ -43,6 +43,7 @@ type local = {
   type_reference : Type_reference.t;
   register_requests : register_request list;
   declarator_kind : declarator_kind;
+  flag_mask : int64;
   array_dimensions : array_dimension list;
   initial_value : initial_value option;
   delimiter : delimiter;
@@ -73,6 +74,8 @@ let local_storage_origins local = local.storage_origins
 let local_type_reference local = local.type_reference
 let local_register_requests local = local.register_requests
 let local_declarator_kind local = local.declarator_kind
+let local_flag_mask local = local.flag_mask
+let local_has_flag local flag = Member_flag.is_set ~mask:local.flag_mask flag
 let local_array_dimensions local = local.array_dimensions
 let local_initializer local = local.initial_value
 let local_delimiter local = local.delimiter
@@ -185,6 +188,16 @@ let dimensions_are_ordered dimensions =
   in
   check 0 dimensions
 
+let local_flags storage declarator_kind =
+  let mask =
+    match storage with
+    | Automatic -> 0L
+    | Static -> Member_flag.set ~mask:0L Member_flag.Static
+  in
+  match declarator_kind with
+  | Object -> mask
+  | Function_pointer _ -> Member_flag.set ~mask Member_flag.Function_pointer
+
 let make_local ~symbol ~declaration_index ~declarator_index ~declaration_origin
     ~declarator_origin ~storage ~storage_origins ~type_reference
     ~register_requests ~declarator_kind ~array_dimensions ~initial_value
@@ -226,6 +239,7 @@ let make_local ~symbol ~declaration_index ~declarator_index ~declaration_origin
         type_reference;
         register_requests;
         declarator_kind;
+        flag_mask = local_flags storage declarator_kind;
         array_dimensions;
         initial_value;
         delimiter;
