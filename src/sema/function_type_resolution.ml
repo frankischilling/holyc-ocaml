@@ -24,6 +24,7 @@ and function_pointer = {
 and parameter = {
   parameter_index_ : int;
   parameter_origin_ : Symbol.origin;
+  parameter_register_requests_ : Register_request.t list;
   parameter_name_ : string option;
   parameter_name_origin_ : Symbol.origin option;
   parameter_type_reference_ : Type_reference.t;
@@ -37,6 +38,7 @@ and signature = {
   signature_opening_origin_ : Symbol.origin;
   signature_parameters_ : parameter list;
   signature_variadic_origin_ : Symbol.origin option;
+  signature_variadic_register_requests_ : Register_request.t list;
   signature_closing_origin_ : Symbol.origin;
 }
 
@@ -57,6 +59,7 @@ type synthetic_binding = {
   synthetic_parameter_index : int;
   synthetic_type : Type.t;
   synthetic_shape : synthetic_shape;
+  synthetic_register_requests : Register_request.t list;
   synthetic_flag_mask : int64;
 }
 
@@ -93,9 +96,23 @@ let function_variadic_bindings function_ = function_.function_variadic_bindings_
 let signature_opening_origin signature = signature.signature_opening_origin_
 let signature_parameters signature = signature.signature_parameters_
 let signature_variadic_origin signature = signature.signature_variadic_origin_
+
+let signature_variadic_register_requests signature =
+  signature.signature_variadic_register_requests_
+
+let signature_variadic_register_selection signature =
+  Register_request.effective signature.signature_variadic_register_requests_
+
 let signature_closing_origin signature = signature.signature_closing_origin_
 let parameter_index parameter = parameter.parameter_index_
 let parameter_origin parameter = parameter.parameter_origin_
+
+let parameter_register_requests parameter =
+  parameter.parameter_register_requests_
+
+let parameter_register_selection parameter =
+  Register_request.effective parameter.parameter_register_requests_
+
 let parameter_name parameter = parameter.parameter_name_
 let parameter_name_origin parameter = parameter.parameter_name_origin_
 let parameter_type_reference parameter = parameter.parameter_type_reference_
@@ -125,6 +142,13 @@ let synthetic_binding_symbol binding = binding.synthetic_symbol
 let synthetic_binding_index binding = binding.synthetic_parameter_index
 let synthetic_binding_type binding = binding.synthetic_type
 let synthetic_binding_shape binding = binding.synthetic_shape
+
+let synthetic_binding_register_requests binding =
+  binding.synthetic_register_requests
+
+let synthetic_binding_register_selection binding =
+  Register_request.effective binding.synthetic_register_requests
+
 let synthetic_binding_flag_mask binding = binding.synthetic_flag_mask
 
 let synthetic_binding_has_flag binding flag =
@@ -161,8 +185,8 @@ let parameter_flags ~name ~declarator_kind ~default =
       |> set_flag_if contains_string_literal
            Member_flag.String_default_available
 
-let make_parameter ~index ~origin ?name ?name_origin ~type_reference
-    ~declarator_kind ~default ?delimiter_origin () =
+let make_parameter ~index ~origin ?(register_requests = []) ?name ?name_origin
+    ~type_reference ~declarator_kind ~default ?delimiter_origin () =
   if index < 0 then Error "semantic function parameter index cannot be negative"
   else
     match (name, name_origin) with
@@ -177,6 +201,7 @@ let make_parameter ~index ~origin ?name ?name_origin ~type_reference
           {
             parameter_index_ = index;
             parameter_origin_ = origin;
+            parameter_register_requests_ = register_requests;
             parameter_name_ = name;
             parameter_name_origin_ = name_origin;
             parameter_type_reference_ = type_reference;
@@ -208,8 +233,8 @@ let make_function_pointer ~origin ~opening_origin ~indirection_origins
         pointer_signature = signature;
       }
 
-let make_signature ~opening_origin ~parameters ?variadic_origin ~closing_origin
-    () =
+let make_signature ~opening_origin ~parameters ?variadic_origin
+    ?(variadic_register_requests = []) ~closing_origin () =
   let rec validate expected = function
     | [] -> Ok ()
     | parameter :: rest ->
@@ -226,16 +251,21 @@ let make_signature ~opening_origin ~parameters ?variadic_origin ~closing_origin
                signature"
           else validate (expected + 1) rest
   in
-  match validate 0 parameters with
-  | Error _ as error -> error
-  | Ok () ->
-      Ok
-        {
-          signature_opening_origin_ = opening_origin;
-          signature_parameters_ = parameters;
-          signature_variadic_origin_ = variadic_origin;
-          signature_closing_origin_ = closing_origin;
-        }
+  match (variadic_origin, variadic_register_requests) with
+  | None, _ :: _ ->
+      Error "semantic variadic register requests require an ellipsis"
+  | None, [] | Some _, _ -> (
+      match validate 0 parameters with
+      | Error _ as error -> error
+      | Ok () ->
+          Ok
+            {
+              signature_opening_origin_ = opening_origin;
+              signature_parameters_ = parameters;
+              signature_variadic_origin_ = variadic_origin;
+              signature_variadic_register_requests_ = variadic_register_requests;
+              signature_closing_origin_ = closing_origin;
+            })
 
 let make_parameter_binding ~parameter_index ~symbol =
   if parameter_index < 0 then
@@ -259,7 +289,8 @@ let valid_synthetic_shape kind shape =
       true
   | Argc, Array _ | Argv, Scalar | Argv, Array _ -> false
 
-let make_synthetic_binding kind ~symbol ~parameter_index ~resolved_type ~shape =
+let make_synthetic_binding kind ~symbol ~parameter_index ~resolved_type
+    ?(register_requests = []) ~shape () =
   let expected_name = synthetic_parameter_name kind in
   if parameter_index < 0 then
     Error "semantic variadic binding index cannot be negative"
@@ -282,6 +313,7 @@ let make_synthetic_binding kind ~symbol ~parameter_index ~resolved_type ~shape =
         synthetic_parameter_index = parameter_index;
         synthetic_type = resolved_type;
         synthetic_shape = shape;
+        synthetic_register_requests = register_requests;
         synthetic_flag_mask = Member_flag.to_mask Member_flag.Variadic;
       }
 
@@ -294,6 +326,11 @@ let make_variadic_bindings ~marker_origin ~argc ~argv =
     Error "semantic variadic argc origin does not match the ellipsis"
   else if Symbol.origin argv.synthetic_symbol <> marker_origin then
     Error "semantic variadic argv origin does not match the ellipsis"
+  else if
+    not
+      (List.equal Register_request.equal argc.synthetic_register_requests
+         argv.synthetic_register_requests)
+  then Error "semantic variadic argc and argv register requests do not match"
   else
     Ok
       {
@@ -336,6 +373,13 @@ let validate_variadic_bindings signature bindings =
       let first_variadic_index = List.length signature.signature_parameters_ in
       if actual.variadic_argc_.synthetic_parameter_index <> first_variadic_index
       then Error "semantic variadic argc has the wrong signature slot"
+      else if
+        not
+          (List.equal Register_request.equal
+             signature.signature_variadic_register_requests_
+             actual.variadic_argc_.synthetic_register_requests)
+      then
+        Error "semantic variadic register requests do not match the signature"
       else Ok ()
   | Some _, Some _ ->
       Error "semantic variadic bindings do not match the ellipsis origin"

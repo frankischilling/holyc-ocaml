@@ -56,6 +56,12 @@ let parameters function_ =
   |> Semantic_function_type_resolution.signature_parameters
 
 let parameter_at function_ index = List.nth (parameters function_) index
+
+let request_code request =
+  Semantic_register_request.effective [ request ]
+  |> Semantic_register_request.source_code
+
+let request_codes requests = List.map request_code requests
 let resolved_type reference = Semantic_type_reference.resolved_type reference
 
 let check_parameter_mask description expected parameter =
@@ -900,6 +906,7 @@ let low_level_validation () =
        ~shape:
          (Semantic_function_type_resolution.Array
             { source_extent = None; compiler_placeholder_extent = 127 })
+       ()
     |> Result.is_error);
   let foreign_table = Semantic_symbol_table.create () in
   let foreign_module =
@@ -942,6 +949,375 @@ let low_level_validation () =
        []
     |> Result.is_error)
 
+let register_constructor_states_and_validation () =
+  let origin = synthesized "register request" in
+  let register_origin = synthesized "explicit register" in
+  let make ?explicit_register ?explicit_register_number
+      ?explicit_register_origin kind spelling =
+    checked
+      (Semantic_register_request.make ~kind
+         ~position:Semantic_register_request.Before_type ~spelling ~origin
+         ?explicit_register ?explicit_register_number ?explicit_register_origin
+         ())
+  in
+  let allocate = make Semantic_register_request.Allocate "reg" in
+  let disable = make Semantic_register_request.Disable "noreg" in
+  let explicit =
+    make ~explicit_register:"R8" ~explicit_register_number:8
+      ~explicit_register_origin:register_origin
+      Semantic_register_request.Allocate "reg"
+  in
+  Alcotest.(check (list int))
+    "TempleOS register source codes" [ -128; 33; 32; 8 ]
+    ([
+       Semantic_register_request.effective [];
+       Semantic_register_request.effective [ allocate ];
+       Semantic_register_request.effective [ disable ];
+       Semantic_register_request.effective [ explicit ];
+     ]
+    |> List.map Semantic_register_request.source_code);
+  Alcotest.(check (list string))
+    "selection names"
+    [ "unspecified"; "reg"; "noreg"; "R8" ]
+    ([
+       Semantic_register_request.Unspecified;
+       Semantic_register_request.Allocatable;
+       Semantic_register_request.Disabled;
+       Semantic_register_request.effective [ explicit ];
+     ]
+    |> List.map Semantic_register_request.selection_name);
+  let rejects label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  rejects "the qualifier spelling must match its kind"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"noreg" ~origin
+       ());
+  rejects "an explicit spelling needs its number and source location"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
+       ~explicit_register:"RAX" ());
+  rejects "an explicit number needs its spelling and source location"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
+       ~explicit_register_number:0 ());
+  rejects "noreg cannot request a physical register"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Disable
+       ~position:Semantic_register_request.Before_type ~spelling:"noreg" ~origin
+       ~explicit_register:"RAX" ~explicit_register_number:0
+       ~explicit_register_origin:register_origin ());
+  rejects "an empty explicit register is invalid"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
+       ~explicit_register:"" ~explicit_register_number:0
+       ~explicit_register_origin:register_origin ());
+  rejects "a non-U64 register is invalid"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
+       ~explicit_register:"EAX" ~explicit_register_number:0
+       ~explicit_register_origin:register_origin ());
+  rejects "an explicit register number must match its spelling"
+    (Semantic_register_request.make ~kind:Semantic_register_request.Allocate
+       ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
+       ~explicit_register:"R15" ~explicit_register_number:14
+       ~explicit_register_origin:register_origin ());
+  rejects "variadic requests require an ellipsis"
+    (Semantic_function_type_resolution.make_signature
+       ~opening_origin:(synthesized "opening parenthesis")
+       ~parameters:[] ~variadic_register_requests:[ allocate ]
+       ~closing_origin:(synthesized "closing parenthesis")
+       ())
+
+let fixed_variadic_and_recursive_register_requests () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"parameter-register-requests.HC"
+      "extern U0 Qualified(I64 plain,reg I64 allocate,noreg U8 stack,\n\
+       I64 reg R15 exact,reg RAX U16,reg R14 noreg I32 reg R13 last,\n\
+       I64 (*callback)(reg R11 noreg U8 **value));\n\
+       extern U0 Varargs(reg R12 noreg ...);"
+  in
+  let results = resolve session ast in
+  let qualified = function_named results "Qualified" in
+  let parameters = parameters qualified in
+  Alcotest.(check (list (option string)))
+    "named and unnamed parameters"
+    [
+      Some "plain";
+      Some "allocate";
+      Some "stack";
+      Some "exact";
+      None;
+      Some "last";
+      Some "callback";
+    ]
+    (List.map Semantic_function_type_resolution.parameter_name parameters);
+  Alcotest.(check (list (list int)))
+    "ordered parameter requests"
+    [ []; [ 33 ]; [ 32 ]; [ 15 ]; [ 0 ]; [ 14; 32; 13 ]; [] ]
+    (parameters
+    |> List.map (fun parameter ->
+        parameter
+        |> Semantic_function_type_resolution.parameter_register_requests
+        |> request_codes));
+  Alcotest.(check (list int))
+    "the last parameter request wins"
+    [ -128; 33; 32; 15; 0; 13; -128 ]
+    (parameters
+    |> List.map (fun parameter ->
+        parameter
+        |> Semantic_function_type_resolution.parameter_register_selection
+        |> Semantic_register_request.source_code));
+  let last_requests =
+    List.nth parameters 5
+    |> Semantic_function_type_resolution.parameter_register_requests
+  in
+  Alcotest.(check (list string))
+    "before-type and after-type positions survive"
+    [ "before-type"; "before-type"; "after-type" ]
+    (List.map
+       (fun request ->
+         request |> Semantic_register_request.position
+         |> Semantic_register_request.position_name)
+       last_requests);
+  let callback_signature =
+    match
+      List.nth parameters 6
+      |> Semantic_function_type_resolution.parameter_declarator_kind
+    with
+    | Semantic_function_type_resolution.Function_pointer pointer ->
+        Semantic_function_type_resolution.function_pointer_signature pointer
+    | Semantic_function_type_resolution.Object ->
+        Alcotest.fail "expected a recursive callback parameter"
+  in
+  let callback_parameter =
+    callback_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.hd
+  in
+  Alcotest.(check (list int))
+    "recursive callback requests" [ 11; 32 ]
+    (callback_parameter
+   |> Semantic_function_type_resolution.parameter_register_requests
+   |> request_codes);
+  Alcotest.(check int)
+    "recursive callback final request" 32
+    (callback_parameter
+   |> Semantic_function_type_resolution.parameter_register_selection
+   |> Semantic_register_request.source_code);
+  let varargs = function_named results "Varargs" in
+  let signature =
+    Semantic_function_type_resolution.function_signature varargs
+  in
+  Alcotest.(check (list int))
+    "variadic marker requests" [ 12; 32 ]
+    (signature
+   |> Semantic_function_type_resolution.signature_variadic_register_requests
+   |> request_codes);
+  let bindings =
+    varargs |> Semantic_function_type_resolution.function_variadic_bindings
+    |> Option.get
+  in
+  let argc = Semantic_function_type_resolution.variadic_argc bindings in
+  let argv = Semantic_function_type_resolution.variadic_argv bindings in
+  [ ("argc", argc); ("argv", argv) ]
+  |> List.iter (fun (name, binding) ->
+      Alcotest.(check (list int))
+        (name ^ " receives the marker requests")
+        [ 12; 32 ]
+        (binding
+       |> Semantic_function_type_resolution.synthetic_binding_register_requests
+       |> request_codes);
+      Alcotest.(check int)
+        (name ^ " uses the last marker request")
+        32
+        (binding
+       |> Semantic_function_type_resolution.synthetic_binding_register_selection
+       |> Semantic_register_request.source_code))
+
+let every_u64_parameter_register () =
+  let expected =
+    [
+      ("RAX", 0);
+      ("RCX", 1);
+      ("RDX", 2);
+      ("RBX", 3);
+      ("RSP", 4);
+      ("RBP", 5);
+      ("RSI", 6);
+      ("RDI", 7);
+      ("R8", 8);
+      ("R9", 9);
+      ("R10", 10);
+      ("R11", 11);
+      ("R12", 12);
+      ("R13", 13);
+      ("R14", 14);
+      ("R15", 15);
+    ]
+  in
+  Alcotest.(check (list (pair string int)))
+    "canonical ST_U64_REGS order" expected
+    Semantic_register_request.canonical_u64_registers;
+  let source_parameters =
+    expected
+    |> List.mapi (fun index (register, _) ->
+        Printf.sprintf "I64 reg %s value%d" register index)
+    |> String.concat ","
+  in
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"all-parameter-registers.HC"
+      ("extern U0 Every(" ^ source_parameters ^ ");")
+  in
+  let function_ =
+    resolve session ast |> fun results -> function_named results "Every"
+  in
+  let actual =
+    parameters function_
+    |> List.map (fun parameter ->
+        parameter
+        |> Semantic_function_type_resolution.parameter_register_selection
+        |> function
+        | Semantic_register_request.Explicit register ->
+            ( Semantic_register_request.explicit_register_spelling register,
+              Semantic_register_request.explicit_register_number register )
+        | Semantic_register_request.Unspecified
+        | Semantic_register_request.Allocatable
+        | Semantic_register_request.Disabled ->
+            Alcotest.fail "expected an explicit U64 register")
+  in
+  Alcotest.(check (list (pair string int)))
+    "explicit register spellings and numbers" expected actual
+
+let register_request_provenance () =
+  let generated_session = Session.create () in
+  let generated_ast =
+    parse generated_session ~path:"generated-parameter-register.HC"
+      "#define BEFORE reg R14\n\
+       #define AFTER noreg\n\
+       extern U0 Generated(BEFORE I64 AFTER value);"
+  in
+  let generated_parameter =
+    resolve generated_session generated_ast |> fun results ->
+    function_named results "Generated" |> fun function_ ->
+    parameter_at function_ 0
+  in
+  let generated_requests =
+    Semantic_function_type_resolution.parameter_register_requests
+      generated_parameter
+  in
+  Alcotest.(check (list int))
+    "generated requests retain their values" [ 14; 32 ]
+    (request_codes generated_requests);
+  generated_requests
+  |> List.iter (fun request ->
+      let provenance =
+        request |> Semantic_register_request.origin |> source_origin
+      in
+      Alcotest.(check bool)
+        "generated request keeps its invocation" true
+        (Option.is_some provenance.generated_from);
+      Alcotest.(check bool)
+        "generated request keeps its definition" true
+        (Option.is_some provenance.defined_at);
+      request |> Semantic_register_request.explicit_register
+      |> Option.iter (fun register ->
+          let register_provenance =
+            register |> Semantic_register_request.explicit_register_origin
+            |> source_origin
+          in
+          Alcotest.(check bool)
+            "generated explicit register keeps its invocation" true
+            (Option.is_some register_provenance.generated_from);
+          Alcotest.(check bool)
+            "generated explicit register keeps its definition" true
+            (Option.is_some register_provenance.defined_at)));
+  let directory = Filename.temp_dir "holyc-parameter-register-" "" in
+  Fun.protect
+    ~finally:(fun () -> remove_tree directory)
+    (fun () ->
+      let root_path = Filename.concat directory "root.HC" in
+      let include_path = Filename.concat directory "qualified.HC" in
+      write_file root_path "#include \"qualified\"";
+      write_file include_path "extern U0 Included(reg R13 I64 value);";
+      let session = Session.create () in
+      let source = checked (Session.load_source session ~path:root_path) in
+      let config =
+        checked (Preprocessor.Config.create ~working_directory:directory ())
+      in
+      let ast =
+        Holyc_lib.parse_with_config session ~config ~source |> expect_ast
+      in
+      let request =
+        resolve session ast |> fun results ->
+        function_named results "Included" |> fun function_ ->
+        parameter_at function_ 0
+        |> Semantic_function_type_resolution.parameter_register_requests
+        |> List.hd
+      in
+      Alcotest.(check int) "included request value" 13 (request_code request);
+      let site = request |> Semantic_register_request.origin |> source_origin in
+      let request_source =
+        Source_manager.find (Session.sources session) site.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included request keeps its source" "qualified.HC"
+        (Source_file.path request_source |> Filename.basename);
+      let register_source =
+        request |> Semantic_register_request.explicit_register |> Option.get
+        |> Semantic_register_request.explicit_register_origin |> source_origin
+        |> fun origin ->
+        Source_manager.find (Session.sources session) origin.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included explicit register keeps its source" "qualified.HC"
+        (Source_file.path register_source |> Filename.basename))
+
+let register_requests_are_deterministic_but_not_header_identity () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"parameter-register-headers.HC"
+      "extern U0 Same(reg R15 I64 value);\nextern U0 Same(noreg I64 value);"
+  in
+  let values = inputs session ast in
+  let table = Session.semantic_symbols session in
+  let scope_count = Semantic_symbol_table.all_scopes table |> List.length in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let resolve_once () = checked (resolve_inputs session values ast) in
+  let summarize resolution =
+    Semantic_function_type_resolution.functions resolution
+    |> List.map (fun function_ ->
+        function_ |> parameters |> List.hd
+        |> Semantic_function_type_resolution.parameter_register_selection
+        |> Semantic_register_request.source_code)
+  in
+  let first = resolve_once () in
+  let second = resolve_once () in
+  Alcotest.(check (list int))
+    "replayed request values" [ 15; 32 ] (summarize first);
+  Alcotest.(check (list int))
+    "replay is deterministic" (summarize first) (summarize second);
+  Alcotest.(check int)
+    "resolution preserves scopes" scope_count
+    (Semantic_symbol_table.all_scopes table |> List.length);
+  Alcotest.(check int)
+    "resolution preserves symbols" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let identities =
+    checked
+      (Holyc_lib.resolve_function_identities session
+         ~declarations:values.declarations ~functions:first
+         ~compilation_mode:Preprocessor.Jit ast)
+  in
+  Alcotest.(check int)
+    "register requests do not split a function identity" 1
+    (Semantic_function_resolution.identities identities |> List.length);
+  Alcotest.(check int)
+    "both headers remain visible to reconciliation" 2
+    (Semantic_function_resolution.declarations identities |> List.length)
+
 let tests =
   [
     Alcotest.test_case "primitive, intrinsic, pointers, and gaps" `Quick
@@ -967,4 +1343,14 @@ let tests =
     Alcotest.test_case "mismatched inputs do not mutate" `Quick
       mismatched_inputs_do_not_mutate;
     Alcotest.test_case "low-level validation" `Quick low_level_validation;
+    Alcotest.test_case "register constructor states and validation" `Quick
+      register_constructor_states_and_validation;
+    Alcotest.test_case "fixed, variadic, and recursive register requests" `Quick
+      fixed_variadic_and_recursive_register_requests;
+    Alcotest.test_case "all explicit U64 parameter registers" `Quick
+      every_u64_parameter_register;
+    Alcotest.test_case "register request provenance" `Quick
+      register_request_provenance;
+    Alcotest.test_case "register request replay and header identity" `Quick
+      register_requests_are_deterministic_but_not_header_identity;
   ]

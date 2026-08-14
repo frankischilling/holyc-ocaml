@@ -356,8 +356,8 @@ let callback_return_and_indirection () =
   let ast =
     parse session ~path:"member-callbacks.HC"
       "class Node {}; class Callbacks { I64 *(*invoke)(Node \
-       *node,I64=1,I64=lastclass,U8 *(*nested)(I64 value=\"nested\",...),...); \
-       I64 (**chain)(I64 value); };"
+       *node,I64=1,I64=lastclass,U8 *(*nested)(reg R10 noreg I64 \
+       value=\"nested\",...),...); I64 (**chain)(I64 value); };"
   in
   let results = resolve session ast in
   let node = aggregate_named results "Node" in
@@ -454,6 +454,22 @@ let callback_return_and_indirection () =
     "nested member callback keeps its string-default mask" [ 0x5L ]
     (nested_signature |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
+  let nested_parameter =
+    nested_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.hd
+  in
+  Alcotest.(check (list int))
+    "nested member callback keeps ordered register requests" [ 10; 32 ]
+    (nested_parameter
+   |> Semantic_function_type_resolution.parameter_register_requests
+    |> List.map (fun request ->
+        Semantic_register_request.effective [ request ]
+        |> Semantic_register_request.source_code));
+  Alcotest.(check int)
+    "nested member callback uses the last register request" 32
+    (nested_parameter
+   |> Semantic_function_type_resolution.parameter_register_selection
+   |> Semantic_register_request.source_code);
   Alcotest.(check bool)
     "nested callback keeps its terminal ellipsis" true
     (nested_signature

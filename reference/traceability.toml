@@ -3775,12 +3775,65 @@ compilation_modes = ["jit", "aot"]
 default_evaluation_and_substitution = "not implemented"
 prototype_definition_reconciliation = "identity selection is implemented separately by HC-SEMA-FUNCTION-IDENTITIES; header comparison is not implemented"
 call_checking = "not implemented"
-function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; register requests, storage, and ABI behavior are not implemented"
+function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS and register requests by HC-SEMA-PARAMETER-REGISTER-REQUESTS; allocation, storage, and ABI behavior are not implemented"
 member_callback_signatures = "not implemented by this pass"
 global_and_local_types = "implemented separately by HC-SEMA-GLOBAL-TYPE-REFERENCES and HC-SEMA-LOCAL-TYPES"
 cast_sizeof_and_offset_types = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
+
+[[feature]]
+id = "HC-SEMA-PARAMETER-REGISTER-REQUESTS"
+description = "Fixed parameters and variadic bindings retain checked, source-ordered register requests and the pinned final stored value."
+sources = [
+  "Compiler/PrsVar.HC:373-405 PrsDotDotDot synthetic bindings",
+  "Compiler/PrsVar.HC:410-471 qualifiers before a parameter type or ellipsis",
+  "Compiler/PrsVar.HC:490-515 qualifiers after a parameter type",
+  "Compiler/CInit.HC:222-223 ST_U64_REGS",
+  "Kernel/KernelA.HH:801-820 CMemberLst.reg",
+  "Kernel/KernelA.HH:1797-1799 REG_UNDEF, REG_NONE, and REG_ALLOC",
+  "Compiler/LexLib.HC:157-180 MemberLstCmp"
+]
+implementation = [
+  "src/sema/register_request.ml",
+  "src/sema/register_request.mli",
+  "src/driver/register_request.ml",
+  "src/driver/register_request.mli",
+  "src/sema/function_type_resolution.ml",
+  "src/driver/function_type_resolution.ml",
+  "src/driver/member_type_resolution.ml",
+  "src/driver/global_type_resolution.ml",
+  "src/driver/local_type_resolution.ml",
+  "src/sema/local_type_resolution.ml",
+  "src/frontend/parser.ml",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_function_type_resolution.ml",
+  "test/test_member_type_resolution.ml",
+  "test/test_global_type_resolution.ml",
+  "test/test_local_type_resolution.ml"
+]
+status = "implemented"
+issue = 234
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "fixed parameters in top-level and recursively nested function-pointer signatures, plus top-level synthetic argc and argv"
+ordered_requests = "every accepted qualifier remains in source order with before-type or after-type position, spelling, source origin, and optional explicit-register origin"
+final_rule = "the last request wins; an empty list remains unspecified"
+source_codes = { unspecified = -128, noreg = 32, reg = 33, explicit_min = 0, explicit_max = 15 }
+explicit_registers = ["RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15"]
+explicit_validation = "spelling, canonical number, and source provenance are supplied together and must identify the same ST_U64_REGS entry; noreg cannot carry an explicit register"
+recursive_consumers = ["top-level function", "aggregate member callback", "global callback", "local callback"]
+variadic_rule = "the ellipsis request list is copied unchanged to both synthetic argc and argv bindings"
+header_comparison = "register requests do not participate in function identity reconciliation, matching the fields compared by MemberLstCmp"
+local_representation = "automatic-local requests use the same private checked type and retain the existing local accessors"
+provenance = ["ordinary source", "included source", "generated invocation origin", "definition origin"]
+validation = "malformed low-level requests and mismatched variadic copies fail before a semantic result is returned"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+register_allocation_optf_no_reg_var_parameter_moves_storage_and_abi = "not implemented"
+native_oracle_status = "not required for this retained metadata boundary; the assignments, table order, synthetic copy, and header comparison fields are direct pinned-source statements"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-PARAMETER-FLAGS"
@@ -3875,6 +3928,7 @@ function_pointer_shape = "return type plus one through four declarator indirecti
 function_pointer_namespace = "local variable; the retained signature does not enable direct-call syntax"
 storage = ["automatic", "static"]
 register_requests = ["reg", "reg with an explicit checked U64 register spelling", "noreg"]
+register_request_representation = "shared with HC-SEMA-PARAMETER-REGISTER-REQUESTS; explicit requests carry the canonical register number"
 array_shape = "every dimension retains its index, full origin, opening bracket, optional expression, and closing bracket"
 empty_array_dimension = "permitted only at index zero and distinct from an explicit zero expression"
 initializer_shape = "automatic scalar or static scalar and braced source ranges retained without evaluation"

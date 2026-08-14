@@ -1,17 +1,9 @@
 type function_pointer = Function_type_resolution.function_pointer
 type declarator_kind = Object | Function_pointer of function_pointer
 type storage = Automatic | Static
-type register_request_kind = Allocate | Disable
-type register_position = Before_type | After_type
-
-type register_request = {
-  request_kind : register_request_kind;
-  request_position : register_position;
-  request_spelling : string;
-  request_origin : Symbol.origin;
-  explicit_register : string option;
-  explicit_register_origin : Symbol.origin option;
-}
+type register_request_kind = Register_request.kind = Allocate | Disable
+type register_position = Register_request.position = Before_type | After_type
+type register_request = Register_request.t
 
 type array_dimension = {
   index : int;
@@ -79,14 +71,22 @@ let local_has_flag local flag = Member_flag.is_set ~mask:local.flag_mask flag
 let local_array_dimensions local = local.array_dimensions
 let local_initializer local = local.initial_value
 let local_delimiter local = local.delimiter
-let register_request_kind request = request.request_kind
-let register_request_position request = request.request_position
-let register_request_spelling request = request.request_spelling
-let register_request_origin request = request.request_origin
-let register_request_explicit_register request = request.explicit_register
+let register_request_kind = Register_request.kind
+let register_request_position = Register_request.position
+let register_request_spelling = Register_request.spelling
+let register_request_origin = Register_request.origin
+
+let register_request_explicit_register request =
+  Option.map Register_request.explicit_register_spelling
+    (Register_request.explicit_register request)
+
+let register_request_explicit_register_number request =
+  Option.map Register_request.explicit_register_number
+    (Register_request.explicit_register request)
 
 let register_request_explicit_register_origin request =
-  request.explicit_register_origin
+  Option.map Register_request.explicit_register_origin
+    (Register_request.explicit_register request)
 
 let array_dimension_index (dimension : array_dimension) = dimension.index
 let array_dimension_origin (dimension : array_dimension) = dimension.origin
@@ -124,13 +124,8 @@ let storage_name = function
   | Automatic -> "automatic"
   | Static -> "static"
 
-let register_request_kind_name = function
-  | Allocate -> "reg"
-  | Disable -> "noreg"
-
-let register_position_name = function
-  | Before_type -> "before-type"
-  | After_type -> "after-type"
+let register_request_kind_name = Register_request.kind_name
+let register_position_name = Register_request.position_name
 
 let delimiter_kind_name = function
   | Comma -> "comma"
@@ -140,33 +135,7 @@ let initializer_kind_name = function
   | Scalar_initializer -> "scalar"
   | Braced_initializer -> "braced"
 
-let make_register_request ~kind ~position ~spelling ~origin ?explicit_register
-    ?explicit_register_origin () =
-  let expected_spelling = register_request_kind_name kind in
-  if not (String.equal spelling expected_spelling) then
-    Error
-      (Printf.sprintf "semantic local register spelling %S does not match %S"
-         spelling expected_spelling)
-  else
-    match (explicit_register, explicit_register_origin) with
-    | None, Some _ ->
-        Error "semantic local register origin requires an explicit register"
-    | Some _, None ->
-        Error "semantic local explicit register requires source provenance"
-    | Some _, Some _ when kind = Disable ->
-        Error "semantic local noreg request cannot name a register"
-    | Some register, Some _ when String.equal register "" ->
-        Error "semantic local explicit register cannot be empty"
-    | None, None | Some _, Some _ ->
-        Ok
-          {
-            request_kind = kind;
-            request_position = position;
-            request_spelling = spelling;
-            request_origin = origin;
-            explicit_register;
-            explicit_register_origin;
-          }
+let make_register_request = Register_request.make
 
 let make_array_dimension ~index ~origin ~opening_origin ?expression_origin
     ~closing_origin () =

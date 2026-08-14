@@ -1,9 +1,9 @@
 type function_pointer = Function_type_resolution.function_pointer
 type declarator_kind = Object | Function_pointer of function_pointer
 type storage = Automatic | Static
-type register_request_kind = Allocate | Disable
-type register_position = Before_type | After_type
-type register_request
+type register_request_kind = Register_request.kind = Allocate | Disable
+type register_position = Register_request.position = Before_type | After_type
+type register_request = Register_request.t
 type array_dimension
 type delimiter_kind = Comma | Semicolon
 type delimiter
@@ -20,6 +20,7 @@ val make_register_request :
   spelling:string ->
   origin:Symbol.origin ->
   ?explicit_register:string ->
+  ?explicit_register_number:int ->
   ?explicit_register_origin:Symbol.origin ->
   unit ->
   (register_request, string) result
@@ -99,6 +100,7 @@ val register_request_position : register_request -> register_position
 val register_request_spelling : register_request -> string
 val register_request_origin : register_request -> Symbol.origin
 val register_request_explicit_register : register_request -> string option
+val register_request_explicit_register_number : register_request -> int option
 
 val register_request_explicit_register_origin :
   register_request -> Symbol.origin option

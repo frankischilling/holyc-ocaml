@@ -299,7 +299,7 @@ let function_pointer_shapes () =
     prepare ~path:"global-type-callbacks.HC"
       "class Node {};\n\
        U8 *(*one)(); U8 *(**two)(); U8 *(***three)(); U8 *(****four)();\n\
-       U0 (**handler)(Node *node,I64=lastclass,U8 *(*nested)(I64 \
+       U0 (**handler)(Node *node,I64=lastclass,U8 *(*nested)(reg R11 noreg I64 \
        value=\"nested\",...),...);"
   in
   [ "one"; "two"; "three"; "four" ]
@@ -395,6 +395,22 @@ let function_pointer_shapes () =
     "nested global callback keeps its string-default mask" [ 0x5L ]
     (nested_signature |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
+  let nested_parameter =
+    nested_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.hd
+  in
+  Alcotest.(check (list int))
+    "nested global callback keeps ordered register requests" [ 11; 32 ]
+    (nested_parameter
+   |> Semantic_function_type_resolution.parameter_register_requests
+    |> List.map (fun request ->
+        Semantic_register_request.effective [ request ]
+        |> Semantic_register_request.source_code));
+  Alcotest.(check int)
+    "nested global callback uses the last register request" 32
+    (nested_parameter
+   |> Semantic_function_type_resolution.parameter_register_selection
+   |> Semantic_register_request.source_code);
   Alcotest.(check bool)
     "nested callback is variadic" true
     (nested_signature

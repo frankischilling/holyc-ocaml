@@ -381,74 +381,83 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
         | Error _ as error -> error
         | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
   in
-  match parameter_facts 0 [] parameters with
-  | Error _ as error -> error
-  | Ok parameters ->
-      Sema.Function_type_resolution.make_signature
-        ~opening_origin:(origin opening) ~parameters
-        ?variadic_origin:
-          (Option.map
-             (fun (marker : Frontend.Ast.variadic_marker) ->
-               origin marker.location)
-             variadic)
-        ~closing_origin:(origin closing) ()
+  Result.bind (parameter_facts 0 [] parameters) (fun parameters ->
+      Result.bind
+        (match variadic with
+        | None -> Ok []
+        | Some (marker : Frontend.Ast.variadic_marker) ->
+            Register_request.of_list marker.register_qualifiers)
+        (fun variadic_register_requests ->
+          Sema.Function_type_resolution.make_signature
+            ~opening_origin:(origin opening) ~parameters
+            ?variadic_origin:
+              (Option.map
+                 (fun (marker : Frontend.Ast.variadic_marker) ->
+                   origin marker.location)
+                 variadic)
+            ~variadic_register_requests ~closing_origin:(origin closing) ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
-  match
-    make_type_reference visible parameter.type_specifier
-      parameter.pointer_layers
-  with
-  | Error _ as error -> error
-  | Ok type_reference -> (
-      let declarator_kind =
-        match parameter.function_pointer with
-        | None -> Ok Sema.Function_type_resolution.Object
-        | Some pointer -> (
-            match pointer_depth pointer.indirection_layers with
-            | Error _ as error -> error
-            | Ok _ -> (
-                match
-                  signature_fact visible
-                    ~opening:pointer.signature_opening_parenthesis
-                    pointer.signature_parameters pointer.signature_variadic
-                    ~closing:pointer.signature_closing_parenthesis
-                with
-                | Error _ as error -> error
-                | Ok signature ->
-                    Result.map
-                      (fun pointer ->
-                        Sema.Function_type_resolution.Function_pointer pointer)
-                      (Sema.Function_type_resolution.make_function_pointer
-                         ~origin:(origin pointer.function_pointer_location)
-                         ~opening_origin:
-                           (origin pointer.declarator_opening_parenthesis)
-                         ~indirection_origins:
-                           (pointer_origins pointer.indirection_layers)
-                         ~closing_origin:
-                           (origin pointer.declarator_closing_parenthesis)
-                         ~signature)))
-      in
-      match declarator_kind with
+  Result.bind (Register_request.of_list parameter.register_qualifiers)
+    (fun register_requests ->
+      match
+        make_type_reference visible parameter.type_specifier
+          parameter.pointer_layers
+      with
       | Error _ as error -> error
-      | Ok declarator_kind ->
-          Sema.Function_type_resolution.make_parameter ~index
-            ~origin:(origin parameter.location)
-            ?name:
-              (Option.map
-                 (fun (name : Frontend.Ast.identifier) -> name.spelling)
-                 parameter.name)
-            ?name_origin:
-              (Option.map
-                 (fun (name : Frontend.Ast.identifier) -> origin name.location)
-                 parameter.name)
-            ~type_reference ~declarator_kind
-            ~default:(Option.map default_fact parameter.default)
-            ?delimiter_origin:
-              (Option.map
-                 (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
-                   origin delimiter.location)
-                 parameter.delimiter)
-            ())
+      | Ok type_reference -> (
+          let declarator_kind =
+            match parameter.function_pointer with
+            | None -> Ok Sema.Function_type_resolution.Object
+            | Some pointer -> (
+                match pointer_depth pointer.indirection_layers with
+                | Error _ as error -> error
+                | Ok _ -> (
+                    match
+                      signature_fact visible
+                        ~opening:pointer.signature_opening_parenthesis
+                        pointer.signature_parameters pointer.signature_variadic
+                        ~closing:pointer.signature_closing_parenthesis
+                    with
+                    | Error _ as error -> error
+                    | Ok signature ->
+                        Result.map
+                          (fun pointer ->
+                            Sema.Function_type_resolution.Function_pointer
+                              pointer)
+                          (Sema.Function_type_resolution.make_function_pointer
+                             ~origin:(origin pointer.function_pointer_location)
+                             ~opening_origin:
+                               (origin pointer.declarator_opening_parenthesis)
+                             ~indirection_origins:
+                               (pointer_origins pointer.indirection_layers)
+                             ~closing_origin:
+                               (origin pointer.declarator_closing_parenthesis)
+                             ~signature)))
+          in
+          match declarator_kind with
+          | Error _ as error -> error
+          | Ok declarator_kind ->
+              Sema.Function_type_resolution.make_parameter ~index
+                ~origin:(origin parameter.location)
+                ~register_requests
+                ?name:
+                  (Option.map
+                     (fun (name : Frontend.Ast.identifier) -> name.spelling)
+                     parameter.name)
+                ?name_origin:
+                  (Option.map
+                     (fun (name : Frontend.Ast.identifier) ->
+                       origin name.location)
+                     parameter.name)
+                ~type_reference ~declarator_kind
+                ~default:(Option.map default_fact parameter.default)
+                ?delimiter_origin:
+                  (Option.map
+                     (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
+                       origin delimiter.location)
+                     parameter.delimiter)
+                ()))
 
 let parameter_entries entries =
   List.filter
@@ -472,7 +481,7 @@ let internal_i64 () =
   Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
     ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
 
-let variadic_binding kind entry shape =
+let variadic_binding kind entry shape register_requests =
   match Sema.Function_collection.entry_parameter_index entry with
   | None -> Error "semantic variadic binding has no signature slot"
   | Some parameter_index -> (
@@ -481,7 +490,7 @@ let variadic_binding kind entry shape =
       | Ok resolved_type ->
           Sema.Function_type_resolution.make_synthetic_binding kind
             ~symbol:(Sema.Function_collection.entry_symbol entry)
-            ~parameter_index ~resolved_type ~shape)
+            ~parameter_index ~resolved_type ~shape ~register_requests ())
 
 let collected_bindings event =
   let entries = parameter_entries event.function_entries in
@@ -510,23 +519,27 @@ let variadic_bindings ast argc argv =
   match (ast.function_variadic, argc, argv) with
   | None, None, None -> Ok None
   | Some marker, Some argc_entry, Some argv_entry -> (
-      match
-        variadic_binding Sema.Function_type_resolution.Argc argc_entry
-          Sema.Function_type_resolution.Scalar
-      with
+      match Register_request.of_list marker.register_qualifiers with
       | Error _ as error -> error
-      | Ok argc -> (
+      | Ok register_requests -> (
           match
-            variadic_binding Sema.Function_type_resolution.Argv argv_entry
-              (Sema.Function_type_resolution.Array
-                 { source_extent = None; compiler_placeholder_extent = 127 })
+            variadic_binding Sema.Function_type_resolution.Argc argc_entry
+              Sema.Function_type_resolution.Scalar register_requests
           with
           | Error _ as error -> error
-          | Ok argv ->
-              Result.map
-                (fun bindings -> Some bindings)
-                (Sema.Function_type_resolution.make_variadic_bindings
-                   ~marker_origin:(origin marker.location) ~argc ~argv)))
+          | Ok argc -> (
+              match
+                variadic_binding Sema.Function_type_resolution.Argv argv_entry
+                  (Sema.Function_type_resolution.Array
+                     { source_extent = None; compiler_placeholder_extent = 127 })
+                  register_requests
+              with
+              | Error _ as error -> error
+              | Ok argv ->
+                  Result.map
+                    (fun bindings -> Some bindings)
+                    (Sema.Function_type_resolution.make_variadic_bindings
+                       ~marker_origin:(origin marker.location) ~argc ~argv))))
   | None, Some _, _ | None, _, Some _ | Some _, None, _ | Some _, _, None ->
       Error "semantic function collection does not match the variadic marker"
 

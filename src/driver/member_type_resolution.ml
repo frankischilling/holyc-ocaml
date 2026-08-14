@@ -453,17 +453,21 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
         | Error _ as error -> error
         | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
   in
-  match parameter_facts 0 [] parameters with
-  | Error _ as error -> error
-  | Ok parameters ->
-      Sema.Function_type_resolution.make_signature
-        ~opening_origin:(origin opening) ~parameters
-        ?variadic_origin:
-          (Option.map
-             (fun (marker : Frontend.Ast.variadic_marker) ->
-               origin marker.location)
-             variadic)
-        ~closing_origin:(origin closing) ()
+  Result.bind (parameter_facts 0 [] parameters) (fun parameters ->
+      Result.bind
+        (match variadic with
+        | None -> Ok []
+        | Some (marker : Frontend.Ast.variadic_marker) ->
+            Register_request.of_list marker.register_qualifiers)
+        (fun variadic_register_requests ->
+          Sema.Function_type_resolution.make_signature
+            ~opening_origin:(origin opening) ~parameters
+            ?variadic_origin:
+              (Option.map
+                 (fun (marker : Frontend.Ast.variadic_marker) ->
+                   origin marker.location)
+                 variadic)
+            ~variadic_register_requests ~closing_origin:(origin closing) ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
   match
@@ -475,24 +479,28 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       match declarator_kind_fact visible parameter.function_pointer with
       | Error _ as error -> error
       | Ok declarator_kind ->
-          Sema.Function_type_resolution.make_parameter ~index
-            ~origin:(origin parameter.location)
-            ?name:
-              (Option.map
-                 (fun (name : Frontend.Ast.identifier) -> name.spelling)
-                 parameter.name)
-            ?name_origin:
-              (Option.map
-                 (fun (name : Frontend.Ast.identifier) -> origin name.location)
-                 parameter.name)
-            ~type_reference ~declarator_kind
-            ~default:(Option.map default_fact parameter.default)
-            ?delimiter_origin:
-              (Option.map
-                 (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
-                   origin delimiter.location)
-                 parameter.delimiter)
-            ())
+          Result.bind (Register_request.of_list parameter.register_qualifiers)
+            (fun register_requests ->
+              Sema.Function_type_resolution.make_parameter ~index
+                ~origin:(origin parameter.location)
+                ~register_requests
+                ?name:
+                  (Option.map
+                     (fun (name : Frontend.Ast.identifier) -> name.spelling)
+                     parameter.name)
+                ?name_origin:
+                  (Option.map
+                     (fun (name : Frontend.Ast.identifier) ->
+                       origin name.location)
+                     parameter.name)
+                ~type_reference ~declarator_kind
+                ~default:(Option.map default_fact parameter.default)
+                ?delimiter_origin:
+                  (Option.map
+                     (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
+                       origin delimiter.location)
+                     parameter.delimiter)
+                ()))
 
 and function_pointer_fact visible
     (pointer : Frontend.Ast.function_pointer_declarator) =

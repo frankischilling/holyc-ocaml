@@ -200,28 +200,6 @@ let max_switch_depth = 256
 let max_aggregate_depth = 256
 let max_initializer_depth = 256
 
-let canonical_u64_registers =
-  List.init 16 (fun register_number ->
-      match
-        List.find_opt
-          (fun (register : Generated.Opcode_keywords.register) ->
-            register.register_kind = Generated.Opcode_keywords.R64
-            && register.register_number = register_number)
-          Generated.Opcode_keywords.registers
-      with
-      | Some register -> register
-      | None ->
-          invalid_arg
-            (Printf.sprintf
-               "checked opcode table lacks canonical U64 register %d"
-               register_number))
-
-let is_canonical_u64_register spelling =
-  List.exists
-    (fun (register : Generated.Opcode_keywords.register) ->
-      String.equal register.spelling spelling)
-    canonical_u64_registers
-
 let resolve_assembly_opcode token =
   match token.Token.kind with
   | Token_kind.Identifier -> Asm.Opcode.resolve token.raw
@@ -986,7 +964,8 @@ let rec parse_register_qualifiers cursor ~position nodes_rev tokens_rev =
             let candidate = peek cursor in
             if
               candidate.token.kind = Token_kind.Identifier
-              && is_canonical_u64_register (token_text candidate.token)
+              && Sema.Register_request.is_canonical_u64_register
+                   (token_text candidate.token)
             then Some (take cursor)
             else None
       in
