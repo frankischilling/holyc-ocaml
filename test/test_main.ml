@@ -40,6 +40,8 @@ let () =
       ("semantic function identity resolution", Test_function_resolution.tests);
       ("semantic function header analysis", Test_function_header_analysis.tests);
       ("semantic function call resolution", Test_function_call_resolution.tests);
+      ( "semantic function call conversion policy",
+        Test_function_call_conversion_policy.tests );
       ("semantic extern-to-import rewriting", Test_externs_to_imports.tests);
       ("semantic global data-heap policy", Test_globals_on_data_heap.tests);
       ( "semantic function record classification",

@@ -84,6 +84,7 @@ val resolve :
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode
+val owns_table : t -> Symbol_table.t -> bool
 val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
