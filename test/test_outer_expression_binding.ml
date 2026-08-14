@@ -438,6 +438,31 @@ let determinism_purity_and_validation () =
     "repeated binding is deterministic" (signature first) (signature second);
   Alcotest.(check (pair int int))
     "binding does not mutate symbols" (before, before) (middle, after);
+  (match occurrences first "Read" with
+  | [ occurrence ] ->
+      let source =
+        source_origin
+          (Semantic_outer_expression_binding.occurrence_origin occurrence)
+      in
+      Alcotest.(check bool)
+        "successful macro invocation is retained" true
+        (Option.is_some source.generated_from);
+      Alcotest.(check bool)
+        "successful macro definition is retained" true
+        (Option.is_some source.defined_at)
+  | _ -> Alcotest.fail "expected one generated identifier occurrence");
+  let gap_symbol =
+    add_symbol prepared "Gap" Semantic_outer_environment.Global_variable
+  in
+  let gap_entry =
+    Semantic_outer_environment.make_entry ~symbol:gap_symbol
+      ~record_kind:Semantic_outer_environment.Global_variable ~entry_index:2
+    |> checked_environment
+  in
+  expect_environment_error "HCSEMA0022"
+    (Semantic_outer_environment.make_table
+       ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0
+       [ entry; gap_entry ]);
   let repeated_assembler =
     Semantic_outer_environment.make_table
       ~table_kind:Semantic_outer_environment.Assembler ~table_index:1 [ entry ]
@@ -455,6 +480,29 @@ let determinism_purity_and_validation () =
   expect_environment_error "HCSEMA0022"
     (Semantic_outer_environment.create ~table
        ~compilation_mode:Semantic_outer_environment.Jit [ task; wrong_index ]);
+  let foreign_table = Semantic_symbol_table.create () in
+  let foreign_symbol =
+    checked
+      (Semantic_symbol_table.add foreign_table
+         ~scope:(Semantic_symbol_table.root foreign_table)
+         ~name:"Foreign" ~kind:Semantic_symbol.Function
+         ~origin:(Semantic_symbol.Synthesized "foreign outer fixture"))
+  in
+  let foreign_entry =
+    Semantic_outer_environment.make_entry ~symbol:foreign_symbol
+      ~record_kind:Semantic_outer_environment.Function ~entry_index:0
+    |> checked_environment
+  in
+  let foreign_task =
+    Semantic_outer_environment.make_table
+      ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0
+      [ foreign_entry ]
+    |> checked_environment
+  in
+  expect_environment_error "HCSEMA0022"
+    (Semantic_outer_environment.create ~table
+       ~compilation_mode:Semantic_outer_environment.Jit
+       [ foreign_task; assembler ]);
   let aot =
     Semantic_outer_environment.make_table
       ~table_kind:Semantic_outer_environment.Assembler ~table_index:0 []
