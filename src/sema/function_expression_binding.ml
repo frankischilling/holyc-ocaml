@@ -6,6 +6,13 @@ type event =
       declaration_index : int;
       declarator_index : int;
     }
+  | No_warn_target of { name : string; origin : Symbol.origin }
+  | Reset_local_initializer of {
+      name : string;
+      origin : Symbol.origin;
+      declaration_index : int;
+      declarator_index : int;
+    }
 
 type function_input = {
   symbol : Symbol.t;
@@ -25,11 +32,32 @@ type occurrence = {
   resolution : resolution;
 }
 
+type suppression = {
+  index : int;
+  name : string;
+  origin : Symbol.origin;
+  binding : Function_binding_index.binding;
+}
+
+type initializer_use_reset = {
+  index : int;
+  origin : Symbol.origin;
+  binding : Function_binding_index.binding;
+}
+
+type binding_event =
+  | Bound_use of occurrence
+  | No_warn_suppression of suppression
+  | Initializer_use_reset of initializer_use_reset
+
 type resolved_function = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
   item_index : int;
+  binding_events : binding_event list;
   occurrences : occurrence list;
+  suppressions : suppression list;
+  initializer_use_resets : initializer_use_reset list;
 }
 
 module Int_map = Map.Make (Int)
@@ -56,6 +84,16 @@ type error_kind =
       declaration_index : int;
       declarator_index : int;
     }
+  | Suppression_mismatch of {
+      function_symbol : Symbol.t;
+      name : string;
+    }
+  | Initializer_reset_mismatch of {
+      function_symbol : Symbol.t;
+      name : string;
+      declaration_index : int;
+      declarator_index : int;
+    }
 
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
@@ -63,11 +101,28 @@ let functions result = result.functions
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
+let function_binding_events function_ = function_.binding_events
 let function_occurrences (function_ : resolved_function) = function_.occurrences
+let function_suppressions function_ = function_.suppressions
+
+let function_initializer_use_resets function_ =
+  function_.initializer_use_resets
+
 let occurrence_index (occurrence : occurrence) = occurrence.index
 let occurrence_name (occurrence : occurrence) = occurrence.name
 let occurrence_origin (occurrence : occurrence) = occurrence.origin
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let suppression_index (suppression : suppression) = suppression.index
+let suppression_name (suppression : suppression) = suppression.name
+let suppression_origin (suppression : suppression) = suppression.origin
+let suppression_binding (suppression : suppression) = suppression.binding
+
+let initializer_use_reset_index (reset : initializer_use_reset) = reset.index
+let initializer_use_reset_origin (reset : initializer_use_reset) = reset.origin
+
+let initializer_use_reset_binding (reset : initializer_use_reset) =
+  reset.binding
+
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let invalid_input message =
@@ -96,6 +151,23 @@ let missing_publication function_symbol
           declarator_index = Option.get binding.local_declarator_index;
         };
     origin = Some (Symbol.origin binding.symbol);
+  }
+
+let suppression_mismatch function_symbol name origin =
+  {
+    code = "HCSEMA0020";
+    kind = Suppression_mismatch { function_symbol; name };
+    origin = Some origin;
+  }
+
+let initializer_reset_mismatch function_symbol name declaration_index
+    declarator_index origin =
+  {
+    code = "HCSEMA0021";
+    kind =
+      Initializer_reset_mismatch
+        { function_symbol; name; declaration_index; declarator_index };
+    origin = Some origin;
   }
 
 let error_code error = error.code
@@ -128,6 +200,16 @@ let error_message error =
          declarator %d"
         (Symbol.name function_symbol)
         (Symbol.name binding) declaration_index declarator_index
+  | Suppression_mismatch { function_symbol; name } ->
+      Printf.sprintf
+        "function %S cannot bind no_warn target %S at this source position"
+        (Symbol.name function_symbol) name
+  | Initializer_reset_mismatch
+      { function_symbol; name; declaration_index; declarator_index } ->
+      Printf.sprintf
+        "function %S cannot reset initializer uses for %S at declaration %d, \
+         declarator %d"
+        (Symbol.name function_symbol) name declaration_index declarator_index
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 
@@ -151,6 +233,25 @@ let make_local_publication ~name ~origin ~declaration_index ~declarator_index =
   else if declaration_index < 0 || declarator_index < 0 then
     Error "local publication position cannot be negative"
   else Ok (Publish_local { name; origin; declaration_index; declarator_index })
+
+let make_no_warn_suppression ~name ~origin =
+  if String.equal name "" then Error "no_warn target name cannot be empty"
+  else if not (valid_origin origin) then
+    Error "no_warn target has an invalid source origin"
+  else Ok (No_warn_target { name; origin })
+
+let make_initializer_use_reset ~name ~origin ~declaration_index
+    ~declarator_index =
+  if String.equal name "" then
+    Error "initializer use-reset name cannot be empty"
+  else if not (valid_origin origin) then
+    Error "initializer use reset has an invalid source origin"
+  else if declaration_index < 0 || declarator_index < 0 then
+    Error "initializer use-reset position cannot be negative"
+  else
+    Ok
+      (Reset_local_initializer
+         { name; origin; declaration_index; declarator_index })
 
 let same_scope left right =
   Symbol.Scope_id.equal
@@ -271,30 +372,61 @@ let local_bindings bindings = List.filter binding_is_local bindings
 
 let publication_matches event (binding : Function_binding_index.binding) =
   match event with
-  | Identifier _ -> false
+  | Identifier _ | No_warn_target _ | Reset_local_initializer _ -> false
   | Publish_local { name; origin; declaration_index; declarator_index } ->
       String.equal name (Symbol.name binding.symbol)
       && Symbol.origin binding.symbol = origin
       && binding.local_declaration_index = Some declaration_index
       && binding.local_declarator_index = Some declarator_index
 
+let reset_matches name origin declaration_index declarator_index
+    (binding : Function_binding_index.binding) =
+  String.equal name (Symbol.name binding.symbol)
+  && Symbol.origin binding.symbol = origin
+  && binding.local_declaration_index = Some declaration_index
+  && binding.local_declarator_index = Some declarator_index
+
+let local_binding_at bindings declaration_index declarator_index =
+  List.find_opt
+    (fun (binding : Function_binding_index.binding) ->
+      binding.local_declaration_index = Some declaration_index
+      && binding.local_declarator_index = Some declarator_index)
+    bindings
+
+module Int_set = Set.Make (Int)
+
 let resolve_function indexed (input : function_input) =
   let bindings = Function_binding_index.function_bindings indexed in
-  let rec events environment remaining_locals occurrences_rev next_index =
-    function
+  let rec events environment published remaining_locals binding_events_rev
+      next_occurrence next_suppression next_reset = function
     | [] -> (
         match remaining_locals with
         | [] ->
+            let binding_events = List.rev binding_events_rev in
+            let occurrences, suppressions, initializer_use_resets =
+              List.fold_left
+                (fun (occurrences, suppressions, resets) -> function
+                  | Bound_use occurrence ->
+                      (occurrence :: occurrences, suppressions, resets)
+                  | No_warn_suppression suppression ->
+                      (occurrences, suppression :: suppressions, resets)
+                  | Initializer_use_reset reset ->
+                      (occurrences, suppressions, reset :: resets))
+                ([], [], []) binding_events
+            in
             Ok
               {
                 symbol = input.symbol;
                 scope = input.scope;
                 item_index = input.item_index;
-                occurrences = List.rev occurrences_rev;
+                binding_events;
+                occurrences = List.rev occurrences;
+                suppressions = List.rev suppressions;
+                initializer_use_resets = List.rev initializer_use_resets;
               }
         | binding :: _ -> Error (missing_publication input.symbol binding))
     | Identifier { name; origin } :: rest ->
-        if next_index = max_int then
+        if next_occurrence = max_int then
           Error
             (invalid_input "function expression occurrence space is exhausted")
         else
@@ -303,14 +435,20 @@ let resolve_function indexed (input : function_input) =
             | Some binding -> Function_binding binding
             | None -> Nonlocal_candidate
           in
-          events environment remaining_locals
-            ({ index = next_index; name; origin; resolution } :: occurrences_rev)
-            (next_index + 1) rest
+          let occurrence =
+            { index = next_occurrence; name; origin; resolution }
+          in
+          events environment published remaining_locals
+            (Bound_use occurrence :: binding_events_rev)
+            (next_occurrence + 1) next_suppression next_reset rest
     | (Publish_local publication as event) :: rest -> (
         match remaining_locals with
         | binding :: local_rest when publication_matches event binding ->
             let environment = add_first publication.name binding environment in
-            events environment local_rest occurrences_rev next_index rest
+            events environment
+              (Int_set.add (symbol_number binding.symbol) published)
+              local_rest binding_events_rev next_occurrence next_suppression
+              next_reset rest
         | binding :: _ ->
             Error
               (publication_mismatch input.symbol publication.name
@@ -321,10 +459,45 @@ let resolve_function indexed (input : function_input) =
               (publication_mismatch input.symbol publication.name
                  publication.declaration_index publication.declarator_index None
                  publication.origin))
+    | No_warn_target { name; origin } :: rest -> (
+        match String_map.find_opt name environment with
+        | None -> Error (suppression_mismatch input.symbol name origin)
+        | Some binding ->
+            if next_suppression = max_int then
+              Error
+                (invalid_input
+                   "function no_warn suppression space is exhausted")
+            else
+              let suppression =
+                { index = next_suppression; name; origin; binding }
+              in
+              events environment published remaining_locals
+                (No_warn_suppression suppression :: binding_events_rev)
+                next_occurrence (next_suppression + 1) next_reset rest)
+    | Reset_local_initializer
+        { name; origin; declaration_index; declarator_index }
+      :: rest -> (
+        match local_binding_at bindings declaration_index declarator_index with
+        | Some binding
+          when reset_matches name origin declaration_index declarator_index
+                 binding
+               && Int_set.mem (symbol_number binding.symbol) published ->
+            if next_reset = max_int then
+              Error
+                (invalid_input
+                   "function initializer use-reset space is exhausted")
+            else
+              let reset = { index = next_reset; origin; binding } in
+              events environment published remaining_locals
+                (Initializer_use_reset reset :: binding_events_rev)
+                next_occurrence next_suppression (next_reset + 1) rest
+        | Some _ | None ->
+            Error
+              (initializer_reset_mismatch input.symbol name declaration_index
+                 declarator_index origin))
   in
-  events
-    (initial_environment bindings)
-    (local_bindings bindings) [] 0 input.events
+  events (initial_environment bindings) Int_set.empty (local_bindings bindings)
+    [] 0 0 0 input.events
 
 let resolve_validated indexed_functions inputs =
   let rec loop functions_rev by_symbol indexed_functions inputs =

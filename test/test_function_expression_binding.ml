@@ -281,6 +281,72 @@ let statement_expression_order () =
     |> List.for_all (fun occurrence ->
         Option.is_some (binding_of_occurrence occurrence)))
 
+let suppression_and_initializer_events () =
+  let result =
+    prepare ~path:"no-warn-binding-events.HC"
+      "U0 Count(I64 parameter){parameter;no_warn parameter;I64 \
+       local=local;no_warn local;local;}"
+  in
+  let function_ = function_named result "Count" in
+  let binding_name (binding : Semantic_function_binding_index.binding) =
+    Semantic_symbol.name binding.symbol
+  in
+  Alcotest.(check (list string))
+    "ordinary uses stay separate"
+    [ "parameter"; "local"; "local" ]
+    (occurrences function_
+    |> List.map Semantic_function_expression_binding.occurrence_name);
+  let suppressions =
+    Semantic_function_expression_binding.function_suppressions function_
+  in
+  Alcotest.(check (list (triple int string string)))
+    "suppression bindings"
+    [ (0, "parameter", "parameter"); (1, "local", "local") ]
+    (suppressions
+    |> List.map (fun suppression ->
+        ( Semantic_function_expression_binding.suppression_index suppression,
+          Semantic_function_expression_binding.suppression_name suppression,
+          suppression
+          |> Semantic_function_expression_binding.suppression_binding
+          |> binding_name )));
+  let resets =
+    Semantic_function_expression_binding.function_initializer_use_resets
+      function_
+  in
+  Alcotest.(check (list (pair int string)))
+    "initializer reset binding" [ (0, "local") ]
+    (resets
+    |> List.map (fun reset ->
+        ( Semantic_function_expression_binding.initializer_use_reset_index
+            reset,
+          reset
+          |> Semantic_function_expression_binding.initializer_use_reset_binding
+          |> binding_name )));
+  let event_signature = function
+    | Semantic_function_expression_binding.Bound_use occurrence ->
+        "use:" ^ Semantic_function_expression_binding.occurrence_name occurrence
+    | Semantic_function_expression_binding.No_warn_suppression suppression ->
+        "suppress:"
+        ^ Semantic_function_expression_binding.suppression_name suppression
+    | Semantic_function_expression_binding.Initializer_use_reset reset ->
+        "reset:"
+        ^ (reset
+          |> Semantic_function_expression_binding.initializer_use_reset_binding
+          |> binding_name)
+  in
+  Alcotest.(check (list string))
+    "source event order"
+    [
+      "use:parameter";
+      "suppress:parameter";
+      "use:local";
+      "reset:local";
+      "suppress:local";
+      "use:local";
+    ]
+    (Semantic_function_expression_binding.function_binding_events function_
+    |> List.map event_signature)
+
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
@@ -364,6 +430,49 @@ let validation_errors () =
   expect_error_code "HCSEMA0018"
     (Semantic_function_expression_binding.resolve ~table ~parent
        ~bindings:semantic_inputs.bindings [ mismatched ]);
+  let indexed_local =
+    Semantic_function_binding_index.function_bindings indexed
+    |> List.find (fun (binding : Semantic_function_binding_index.binding) ->
+        Option.is_some binding.local_declaration_index)
+  in
+  let publication =
+    checked
+      (Semantic_function_expression_binding.make_local_publication
+         ~name:(Semantic_symbol.name indexed_local.symbol)
+         ~origin:(Semantic_symbol.origin indexed_local.symbol)
+         ~declaration_index:(Option.get indexed_local.local_declaration_index)
+         ~declarator_index:(Option.get indexed_local.local_declarator_index))
+  in
+  let missing_suppression =
+    checked
+      (Semantic_function_expression_binding.make_no_warn_suppression
+         ~name:"missing"
+         ~origin:(Semantic_symbol.Synthesized "missing no_warn target"))
+  in
+  let bad_suppression =
+    checked
+      (Semantic_function_expression_binding.make_function ~symbol ~scope
+         ~item_index [ missing_suppression; publication ])
+  in
+  expect_error_code "HCSEMA0020"
+    (Semantic_function_expression_binding.resolve ~table ~parent
+       ~bindings:semantic_inputs.bindings [ bad_suppression ]);
+  let wrong_reset =
+    checked
+      (Semantic_function_expression_binding.make_initializer_use_reset
+         ~name:"other"
+         ~origin:(Semantic_symbol.Synthesized "mismatched initializer reset")
+         ~declaration_index:(Option.get indexed_local.local_declaration_index)
+         ~declarator_index:(Option.get indexed_local.local_declarator_index))
+  in
+  let bad_reset =
+    checked
+      (Semantic_function_expression_binding.make_function ~symbol ~scope
+         ~item_index [ publication; wrong_reset ])
+  in
+  expect_error_code "HCSEMA0021"
+    (Semantic_function_expression_binding.resolve ~table ~parent
+       ~bindings:semantic_inputs.bindings [ bad_reset ]);
   let foreign = Semantic_symbol_table.create () in
   expect_error_code "HCSEMA0017"
     (Semantic_function_expression_binding.resolve ~table
@@ -401,6 +510,8 @@ let tests =
       excluded_identifier_roles;
     Alcotest.test_case "statement expression order" `Quick
       statement_expression_order;
+    Alcotest.test_case "suppression and initializer events" `Quick
+      suppression_and_initializer_events;
     Alcotest.test_case "generated provenance and purity" `Quick
       generated_provenance_and_purity;
     Alcotest.test_case "validation errors" `Quick validation_errors;
