@@ -3933,6 +3933,45 @@ member_resolution_typing_use_counts_storage_lowering_and_execution = "not implem
 native_oracle_status = "not required for this lookup boundary; CHashTable.next, the hash routines, Spawn, CmpJoin, and AsmHashLoad state the chain and search order directly"
 
 [[feature]]
+id = "HC-SEMA-GLOBAL-INITIALIZER-BINDINGS"
+description = "Ordinary identifiers in global initializers bind after the owning global is published and before later declarations."
+sources = [
+  "Compiler/PrsStmt.HC:209-447 PrsGlblVarLst publication and initializer order",
+  "Compiler/PrsVar.HC:1-204 scalar and recursive braced initializer parsing",
+  "Compiler/Lex.HC:493-509 local and hash-table lookup",
+  "Compiler/PrsExp.HC:761-907 ordinary identifier record cases",
+  "Compiler/CMain.HC:60-74 JIT and AOT successor selection",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/global_initializer_binding.ml",
+  "src/driver/global_initializer_binding.ml",
+  "src/sema/module_expression_binding.ml",
+  "src/sema/outer_environment.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_global_initializer_binding.ml"
+]
+status = "implemented"
+issue = 210
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier occurrences in scalar and recursively braced global initializers"
+publication_boundary = "the owning global publication is visible before its initializer; later publications are unavailable"
+comma_declarators = "the current and earlier declarators are visible; a later declarator can only be found in an outer table"
+lookup_precedence = ["newest visible compilation-unit publication", "complete mode-specific outer table chain"]
+initializer_paths = "zero-based nested element indexes; the scalar root uses an empty path"
+excluded_identifier_roles = ["member suffixes", "type syntax", "sizeof", "offset", "defined", "array extents", "parameter defaults", "aggregate metadata", "top-level statements", "assembly"]
+validation = "table and session ownership, mode agreement, exact global-record sequence, source order, occurrence indexes, nonnegative paths, publication identity, record kind, and AST association"
+diagnostics = ["HCSEMA0025 invalid input", "HCSEMA0026 unresolved global initializer identifier"]
+provenance = ["owning global record", "owning module publication", "initializer origin", "identifier occurrence", "nested initializer path", "generated invocation and definition origin", "selected module or outer binding"]
+mutation = "none"
+complexity = "module publications and globals advance together; no full declaration rescan occurs for each initializer"
+compilation_modes = ["jit", "aot"]
+initializer_typing_evaluation_conversion_storage_relocation_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this binding boundary; PrsGlblVarLst places HashAdd before PrsGlblInit, and the pinned expression and table-chain paths state the remaining lookup order directly"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
 description = "Function declarations reconcile to source-ordered identities using TempleOS's distinct JIT and AOT selection rules."
 sources = [
