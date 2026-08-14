@@ -18,6 +18,10 @@ Later frontend work will route nonconstant preprocessor expressions and general 
 
 Assembler operand references and direct-assembly labels; member-callback, cast, `sizeof`, and `offset` type resolution; target lookup; alias resolution; `_intern` evaluation; `lastclass` substitution; expression evaluation; local extent and initializer evaluation; local layout and storage; register allocation; ordinary and implicit call resolution; remaining syntax; semantic checking; executable IR; interpretation; optimization; assembly; hosted code generation; and TempleOS module emission follow in separate changes. A stage enters the supported list only after its verifier boundary and focused tests exist.
 
+## Function binding validation
+
+`Sema.Function_binding_index` consumes the checked function collection, function signatures, and local declaration types. It validates one completed namespace per prototype or definition, rejects ordinary repeated names, retains the exact `pad`, `reserved`, and `_anon_` exceptions, and returns source-ordered immutable lookup data without changing use counts. `Driver.Function_binding_index` verifies that all three semantic batches own the same stable symbols and scopes. The public `index_function_bindings` entry point exposes this boundary after `resolve_function_types` and `resolve_local_types`. Expression-time publication, reference binding, storage, register allocation, and ABI behavior remain later stages.
+
 ## Source authority
 
 TempleOS source at `c26482bb6ad3f80106d28504ec5db3c6a360732c` is authoritative when prose and implementation disagree. `reference/traceability.toml` links each claimed behavior to the pinned function or table, implementation files, and tests.
