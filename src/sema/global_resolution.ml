@@ -104,8 +104,16 @@ let effective_kind compiler_option_mask kind =
     | Definition | Import | Alternate_import | Intern -> kind
   else kind
 
+let storage_for compiler_option_mask kind =
+  match kind with
+  | (Definition | Intern)
+    when Compiler_option.is_enabled ~mask:compiler_option_mask
+           Compiler_option.Globals_on_data_heap -> Data_heap
+  | Definition | Extern | Alternate_extern | Import | Alternate_import | Intern
+    -> Code_heap
+
 let make_declaration ?(compiler_option_mask = Compiler_option.initial_mask)
-    ~global ~storage ?binding () =
+    ~global ?binding () =
   let symbol = Global_type_resolution.global_symbol global in
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable) then
     Error "semantic global record requires a global-variable symbol"
@@ -114,7 +122,7 @@ let make_declaration ?(compiler_option_mask = Compiler_option.initial_mask)
     Ok
       {
         global;
-        storage;
+        storage = storage_for compiler_option_mask source_kind;
         binding;
         source_kind;
         kind = effective_kind compiler_option_mask source_kind;
@@ -227,10 +235,34 @@ let validate ~table ~parent ~compilation_mode declarations =
     && List.exists (fun declaration -> is_import declaration.kind) declarations
   then Error "semantic global imports require AOT compilation mode"
   else
-    declarations
-    |> List.map (fun declaration -> declaration.global)
-    |> Global_type_resolution.resolve ~table ~parent
-    |> Result.map (fun _ -> ())
+    match
+      declarations
+      |> List.map (fun declaration -> declaration.global)
+      |> Global_type_resolution.resolve ~table ~parent
+    with
+    | Error _ as error -> error
+    | Ok _ -> (
+        match compilation_mode with
+        | Jit -> Ok ()
+        | Aot -> (
+            match
+              List.find_opt
+                (fun declaration ->
+                  declaration.storage = Data_heap
+                  && Option.is_some
+                       (Global_type_resolution.global_initializer
+                          declaration.global))
+                declarations
+            with
+            | None -> Ok ()
+            | Some declaration ->
+                let symbol =
+                  Global_type_resolution.global_symbol declaration.global
+                in
+                Error
+                  (Printf.sprintf
+                     "AOT data-heap global %S cannot have an initializer"
+                     (Symbol.name symbol))))
 
 module String_map = Map.Make (String)
 

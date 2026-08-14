@@ -325,14 +325,20 @@ let aot_alias_does_not_compare_types () =
     "the source alias rule does not add a header check" [ Some 1; None ]
     (alias_indexes resolution)
 
-let data_heap_policy_is_explicit () =
+let data_heap_policy_follows_option_snapshot () =
   let prepared =
     prepare ~mode:Preprocessor.Aot ~path:"aot-data-heap-records.HC"
       "I64 First; I64 First;"
   in
   let globals = Semantic_global_type_resolution.globals prepared.globals in
-  let declaration global storage =
-    checked (Semantic_global_resolution.make_declaration ~global ~storage ())
+  let data_heap_mask, _ =
+    Compiler_option.set ~mask:Compiler_option.initial_mask
+      Compiler_option.Globals_on_data_heap true
+  in
+  let declaration ?compiler_option_mask global =
+    checked
+      (Semantic_global_resolution.make_declaration ?compiler_option_mask ~global
+         ())
   in
   let first = List.nth globals 0 in
   let second = List.nth globals 1 in
@@ -342,7 +348,7 @@ let data_heap_policy_is_explicit () =
     checked
       (Semantic_global_resolution.resolve ~table ~parent
          ~compilation_mode:Semantic_global_resolution.Aot
-         [ declaration first Semantic_global_resolution.Data_heap ])
+         [ declaration ~compiler_option_mask:data_heap_mask first ])
   in
   Alcotest.(check (list string))
     "a first data-heap definition is representable" [ "data-heap" ]
@@ -354,8 +360,8 @@ let data_heap_policy_is_explicit () =
     (Semantic_global_resolution.resolve ~table ~parent
        ~compilation_mode:Semantic_global_resolution.Aot
        [
-         declaration first Semantic_global_resolution.Code_heap;
-         declaration second Semantic_global_resolution.Data_heap;
+         declaration first;
+         declaration ~compiler_option_mask:data_heap_mask second;
        ]
     |> Result.is_error)
 
@@ -517,8 +523,8 @@ let tests =
       aot_aliases_the_immediate_prior_record;
     Alcotest.test_case "AOT alias keeps type mismatches" `Quick
       aot_alias_does_not_compare_types;
-    Alcotest.test_case "data-heap policy is explicit" `Quick
-      data_heap_policy_is_explicit;
+    Alcotest.test_case "data-heap policy follows option snapshot" `Quick
+      data_heap_policy_follows_option_snapshot;
     Alcotest.test_case "grouped and attached record order" `Quick
       grouped_and_attached_globals_keep_order;
     Alcotest.test_case "invalid source binding shapes" `Quick

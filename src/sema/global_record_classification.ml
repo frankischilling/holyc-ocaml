@@ -236,20 +236,22 @@ let classify_record compilation_mode source state =
 
 let validate_state source state =
   let declaration = Global_resolution.global_record_declaration source in
-  let resolution_externs_to_imports =
-    Compiler_option.is_enabled
-      ~mask:(Global_resolution.declaration_compiler_option_mask declaration)
-      Compiler_option.Externs_to_imports
+  let resolution_option_mask =
+    Global_resolution.declaration_compiler_option_mask declaration
   in
-  let state_externs_to_imports =
-    Compiler_option.is_enabled ~mask:state.compiler_option_mask
-      Compiler_option.Externs_to_imports
+  let option_agrees option =
+    Compiler_option.is_enabled ~mask:resolution_option_mask option
+    = Compiler_option.is_enabled ~mask:state.compiler_option_mask option
   in
-  if resolution_externs_to_imports = state_externs_to_imports then Ok ()
-  else
+  if not (option_agrees Compiler_option.Externs_to_imports) then
     Error
       "global record classification has a different extern-to-imports state \
        than global resolution"
+  else if not (option_agrees Compiler_option.Globals_on_data_heap) then
+    Error
+      "global record classification has a different globals-on-data-heap state \
+       than global resolution"
+  else Ok ()
 
 let classify resolution states =
   let sources = Global_resolution.records resolution in

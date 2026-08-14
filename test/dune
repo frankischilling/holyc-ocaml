@@ -35,6 +35,7 @@
   test_function_default_binding
   test_function_resolution
   test_externs_to_imports
+  test_globals_on_data_heap
   test_function_record_classification
   test_global_resolution
   test_global_record_classification

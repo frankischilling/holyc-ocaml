@@ -363,7 +363,8 @@ val resolve_global_records :
   (Semantic_global_resolution.t, string) result
 (** Retain one semantic record per parsed global and attach immediate alias
     edges using the pinned JIT or AOT rule. The optional batch snapshot applies
-    [OPTf_EXTERNS_TO_IMPORTS]; source-positioned option execution,
+    [OPTf_EXTERNS_TO_IMPORTS] and [OPTf_GLBLS_ON_DATA_HEAP]. AOT data-heap
+    initializers are rejected here. Source-positioned option execution,
     target-address resolution, allocation, and emitted linkage remain separate
     passes. *)
 
@@ -376,5 +377,6 @@ val classify_global_records :
 (** Derive source-grounded hash and global-variable flags, import naming, value
     access, cleanup, map visibility, and AOT publication intent. The optional
     mask overrides the declaration snapshots retained by resolution and must
-    agree on [OPTf_EXTERNS_TO_IMPORTS]. Source-positioned option execution,
-    allocation, address resolution, and record emission remain separate. *)
+    agree on [OPTf_EXTERNS_TO_IMPORTS] and [OPTf_GLBLS_ON_DATA_HEAP].
+    Source-positioned option execution, allocation, address resolution, and
+    record emission remain separate. *)

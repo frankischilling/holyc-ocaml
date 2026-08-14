@@ -125,14 +125,13 @@ let validate_fact ~table ~compiler_option_mask entry global (ast : ast_global) =
   else
     match ast.binding with
     | None ->
-        Sema.Global_resolution.make_declaration ~compiler_option_mask ~global
-          ~storage:Sema.Global_resolution.Code_heap ()
+        Sema.Global_resolution.make_declaration ~compiler_option_mask ~global ()
     | Some binding -> (
         match source_binding binding with
         | Error _ as error -> error
         | Ok binding ->
             Sema.Global_resolution.make_declaration ~compiler_option_mask
-              ~global ~storage:Sema.Global_resolution.Code_heap ~binding ())
+              ~global ~binding ())
 
 let declaration_facts ~table ~compiler_option_mask ~declarations ~globals
     module_ =
