@@ -3407,7 +3407,7 @@ array_extent_evaluation = "not implemented in this type-reference pass; closed e
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "implemented for aggregate members by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout_storage_and_inherited_lookup = "closed byte layout and inherited name lookup are implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED and HC-SEMA-AGGREGATE-MEMBER-INDEX; runtime storage is not implemented"
-other_type_use_sites = "top-level function signatures are implemented in HC-SEMA-FUNCTION-TYPES; globals, locals, casts, sizeof, offset, and other sites remain unresolved"
+other_type_use_sites = "top-level function signatures, globals, and locals are implemented by their dedicated semantic type features; casts, sizeof, offset, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
 [[feature]]
@@ -3625,7 +3625,7 @@ local_positions = ["declaration index", "grouped declarator index"]
 repeated_names = "preserved as separate entries with newest-first lookup"
 provenance = ["primary span", "source segments", "generated source origin", "definition origin"]
 prototype_definition_reconciliation = "implemented separately by HC-SEMA-FUNCTION-IDENTITIES; this pass still preserves each function scope and local collection"
-type_resolution = "return and recursive parameter types are implemented in HC-SEMA-FUNCTION-TYPES; local types remain unresolved"
+type_resolution = "return and recursive parameter types are implemented in HC-SEMA-FUNCTION-TYPES; local declaration types are implemented in HC-SEMA-LOCAL-TYPES"
 default_and_initializer_evaluation = "not implemented"
 register_and_storage_assignment = "not implemented"
 duplicate_validation = "not implemented"
@@ -3685,9 +3685,61 @@ prototype_definition_reconciliation = "identity selection is implemented separat
 call_checking = "not implemented"
 function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; register requests, storage, and ABI behavior are not implemented"
 member_callback_signatures = "not implemented by this pass"
-global_local_cast_sizeof_and_offset_types = "not implemented"
+global_and_local_types = "implemented separately by HC-SEMA-GLOBAL-TYPE-REFERENCES and HC-SEMA-LOCAL-TYPES"
+cast_sizeof_and_offset_types = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
+
+[[feature]]
+id = "HC-SEMA-LOCAL-TYPES"
+description = "Every accepted automatic or static local receives a source-ordered semantic type record in its function-wide scope."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt automatic and static local branches",
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsArrayDims",
+  "Compiler/PrsVar.HC:PrsDotDotDot",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Kernel/KernelA.HH:CArrayDim",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:MLF_FUN and MLF_STATIC",
+  "Kernel/KernelA.HH:REG_NONE, REG_ALLOC, and REG_UNDEF",
+  "Doc/HolyC.DD",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/local_type_resolution.ml",
+  "src/driver/local_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_local_type_resolution.ml"
+]
+status = "implemented"
+issue = 200
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "automatic and static declarations in prototypes or definitions from one checked AST, declaration collection, aggregate reconciliation, and function collection"
+function_order = "prototype and definition records remain separate module items; locals belong to the matching function scope"
+local_order = "recursive statement order followed by declaration and grouped declarator indexes"
+namespace = "all accepted locals in a function share one scope; nested blocks do not introduce C-style local namespaces"
+type_bases = ["public primitive spelling", "intrinsic storage spelling", "source-visible canonical aggregate identity"]
+ordinary_pointer_depth = "zero through four, with one origin per source star"
+function_pointer_shape = "return type plus one through four declarator indirections and a complete recursive fixed or variadic signature"
+function_pointer_namespace = "local variable; the retained signature does not enable direct-call syntax"
+storage = ["automatic", "static"]
+register_requests = ["reg", "reg with an explicit checked U64 register spelling", "noreg"]
+array_shape = "every dimension retains its index, full origin, opening bracket, optional expression, and closing bracket"
+empty_array_dimension = "permitted only at index zero and distinct from an explicit zero expression"
+initializer_shape = "automatic scalar or static scalar and braced source ranges retained without evaluation"
+declaration_boundaries = "declaration origin, declarator origin, and exact comma or semicolon origin"
+provenance = ["ordinary source", "generated invocation", "definition origin"]
+validation = "session ownership, module and function scopes, AST, declaration, aggregate, and function association, source order, symbol uniqueness, type spelling, recursive aggregate targets, register shape, arrays, initializers, and declaration groups"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+array_extent_and_initializer_evaluation = "not implemented"
+duplicate_checking_and_ordinary_reference_resolution = "not implemented"
+stack_static_storage_and_register_allocation = "not implemented"
+abi_and_linkage = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsStmt, PrsVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained facts directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
