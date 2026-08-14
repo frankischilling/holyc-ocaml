@@ -213,7 +213,8 @@ let rec statement state = function
   | Frontend.Ast.Break_statement _
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
-  | Frontend.Ast.Label_statement _ -> Ok state
+  | Frontend.Ast.Label_statement _
+  | Frontend.Ast.No_warn_statement _ -> Ok state
 
 and statements state statements = fold_result statement state statements
 

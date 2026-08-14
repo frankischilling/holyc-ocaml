@@ -4058,6 +4058,99 @@ let parse_goto_statement cursor ~boundary : parsed_statement option =
         in
         Some { node = Ast.Goto_statement statement; tokens }
 
+let parse_no_warn_statement cursor ~boundary : parsed_statement option =
+  let keyword_item = take cursor in
+  let target_is_visible name =
+    match
+      Symbol_visibility.Environment.find_preprocessor cursor.symbols name
+    with
+    | Symbol_visibility.Shadowed_by_local -> true
+    | Symbol_visibility.Absent | Symbol_visibility.Present _ -> false
+  in
+  let build targets_rev tokens_rev semicolon terminator_tokens :
+      parsed_statement option =
+    let tokens =
+      keyword_item.token :: (List.rev tokens_rev @ terminator_tokens)
+    in
+    let statement =
+      Ast.make_no_warn_statement
+        ~keyword:(token_location keyword_item.token)
+        ~targets:(List.rev targets_rev) ~semicolon
+        ~location:(location_from_expression_tokens tokens)
+    in
+    Some ({ node = Ast.No_warn_statement statement; tokens } : parsed_statement)
+  in
+  let rec collect targets_rev tokens_rev =
+    let target_item = peek cursor in
+    match target_item.token.kind with
+    | Token_kind.Punctuation ';' ->
+        let semicolon_item = take cursor in
+        build targets_rev tokens_rev
+          (Some (token_location semicolon_item.token))
+          [ semicolon_item.token ]
+    | Token_kind.Punctuation ',' when targets_rev = [] ->
+        build targets_rev tokens_rev None []
+    | Token_kind.Punctuation ')'
+      when targets_rev = [] && is_for_update_boundary boundary ->
+        build targets_rev tokens_rev None []
+    | Token_kind.Identifier ->
+        let name = token_text target_item.token in
+        if not (target_is_visible name) then (
+          report cursor target_item ~code:"HCPARSE0157"
+            ~message:
+              (Printf.sprintf
+                 "no_warn target %S is not a visible parameter or local" name);
+          recover_statement cursor ~boundary;
+          None)
+        else
+          let target_item = take cursor in
+          let next_item = peek cursor in
+          let following_comma, tokens_rev =
+            match next_item.token.kind with
+            | Token_kind.Punctuation ',' ->
+                let comma_item = take cursor in
+                ( Some (token_location comma_item.token),
+                  comma_item.token :: target_item.token :: tokens_rev )
+            | _ -> (None, target_item.token :: tokens_rev)
+          in
+          let target_tokens =
+            match following_comma with
+            | None -> [ target_item.token ]
+            | Some _ -> [ target_item.token; next_item.token ]
+          in
+          let target =
+            Ast.make_no_warn_target
+              ~name:
+                (Ast.make_identifier ~spelling:name
+                   ~location:(token_location target_item.token))
+              ~following_comma
+              ~location:(location_from_expression_tokens target_tokens)
+          in
+          if Option.is_some following_comma then
+            collect (target :: targets_rev) tokens_rev
+          else if next_item.token.kind = Token_kind.Punctuation ';' then
+            collect (target :: targets_rev) tokens_rev
+          else (
+            report cursor next_item ~code:"HCPARSE0158"
+              ~message:
+                (Printf.sprintf
+                   "expected ',' or ';' after no_warn target %S, but found %s"
+                   name
+                   (token_description next_item.token));
+            recover_statement cursor ~boundary;
+            None)
+    | _ ->
+        report cursor target_item ~code:"HCPARSE0157"
+          ~message:
+            (Printf.sprintf
+               "expected a visible parameter or local after 'no_warn', but \
+                found %s"
+               (token_description target_item.token));
+        recover_statement cursor ~boundary;
+        None
+  in
+  collect [] []
+
 let parse_label_statement cursor : parsed_statement option =
   let name_item = take cursor in
   let colon_item = take cursor in
@@ -5166,6 +5259,8 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Keyword Keyword.Lock ->
       parse_lock_statement cursor ~boundary ~block_depth ~conditional_depth
         ~loop_depth ~lock_depth ~try_depth ~switch_depth
+  | Token_kind.Keyword Keyword.No_warn ->
+      parse_no_warn_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Static when Option.is_some cursor.local_context
     -> parse_local_declaration cursor ~boundary
   | Token_kind.Keyword (Keyword.Reg | Keyword.Noreg)
