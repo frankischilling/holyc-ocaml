@@ -204,6 +204,8 @@ let resolve ~table ~declarations ~aggregates ~functions ~globals ~expressions =
               | Error _ as error -> error
               | Ok publications ->
                   Sema.Module_expression_binding.resolve ~table ~parent
+                    ~compilation_mode:
+                      (Sema.Function_resolution.compilation_mode functions)
                     ~expressions publications
                   |> Result.map_error
                        Sema.Module_expression_binding.error_to_string))

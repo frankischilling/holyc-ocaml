@@ -366,15 +366,18 @@ let validation_errors () =
   let parent = Semantic_declaration_collection.scope prepared.declarations in
   expect_low_error_code "HCSEMA0021"
     (Semantic_module_expression_binding.resolve ~table ~parent
+       ~compilation_mode:Semantic_function_resolution.Jit
        ~expressions:prepared.expressions []);
   expect_low_error_code "HCSEMA0020"
     (Semantic_module_expression_binding.resolve ~table ~parent
+       ~compilation_mode:Semantic_function_resolution.Jit
        ~expressions:prepared.expressions
        (Semantic_module_expression_binding.publications valid |> List.rev));
   let foreign = Semantic_symbol_table.create () in
   expect_low_error_code "HCSEMA0020"
     (Semantic_module_expression_binding.resolve ~table
        ~parent:(Semantic_symbol_table.root foreign)
+       ~compilation_mode:Semantic_function_resolution.Jit
        ~expressions:prepared.expressions
        (Semantic_module_expression_binding.publications valid));
   let aot_globals =

@@ -30,6 +30,7 @@ module String_map = Map.Make (String)
 
 type t = {
   table : Symbol_table.t;
+  compilation_mode : Function_resolution.compilation_mode;
   publications : publication list;
   functions : resolved_function list;
   by_symbol : resolved_function Int_map.t;
@@ -43,6 +44,8 @@ type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let publications result = result.publications
 let functions result = result.functions
+let compilation_mode result = result.compilation_mode
+let owns_table result table = result.table == table
 let publication_kind publication = publication.publication_kind
 let publication_source_symbol publication = publication.source_symbol
 let publication_canonical_symbol publication = publication.canonical_symbol
@@ -340,7 +343,7 @@ let resolve_validated expressions publications =
   loop String_map.empty publications [] Int_map.empty
     (Function_expression_binding.functions expressions)
 
-let resolve ~table ~parent ~expressions publications =
+let resolve ~table ~parent ~compilation_mode ~expressions publications =
   if not (Symbol_table.owns_scope table parent) then
     Error
       (invalid_input "module expression parent belongs to another symbol table")
@@ -358,7 +361,7 @@ let resolve ~table ~parent ~expressions publications =
             let functions, by_symbol =
               resolve_validated expressions publications
             in
-            Ok { table; publications; functions; by_symbol })
+            Ok { table; compilation_mode; publications; functions; by_symbol })
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

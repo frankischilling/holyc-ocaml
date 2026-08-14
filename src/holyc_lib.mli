@@ -52,6 +52,8 @@ module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_module_expression_binding = Sema.Module_expression_binding
+module Semantic_outer_environment = Sema.Outer_environment
+module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -246,6 +248,23 @@ val resolve_module_expressions :
     function, and global records. Names absent from the compilation unit remain
     explicit outer-environment candidates. This pass does not update use counts.
 *)
+
+val create_outer_environment :
+  Session.t ->
+  compilation_mode:Preprocessor.compilation_mode ->
+  Semantic_outer_environment.table list ->
+  (Semantic_outer_environment.t, string) result
+(** Validate an immutable lookup chain for the selected compilation mode. JIT
+    chains contain the current task and its parents; AOT chains contain the
+    enclosing compilations. Both end at the assembler table. *)
+
+val resolve_outer_expressions :
+  Session.t ->
+  environment:Semantic_outer_environment.t ->
+  expressions:Semantic_module_expression_binding.t ->
+  (Semantic_outer_expression_binding.t, string) result
+(** Preserve local and compilation-unit expression bindings, then resolve every
+    remaining ordinary identifier through the complete outer table chain. *)
 
 val resolve_global_types :
   Session.t ->

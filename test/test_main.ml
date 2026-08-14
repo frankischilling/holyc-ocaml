@@ -31,6 +31,7 @@ let () =
         Test_function_expression_binding.tests );
       ( "semantic module expression binding",
         Test_module_expression_binding.tests );
+      ("semantic outer expression binding", Test_outer_expression_binding.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
       ( "semantic function record classification",
         Test_function_record_classification.tests );
