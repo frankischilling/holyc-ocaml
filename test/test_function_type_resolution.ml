@@ -429,6 +429,68 @@ let source_origin = function
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected source provenance"
 
+let read_file path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let pinned_source path =
+  [ "third_party/TempleOS"; "../third_party/TempleOS" ]
+  |> List.map (fun root -> Filename.concat root path)
+  |> List.find_opt Sys.file_exists
+  |> function
+  | Some source -> read_file source
+  | None -> Alcotest.failf "pinned source is unavailable: %s" path
+
+let contains text fragment =
+  let fragment_length = String.length fragment in
+  let rec search offset =
+    if offset + fragment_length > String.length text then false
+    else if String.sub text offset fragment_length = fragment then true
+    else search (offset + 1)
+  in
+  fragment_length = 0 || search 0
+
+let pinned_string_default_declarations () =
+  let fixtures =
+    [
+      ( "Kernel/KernelC.HH",
+        "public extern I64 Dir(U8 *files_find_mask=\"*\",Bool full=FALSE);",
+        "public extern I64 Dir(U8 *files_find_mask=\"*\",Bool full=FALSE);",
+        "Dir",
+        [ 0x5L; 0x1L ] );
+      ( "Adam/ABlkDev/ADskA.HC",
+        "public Bool Copy(U8 *src_files_find_mask,U8 \
+         *dst_files_find_mask=\".\")",
+        "public Bool Copy(U8 *src_files_find_mask,U8 \
+         *dst_files_find_mask=\".\"){}",
+        "Copy",
+        [ 0L; 0x5L ] );
+      ( "Adam/ABlkDev/ADskB.HC",
+        "public I64 Zip(U8 *files_find_mask=\"*\",U8 *fu_flags=NULL)",
+        "public I64 Zip(U8 *files_find_mask=\"*\",U8 *fu_flags=NULL){}",
+        "Zip",
+        [ 0x5L; 0x1L ] );
+    ]
+  in
+  fixtures
+  |> List.iter (fun (path, fragment, source, name, expected) ->
+      Alcotest.(check bool)
+        (path ^ " retains the audited declaration")
+        true
+        (contains (pinned_source path) fragment);
+      let session = Session.create () in
+      let function_ =
+        parse session ~path source |> resolve session |> fun results ->
+        function_named results name
+      in
+      Alcotest.(check (list int64))
+        (path ^ " parameter masks")
+        expected
+        (parameters function_
+        |> List.map Semantic_function_type_resolution.parameter_flag_mask))
+
 let generated_signature_provenance () =
   let session = Session.create () in
   let ast =
@@ -894,6 +956,8 @@ let tests =
       parameter_flags_follow_pinned_assignments;
     Alcotest.test_case "recursive string-default classification" `Quick
       string_defaults_are_found_recursively;
+    Alcotest.test_case "pinned string-default declarations" `Quick
+      pinned_string_default_declarations;
     Alcotest.test_case "generated signature provenance" `Quick
       generated_signature_provenance;
     Alcotest.test_case "included signature provenance" `Quick
