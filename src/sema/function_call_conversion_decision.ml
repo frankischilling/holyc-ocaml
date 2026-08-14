@@ -104,6 +104,18 @@ let rec source_actual_class policies ~before_item_index expression =
   | Function_call_resolution.Float_literal -> F64_result
   | Function_call_resolution.Parenthesized_expression grouped ->
       source_actual_class policies ~before_item_index grouped
+  | Function_call_resolution.Prefix_expression prefix -> (
+      match Function_call_resolution.prefix_operator prefix with
+      | Function_call_resolution.Unary_plus
+      | Function_call_resolution.Unary_minus
+      | Function_call_resolution.Logical_not ->
+          source_actual_class policies ~before_item_index
+            (Function_call_resolution.prefix_operand prefix)
+      | Function_call_resolution.Address_of -> Integer_result
+      | Function_call_resolution.Bitwise_not
+      | Function_call_resolution.Dereference
+      | Function_call_resolution.Pre_increment
+      | Function_call_resolution.Pre_decrement -> Unresolved_actual_class)
   | Function_call_resolution.Postfix_cast_expression (_, target) -> (
       let resolved = Type_reference.resolved_type target in
       match
@@ -119,7 +131,6 @@ let rec source_actual_class policies ~before_item_index expression =
       | Function_call_resolution.Defined_expression ) -> Integer_result
   | Function_call_resolution.Unresolved_expression
       ( Function_call_resolution.Identifier_expression
-      | Function_call_resolution.Prefix_expression
       | Function_call_resolution.Postfix_expression
       | Function_call_resolution.Postfix_cast_expression
       | Function_call_resolution.Binary_expression

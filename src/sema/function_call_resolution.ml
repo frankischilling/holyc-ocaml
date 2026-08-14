@@ -7,7 +7,6 @@ type unresolved_expression_kind =
   | Sizeof_expression
   | Offset_expression
   | Defined_expression
-  | Prefix_expression
   | Postfix_expression
   | Postfix_cast_expression
   | Binary_expression
@@ -15,18 +14,35 @@ type unresolved_expression_kind =
   | Index_expression
   | Member_expression
 
+type prefix_operator =
+  | Unary_plus
+  | Unary_minus
+  | Logical_not
+  | Bitwise_not
+  | Dereference
+  | Address_of
+  | Pre_increment
+  | Pre_decrement
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
   | Character_literal
   | String_literal
   | Parenthesized_expression of argument_expression
+  | Prefix_expression of prefix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
   expression_kind : argument_expression_kind;
   expression_origin : Symbol.origin;
+}
+
+and prefix_expression = {
+  prefix_operator : prefix_operator;
+  prefix_operator_origin : Symbol.origin;
+  prefix_operand : argument_expression;
 }
 
 type argument = {
@@ -143,6 +159,12 @@ let argument_index (argument : argument) = argument.index
 let argument_kind (argument : argument) = argument.kind
 let argument_expression (argument : argument) = argument.expression
 let argument_origin (argument : argument) = argument.origin
+let prefix_operator (prefix : prefix_expression) = prefix.prefix_operator
+
+let prefix_operator_origin (prefix : prefix_expression) =
+  prefix.prefix_operator_origin
+
+let prefix_operand (prefix : prefix_expression) = prefix.prefix_operand
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -164,13 +186,22 @@ let argument_kind_name = function
   | Provided -> "provided"
   | Omitted -> "omitted"
 
+let prefix_operator_name = function
+  | Unary_plus -> "unary-plus"
+  | Unary_minus -> "unary-minus"
+  | Logical_not -> "logical-not"
+  | Bitwise_not -> "bitwise-not"
+  | Dereference -> "dereference"
+  | Address_of -> "address-of"
+  | Pre_increment -> "pre-increment"
+  | Pre_decrement -> "pre-decrement"
+
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
   | Sizeof_expression -> "sizeof"
   | Offset_expression -> "offset"
   | Defined_expression -> "defined"
-  | Prefix_expression -> "prefix"
   | Postfix_expression -> "postfix"
   | Postfix_cast_expression -> "postfix-cast"
   | Binary_expression -> "binary"
@@ -184,6 +215,7 @@ let argument_expression_kind_name = function
   | Character_literal -> "character-literal"
   | String_literal -> "string-literal"
   | Parenthesized_expression _ -> "parenthesized"
+  | Prefix_expression _ -> "prefix"
   | Postfix_cast_expression _ -> "postfix-cast"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
@@ -255,6 +287,24 @@ let error_to_string error = error.code ^ ": " ^ error_message error
 
 let make_argument_expression ~kind ~origin =
   { expression_kind = kind; expression_origin = origin }
+
+let valid_origin = function
+  | Symbol.Pinned_source { path; line } ->
+      (not (String.equal path "")) && line >= 1
+  | Symbol.Source_location _ -> true
+  | Symbol.Synthesized description -> not (String.equal description "")
+
+let make_prefix_argument_expression ~operator ~operator_origin ~operand =
+  if not (valid_origin operator_origin) then
+    Error "call argument prefix operator has an invalid source origin"
+  else
+    Ok
+      (Prefix_expression
+         {
+           prefix_operator = operator;
+           prefix_operator_origin = operator_origin;
+           prefix_operand = operand;
+         })
 
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
@@ -371,6 +421,8 @@ let rec validate_argument_expression table parent visible expression =
   match argument_expression_kind expression with
   | Parenthesized_expression grouped ->
       validate_argument_expression table parent visible grouped
+  | Prefix_expression prefix ->
+      validate_argument_expression table parent visible prefix.prefix_operand
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error

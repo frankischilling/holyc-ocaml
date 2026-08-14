@@ -370,8 +370,9 @@ val resolve_function_calls :
   (Semantic_function_call_resolution.t, string) result
 (** Bind syntactically direct calls in function bodies to the source-visible
     function header. Fixed slots retain provided or declared-default origins;
-    named aggregate cast targets retain the identity visible before the caller;
-    indirect and outer targets remain explicit deferred results. *)
+    prefix operands retain their recursive source view; named aggregate cast
+    targets retain the identity visible before the caller; indirect and outer
+    targets remain explicit deferred results. *)
 
 val analyze_function_call_conversions :
   Session.t ->
@@ -392,8 +393,8 @@ val decide_function_call_conversions :
     Semantic_function_call_conversion_decision.error )
   result
 (** Select fixed-call conversion intent for audited argument classes, including
-    source-visible named aggregate postfix casts. Unsupported expression classes
-    remain explicit unresolved results. *)
+    source-visible named aggregate postfix casts and the checked prefix operator
+    paths. Unsupported expression classes remain explicit unresolved results. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->

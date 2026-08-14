@@ -41,6 +41,16 @@ let call_syntax (call : Frontend.Ast.call_expression) =
   | Frontend.Ast.Parenthesis_free_call ->
       Sema.Function_call_resolution.Parenthesis_free
 
+let prefix_operator = function
+  | Frontend.Ast.Unary_plus -> Sema.Function_call_resolution.Unary_plus
+  | Frontend.Ast.Unary_minus -> Sema.Function_call_resolution.Unary_minus
+  | Frontend.Ast.Logical_not -> Sema.Function_call_resolution.Logical_not
+  | Frontend.Ast.Bitwise_not -> Sema.Function_call_resolution.Bitwise_not
+  | Frontend.Ast.Dereference -> Sema.Function_call_resolution.Dereference
+  | Frontend.Ast.Address_of -> Sema.Function_call_resolution.Address_of
+  | Frontend.Ast.Pre_increment -> Sema.Function_call_resolution.Pre_increment
+  | Frontend.Ast.Pre_decrement -> Sema.Function_call_resolution.Pre_decrement
+
 let cast_type_reference visible (cast : Frontend.Ast.postfix_cast_expression) =
   let pointer_origins =
     List.map
@@ -112,10 +122,14 @@ let rec argument_expression visible (expression : Frontend.Ast.expression) =
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Defined_expression)
-    | Frontend.Ast.Prefix_expression _ ->
-        Ok
-          (Sema.Function_call_resolution.Unresolved_expression
-             Sema.Function_call_resolution.Prefix_expression)
+    | Frontend.Ast.Prefix_expression prefix -> (
+        match argument_expression visible prefix.prefix_operand with
+        | Error _ as error -> error
+        | Ok operand ->
+            Sema.Function_call_resolution.make_prefix_argument_expression
+              ~operator:(prefix_operator prefix.prefix_operator_kind)
+              ~operator_origin:(origin prefix.prefix_operator.operator_location)
+              ~operand)
     | Frontend.Ast.Postfix_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression

@@ -7,7 +7,6 @@ type unresolved_expression_kind =
   | Sizeof_expression
   | Offset_expression
   | Defined_expression
-  | Prefix_expression
   | Postfix_expression
   | Postfix_cast_expression
   | Binary_expression
@@ -15,12 +14,25 @@ type unresolved_expression_kind =
   | Index_expression
   | Member_expression
 
+type prefix_operator =
+  | Unary_plus
+  | Unary_minus
+  | Logical_not
+  | Bitwise_not
+  | Dereference
+  | Address_of
+  | Pre_increment
+  | Pre_decrement
+
+type prefix_expression
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
   | Character_literal
   | String_literal
   | Parenthesized_expression of argument_expression
+  | Prefix_expression of prefix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Unresolved_expression of unresolved_expression_kind
 
@@ -32,6 +44,12 @@ type function_input
 
 val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
+
+val make_prefix_argument_expression :
+  operator:prefix_operator ->
+  operator_origin:Symbol.origin ->
+  operand:argument_expression ->
+  (argument_expression_kind, string) result
 
 val make_argument :
   index:int ->
@@ -134,6 +152,9 @@ val argument_expression : argument -> argument_expression option
 val argument_origin : argument -> Symbol.origin
 val argument_expression_kind : argument_expression -> argument_expression_kind
 val argument_expression_origin : argument_expression -> Symbol.origin
+val prefix_operator : prefix_expression -> prefix_operator
+val prefix_operator_origin : prefix_expression -> Symbol.origin
+val prefix_operand : prefix_expression -> argument_expression
 
 val default_parameter_default :
   default_use -> Function_type_resolution.parameter_default
@@ -153,6 +174,7 @@ val direct_variadic_arguments : direct_call -> argument list
 val direct_variadic_count : direct_call -> int64
 val call_syntax_name : call_syntax -> string
 val argument_kind_name : argument_kind -> string
+val prefix_operator_name : prefix_operator -> string
 val unresolved_expression_kind_name : unresolved_expression_kind -> string
 val argument_expression_kind_name : argument_expression_kind -> string
 val deferred_reason_name : deferred_reason -> string

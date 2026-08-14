@@ -129,6 +129,13 @@ let postfix_cast_parts expression =
     -> (operand, target)
   | _ -> Alcotest.fail "expected a retained postfix cast target"
 
+let prefix_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Prefix_expression prefix -> prefix
+  | _ -> Alcotest.fail "expected a retained prefix expression"
+
 let literal_directions_and_expression_retention () =
   let prepared =
     prepare ~path:"call-decision-literals.HC"
@@ -220,7 +227,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
@@ -253,6 +260,153 @@ let source_expression_classes_stay_explicit () =
         fixed |> provided_expression
         |> Semantic_function_call_resolution.argument_expression_kind
         |> Semantic_function_call_resolution.argument_expression_kind_name))
+
+let prefix_directions_and_retention () =
+  let prepared =
+    prepare ~path:"call-decision-prefixes.HC"
+      "F64 class FloatBox {};\n\
+       extern I64 Target(F64 plus_int,I64 minus_float,F64 not_int,I64 \
+       not_float,F64 address,I64 backed_minus,F64 complement,F64 \
+       dereference,F64 increment,F64 decrement);\n\
+       I64 Caller(I64 value){return \
+       Target(+1,-2.5,!3,!4.5,&value,-value(FloatBox),~1,*(&value),++value,--value);}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "audited prefix classes select the source conversion branch"
+    [
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:unresolved:unresolved";
+      "provided:unresolved:unresolved";
+      "provided:unresolved:unresolved";
+      "provided:unresolved:unresolved";
+    ]
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  let prefixes =
+    List.map (fun fixed -> fixed |> provided_expression |> prefix_parts) fixed
+  in
+  Alcotest.(check (list string))
+    "prefix operators stay explicit"
+    [
+      "unary-plus";
+      "unary-minus";
+      "logical-not";
+      "logical-not";
+      "address-of";
+      "unary-minus";
+      "bitwise-not";
+      "dereference";
+      "pre-increment";
+      "pre-decrement";
+    ]
+    (prefixes
+    |> List.map (fun prefix ->
+        prefix |> Semantic_function_call_resolution.prefix_operator
+        |> Semantic_function_call_resolution.prefix_operator_name));
+  Alcotest.(check string)
+    "unary minus keeps the nested aggregate cast" "postfix-cast"
+    (List.nth prefixes 5 |> Semantic_function_call_resolution.prefix_operand
+   |> Semantic_function_call_resolution.argument_expression_kind
+   |> Semantic_function_call_resolution.argument_expression_kind_name)
+
+let prefix_source_order_modes_and_provenance () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-prefix-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           extern class Later;\n\
+           I64 Before(I64 value){return Target(-(value(Later)));}\n\
+           F64 class Later {};\n\
+           I64 After(I64 value){return Target(!(-(value(Later))));}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "an earlier prefixed cast does not see a later backing"
+        [ "provided:integer-result:none" ]
+        (only_direct result "Before" |> path_names);
+      Alcotest.(check (list string))
+        "nested prefixes keep the later visible F64 class"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "After" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated =
+    prepare ~path:"call-decision-prefix-generated.HC"
+      "#define NEG -\n\
+       extern I64 Target(I64 value);\n\
+       I64 Caller(){return Target(NEG 1.5);}"
+  in
+  let prefix =
+    decide generated |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> prefix_parts
+  in
+  (match Semantic_function_call_resolution.prefix_operator_origin prefix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated prefix keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated prefix keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated prefix provenance");
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(){return Target(-1);}"
+    (fun included ->
+      let prefix =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> prefix_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.prefix_operator_origin prefix
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included prefix provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included prefix keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
+let prefix_constructor_validation () =
+  let operand =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "prefix operand")
+  in
+  match
+    Semantic_function_call_resolution.make_prefix_argument_expression
+      ~operator:Semantic_function_call_resolution.Unary_minus
+      ~operator_origin:(Semantic_symbol.Synthesized "") ~operand
+  with
+  | Ok _ -> Alcotest.fail "expected an invalid prefix origin to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "invalid prefix origin"
+        "call argument prefix operator has an invalid source origin" message
 
 let primitive_postfix_cast_directions_and_retention () =
   let prepared =
@@ -969,6 +1123,12 @@ let tests =
       pointer_callback_and_backed_targets;
     Alcotest.test_case "source expression classes" `Quick
       source_expression_classes_stay_explicit;
+    Alcotest.test_case "prefix directions and retention" `Quick
+      prefix_directions_and_retention;
+    Alcotest.test_case "prefix source order and provenance" `Quick
+      prefix_source_order_modes_and_provenance;
+    Alcotest.test_case "prefix constructor validation" `Quick
+      prefix_constructor_validation;
     Alcotest.test_case "primitive postfix cast directions" `Quick
       primitive_postfix_cast_directions_and_retention;
     Alcotest.test_case "outer postfix cast and modes" `Quick
