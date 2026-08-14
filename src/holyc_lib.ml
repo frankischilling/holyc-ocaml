@@ -51,6 +51,7 @@ module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_expression_binding = Sema.Function_expression_binding
+module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -178,6 +179,12 @@ let resolve_function_expressions session ~declarations ~functions ~local_types
   Driver.Function_expression_binding.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~local_types ~bindings module_
+
+let resolve_module_expressions session ~declarations ~aggregates ~functions
+    ~globals ~expressions =
+  Driver.Module_expression_binding.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~aggregates ~functions ~globals ~expressions
 
 let resolve_global_types session ~declarations ~aggregates module_ =
   Driver.Global_type_resolution.resolve
