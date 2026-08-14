@@ -54,6 +54,7 @@ module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
+module Semantic_global_initializer_binding = Sema.Global_initializer_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -197,6 +198,12 @@ let resolve_outer_expressions session ~environment ~expressions =
   Driver.Outer_expression_binding.resolve
     ~table:(Session.semantic_symbols session)
     ~environment ~expressions
+
+let resolve_global_initializers session ~environment ~expressions ~globals
+    module_ =
+  Driver.Global_initializer_binding.resolve
+    ~table:(Session.semantic_symbols session)
+    ~environment ~expressions ~globals module_
 
 let resolve_global_types session ~declarations ~aggregates module_ =
   Driver.Global_type_resolution.resolve
