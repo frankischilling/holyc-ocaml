@@ -52,6 +52,7 @@ module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_expression_binding = Sema.Function_expression_binding
+module Semantic_local_warning_analysis = Sema.Local_warning_analysis
 module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
@@ -239,6 +240,19 @@ val resolve_function_expressions :
 (** Bind ordinary function-body identifiers to parameters and locals at their
     source publication points. Nonlocal names remain explicit candidates for
     later global and type resolution. This pass does not update use counts. *)
+
+val analyze_local_warnings :
+  ?compiler_option_mask:int64 ->
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  local_types:Semantic_local_type_resolution.t ->
+  bindings:Semantic_function_binding_index.t ->
+  expressions:Semantic_function_expression_binding.t ->
+  Ast.module_ ->
+  (Semantic_local_warning_analysis.t, string) result
+(** Derive effective member flags and source-compatible use counts, then
+    classify unused bindings and unneeded [no_warn] suppressions. *)
 
 val resolve_module_expressions :
   Session.t ->

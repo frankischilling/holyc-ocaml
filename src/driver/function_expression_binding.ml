@@ -33,6 +33,19 @@ let add_publication state declaration_index declarator_index
     ~declarator_index
   |> add_event state
 
+let add_no_warn_suppression state (target : Frontend.Ast.no_warn_target) =
+  Sema.Function_expression_binding.make_no_warn_suppression
+    ~name:target.no_warn_target_name.spelling
+    ~origin:(origin target.no_warn_target_name)
+  |> add_event state
+
+let add_initializer_use_reset state declaration_index declarator_index
+    (identifier : Frontend.Ast.identifier) =
+  Sema.Function_expression_binding.make_initializer_use_reset
+    ~name:identifier.spelling ~origin:(origin identifier) ~declaration_index
+    ~declarator_index
+  |> add_event state
+
 let rec fold_result apply state = function
   | [] -> Ok state
   | value :: rest -> (
@@ -117,12 +130,18 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
                 | Some initial -> (
                     match local_initializer state initial with
                     | Error _ as error -> error
-                    | Ok state ->
-                        if declarator_index = max_int then
-                          Error
-                            "function local declarator identity space is \
-                             exhausted"
-                        else declarators state (declarator_index + 1) rest)
+                    | Ok state -> (
+                        match
+                          add_initializer_use_reset state declaration_index
+                            declarator_index declarator.local_name
+                        with
+                        | Error _ as error -> error
+                        | Ok state ->
+                            if declarator_index = max_int then
+                              Error
+                                "function local declarator identity space is \
+                                 exhausted"
+                            else declarators state (declarator_index + 1) rest))
                 | None ->
                     if declarator_index = max_int then
                       Error
@@ -213,8 +232,9 @@ let rec statement state = function
   | Frontend.Ast.Break_statement _
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
-  | Frontend.Ast.Label_statement _
-  | Frontend.Ast.No_warn_statement _ -> Ok state
+  | Frontend.Ast.Label_statement _ -> Ok state
+  | Frontend.Ast.No_warn_statement no_warn ->
+      fold_result add_no_warn_suppression state no_warn.no_warn_targets
 
 and statements state statements = fold_result statement state statements
 

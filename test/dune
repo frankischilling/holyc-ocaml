@@ -27,6 +27,7 @@
   test_local_type_resolution
   test_function_binding_index
   test_function_expression_binding
+  test_local_warning_analysis
   test_module_expression_binding
   test_outer_expression_binding
   test_global_initializer_binding
