@@ -102,8 +102,8 @@ let error_message error =
   | Duplicate_binding { function_symbol; name; original; duplicate } ->
       Printf.sprintf
         "function %S declares %S more than once; symbol %d repeats symbol %d"
-        (Symbol.name function_symbol) name (symbol_number duplicate)
-        (symbol_number original)
+        (Symbol.name function_symbol)
+        name (symbol_number duplicate) (symbol_number original)
   | Function_not_indexed function_symbol ->
       Printf.sprintf "function %S has no completed binding index"
         (Symbol.name function_symbol)
@@ -143,9 +143,12 @@ let binding_position_error input message =
   Error
     (invalid_input
        (Printf.sprintf "function binding %S has %s"
-          (Symbol.name input.binding_symbol) message))
+          (Symbol.name input.binding_symbol)
+          message))
 
-let nonnegative_option = function None -> true | Some value -> value >= 0
+let nonnegative_option = function
+  | None -> true
+  | Some value -> value >= 0
 
 let validate_binding_order state (input : binding_input) =
   if
@@ -161,7 +164,8 @@ let validate_binding_order state (input : binding_input) =
     | Fixed_parameters previous, Named_parameter ->
         let current = Option.get input.parameter_index in
         if current <= previous then
-          binding_position_error input "a parameter position outside source order"
+          binding_position_error input
+            "a parameter position outside source order"
         else Ok (Fixed_parameters current)
     | Fixed_parameters previous, Variadic_argc ->
         let current = Option.get input.parameter_index in
@@ -171,21 +175,22 @@ let validate_binding_order state (input : binding_input) =
     | After_argc argc_index, Variadic_argv ->
         let current = Option.get input.parameter_index in
         if current <> argc_index + 1 then
-          binding_position_error input "an argv position that does not follow argc"
+          binding_position_error input
+            "an argv position that does not follow argc"
         else Ok After_argv
     | (Fixed_parameters _ | After_argv), (Automatic_local | Static_local) ->
         Ok
           (Local_bindings
              ( Option.get input.local_declaration_index,
                Option.get input.local_declarator_index ))
-    | Local_bindings (previous_declaration, previous_declarator),
-      (Automatic_local | Static_local) ->
+    | ( Local_bindings (previous_declaration, previous_declarator),
+        (Automatic_local | Static_local) ) ->
         let declaration = Option.get input.local_declaration_index in
         let declarator = Option.get input.local_declarator_index in
         if
           declaration < previous_declaration
-          || (declaration = previous_declaration
-             && declarator <= previous_declarator)
+          || declaration = previous_declaration
+             && declarator <= previous_declarator
         then
           binding_position_error input "a local position outside source order"
         else Ok (Local_bindings (declaration, declarator))
@@ -193,7 +198,8 @@ let validate_binding_order state (input : binding_input) =
         binding_position_error input "a binding between variadic argc and argv"
     | After_argv, (Named_parameter | Variadic_argc | Variadic_argv)
     | Local_bindings _, (Named_parameter | Variadic_argc | Variadic_argv) ->
-        binding_position_error input "a parameter after the local namespace began"
+        binding_position_error input
+          "a parameter after the local namespace began"
     | Fixed_parameters _, Variadic_argv ->
         binding_position_error input "variadic argv without a preceding argc"
 
@@ -209,8 +215,11 @@ let validate_binding table scope seen_symbols state input =
   else if not (symbol_has_scope symbol scope) then
     Error (invalid_input "function binding belongs to the wrong function scope")
   else if
-    not (Symbol.equal_kind (Symbol.kind symbol) (expected_symbol_kind input.binding_kind))
-  then Error (invalid_input "function binding has the wrong semantic symbol kind")
+    not
+      (Symbol.equal_kind (Symbol.kind symbol)
+         (expected_symbol_kind input.binding_kind))
+  then
+    Error (invalid_input "function binding has the wrong semantic symbol kind")
   else if Int_set.mem number seen_symbols then
     Error (invalid_input "function binding symbol is repeated")
   else
@@ -222,8 +231,12 @@ let validate_bindings table scope inputs =
   let rec loop seen state = function
     | [] ->
         if
-          match state with After_argc _ -> true | Fixed_parameters _ | After_argv | Local_bindings _ -> false
-        then Error (invalid_input "function binding list ends after argc without argv")
+          match state with
+          | After_argc _ -> true
+          | Fixed_parameters _ | After_argv | Local_bindings _ -> false
+        then
+          Error
+            (invalid_input "function binding list ends after argc without argv")
         else Ok ()
     | input :: rest -> (
         match validate_binding table scope seen state input with
@@ -235,7 +248,7 @@ let validate_bindings table scope inputs =
 let build_bindings function_symbol inputs =
   let rec loop ordinal bindings_rev (by_name : binding String_map.t) = function
     | [] -> Ok (List.rev bindings_rev, by_name)
-    | input :: rest ->
+    | input :: rest -> (
         let binding =
           {
             symbol = input.binding_symbol;
@@ -247,11 +260,11 @@ let build_bindings function_symbol inputs =
           }
         in
         let name = Symbol.name binding.symbol in
-        (match String_map.find_opt name by_name with
+        match String_map.find_opt name by_name with
         | Some original when not (repeated_name_is_permitted name) ->
             Error
-              (duplicate_binding ~function_symbol ~name ~original:original.symbol
-                 ~duplicate:binding.symbol)
+              (duplicate_binding ~function_symbol ~name
+                 ~original:original.symbol ~duplicate:binding.symbol)
         | Some _ -> loop (ordinal + 1) (binding :: bindings_rev) by_name rest
         | None ->
             loop (ordinal + 1) (binding :: bindings_rev)
@@ -267,24 +280,30 @@ let validate_function table parent previous_item seen_symbols seen_scopes
   let symbol_id = symbol_number symbol in
   let scope_id = scope_number scope in
   if input.function_item_index < 0 then
-    Error (invalid_input "function binding index has a negative module position")
+    Error
+      (invalid_input "function binding index has a negative module position")
   else if input.function_item_index <= previous_item then
-    Error (invalid_input "function binding indexes do not follow module source order")
+    Error
+      (invalid_input
+         "function binding indexes do not follow module source order")
   else if not (Symbol_table.owns_symbol table symbol) then
     Error (invalid_input "indexed function belongs to another symbol table")
   else if not (Symbol_table.owns_scope table scope) then
-    Error (invalid_input "indexed function scope belongs to another symbol table")
+    Error
+      (invalid_input "indexed function scope belongs to another symbol table")
   else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error (invalid_input "function binding index requires a function symbol")
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
     Error (invalid_input "function binding index requires a function scope")
   else if not (symbol_has_scope symbol parent) then
-    Error (invalid_input "indexed function symbol does not belong to the module")
+    Error
+      (invalid_input "indexed function symbol does not belong to the module")
   else if
     match Symbol_table.parent scope with
     | Some scope_parent -> not (same_scope scope_parent parent)
     | None -> true
-  then Error (invalid_input "indexed function scope does not belong to the module")
+  then
+    Error (invalid_input "indexed function scope does not belong to the module")
   else if Int_set.mem symbol_id seen_symbols then
     Error (invalid_input "indexed function symbol is repeated")
   else if Int_set.mem scope_id seen_scopes then
@@ -300,7 +319,8 @@ let validate_function table parent previous_item seen_symbols seen_scopes
 
 let validate table parent inputs =
   if not (Symbol_table.owns_scope table parent) then
-    Error (invalid_input "function binding parent belongs to another symbol table")
+    Error
+      (invalid_input "function binding parent belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
     Error (invalid_input "function binding indexes require a module scope")
   else
@@ -308,8 +328,8 @@ let validate table parent inputs =
       | [] -> Ok ()
       | input :: rest -> (
           match
-            validate_function table parent previous_item seen_symbols seen_scopes
-              input
+            validate_function table parent previous_item seen_symbols
+              seen_scopes input
           with
           | Error _ as error -> error
           | Ok (item, seen_symbols, seen_scopes) ->

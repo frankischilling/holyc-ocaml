@@ -30,7 +30,6 @@ type binding = private {
 }
 
 type indexed_function
-
 type t
 
 type error_kind =

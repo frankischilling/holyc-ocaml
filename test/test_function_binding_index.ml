@@ -66,7 +66,8 @@ let build inputs =
     ~declarations:inputs.declarations ~functions:inputs.functions
     ~function_types:inputs.function_types ~local_types:inputs.local_types
 
-let prepare ?mode ~path contents = inputs ?mode ~path contents |> build |> checked
+let prepare ?mode ~path contents =
+  inputs ?mode ~path contents |> build |> checked
 
 let function_named index name =
   Semantic_function_binding_index.functions index
@@ -86,7 +87,8 @@ let expect_lookup index function_ name =
     Semantic_function_binding_index.function_symbol function_
   in
   match
-    Semantic_function_binding_index.lookup index ~function_:function_symbol ~name
+    Semantic_function_binding_index.lookup index ~function_:function_symbol
+      ~name
     |> Result.map_error Semantic_function_binding_index.error_to_string
     |> checked
   with
@@ -229,10 +231,12 @@ let generated_provenance () =
       let binding = expect_lookup index function_ name in
       let origin = source_origin (Semantic_symbol.origin binding.symbol) in
       Alcotest.(check bool)
-        (name ^ " keeps its invocation") true
+        (name ^ " keeps its invocation")
+        true
         (Option.is_some origin.generated_from);
       Alcotest.(check bool)
-        (name ^ " keeps its definition") true
+        (name ^ " keeps its definition")
+        true
         (Option.is_some origin.defined_at))
 
 let summary index =
@@ -248,7 +252,9 @@ let summary index =
 let modes_and_determinism () =
   let source = "U0 Stable(I64 value,...){I64 local;static U8 stored;}" in
   let jit = prepare ~mode:Preprocessor.Jit ~path:"binding-jit.HC" source in
-  let jit_again = prepare ~mode:Preprocessor.Jit ~path:"binding-jit.HC" source in
+  let jit_again =
+    prepare ~mode:Preprocessor.Jit ~path:"binding-jit.HC" source
+  in
   let aot = prepare ~mode:Preprocessor.Aot ~path:"binding-aot.HC" source in
   Alcotest.(check bool) "repeated build" true (summary jit = summary jit_again);
   Alcotest.(check bool) "JIT and AOT namespace" true (summary jit = summary aot)
@@ -300,7 +306,7 @@ let low_level_validation_and_lookup_errors () =
   in
   let input =
     {
-      Semantic_function_binding_index.function_symbol = function_symbol;
+      Semantic_function_binding_index.function_symbol;
       function_scope;
       function_item_index = 0;
       function_bindings =
@@ -351,10 +357,7 @@ let low_level_validation_and_lookup_errors () =
     {
       input with
       function_bindings =
-        [
-          List.hd input.function_bindings;
-          List.hd input.function_bindings;
-        ];
+        [ List.hd input.function_bindings; List.hd input.function_bindings ];
     }
   in
   (match
@@ -383,7 +386,13 @@ let low_level_validation_and_lookup_errors () =
   in
   expect_error "local before parameter validation" "HCSEMA0014"
     (Semantic_function_binding_index.build ~table ~parent:module_scope
-       [ { input with function_bindings = [ List.hd input.function_bindings; parameter_input ] } ]);
+       [
+         {
+           input with
+           function_bindings =
+             [ List.hd input.function_bindings; parameter_input ];
+         };
+       ]);
   let wrong_scope_local =
     checked
       (Semantic_symbol_table.add table ~scope:module_scope ~name:"wrong_scope"
@@ -416,15 +425,16 @@ let low_level_validation_and_lookup_errors () =
   expect_error "parent scope kind validation" "HCSEMA0014"
     (Semantic_function_binding_index.build ~table ~parent:root [ input ]);
   let foreign = Semantic_symbol_table.create () in
-  (match
-     Semantic_function_binding_index.build ~table ~parent:(
-       Semantic_symbol_table.root foreign) [ input ]
-   with
+  match
+    Semantic_function_binding_index.build ~table
+      ~parent:(Semantic_symbol_table.root foreign)
+      [ input ]
+  with
   | Error error ->
       Alcotest.(check string)
         "foreign parent validation" "HCSEMA0014"
         (Semantic_function_binding_index.error_code error)
-  | Ok _ -> Alcotest.fail "expected foreign parent rejection")
+  | Ok _ -> Alcotest.fail "expected foreign parent rejection"
 
 let tests =
   [

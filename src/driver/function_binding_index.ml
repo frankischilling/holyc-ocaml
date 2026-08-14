@@ -28,7 +28,9 @@ let typed_parameters function_ =
     |> List.map (fun binding -> Named binding)
   in
   let synthetic =
-    match Sema.Function_type_resolution.function_variadic_bindings function_ with
+    match
+      Sema.Function_type_resolution.function_variadic_bindings function_
+    with
     | None -> []
     | Some variadic ->
         [
@@ -79,20 +81,18 @@ let validate_parameter table entry typed =
   else Ok ()
 
 let local_storage_matches kind local =
-  match
-    (kind, Sema.Local_type_resolution.local_storage local)
-  with
-  | Sema.Function_collection.Automatic_local,
-    Sema.Local_type_resolution.Automatic
+  match (kind, Sema.Local_type_resolution.local_storage local) with
+  | ( Sema.Function_collection.Automatic_local,
+      Sema.Local_type_resolution.Automatic )
   | Sema.Function_collection.Static_local, Sema.Local_type_resolution.Static ->
       true
-  | ( Sema.Function_collection.Named_parameter
-    | Sema.Function_collection.Variadic_argc
-    | Sema.Function_collection.Variadic_argv
-    | Sema.Function_collection.Automatic_local
-    | Sema.Function_collection.Static_local ),
-    (Sema.Local_type_resolution.Automatic | Sema.Local_type_resolution.Static) ->
-      false
+  | ( ( Sema.Function_collection.Named_parameter
+      | Sema.Function_collection.Variadic_argc
+      | Sema.Function_collection.Variadic_argv
+      | Sema.Function_collection.Automatic_local
+      | Sema.Function_collection.Static_local ),
+      (Sema.Local_type_resolution.Automatic | Sema.Local_type_resolution.Static)
+    ) -> false
 
 let validate_local table entry local =
   let symbol = Sema.Function_collection.entry_symbol entry in
@@ -152,12 +152,14 @@ let binding_inputs table collected typed local_types =
                 match validate_parameter table entry parameter with
                 | Error _ as error -> error
                 | Ok () ->
-                    loop (input_of_entry entry :: inputs_rev) rest
-                      parameter_rest locals))
+                    loop
+                      (input_of_entry entry :: inputs_rev)
+                      rest parameter_rest locals))
         | Sema.Function_collection.Automatic_local
-        | Sema.Function_collection.Static_local ->
+        | Sema.Function_collection.Static_local -> (
             if parameters <> [] then
-              Error "function binding index places a local before its parameters"
+              Error
+                "function binding index places a local before its parameters"
             else
               match locals with
               | [] ->
@@ -166,7 +168,9 @@ let binding_inputs table collected typed local_types =
                   match validate_local table entry local with
                   | Error _ as error -> error
                   | Ok () ->
-                      loop (input_of_entry entry :: inputs_rev) rest [] local_rest))
+                      loop
+                        (input_of_entry entry :: inputs_rev)
+                        rest [] local_rest)))
   in
   loop [] entries parameters locals
 
