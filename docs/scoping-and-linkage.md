@@ -116,9 +116,11 @@ Member metadata follows the same contextual identifier boundary but has no indep
 
 `no_warn` uses that function-wide parser context directly. The target token is accepted only when the current lookup reports a local shadow, which covers fixed parameters, synthetic variadic bindings, and locals published earlier in source order. A same-named global remains irrelevant once a local is visible; a global by itself, an unresolved name, or a later local is rejected. The semantic function-binding stream resolves each accepted target to that same stable binding. It records the suppression separately from ordinary expression uses and records the count reset after an initialized local.
 
-`Sema.Local_warning_analysis` copies the declaration-time member mask, adds `MLF_NO_UNUSED_WARN` to its immutable result, and computes ordinary, suppression, and combined source counts. A definition reports an unflagged zero-count binding when `OPTf_WARN_UNUSED_VAR` is enabled. A flagged binding reports an unneeded suppression when its combined count exceeds one, except for `_anon_`; that second warning does not depend on the option. Prototypes produce no warnings. The result retains binding and suppression origins, but it does not mutate `Sema.Symbol_table` or allocate a `CMemberLst`.
+`sizeof`, `offset`, and `defined` take a narrower route through the same publication-ordered environment. The root of `sizeof` or `offset` becomes a query, as does a name-shaped `defined` operand. Member-path spellings do not become queries; the pinned parser undoes their incidental `MemberFind` increments. A non-name `defined` operand also contributes nothing. These records leave the ordinary occurrence list unchanged, so compilation-unit and outer-table binding still consume only ordinary expressions.
 
-The count includes the ordinary identifier roles already resolved by `Driver.Function_expression_binding`. Type syntax, member names, `sizeof`, `offset`, `defined`, labels, and assembly tokens remain outside this pass. The driver currently receives one compiler-option mask for the batch, so source-executed option changes and a CLI diagnostic renderer remain later work.
+`Sema.Local_warning_analysis` copies the declaration-time member mask, adds `MLF_NO_UNUSED_WARN` to its immutable result, and computes ordinary, query, suppression, and combined source counts. A definition reports an unflagged zero-count binding when `OPTf_WARN_UNUSED_VAR` is enabled. A flagged binding reports an unneeded suppression when its combined count exceeds one, except for `_anon_`; that second warning does not depend on the option. The post-initializer reset clears ordinary and query uses of the binding being declared while leaving earlier bindings alone. Prototypes produce no warnings. The result retains binding and suppression origins, but it does not mutate `Sema.Symbol_table` or allocate a `CMemberLst`.
+
+Type syntax, member lookup, query values, labels, and assembly tokens remain outside this pass. The driver currently receives one compiler-option mask for the batch, so source-executed option changes and a CLI diagnostic renderer remain later work.
 
 ## Parser visibility inspection
 
@@ -136,7 +138,7 @@ This is the parser's source-order routing state. It explains why a token was tre
 
 [Issue #222](https://github.com/frankischilling/holyc-ocaml/issues/222) records declaration-time member-list masks on semantic locals.
 
-[Issue #224](https://github.com/frankischilling/holyc-ocaml/issues/224) records parser visibility and source shape for `no_warn` targets. [Issue #226](https://github.com/frankischilling/holyc-ocaml/issues/226) records stable suppression binding, effective flags, represented use counts, and warning classification.
+[Issue #224](https://github.com/frankischilling/holyc-ocaml/issues/224) records parser visibility and source shape for `no_warn` targets. [Issue #226](https://github.com/frankischilling/holyc-ocaml/issues/226) records stable suppression binding, effective flags, represented use counts, and warning classification. [Issue #228](https://github.com/frankischilling/holyc-ocaml/issues/228) records the specialized local-query counts.
 
 [Issue #204](https://github.com/frankischilling/holyc-ocaml/issues/204) records the semantic function-expression binding boundary.
 
