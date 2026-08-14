@@ -3,6 +3,7 @@ type parameter_default =
       origin : Symbol.origin;
       equals_origin : Symbol.origin;
       expression_origin : Symbol.origin;
+      contains_string_literal : bool;
     }
   | Lastclass_default of {
       origin : Symbol.origin;
@@ -28,6 +29,7 @@ and parameter = {
   parameter_type_reference_ : Type_reference.t;
   parameter_declarator_kind_ : declarator_kind;
   parameter_default_ : parameter_default option;
+  parameter_flag_mask_ : int64;
   parameter_delimiter_origin_ : Symbol.origin option;
 }
 
@@ -55,6 +57,7 @@ type synthetic_binding = {
   synthetic_parameter_index : int;
   synthetic_type : Type.t;
   synthetic_shape : synthetic_shape;
+  synthetic_flag_mask : int64;
 }
 
 type variadic_bindings = {
@@ -98,6 +101,11 @@ let parameter_name_origin parameter = parameter.parameter_name_origin_
 let parameter_type_reference parameter = parameter.parameter_type_reference_
 let parameter_declarator_kind parameter = parameter.parameter_declarator_kind_
 let parameter_default parameter = parameter.parameter_default_
+let parameter_flag_mask parameter = parameter.parameter_flag_mask_
+
+let parameter_has_flag parameter flag =
+  Member_flag.is_set ~mask:parameter.parameter_flag_mask_ flag
+
 let parameter_delimiter_origin parameter = parameter.parameter_delimiter_origin_
 let function_pointer_origin pointer = pointer.pointer_origin
 let function_pointer_opening_origin pointer = pointer.pointer_opening_origin
@@ -117,10 +125,41 @@ let synthetic_binding_symbol binding = binding.synthetic_symbol
 let synthetic_binding_index binding = binding.synthetic_parameter_index
 let synthetic_binding_type binding = binding.synthetic_type
 let synthetic_binding_shape binding = binding.synthetic_shape
+let synthetic_binding_flag_mask binding = binding.synthetic_flag_mask
+
+let synthetic_binding_has_flag binding flag =
+  Member_flag.is_set ~mask:binding.synthetic_flag_mask flag
 
 let synthetic_parameter_name = function
   | Argc -> "argc"
   | Argv -> "argv"
+
+let set_flag_if condition flag mask =
+  if condition then Member_flag.set ~mask flag else mask
+
+let set_flag flag mask = Member_flag.set ~mask flag
+
+let parameter_flags ~name ~declarator_kind ~default =
+  let mask =
+    0L
+    |> set_flag_if (Option.is_none name) Member_flag.No_unused_warning
+    |> set_flag_if
+         (match declarator_kind with
+         | Function_pointer _ -> true
+         | Object -> false)
+         Member_flag.Function_pointer
+  in
+  match default with
+  | None -> mask
+  | Some (Lastclass_default _) ->
+      mask
+      |> set_flag Member_flag.Default_available
+      |> set_flag Member_flag.Lastclass
+  | Some (Expression_default { contains_string_literal; _ }) ->
+      mask
+      |> set_flag Member_flag.Default_available
+      |> set_flag_if contains_string_literal
+           Member_flag.String_default_available
 
 let make_parameter ~index ~origin ?name ?name_origin ~type_reference
     ~declarator_kind ~default ?delimiter_origin () =
@@ -143,6 +182,8 @@ let make_parameter ~index ~origin ?name ?name_origin ~type_reference
             parameter_type_reference_ = type_reference;
             parameter_declarator_kind_ = declarator_kind;
             parameter_default_ = default;
+            parameter_flag_mask_ =
+              parameter_flags ~name ~declarator_kind ~default;
             parameter_delimiter_origin_ = delimiter_origin;
           }
 
@@ -241,6 +282,7 @@ let make_synthetic_binding kind ~symbol ~parameter_index ~resolved_type ~shape =
         synthetic_parameter_index = parameter_index;
         synthetic_type = resolved_type;
         synthetic_shape = shape;
+        synthetic_flag_mask = Member_flag.to_mask Member_flag.Variadic;
       }
 
 let make_variadic_bindings ~marker_origin ~argc ~argv =

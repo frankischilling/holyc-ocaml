@@ -561,6 +561,8 @@ let default_fact (default : Frontend.Ast.parameter_default) =
           equals_origin;
           expression_origin =
             origin (Frontend.Ast.expression_location expression);
+          contains_string_literal =
+            Expression_facts.contains_string_literal expression;
         }
   | Frontend.Ast.Lastclass_default lastclass ->
       Sema.Function_type_resolution.Lastclass_default

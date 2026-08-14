@@ -320,7 +320,7 @@ let callback_types () =
       "class Node {};\n\
        U0 Callbacks(){\n\
        U8 reg R9 *(**handler)(Node *node,I64=lastclass,U8 *(*nested)(I64 \
-       value,...),...);\n\
+       value=\"nested\",...),...);\n\
        }"
   in
   let local =
@@ -344,6 +344,10 @@ let callback_types () =
     "callback parameters retain names and gaps"
     [ Some "node"; None; Some "nested" ]
     (List.map Semantic_function_type_resolution.parameter_name parameters);
+  Alcotest.(check (list int64))
+    "local callback parameters retain source-derived masks" [ 0L; 0x23L; 0x8L ]
+    (parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   Alcotest.(check bool)
     "callback keeps its terminal ellipsis" true
     (signature |> Semantic_function_type_resolution.signature_variadic_origin
@@ -371,6 +375,11 @@ let callback_types () =
     (nested
    |> Semantic_function_type_resolution.function_pointer_indirection_origins
    |> List.length);
+  Alcotest.(check (list int64))
+    "nested local callback keeps its string-default mask" [ 0x5L ]
+    (nested |> Semantic_function_type_resolution.function_pointer_signature
+   |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   let request =
     Semantic_local_type_resolution.local_register_requests local |> List.hd
   in
