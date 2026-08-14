@@ -29,6 +29,8 @@ let () =
       ("semantic function binding index", Test_function_binding_index.tests);
       ( "semantic function expression binding",
         Test_function_expression_binding.tests );
+      ( "semantic local warning analysis",
+        Test_local_warning_analysis.tests );
       ( "semantic module expression binding",
         Test_module_expression_binding.tests );
       ("semantic outer expression binding", Test_outer_expression_binding.tests);
