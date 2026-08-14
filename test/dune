@@ -26,6 +26,7 @@
   test_global_type_resolution
   test_local_type_resolution
   test_function_binding_index
+  test_function_expression_binding
   test_function_resolution
   test_function_record_classification
   test_global_resolution

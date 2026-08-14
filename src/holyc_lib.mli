@@ -50,6 +50,7 @@ module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
+module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -219,6 +220,18 @@ val index_function_bindings :
 (** Validate the shared function namespace and build immutable lookup indexes.
     Expression publication timing, use counts, warnings, storage, and register
     allocation remain separate passes. *)
+
+val resolve_function_expressions :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  functions:Semantic_function_collection.t ->
+  local_types:Semantic_local_type_resolution.t ->
+  bindings:Semantic_function_binding_index.t ->
+  Ast.module_ ->
+  (Semantic_function_expression_binding.t, string) result
+(** Bind ordinary function-body identifiers to parameters and locals at their
+    source publication points. Nonlocal names remain explicit candidates for
+    later global and type resolution. This pass does not update use counts. *)
 
 val resolve_global_types :
   Session.t ->
