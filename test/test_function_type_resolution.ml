@@ -1026,7 +1026,12 @@ let register_constructor_states_and_validation () =
        ~kind:Semantic_register_request.Allocate
        ~position:Semantic_register_request.Before_type ~spelling:"reg" ~origin
        ~explicit_register:"R15" ~explicit_register_number:14
-       ~explicit_register_origin:register_origin ())
+       ~explicit_register_origin:register_origin ());
+  rejects "variadic requests require an ellipsis"
+    (Semantic_function_type_resolution.make_signature
+       ~opening_origin:(synthesized "opening parenthesis") ~parameters:[]
+       ~variadic_register_requests:[ allocate ]
+       ~closing_origin:(synthesized "closing parenthesis") ())
 
 let fixed_variadic_and_recursive_register_requests () =
   let session = Session.create () in
@@ -1217,7 +1222,19 @@ let register_request_provenance () =
         (Option.is_some provenance.generated_from);
       Alcotest.(check bool)
         "generated request keeps its definition" true
-        (Option.is_some provenance.defined_at));
+        (Option.is_some provenance.defined_at);
+      request |> Semantic_register_request.explicit_register
+      |> Option.iter (fun register ->
+          let register_provenance =
+            register |> Semantic_register_request.explicit_register_origin
+            |> source_origin
+          in
+          Alcotest.(check bool)
+            "generated explicit register keeps its invocation" true
+            (Option.is_some register_provenance.generated_from);
+          Alcotest.(check bool)
+            "generated explicit register keeps its definition" true
+            (Option.is_some register_provenance.defined_at)));
   let directory = Filename.temp_dir "holyc-parameter-register-" "" in
   Fun.protect
     ~finally:(fun () -> remove_tree directory)
@@ -1250,7 +1267,17 @@ let register_request_provenance () =
       in
       Alcotest.(check string)
         "included request keeps its source" "qualified.HC"
-        (Source_file.path request_source |> Filename.basename))
+        (Source_file.path request_source |> Filename.basename);
+      let register_source =
+        request |> Semantic_register_request.explicit_register |> Option.get
+        |> Semantic_register_request.explicit_register_origin |> source_origin
+        |> fun origin ->
+        Source_manager.find (Session.sources session) origin.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included explicit register keeps its source" "qualified.HC"
+        (Source_file.path register_source |> Filename.basename))
 
 let register_requests_are_deterministic_but_not_header_identity () =
   let session = Session.create () in
