@@ -4400,6 +4400,53 @@ source_positioned_option_execution = "not implemented; low-level declaration sna
 native_oracle_status = "not required for this semantic boundary; PrsFunJoin, MemberLstCmp, PrsVarLst, and PrsDotDotDot state every compared field and boundary directly"
 
 [[feature]]
+id = "HC-SEMA-DIRECT-CALL-SLOT-RESOLUTION"
+description = "Syntactically direct function-body calls bind their fixed and variadic positions to the source-visible HolyC header while retaining the canonical joined target."
+sources = [
+  "Compiler/PrsExp.HC:PrsFunCall",
+  "Compiler/PrsExp.HC:PrsUnaryTerm direct function branch",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/PrsVar.HC:PrsVarLst fixed and variadic parameter records",
+  "Compiler/Lex.HC:local-first identifier lookup",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashFun",
+  "Doc/HolyC.DD:default arguments and parenthesis-free calls"
+]
+implementation = [
+  "src/sema/function_call_resolution.ml",
+  "src/driver/function_call_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/oracle/parenthesis-free-calls.json"
+]
+status = "implemented"
+issue = 238
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "syntactically direct identifier calls in accepted function bodies from one checked declaration, function-type, function-identity, and module-expression batch"
+call_syntaxes = ["parenthesized", "parenthesis-free"]
+fixed_slot_sources = ["provided expression", "explicit omitted slot", "absent trailing slot"]
+default_rule = "an explicit or trailing absence selects the declared default; a required position reports HCSEMA0040"
+non_trailing_defaults = "supported without imposing the C trailing-default rule"
+extra_fixed_argument = "HCSEMA0041 when the active header is not variadic"
+variadic_rule = "only provided expressions after the fixed block are retained and counted in signed I64 range"
+omitted_variadic_argument = "HCSEMA0042"
+visible_header = "the Module_expression_binding publication source symbol at the callee occurrence"
+canonical_target = "the Function_resolution identity selected by the JIT or AOT join rule"
+deferred_callees = ["function-local variable", "global variable", "aggregate publication", "outer candidate"]
+provenance = ["call origin", "callee origin", "each argument origin", "included source", "generated invocation", "definition origin"]
+validation = "session ownership, module parentage, compilation mode, source order, typed and resolved declaration identity, AST association, callee occurrence index, spelling, origin, and contiguous call and argument indexes"
+diagnostics = ["HCSEMA0039 invalid input", "HCSEMA0040 missing required fixed argument", "HCSEMA0041 extra fixed argument", "HCSEMA0042 omitted variadic argument"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+default_expression_evaluation_and_lastclass_substitution = "not implemented"
+argument_type_conversion = "not implemented; the pinned F64-versus-integer conversion branch remains a later semantic pass"
+indirect_call_checking = "not implemented; callback variables remain explicit deferred results"
+top_level_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "the parenthesis-free fixture was observed with the pinned compiler; the fixed-slot and variadic state transitions are direct statements in PrsFunCall"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
 description = "Reconciled function identities replay the pinned record-flag transitions and expose the consumer policies selected by those flags."
 sources = [

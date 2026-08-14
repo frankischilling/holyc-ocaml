@@ -62,6 +62,7 @@ module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis
+module Semantic_function_call_resolution = Sema.Function_call_resolution
 
 module Semantic_function_record_classification =
   Sema.Function_record_classification
@@ -352,6 +353,18 @@ val analyze_function_headers :
   result
 (** Compare joined function headers using evaluated default payloads. The
     compile-time VM remains responsible for producing those payloads. *)
+
+val resolve_function_calls :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  functions:Semantic_function_resolution.t ->
+  expressions:Semantic_module_expression_binding.t ->
+  Ast.module_ ->
+  (Semantic_function_call_resolution.t, string) result
+(** Bind syntactically direct calls in function bodies to the source-visible
+    function header. Fixed slots retain provided or declared-default origins;
+    indirect and outer targets remain explicit deferred results. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->
