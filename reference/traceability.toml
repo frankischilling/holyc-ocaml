@@ -3792,7 +3792,10 @@ sources = [
   "Compiler/PrsVar.HC:619-656 ordinary, lastclass, and string-backed defaults",
   "Compiler/PrsExp.HC:440-491 default and vararg call consumers",
   "Compiler/PrsExp.HC:692-704 string and binary-insertion miscellaneous data",
-  "Compiler/LexLib.HC:157-194 default comparison and owned-data cleanup"
+  "Compiler/LexLib.HC:157-194 default comparison and owned-data cleanup",
+  "Kernel/KernelC.HH:283 Dir string default",
+  "Adam/ABlkDev/ADskA.HC:61 Copy string default",
+  "Adam/ABlkDev/ADskB.HC:150 Zip string default"
 ]
 implementation = [
   "src/sema/function_type_resolution.ml",
@@ -3827,6 +3830,7 @@ string_classification = "the accepted AST is searched structurally through group
 unsupported_misc_data = "TK_INS_BIN is not an accepted default-expression form and is not claimed"
 flag_injection = "none; make_parameter and make_synthetic_binding derive their private masks"
 provenance = ["ordinary source", "included source", "definition-generated source"]
+pinned_fixtures = ["Kernel/KernelC.HH:283", "Adam/ABlkDev/ADskA.HC:61", "Adam/ABlkDev/ADskB.HC:150"]
 compilation_modes = ["jit", "aot"]
 validation = "exact masks, per-flag queries, recursive independence, synthetic shape, source provenance, deterministic replay, and all four callback-owning semantic drivers"
 mutation = "none"
