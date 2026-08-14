@@ -3492,7 +3492,8 @@ semantic_scope = "named aggregate members produced by the checked member type-re
 semantic_rule = "ordinary object member -> zero; callback member -> MLF_FUN (0x8)"
 flag_injection = "none; callers cannot supply a contradictory semantic mask"
 provenance = ["definition line", "consumer path and line", "pinned source digest", "reference commit"]
-other_flag_producers = "default, lastclass, string ownership, varargs, warning suppression, and static-local classification remain registry facts until their semantic passes apply them"
+parameter_application = "implemented by HC-SEMA-FUNCTION-PARAMETER-FLAGS"
+remaining_flag_producer = "MLF_STATIC remains a registry fact until local storage classification applies it"
 recorded_consumers = "header comparison, cleanup, sizing, warnings, calls, local access, and member access are audited but not implemented by this feature"
 default_binding_evaluation_call_checking_storage_lowering_and_execution = "not implemented"
 compilation_modes = ["jit", "aot"]
@@ -3762,6 +3763,7 @@ fixed_parameters = "every source slot is retained in order; unnamed slots remain
 parameter_bindings = "named fixed parameters on the top-level function signature map to the symbols created by HC-SEMA-FUNCTION-BINDINGS"
 callback_signatures = "one through four callback indirection layers with recursively resolved fixed parameters, defaults, nested callbacks, and terminal ellipsis provenance"
 defaults = "absence, ordinary expression syntax, and lastclass syntax remain distinct with source provenance; values are not evaluated"
+parameter_flags = "implemented by HC-SEMA-FUNCTION-PARAMETER-FLAGS"
 variadic_bindings = "top-level ellipsis binds argc followed by argv after the fixed slots"
 argc = "intrinsic I64 scalar"
 argv = "intrinsic I64 array shape with no source extent and the compiler placeholder extent 127"
@@ -3778,6 +3780,58 @@ global_and_local_types = "implemented separately by HC-SEMA-GLOBAL-TYPE-REFERENC
 cast_sizeof_and_offset_types = "not implemented"
 linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-PARAMETER-FLAGS"
+description = "Fixed parameters and synthetic varargs retain the member-list flags assigned by the pinned compiler."
+sources = [
+  "Kernel/KernelA.HH:774-818 CMemberLst flag definitions and U16 storage",
+  "Compiler/PrsVar.HC:332-356 unnamed fixed slots",
+  "Compiler/PrsVar.HC:373-402 synthetic argc and argv",
+  "Compiler/PrsVar.HC:490-524 callback declarators",
+  "Compiler/PrsVar.HC:619-656 ordinary, lastclass, and string-backed defaults",
+  "Compiler/PrsExp.HC:440-491 default and vararg call consumers",
+  "Compiler/PrsExp.HC:692-704 string and binary-insertion miscellaneous data",
+  "Compiler/LexLib.HC:157-194 default comparison and owned-data cleanup"
+]
+implementation = [
+  "src/sema/function_type_resolution.ml",
+  "src/driver/expression_facts.ml",
+  "src/driver/function_type_resolution.ml",
+  "src/driver/member_type_resolution.ml",
+  "src/driver/global_type_resolution.ml",
+  "src/driver/local_type_resolution.ml",
+  "src/driver/function_default_binding.ml"
+]
+tests = [
+  "test/test_function_type_resolution.ml",
+  "test/test_member_type_resolution.ml",
+  "test/test_global_type_resolution.ml",
+  "test/test_local_type_resolution.ml",
+  "test/test_member_flag_source.ml"
+]
+status = "implemented"
+issue = 220
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "all accepted fixed parameters in top-level, member, global, and local callback signatures, plus synthetic varargs on top-level functions"
+fixed_rules = [
+  "unnamed slot -> MLF_NO_UNUSED_WARN",
+  "callback declarator -> MLF_FUN",
+  "any default -> MLF_DFT_AVAILABLE",
+  "lastclass default -> MLF_LASTCLASS",
+  "accepted string-bearing expression default -> MLF_STR_DFT_AVAILABLE"
+]
+synthetic_rule = "argc and argv each carry exactly MLF_DOT_DOT_DOT"
+recursive_rule = "each callback level derives its own masks; child defaults do not change the owning parameter"
+string_classification = "the accepted AST is searched structurally through grouping, unary and postfix operations, casts, binary operations, calls, indexes, and member access"
+unsupported_misc_data = "TK_INS_BIN is not an accepted default-expression form and is not claimed"
+flag_injection = "none; make_parameter and make_synthetic_binding derive their private masks"
+provenance = ["ordinary source", "included source", "definition-generated source"]
+compilation_modes = ["jit", "aot"]
+validation = "exact masks, per-flag queries, recursive independence, synthetic shape, source provenance, deterministic replay, and all four callback-owning semantic drivers"
+mutation = "none"
+default_evaluation_substitution_call_checking_storage_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this retained record boundary; the pinned assignments and generated member-flag registry state the exact masks"
 
 [[feature]]
 id = "HC-SEMA-LOCAL-TYPES"
