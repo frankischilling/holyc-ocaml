@@ -94,7 +94,8 @@ let add_outer_symbol prepared name record_kind =
        ~scope:(Semantic_symbol_table.root table)
        ~name
        ~kind:(semantic_kind record_kind)
-       ~origin:(Semantic_symbol.Synthesized ("function default fixture " ^ name)))
+       ~origin:
+         (Semantic_symbol.Synthesized ("function default fixture " ^ name)))
 
 let checked_environment = function
   | Ok value -> value
@@ -265,8 +266,7 @@ let joined_headers_and_lastclass () =
         |> List.length);
       match Semantic_function_default_binding.parameter_default parameter with
       | Some (Semantic_function_type_resolution.Lastclass_default _) -> ()
-      | None
-      | Some (Semantic_function_type_resolution.Expression_default _) ->
+      | None | Some (Semantic_function_type_resolution.Expression_default _) ->
           Alcotest.fail "expected a retained lastclass default")
     [ first; second ]
 
@@ -329,7 +329,8 @@ let default_identifier (module_ : Ast.module_) =
   match parameters with
   | parameter :: _ -> (
       match parameter.default with
-      | Some { value = Ast.Expression_default (Ast.Identifier_expression name); _ }
+      | Some
+          { value = Ast.Expression_default (Ast.Identifier_expression name); _ }
         -> name
       | Some _ -> Alcotest.fail "expected an identifier default"
       | None -> Alcotest.fail "expected a function default")
@@ -440,17 +441,16 @@ let determinism_purity_and_validation () =
   let middle = Semantic_symbol_table.all_symbols table |> List.length in
   let second = resolve prepared outer in
   let after = Semantic_symbol_table.all_symbols table |> List.length in
-  let first_signature =
-    function_at first 0 |> occurrence_signature
-  in
+  let first_signature = function_at first 0 |> occurrence_signature in
   Alcotest.(check (list string))
     "repeated resolution is deterministic" first_signature
     (function_at second 0 |> occurrence_signature);
   Alcotest.(check (pair int int))
     "resolution does not mutate symbols" (before, before) (middle, after);
   let provenance =
-    parameter_occurrences (function_at first 0) 0 |> List.hd
-    |> Semantic_function_default_binding.occurrence_origin |> source_origin
+    parameter_occurrences (function_at first 0) 0
+    |> List.hd |> Semantic_function_default_binding.occurrence_origin
+    |> source_origin
   in
   Alcotest.(check bool)
     "successful macro invocation is retained" true
@@ -458,7 +458,9 @@ let determinism_purity_and_validation () =
   Alcotest.(check bool)
     "successful macro definition is retained" true
     (Option.is_some provenance.defined_at);
-  let declarations = Semantic_function_resolution.declarations prepared.functions in
+  let declarations =
+    Semantic_function_resolution.declarations prepared.functions
+  in
   let first_declaration = List.nth declarations 0 in
   let second_declaration = List.nth declarations 1 in
   let good_event =
@@ -468,7 +470,10 @@ let determinism_purity_and_validation () =
     |> checked
   in
   let good_inputs =
-    [ input_for first_declaration [ [ good_event ] ]; input_for second_declaration [ [] ] ]
+    [
+      input_for first_declaration [ [ good_event ] ];
+      input_for second_declaration [ [] ];
+    ]
   in
   let low inputs environment =
     Semantic_function_default_binding.resolve ~table ~environment
@@ -489,7 +494,8 @@ let determinism_purity_and_validation () =
        outer);
   let wrong_parameter =
     Semantic_function_default_binding.make_identifier ~name:"Target"
-      ~origin:(Semantic_symbol.Synthesized "misplaced function default occurrence")
+      ~origin:
+        (Semantic_symbol.Synthesized "misplaced function default occurrence")
       ~occurrence_index:0 ~parameter_index:1
     |> checked
   in
@@ -527,7 +533,9 @@ let determinism_purity_and_validation () =
     |> checked
   in
   expect_low_error "HCSEMA0029" (low good_inputs aot_outer);
-  let foreign = prepare ~path:"function-default-foreign.HC" "extern U0 Other();" in
+  let foreign =
+    prepare ~path:"function-default-foreign.HC" "extern U0 Other();"
+  in
   let foreign_outer = jit_environment foreign [] [] in
   expect_low_error "HCSEMA0029" (low good_inputs foreign_outer);
   (match
@@ -542,7 +550,8 @@ let determinism_purity_and_validation () =
         "function default occurrence index cannot be negative" message);
   match
     Holyc_lib.resolve_function_defaults prepared.session ~environment:outer
-      ~expressions:prepared.expressions ~functions:prepared.functions foreign.ast
+      ~expressions:prepared.expressions ~functions:prepared.functions
+      foreign.ast
   with
   | Ok _ -> Alcotest.fail "expected AST drift to fail"
   | Error message ->

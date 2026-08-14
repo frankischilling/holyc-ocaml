@@ -20,6 +20,7 @@ val expressions : t -> Module_expression_binding.t
 val owns_table : t -> Symbol_table.t -> bool
 val find_point : t -> Symbol.t -> point option
 val point_publication : point -> Module_expression_binding.publication
+
 val initial_cursor : t -> cursor
 (** Cursors advance monotonically. A point from another environment or one the
     cursor has already passed is rejected. *)

@@ -67,10 +67,7 @@ val function_source_symbol : resolved_function -> Symbol.t
 val function_canonical_symbol : resolved_function -> Symbol.t
 val function_item_index : resolved_function -> int
 val function_parameters : resolved_function -> resolved_parameter list
-
-val parameter_source :
-  resolved_parameter -> Function_type_resolution.parameter
-
+val parameter_source : resolved_parameter -> Function_type_resolution.parameter
 val parameter_index : resolved_parameter -> int
 
 val parameter_default :

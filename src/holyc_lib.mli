@@ -298,9 +298,9 @@ val resolve_function_defaults :
   functions:Semantic_function_resolution.t ->
   Ast.module_ ->
   (Semantic_function_default_binding.t, string) result
-(** Bind ordinary identifier occurrences in defaults on top-level named
-    function headers. The owning function is visible, parameters are not local
-    bindings yet, and later declarations remain unavailable. *)
+(** Bind ordinary identifier occurrences in defaults on top-level named function
+    headers. The owning function is visible, parameters are not local bindings
+    yet, and later declarations remain unavailable. *)
 
 val resolve_global_types :
   Session.t ->

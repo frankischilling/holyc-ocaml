@@ -109,7 +109,8 @@ let item_index_of_input input =
   |> Function_type_resolution.function_item_index
 
 let make_identifier ~name ~origin ~occurrence_index ~parameter_index =
-  if String.equal name "" then Error "function default identifier cannot be empty"
+  if String.equal name "" then
+    Error "function default identifier cannot be empty"
   else if occurrence_index < 0 then
     Error "function default occurrence index cannot be negative"
   else if parameter_index < 0 then
@@ -122,9 +123,14 @@ let functions result = result.functions
 let environment result = result.environment
 let expressions result = result.expressions
 let source_functions result = result.source_functions
-let compilation_mode result = Function_resolution.compilation_mode result.source_functions
+
+let compilation_mode result =
+  Function_resolution.compilation_mode result.source_functions
+
 let owns_table result table = result.table == table
-let function_declaration (function_ : resolved_function) = function_.source.declaration
+
+let function_declaration (function_ : resolved_function) =
+  function_.source.declaration
 
 let function_publication (function_ : resolved_function) =
   Module_binding_environment.point_publication function_.point
@@ -139,7 +145,9 @@ let function_item_index (function_ : resolved_function) =
   item_index_of_input function_.source
 
 let function_parameters (function_ : resolved_function) = function_.parameters
-let parameter_source (parameter : resolved_parameter) = parameter.source.parameter
+
+let parameter_source (parameter : resolved_parameter) =
+  parameter.source.parameter
 
 let parameter_index (parameter : resolved_parameter) =
   Function_type_resolution.parameter_index parameter.source.parameter
@@ -164,7 +172,9 @@ let same_declaration left right =
   let left_site = Function_resolution.resolved_declaration_site left in
   let right_site = Function_resolution.resolved_declaration_site right in
   let left_function = Function_resolution.declaration_site_function left_site in
-  let right_function = Function_resolution.declaration_site_function right_site in
+  let right_function =
+    Function_resolution.declaration_site_function right_site
+  in
   same_symbol
     (Function_type_resolution.function_symbol left_function)
     (Function_type_resolution.function_symbol right_function)
@@ -184,8 +194,7 @@ let validate_event expected_occurrence parameter_index event =
       (invalid_input "function default occurrence indexes are not contiguous")
   else if event.parameter_index <> parameter_index then
     Error
-      (invalid_input
-         "function default identifier has the wrong parameter index")
+      (invalid_input "function default identifier has the wrong parameter index")
   else if String.equal event.name "" then
     Error (invalid_input "function default identifier is empty")
   else if expected_occurrence = max_int then
@@ -220,13 +229,13 @@ let validate_events expected_occurrence parameter =
 let validate_parameters expected input =
   let rec pair expected_occurrence = function
     | [], [] -> Ok ()
-    | expected :: expected_rest, parameter :: input_rest ->
+    | expected :: expected_rest, parameter :: input_rest -> (
         if expected != parameter.parameter then
           Error
             (invalid_input
                "function default parameters do not match the resolved header")
         else
-          (match validate_events expected_occurrence parameter with
+          match validate_events expected_occurrence parameter with
           | Error _ as error -> error
           | Ok next -> pair next (expected_rest, input_rest))
     | [], _ :: _ | _ :: _, [] ->
@@ -246,21 +255,25 @@ let validate_publication table module_environment input =
     not
       (Symbol_table.owns_symbol table source_symbol
       && Symbol_table.owns_symbol table canonical_symbol)
-  then Error (invalid_input "function default owner belongs to another symbol table")
+  then
+    Error
+      (invalid_input "function default owner belongs to another symbol table")
   else if not (Symbol_table.owns_scope table scope) then
     Error
       (invalid_input "function default scope belongs to another symbol table")
   else
-    match Module_binding_environment.find_point module_environment source_symbol with
+    match
+      Module_binding_environment.find_point module_environment source_symbol
+    with
     | None ->
-        Error
-          (invalid_input "function default owner has no module publication")
+        Error (invalid_input "function default owner has no module publication")
     | Some point ->
         let publication = Module_binding_environment.point_publication point in
         if
           Module_expression_binding.publication_kind publication
           <> Module_expression_binding.Function
-        then Error (invalid_input "function default publication is not a function")
+        then
+          Error (invalid_input "function default publication is not a function")
         else if
           not
             (same_symbol
@@ -270,7 +283,9 @@ let validate_publication table module_environment input =
                  (Module_expression_binding.publication_canonical_symbol
                     publication)
                  canonical_symbol)
-        then Error (invalid_input "function default publication has the wrong identity")
+        then
+          Error
+            (invalid_input "function default publication has the wrong identity")
         else if
           Module_expression_binding.publication_item_index publication
           <> Function_type_resolution.function_item_index source_function
@@ -286,7 +301,7 @@ let validate_inputs table module_environment source_functions inputs =
   let expected = Function_resolution.declarations source_functions in
   let rec pair previous_publication paired_rev = function
     | [], [] -> Ok (List.rev paired_rev)
-    | expected :: expected_rest, input :: input_rest ->
+    | expected :: expected_rest, input :: input_rest -> (
         if not (same_declaration expected input.declaration) then
           Error
             (invalid_input
@@ -298,7 +313,7 @@ let validate_inputs table module_environment source_functions inputs =
             |> Function_type_resolution.function_signature
             |> Function_type_resolution.signature_parameters
           in
-          (match validate_parameters expected_parameters input.parameters with
+          match validate_parameters expected_parameters input.parameters with
           | Error _ as error -> error
           | Ok () -> (
               match validate_publication table module_environment input with
@@ -313,7 +328,8 @@ let validate_inputs table module_environment source_functions inputs =
                       (invalid_input
                          "function default publications are not source ordered")
                   else
-                    pair publication_index ((input, point) :: paired_rev)
+                    pair publication_index
+                      ((input, point) :: paired_rev)
                       (expected_rest, input_rest)))
     | [], _ :: _ | _ :: _, [] ->
         Error
@@ -356,22 +372,25 @@ let resolve_inputs module_environment paired =
     | (source, point) :: rest -> (
         match Module_binding_environment.publish_through cursor point with
         | Error message -> Error (invalid_input message)
-        | Ok cursor ->
+        | Ok cursor -> (
             let source_symbol = source_symbol_of_input source in
-            (match
-               resolve_parameters environment cursor source_symbol
-                 source.parameters
-             with
+            match
+              resolve_parameters environment cursor source_symbol
+                source.parameters
+            with
             | Error _ as error -> error
             | Ok parameters ->
                 let function_ = { source; point; parameters } in
-                loop cursor (function_ :: functions_rev)
-                  (Int_map.add (symbol_number source_symbol) function_
-                     by_source_symbol)
+                loop cursor
+                  (function_ :: functions_rev)
+                  (Int_map.add
+                     (symbol_number source_symbol)
+                     function_ by_source_symbol)
                   rest))
   in
-  loop (Module_binding_environment.initial_cursor module_environment) []
-    Int_map.empty paired
+  loop
+    (Module_binding_environment.initial_cursor module_environment)
+    [] Int_map.empty paired
 
 let resolve ~table ~environment ~expressions ~functions:source_functions inputs
     =
@@ -384,7 +403,9 @@ let resolve ~table ~environment ~expressions ~functions:source_functions inputs
          "function identities and module expressions use different compilation \
           modes")
   else
-    match Module_binding_environment.create ~table ~environment ~expressions with
+    match
+      Module_binding_environment.create ~table ~environment ~expressions
+    with
     | Error message -> Error (invalid_input message)
     | Ok module_environment -> (
         match

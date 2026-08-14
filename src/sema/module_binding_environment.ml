@@ -88,15 +88,7 @@ let create ~table ~environment ~expressions =
     match collect_points owner table expressions with
     | Error _ as error -> error
     | Ok (points, by_source_symbol) ->
-        Ok
-          {
-            owner;
-            table;
-            environment;
-            expressions;
-            points;
-            by_source_symbol;
-          }
+        Ok { owner; table; environment; expressions; points; by_source_symbol }
 
 let table (state : t) = state.table
 let environment (state : t) = state.environment
@@ -113,8 +105,7 @@ let find_point state symbol =
              (Symbol.id
                 (Module_expression_binding.publication_source_symbol
                    point.publication))
-             (Symbol.id symbol) ->
-        Some point
+             (Symbol.id symbol) -> Some point
     | Some _ | None -> None
 
 let initial_cursor (state : t) =
@@ -139,8 +130,7 @@ let rec publish_while predicate visible = function
 
 let advance comparison (cursor : cursor) (point : point) =
   if cursor.owner != point.owner then
-    Error
-      "module publication cursor and point belong to different environments"
+    Error "module publication cursor and point belong to different environments"
   else
     let boundary =
       Module_expression_binding.publication_declaration_index point.publication

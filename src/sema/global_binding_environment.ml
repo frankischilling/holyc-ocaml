@@ -124,8 +124,7 @@ let create ~table ~environment ~expressions ~globals:source_globals =
             (Global_resolution.records source_globals)
         with
         | Error _ as error -> error
-        | Ok globals ->
-            Ok { module_environment; source_globals; globals })
+        | Ok globals -> Ok { module_environment; source_globals; globals })
 
 let table state = Module_binding_environment.table state.module_environment
 

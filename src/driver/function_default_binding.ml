@@ -14,8 +14,8 @@ type state = {
 
 let empty_state = { events_rev = []; next_index = 0 }
 
-let add_identifier parameter_index state
-    (identifier : Frontend.Ast.identifier) =
+let add_identifier parameter_index state (identifier : Frontend.Ast.identifier)
+    =
   if state.next_index = max_int then
     Error "function default occurrence identity space is exhausted"
   else
@@ -116,33 +116,27 @@ let validate_default semantic ast =
   | None, None -> Ok ()
   | ( Some
         (Sema.Function_type_resolution.Expression_default
-          {
-            origin = semantic_origin;
-            equals_origin;
-            expression_origin;
-          }),
+           { origin = semantic_origin; equals_origin; expression_origin }),
       Some (ast : Frontend.Ast.parameter_default) ) -> (
       match ast.value with
       | Frontend.Ast.Expression_default expression
         when semantic_origin = origin ast.location
              && equals_origin = origin ast.equals
              && expression_origin
-                = origin (Frontend.Ast.expression_location expression) ->
-          Ok ()
+                = origin (Frontend.Ast.expression_location expression) -> Ok ()
       | Frontend.Ast.Expression_default _ ->
           Error "function default expression has the wrong source origin"
       | Frontend.Ast.Lastclass_default _ ->
           Error "function default expression has the wrong source shape")
   | ( Some
         (Sema.Function_type_resolution.Lastclass_default
-          { origin = semantic_origin; equals_origin; keyword_origin }),
+           { origin = semantic_origin; equals_origin; keyword_origin }),
       Some (ast : Frontend.Ast.parameter_default) ) -> (
       match ast.value with
       | Frontend.Ast.Lastclass_default lastclass
         when semantic_origin = origin ast.location
              && equals_origin = origin ast.equals
-             && keyword_origin = origin lastclass.lastclass_location ->
-          Ok ()
+             && keyword_origin = origin lastclass.lastclass_location -> Ok ()
       | Frontend.Ast.Lastclass_default _ ->
           Error "function lastclass default has the wrong source origin"
       | Frontend.Ast.Expression_default _ ->
@@ -152,9 +146,7 @@ let validate_default semantic ast =
 
 let validate_parameter index semantic (ast : Frontend.Ast.function_parameter) =
   let ast_name =
-    Option.map
-      (fun (name : Frontend.Ast.identifier) -> name.spelling)
-      ast.name
+    Option.map (fun (name : Frontend.Ast.identifier) -> name.spelling) ast.name
   in
   let ast_name_origin =
     Option.map
@@ -164,7 +156,8 @@ let validate_parameter index semantic (ast : Frontend.Ast.function_parameter) =
   if Sema.Function_type_resolution.parameter_index semantic <> index then
     Error "semantic function parameter has the wrong index"
   else if
-    Sema.Function_type_resolution.parameter_origin semantic <> origin ast.location
+    Sema.Function_type_resolution.parameter_origin semantic
+    <> origin ast.location
   then Error "semantic function parameter has the wrong source origin"
   else if Sema.Function_type_resolution.parameter_name semantic <> ast_name then
     Error "semantic function parameter has the wrong name"
@@ -189,43 +182,35 @@ let parameter_inputs semantic ast =
   let rec pair index state inputs_rev semantic ast =
     match (semantic, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
-    | semantic :: semantic_rest, ast :: ast_rest ->
+    | semantic :: semantic_rest, ast :: ast_rest -> (
         let previous_count = state.next_index in
-        (match validate_parameter index semantic ast with
+        match validate_parameter index semantic ast with
         | Error _ as error -> error
         | Ok () -> (
             let collected =
               match ast.default with
-              | Some
-                  {
-                    value = Frontend.Ast.Expression_default value;
-                    _;
-                  } ->
+              | Some { value = Frontend.Ast.Expression_default value; _ } ->
                   expression index state value
-              | None
-              | Some
-                  {
-                    value = Frontend.Ast.Lastclass_default _;
-                    _;
-                  } ->
+              | None | Some { value = Frontend.Ast.Lastclass_default _; _ } ->
                   Ok state
             in
             match collected with
             | Error _ as error -> error
-            | Ok state ->
+            | Ok state -> (
                 let added = state.next_index - previous_count in
                 let events = state.events_rev |> take added |> List.rev in
-                (match
-                   Sema.Function_default_binding.make_parameter
-                     ~parameter:semantic events
-                 with
+                match
+                  Sema.Function_default_binding.make_parameter
+                    ~parameter:semantic events
+                with
                 | Error _ as error -> error
                 | Ok input ->
                     if index = max_int then
-                      Error "function default parameter identity space is exhausted"
+                      Error
+                        "function default parameter identity space is exhausted"
                     else
-                      pair (index + 1) state (input :: inputs_rev)
-                        semantic_rest ast_rest)))
+                      pair (index + 1) state (input :: inputs_rev) semantic_rest
+                        ast_rest)))
     | [], _ :: _ | _ :: _, [] ->
         Error "semantic function parameters do not match the AST"
   in
@@ -237,7 +222,9 @@ let function_input table declaration (ast : ast_function) =
   let symbol = Sema.Function_type_resolution.function_symbol function_ in
   if not (Sema.Symbol_table.owns_symbol table symbol) then
     Error "function default declaration belongs to another symbol table"
-  else if Sema.Function_type_resolution.function_item_index function_ <> ast.item_index
+  else if
+    Sema.Function_type_resolution.function_item_index function_
+    <> ast.item_index
   then Error "function default declaration does not match the AST item order"
   else if not (String.equal (Sema.Symbol.name symbol) ast.name.spelling) then
     Error "function default declaration does not match the AST name"
