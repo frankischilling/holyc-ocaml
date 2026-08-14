@@ -26,8 +26,10 @@ val decide :
     Literals keep their exact result class. Current position, [sizeof],
     [offset], and [defined] use the pinned non-F64 side of the comparison.
     Postfix casts use the source-visible class of their explicit target,
-    including aggregate backing chains. Parentheses preserve these classes, and
-    other expression shapes remain explicit unresolved results. *)
+    including aggregate backing chains. Unary plus, unary minus, and logical not
+    keep the recursively forwarded operand class. Address-of uses the integer
+    side. Parentheses preserve these classes, and other expression shapes remain
+    explicit unresolved results. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
