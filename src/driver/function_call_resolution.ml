@@ -7,13 +7,17 @@ let origin (location : Frontend.Ast.location) =
       defined_at = location.defined_at;
     }
 
+module String_map = Map.Make (String)
+
 type state = {
   next_occurrence : int;
   next_call : int;
   calls_rev : Sema.Function_call_resolution.call list;
+  visible_aggregates : Sema.Symbol.t String_map.t;
 }
 
-let empty_state = { next_occurrence = 0; next_call = 0; calls_rev = [] }
+let empty_state visible_aggregates =
+  { next_occurrence = 0; next_call = 0; calls_rev = []; visible_aggregates }
 
 let add_identifier state =
   if state.next_occurrence = max_int then
@@ -37,15 +41,15 @@ let call_syntax (call : Frontend.Ast.call_expression) =
   | Frontend.Ast.Parenthesis_free_call ->
       Sema.Function_call_resolution.Parenthesis_free
 
-let cast_type_reference (cast : Frontend.Ast.postfix_cast_expression) =
+let cast_type_reference visible (cast : Frontend.Ast.postfix_cast_expression) =
   let pointer_origins =
     List.map
       (fun (layer : Frontend.Ast.pointer_layer) -> origin layer.location)
       cast.cast_pointer_layers
   in
   let pointer_depth = List.length pointer_origins in
-  let make form primitive =
-    match Sema.Type.make_primitive ~form ~primitive ~pointer_depth with
+  let make resolved_type =
+    match resolved_type with
     | Error _ as error -> error
     | Ok resolved_type ->
         Sema.Type_reference.make
@@ -56,14 +60,23 @@ let cast_type_reference (cast : Frontend.Ast.postfix_cast_expression) =
   in
   match cast.cast_type with
   | Frontend.Ast.Primitive_type_specifier primitive ->
-      make Sema.Type.Public_spelling primitive.primitive
-      |> Result.map Option.some
+      make
+        (Sema.Type.make_primitive ~form:Sema.Type.Public_spelling
+           ~primitive:primitive.primitive ~pointer_depth)
   | Frontend.Ast.Internal_type_specifier internal ->
-      make Sema.Type.Internal_storage internal.primitive
-      |> Result.map Option.some
-  | Frontend.Ast.Named_type_specifier _ -> Ok None
+      make
+        (Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+           ~primitive:internal.primitive ~pointer_depth)
+  | Frontend.Ast.Named_type_specifier identifier -> (
+      match String_map.find_opt identifier.spelling visible with
+      | None ->
+          Error
+            (Printf.sprintf
+               "named postfix cast %S has no source-visible aggregate identity"
+               identifier.spelling)
+      | Some symbol -> make (Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let rec argument_expression (expression : Frontend.Ast.expression) =
+let rec argument_expression visible (expression : Frontend.Ast.expression) =
   let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal _ ->
@@ -75,7 +88,7 @@ let rec argument_expression (expression : Frontend.Ast.expression) =
     | Frontend.Ast.String_literal _ ->
         Ok Sema.Function_call_resolution.String_literal
     | Frontend.Ast.Parenthesized_expression grouped -> (
-        match argument_expression grouped.grouped_expression with
+        match argument_expression visible grouped.grouped_expression with
         | Error _ as error -> error
         | Ok grouped ->
             Ok (Sema.Function_call_resolution.Parenthesized_expression grouped))
@@ -108,14 +121,10 @@ let rec argument_expression (expression : Frontend.Ast.expression) =
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Postfix_expression)
     | Frontend.Ast.Postfix_cast_expression cast -> (
-        match cast_type_reference cast with
+        match cast_type_reference visible cast with
         | Error _ as error -> error
-        | Ok None ->
-            Ok
-              (Sema.Function_call_resolution.Unresolved_expression
-                 Sema.Function_call_resolution.Postfix_cast_expression)
-        | Ok (Some target) -> (
-            match argument_expression cast.cast_operand with
+        | Ok target -> (
+            match argument_expression visible cast.cast_operand with
             | Error _ as error -> error
             | Ok operand ->
                 Ok
@@ -144,14 +153,14 @@ let rec argument_expression (expression : Frontend.Ast.expression) =
         ~origin:(origin (Frontend.Ast.expression_location expression)))
     kind_result
 
-let argument index (argument : Frontend.Ast.call_argument) =
+let argument visible index (argument : Frontend.Ast.call_argument) =
   let prepared =
     match argument.call_argument_value with
     | Frontend.Ast.Provided_call_argument expression ->
         Result.map
           (fun expression ->
             (Sema.Function_call_resolution.Provided, Some expression))
-          (argument_expression expression)
+          (argument_expression visible expression)
     | Frontend.Ast.Omitted_call_argument ->
         Ok (Sema.Function_call_resolution.Omitted, None)
   in
@@ -161,11 +170,11 @@ let argument index (argument : Frontend.Ast.call_argument) =
       Sema.Function_call_resolution.make_argument ~index ~kind ~expression
         ~origin:(origin argument.call_argument_location)
 
-let call_arguments call =
+let call_arguments visible call =
   let rec loop index rev = function
     | [] -> Ok (List.rev rev)
     | argument_ast :: rest -> (
-        match argument index argument_ast with
+        match argument visible index argument_ast with
         | Error _ as error -> error
         | Ok argument ->
             if index = max_int then
@@ -174,10 +183,10 @@ let call_arguments call =
   in
   loop 0 [] call.Frontend.Ast.call_arguments
 
-let collect_call state (call : Frontend.Ast.call_expression) =
+let collect_call visible state (call : Frontend.Ast.call_expression) =
   match call.call_callee with
   | Frontend.Ast.Identifier_expression callee -> (
-      match call_arguments call with
+      match call_arguments visible call with
       | Error _ as error -> error
       | Ok arguments -> (
           match
@@ -216,7 +225,7 @@ let rec expression state = function
       | Error _ as error -> error
       | Ok state -> expression state binary.binary_right)
   | Frontend.Ast.Call_expression call -> (
-      match collect_call state call with
+      match collect_call state.visible_aggregates state call with
       | Error _ as error -> error
       | Ok state -> (
           match expression state call.call_callee with
@@ -392,7 +401,7 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table expected (item_index, ast) =
+let function_input table visible_aggregates expected (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -411,9 +420,10 @@ let function_input table expected (item_index, ast) =
     Error "function call owner does not match the AST origin"
   else
     let collected =
+      let state = empty_state visible_aggregates in
       match body with
-      | None -> Ok empty_state
-      | Some body -> statement empty_state body
+      | None -> Ok state
+      | Some body -> statement state body
     in
     match collected with
     | Error _ as error -> error
@@ -429,18 +439,49 @@ let function_input table expected (item_index, ast) =
           Sema.Function_call_resolution.make_function ~symbol ~scope ~item_index
             (List.rev state.calls_rev)
 
+let publish_aggregates_before visible publications item_index =
+  let rec loop visible = function
+    | publication :: rest
+      when Sema.Module_expression_binding.publication_item_index publication
+           < item_index ->
+        let visible =
+          if
+            Sema.Module_expression_binding.publication_kind publication
+            = Sema.Module_expression_binding.Aggregate
+          then
+            let symbol =
+              Sema.Module_expression_binding.publication_canonical_symbol
+                publication
+            in
+            String_map.add (Sema.Symbol.name symbol) symbol visible
+          else visible
+        in
+        loop visible rest
+    | remaining -> (visible, remaining)
+  in
+  loop visible publications
+
 let function_inputs table expressions module_ =
-  let rec pair inputs_rev expected ast =
+  let rec pair inputs_rev visible publications expected ast =
     match (expected, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | expected :: expected_rest, ast :: ast_rest -> (
-        match function_input table expected ast with
+        let item_index =
+          Sema.Module_expression_binding.function_item_index expected
+        in
+        let visible, publications =
+          publish_aggregates_before visible publications item_index
+        in
+        match function_input table visible expected ast with
         | Error _ as error -> error
-        | Ok input -> pair (input :: inputs_rev) expected_rest ast_rest)
+        | Ok input ->
+            pair (input :: inputs_rev) visible publications expected_rest
+              ast_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error "function call inputs do not match the parsed function count"
   in
-  pair []
+  pair [] String_map.empty
+    (Sema.Module_expression_binding.publications expressions)
     (Sema.Module_expression_binding.functions expressions)
     (ast_functions module_)
 

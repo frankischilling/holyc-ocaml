@@ -28,6 +28,7 @@ module Int_map = Map.Make (Int)
 type t = {
   table : Symbol_table.t;
   compilation_mode : Function_resolution.compilation_mode;
+  headers : Aggregate_header_resolution.header Int_map.t;
   functions : resolved_function list;
   by_symbol : resolved_function Int_map.t;
 }
@@ -217,7 +218,7 @@ let validate_functions table parent calls =
   in
   loop (-1) Int_map.empty (Function_call_resolution.functions calls)
 
-let rec forwarded_target_class headers type_ =
+let rec forwarded_target_class headers ~before_item_index type_ =
   if Type.pointer_depth type_ <> 0 then Integer_result
   else
     match Type.base type_ with
@@ -226,56 +227,60 @@ let rec forwarded_target_class headers type_ =
     | Type.Aggregate symbol -> (
         match Int_map.find_opt (symbol_number symbol) headers with
         | None -> Integer_result
+        | Some header
+          when Aggregate_header_resolution.header_item_index header
+               >= before_item_index -> Integer_result
         | Some header -> (
             match Aggregate_header_resolution.header_backing header with
             | None -> Integer_result
             | Some backing ->
-                forwarded_target_class headers
+                forwarded_target_class headers ~before_item_index
                   (Aggregate_header_resolution.backing_type backing)))
 
-let parameter_target_class headers parameter =
+let parameter_target_class headers ~before_item_index parameter =
   match Function_type_resolution.parameter_declarator_kind parameter with
   | Function_type_resolution.Function_pointer _ -> Integer_result
   | Function_type_resolution.Object ->
       parameter |> Function_type_resolution.parameter_type_reference
       |> Type_reference.resolved_type
-      |> forwarded_target_class headers
+      |> forwarded_target_class headers ~before_item_index
 
-let fixed_policy headers source =
+let fixed_policy headers ~before_item_index source =
   let path =
     match Function_call_resolution.fixed_value source with
     | Function_call_resolution.Declared_default _ -> Declared_default
     | Function_call_resolution.Provided_argument _ ->
         Provided_expression
           (source |> Function_call_resolution.fixed_parameter
-          |> parameter_target_class headers)
+          |> parameter_target_class headers ~before_item_index)
   in
   { source; path }
 
-let direct_call headers source =
+let direct_call headers ~before_item_index source =
   {
     source;
     fixed_policies =
       source |> Function_call_resolution.direct_fixed_arguments
-      |> List.map (fixed_policy headers);
+      |> List.map (fixed_policy headers ~before_item_index);
     variadic_arguments =
       Function_call_resolution.direct_variadic_arguments source;
   }
 
-let call_policy headers = function
+let call_policy headers ~before_item_index = function
   | Function_call_resolution.Direct_call call ->
-      Direct_call_policy (direct_call headers call)
+      Direct_call_policy (direct_call headers ~before_item_index call)
   | Function_call_resolution.Deferred_call _ as call ->
       Deferred_call_policy call
 
 let resolve_function headers source =
+  let item_index = Function_call_resolution.function_item_index source in
   {
     symbol = Function_call_resolution.function_symbol source;
     scope = Function_call_resolution.function_scope source;
-    item_index = Function_call_resolution.function_item_index source;
+    item_index;
     calls =
       source |> Function_call_resolution.function_calls
-      |> List.map (call_policy headers);
+      |> List.map (call_policy headers ~before_item_index:item_index);
   }
 
 let analyze ~table ~parent ~headers ~calls =
@@ -311,9 +316,13 @@ let analyze ~table ~parent ~headers ~calls =
                     table;
                     compilation_mode =
                       Function_call_resolution.compilation_mode calls;
+                    headers;
                     functions;
                     by_symbol;
                   }))
+
+let forwarded_type_class result ~before_item_index type_ =
+  forwarded_target_class result.headers ~before_item_index type_
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

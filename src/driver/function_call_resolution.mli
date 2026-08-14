@@ -8,5 +8,5 @@ val resolve :
   (Sema.Function_call_resolution.t, string) result
 (** Collect syntactically direct calls from function bodies, associate each
     callee with its ordinary-expression occurrence, retain audited argument
-    source classes and primitive cast targets, and resolve fixed and variadic
-    slots against the source-visible function header. *)
+    source classes and source-visible cast targets, and resolve fixed and
+    variadic slots against the source-visible function header. *)

@@ -100,6 +100,7 @@ type resolved_function = {
 
 module Int_map = Map.Make (Int)
 module Int_set = Set.Make (Int)
+module String_map = Map.Make (String)
 
 type t = {
   table : Symbol_table.t;
@@ -318,6 +319,90 @@ let same_scope left right =
 let symbol_in_scope symbol scope =
   Symbol.Scope_id.equal (Symbol.scope_id symbol) (Symbol_table.scope_id scope)
 
+let publish_aggregates_before visible publications item_index =
+  let rec loop visible = function
+    | publication :: rest
+      when Module_expression_binding.publication_item_index publication
+           < item_index ->
+        let visible =
+          if
+            Module_expression_binding.publication_kind publication
+            = Module_expression_binding.Aggregate
+          then
+            let symbol =
+              Module_expression_binding.publication_canonical_symbol publication
+            in
+            String_map.add (Symbol.name symbol) symbol visible
+          else visible
+        in
+        loop visible rest
+    | remaining -> (visible, remaining)
+  in
+  loop visible publications
+
+let validate_cast_target table parent visible target =
+  let resolved = Type_reference.resolved_type target in
+  match Type.base resolved with
+  | Type.Primitive _ -> Ok ()
+  | Type.Aggregate symbol -> (
+      if not (Symbol_table.owns_symbol table symbol) then
+        Error
+          (invalid_input
+             "function call cast target belongs to another symbol table")
+      else if not (symbol_in_scope symbol parent) then
+        Error (invalid_input "function call cast target has the wrong scope")
+      else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+      then Error (invalid_input "function call cast target is not an aggregate")
+      else
+        match String_map.find_opt (Type_reference.spelling target) visible with
+        | None ->
+            Error
+              (invalid_input
+                 "function call cast target is not source-visible at the owner \
+                  item")
+        | Some expected when same_symbol expected symbol -> Ok ()
+        | Some _ ->
+            Error
+              (invalid_input
+                 "function call cast target does not match the source-visible \
+                  aggregate identity"))
+
+let rec validate_argument_expression table parent visible expression =
+  match argument_expression_kind expression with
+  | Parenthesized_expression grouped ->
+      validate_argument_expression table parent visible grouped
+  | Postfix_cast_expression (operand, target) -> (
+      match validate_cast_target table parent visible target with
+      | Error _ as error -> error
+      | Ok () -> validate_argument_expression table parent visible operand)
+  | Integer_literal
+  | Float_literal
+  | Character_literal
+  | String_literal
+  | Unresolved_expression _ -> Ok ()
+
+let validate_argument_expressions table parent visible calls =
+  let rec arguments = function
+    | [] -> Ok ()
+    | argument :: rest -> (
+        match argument.expression with
+        | None -> arguments rest
+        | Some expression -> (
+            match
+              validate_argument_expression table parent visible expression
+            with
+            | Error _ as error -> error
+            | Ok () -> arguments rest))
+  in
+  let rec loop = function
+    | [] -> Ok ()
+    | call :: rest -> (
+        match arguments call.arguments with
+        | Error _ as error -> error
+        | Ok () -> loop rest)
+  in
+  loop calls
+
 let validate_type_function table parent previous_item seen function_ =
   let symbol = Function_type_resolution.function_symbol function_ in
   let scope = Function_type_resolution.function_scope function_ in
@@ -460,7 +545,8 @@ let validate_calls calls occurrences =
   in
   loop 0 (-1) calls
 
-let validate_function_input table parent expected (input : function_input) =
+let validate_function_input table parent visible expected
+    (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
   let scope = Module_expression_binding.function_scope expected in
   let item_index = Module_expression_binding.function_item_index expected in
@@ -482,23 +568,32 @@ let validate_function_input table parent expected (input : function_input) =
   else if not (symbol_in_scope input.symbol parent) then
     Error (invalid_input "function call owner has the wrong module scope")
   else
-    validate_calls input.calls
-      (Module_expression_binding.function_occurrences expected)
+    match validate_argument_expressions table parent visible input.calls with
+    | Error _ as error -> error
+    | Ok () ->
+        validate_calls input.calls
+          (Module_expression_binding.function_occurrences expected)
 
 let validate_function_inputs table parent expressions inputs =
-  let rec pair expected inputs =
+  let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
-    | expected :: expected_rest, input :: input_rest -> (
-        match validate_function_input table parent expected input with
+    | expected :: expected_rest, (input : function_input) :: input_rest -> (
+        let visible, publications =
+          publish_aggregates_before visible publications input.item_index
+        in
+        match validate_function_input table parent visible expected input with
         | Error _ as error -> error
-        | Ok () -> pair expected_rest input_rest)
+        | Ok () -> pair visible publications expected_rest input_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
              "function call inputs do not match module expression functions")
   in
-  pair (Module_expression_binding.functions expressions) inputs
+  pair String_map.empty
+    (Module_expression_binding.publications expressions)
+    (Module_expression_binding.functions expressions)
+    inputs
 
 let provided_or_default (call : call)
     (parameter : Function_type_resolution.parameter)

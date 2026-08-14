@@ -109,7 +109,9 @@ val resolve :
   (t, error) result
 (** Resolve syntactically direct function-body calls. A module function target
     receives the source header visible to the caller and its canonical joined
-    identity. Other callee categories remain explicit deferred calls. *)
+    identity. Named aggregate cast targets must carry the exact identity visible
+    before the caller. Other callee categories remain explicit deferred calls.
+*)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option

@@ -3407,7 +3407,7 @@ array_extent_evaluation = "not implemented in this type-reference pass; closed e
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "implemented for aggregate members by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout_storage_and_inherited_lookup = "closed byte layout and inherited name lookup are implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED and HC-SEMA-AGGREGATE-MEMBER-INDEX; runtime storage is not implemented"
-other_type_use_sites = "top-level function signatures, globals, and locals are implemented by their dedicated semantic type features; casts, sizeof, offset, and other sites remain unresolved"
+other_type_use_sites = "top-level function signatures, globals, locals, and direct-call postfix-cast targets are implemented by dedicated semantic type features; sizeof, offset, general cast typing, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
 [[feature]]
@@ -4521,9 +4521,10 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "prefix", "postfix", "named aggregate postfix-cast", "binary", "call", "index", "member"]
+unresolved_actuals = ["identifier", "prefix", "postfix", "binary", "call", "index", "member"]
 integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
 primitive_postfix_cast_extension = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
+named_aggregate_postfix_cast_extension = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4603,7 +4604,7 @@ integer_side_casts = ["every other public primitive", "every other intrinsic sto
 outer_cast = "replaces the operand result class"
 parentheses = "preserve the cast result class"
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT"]
-unresolved_casts = ["named aggregate target"]
+named_aggregate_extension = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4613,8 +4614,53 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 value_evaluation = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
-named_aggregate_cast_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+general_cast_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this explicit target-class boundary; PrsUnaryModifier, OptPass012, and PrsFunCall state the assigned class and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
+description = "Named class and union postfix-cast fixed arguments retain the source-visible aggregate identity and its direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:960-1055 postfix cast class assignment",
+  "Compiler/PrsVar.HC:285-319 PrsType aggregate and pointer selection",
+  "Compiler/PrsStmt.HC:1-48 aggregate forward completion and publication",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/OptPass012.HC:87-110 postfix cast folding and class forwarding",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 248
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed named aggregate postfix-cast arguments on already resolved direct function-body calls"
+semantic_source_view = "retains the cast operand and a checked aggregate type reference with canonical identity, spelling, pointer depth, spelling origin, and pointer origins"
+lookup_rule = "the cast selects the newest source-visible aggregate publication before the owning function item; later same-name records do not leak backward"
+forwarding_rule = "a by-value aggregate follows only backing headers published before the caller; primitive or intrinsic F64 is the floating result, while an unbacked aggregate stays on the integer result path"
+pointer_rule = "a named aggregate pointer stops forwarding and uses the integer result path, including when the aggregate has F64 or pointer backing"
+aggregate_kinds = ["class", "union"]
+outer_cast = "replaces the operand result class"
+parentheses = "preserve the cast result class"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT"]
+validation = "the aggregate identity must belong to the session table and module scope, match the source-visible publication exactly, retain its source spelling, and carry consistent pointer provenance"
+invalid_input_diagnostic = "HCSEMA0039"
+provenance = ["operand source", "target spelling", "pointer layers", "nested parenthesis", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+general_cast_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this source-identity and class-forwarding boundary; PrsType, PrsUnaryModifier, OptClassFwd, OptPass012, and PrsFunCall state the lookup, assignment, forwarding, and comparison directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"

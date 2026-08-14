@@ -492,6 +492,203 @@ let invalid_inputs_are_stable_and_pure () =
         "HCSEMA0039: function call declarations belong to another symbol table"
         message
 
+let named_cast_targets_validate_source_identity () =
+  let prepared =
+    prepare ~path:"function-call-named-cast-identity.HC"
+      "F64 class Box {};\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(I64 value){return Target(value(Box));}\n\
+       I64 class Box {};"
+  in
+  let resolved = resolve prepared |> checked in
+  let box_publications =
+    prepared.module_expressions
+    |> Semantic_module_expression_binding.publications
+    |> List.filter_map (fun publication ->
+        let symbol =
+          Semantic_module_expression_binding.publication_canonical_symbol
+            publication
+        in
+        if
+          Semantic_module_expression_binding.publication_kind publication
+          = Semantic_module_expression_binding.Aggregate
+          && String.equal (Semantic_symbol.name symbol) "Box"
+        then Some symbol
+        else None)
+  in
+  let first_box, second_box =
+    match box_publications with
+    | [ first; second ] -> (first, second)
+    | values ->
+        Alcotest.failf "expected two Box publications, got %d"
+          (List.length values)
+  in
+  let caller =
+    resolved |> Semantic_function_call_resolution.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_function_call_resolution.function_symbol
+        |> Semantic_symbol.name |> String.equal "Caller")
+  in
+  let source_call =
+    match Semantic_function_call_resolution.function_calls caller with
+    | [ Semantic_function_call_resolution.Direct_call direct ] ->
+        Semantic_function_call_resolution.direct_source direct
+    | _ -> Alcotest.fail "expected one direct Caller call"
+  in
+  let source_argument =
+    source_call |> Semantic_function_call_resolution.call_arguments |> List.hd
+  in
+  let source_expression =
+    source_argument |> Semantic_function_call_resolution.argument_expression
+    |> Option.get
+  in
+  let operand, retained_target =
+    match
+      Semantic_function_call_resolution.argument_expression_kind
+        source_expression
+    with
+    | Semantic_function_call_resolution.Postfix_cast_expression (operand, target)
+      -> (operand, target)
+    | _ -> Alcotest.fail "expected a retained named cast"
+  in
+  let retained_symbol =
+    match
+      retained_target |> Semantic_type_reference.resolved_type
+      |> Semantic_type.base
+    with
+    | Semantic_type.Aggregate symbol -> symbol
+    | Semantic_type.Primitive _ ->
+        Alcotest.fail "expected an aggregate cast target"
+  in
+  Alcotest.(check int)
+    "the driver selects the source-visible aggregate identity"
+    (Semantic_symbol.id first_box |> Semantic_symbol.Id.to_int)
+    (Semantic_symbol.id retained_symbol |> Semantic_symbol.Id.to_int);
+  let inputs target_symbol =
+    let target_type =
+      Semantic_type.make_aggregate ~symbol:target_symbol ~pointer_depth:0
+      |> checked
+    in
+    let target =
+      Semantic_type_reference.make ~spelling:"Box"
+        ~spelling_origin:
+          (Semantic_type_reference.spelling_origin retained_target)
+        ~pointer_origins:[] ~resolved_type:target_type
+      |> checked
+    in
+    let replacement_expression =
+      Semantic_function_call_resolution.make_argument_expression
+        ~kind:
+          (Semantic_function_call_resolution.Postfix_cast_expression
+             (operand, target))
+        ~origin:
+          (Semantic_function_call_resolution.argument_expression_origin
+             source_expression)
+    in
+    let replacement_argument =
+      Semantic_function_call_resolution.make_argument
+        ~index:
+          (Semantic_function_call_resolution.argument_index source_argument)
+        ~kind:Semantic_function_call_resolution.Provided
+        ~expression:(Some replacement_expression)
+        ~origin:
+          (Semantic_function_call_resolution.argument_origin source_argument)
+      |> checked
+    in
+    let replacement_call =
+      Semantic_function_call_resolution.make_call
+        ~index:(Semantic_function_call_resolution.call_index source_call)
+        ~callee_occurrence_index:
+          (Semantic_function_call_resolution.call_callee_occurrence_index
+             source_call)
+        ~callee_name:
+          (Semantic_function_call_resolution.call_callee_name source_call)
+        ~callee_origin:
+          (Semantic_function_call_resolution.call_callee_origin source_call)
+        ~origin:(Semantic_function_call_resolution.call_origin source_call)
+        ~syntax:(Semantic_function_call_resolution.call_syntax source_call)
+        [ replacement_argument ]
+      |> checked
+    in
+    resolved |> Semantic_function_call_resolution.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_function_call_resolution.function_symbol function_
+        in
+        let calls =
+          if String.equal (Semantic_symbol.name symbol) "Caller" then
+            [ replacement_call ]
+          else
+            function_ |> Semantic_function_call_resolution.function_calls
+            |> List.map (function
+              | Semantic_function_call_resolution.Direct_call direct ->
+                  Semantic_function_call_resolution.direct_source direct
+              | Semantic_function_call_resolution.Deferred_call { call; _ } ->
+                  call)
+        in
+        Semantic_function_call_resolution.make_function ~symbol
+          ~scope:(Semantic_function_call_resolution.function_scope function_)
+          ~item_index:
+            (Semantic_function_call_resolution.function_item_index function_)
+          calls
+        |> checked)
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let expect_invalid label expected target =
+    let before = Semantic_symbol_table.all_symbols table |> List.length in
+    (match
+       Semantic_function_call_resolution.resolve ~table
+         ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+         ~function_types:prepared.function_types ~functions:prepared.functions
+         ~expressions:prepared.module_expressions (inputs target)
+     with
+    | Ok _ -> Alcotest.failf "expected %s to fail" label
+    | Error error ->
+        Alcotest.(check string)
+          (label ^ " code") "HCSEMA0039"
+          (Semantic_function_call_resolution.error_code error);
+        Alcotest.(check string)
+          (label ^ " message") expected
+          (Semantic_function_call_resolution.error_message error));
+    Alcotest.(check int)
+      (label ^ " leaves symbols unchanged")
+      before
+      (Semantic_symbol_table.all_symbols table |> List.length)
+  in
+  expect_invalid "stale identity"
+    "function call cast target does not match the source-visible aggregate \
+     identity"
+    second_box;
+  let other_scope =
+    Semantic_symbol_table.create_scope table
+      ~parent:(Semantic_symbol_table.root table)
+      ~kind:Semantic_symbol_table.Module ~name:"other module" ()
+    |> checked
+  in
+  let wrong_scope =
+    Semantic_symbol_table.add table ~scope:other_scope ~name:"Box"
+      ~kind:Semantic_symbol.Aggregate_type
+      ~origin:(Semantic_type_reference.spelling_origin retained_target)
+    |> checked
+  in
+  expect_invalid "wrong module" "function call cast target has the wrong scope"
+    wrong_scope;
+  let foreign_table = Semantic_symbol_table.create () in
+  let foreign_scope =
+    Semantic_symbol_table.create_scope foreign_table
+      ~parent:(Semantic_symbol_table.root foreign_table)
+      ~kind:Semantic_symbol_table.Module ~name:"foreign module" ()
+    |> checked
+  in
+  let foreign =
+    Semantic_symbol_table.add foreign_table ~scope:foreign_scope ~name:"Box"
+      ~kind:Semantic_symbol.Aggregate_type
+      ~origin:(Semantic_type_reference.spelling_origin retained_target)
+    |> checked
+  in
+  expect_invalid "foreign identity"
+    "function call cast target belongs to another symbol table" foreign
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -508,4 +705,6 @@ let tests =
       generated_and_included_call_provenance;
     Alcotest.test_case "invalid inputs, determinism, and purity" `Quick
       invalid_inputs_are_stable_and_pure;
+    Alcotest.test_case "named cast target identity validation" `Quick
+      named_cast_targets_validate_source_identity;
   ]
