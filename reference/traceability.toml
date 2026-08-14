@@ -4521,8 +4521,9 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "prefix", "postfix", "postfix-cast", "binary", "call", "index", "member"]
+unresolved_actuals = ["identifier", "prefix", "postfix", "named aggregate postfix-cast", "binary", "call", "index", "member"]
 integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
+primitive_postfix_cast_extension = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4571,6 +4572,49 @@ value_evaluation = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; each primary path and PrsFunCall state the raw class and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
+description = "Primitive and intrinsic postfix-cast fixed arguments retain their explicit target class and the resulting direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:960-1055 postfix cast class assignment",
+  "Compiler/OptPass012.HC:87-110 postfix cast folding and class forwarding",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/CInit.HC:1-14 intrinsic raw types",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 246
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed primitive or intrinsic postfix-cast arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains the cast operand and a checked type reference with spelling, public or intrinsic form, pointer depth, spelling origin, and pointer origins"
+f64_casts = ["depth-zero public F64", "depth-zero intrinsic F64i"]
+integer_side_casts = ["every other public primitive", "every other intrinsic storage type", "every primitive or intrinsic pointer"]
+outer_cast = "replaces the operand result class"
+parentheses = "preserve the cast result class"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT"]
+unresolved_casts = ["named aggregate target"]
+declared_default_behavior = "retained as a separate fixed path"
+variadic_behavior = "source view retained without entering the fixed conversion decision"
+deferred_call_behavior = "retained without a conversion decision"
+provenance = ["operand source", "target spelling", "pointer layers", "nested parenthesis", "included source", "generated invocation and definition"]
+validation = "Type and Type_reference reject unsupported pointer depth, mismatched pointer provenance, and spelling or type-form disagreement"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+named_aggregate_cast_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this explicit target-class boundary; PrsUnaryModifier, OptPass012, and PrsFunCall state the assigned class and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
