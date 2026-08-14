@@ -9,6 +9,7 @@ type member = {
   declarator_origin : Symbol.origin;
   type_reference : type_reference;
   declarator_kind : declarator_kind;
+  flag_mask : int64;
   array_dimension_origins : Symbol.origin list;
 }
 
@@ -32,6 +33,10 @@ let member_declarator_index (member : member) = member.declarator_index
 let member_declarator_origin (member : member) = member.declarator_origin
 let member_type_reference (member : member) = member.type_reference
 let member_declarator_kind (member : member) = member.declarator_kind
+let member_flag_mask (member : member) = member.flag_mask
+
+let member_has_flag (member : member) flag =
+  Member_flag.is_set ~mask:member.flag_mask flag
 
 let member_array_dimension_origins (member : member) =
   member.array_dimension_origins
@@ -68,6 +73,12 @@ let make_member ~symbol ~member_path ~declarator_index ~declarator_origin
   else if declarator_index < 0 then
     Error "semantic member type declarator index cannot be negative"
   else
+    let flag_mask =
+      match declarator_kind with
+      | Object -> 0L
+      | Function_pointer _ ->
+          Member_flag.set ~mask:0L Member_flag.Function_pointer
+    in
     Ok
       {
         symbol;
@@ -76,6 +87,7 @@ let make_member ~symbol ~member_path ~declarator_index ~declarator_origin
         declarator_origin;
         type_reference;
         declarator_kind;
+        flag_mask;
         array_dimension_origins;
       }
 
