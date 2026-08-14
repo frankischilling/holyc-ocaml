@@ -3972,6 +3972,48 @@ initializer_typing_evaluation_conversion_storage_relocation_lowering_and_executi
 native_oracle_status = "not required for this binding boundary; PrsGlblVarLst places HashAdd before PrsGlblInit, and the pinned expression and table-chain paths state the remaining lookup order directly"
 
 [[feature]]
+id = "HC-SEMA-GLOBAL-DIMENSION-BINDINGS"
+description = "Ordinary identifiers in global array extents bind before the owning global is published and after earlier declarations."
+sources = [
+  "Compiler/PrsStmt.HC:209-453 PrsGlblVarLst type parsing and publication order",
+  "Compiler/PrsVar.HC:247-283 PrsArrayDims explicit and empty dimensions",
+  "Compiler/PrsVar.HC:285-370 PrsType array-dimension call",
+  "Compiler/PrsExp.HC:1140-1152 LexExpressionI64",
+  "Compiler/Lex.HC:493-509 local and hash-table lookup",
+  "Compiler/CMain.HC:60-74 JIT and AOT successor selection",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/global_binding_environment.ml",
+  "src/sema/global_dimension_binding.ml",
+  "src/driver/global_dimension_binding.ml",
+  "src/sema/module_expression_binding.ml",
+  "src/sema/outer_environment.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_global_dimension_binding.ml"
+]
+status = "implemented"
+issue = 212
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier occurrences in global array dimensions on object, callback, and aggregate-attached declarators"
+publication_boundary = "the owning global is unavailable while its dimensions bind and becomes visible for the next declarator"
+comma_declarators = "earlier declarators are visible; the current and later declarators can only be found in an outer table"
+lookup_precedence = ["newest earlier compilation-unit publication", "complete mode-specific outer table chain"]
+dimension_identity = "zero-based suffix index; an empty first suffix remains present with no expression occurrence"
+occurrence_identity = "zero-based and contiguous across every dimension of one global declarator"
+excluded_identifier_roles = ["member suffixes", "type syntax", "sizeof", "offset", "defined", "initializers", "parameter defaults", "aggregate metadata", "top-level statements", "assembly"]
+validation = "table and session ownership, mode agreement, exact global-record and dimension sequence, source order, occurrence and dimension indexes, publication identity, record kind, and AST association"
+diagnostics = ["HCSEMA0027 invalid input", "HCSEMA0028 unresolved global array extent identifier"]
+provenance = ["owning global record", "owning module publication", "dimension and bracket origins", "optional expression origin", "identifier occurrence", "generated invocation and definition origin", "selected module or outer binding"]
+mutation = "none"
+complexity = "module publications and globals share one advancing cursor with initializer binding; no full declaration rescan occurs per dimension"
+compilation_modes = ["jit", "aot"]
+extent_evaluation_constant_conversion_typing_allocation_layout_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this binding boundary; PrsGlblVarLst calls PrsType before HashAdd, and the pinned dimension, expression, and table-chain paths state the lookup order directly"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
 description = "Function declarations reconcile to source-ordered identities using TempleOS's distinct JIT and AOT selection rules."
 sources = [

@@ -6,20 +6,30 @@ type event = {
   name : string;
   origin : Symbol.origin;
   occurrence_index : int;
-  initializer_path : int list;
+  dimension_index : int;
+}
+
+type dimension_input = {
+  dimension : Global_type_resolution.array_dimension;
+  events : event list;
 }
 
 type global_input = {
   record : Global_resolution.global_record;
-  events : event list;
+  dimensions : dimension_input list;
 }
 
 type occurrence = { source : event; resolution : resolution }
 
+type resolved_dimension = {
+  source : dimension_input;
+  occurrences : occurrence list;
+}
+
 type resolved_global = {
   source : global_input;
   publication : Module_expression_binding.publication;
-  occurrences : occurrence list;
+  dimensions : resolved_dimension list;
 }
 
 module Int_map = Map.Make (Int)
@@ -37,6 +47,7 @@ type error_kind =
   | Invalid_input of string
   | Unresolved_identifier of {
       global_symbol : Symbol.t;
+      dimension_index : int;
       name : string;
       compilation_mode : Outer_environment.compilation_mode;
     }
@@ -44,14 +55,19 @@ type error_kind =
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let invalid_input message =
-  { code = "HCSEMA0025"; kind = Invalid_input message; origin = None }
+  { code = "HCSEMA0027"; kind = Invalid_input message; origin = None }
 
 let unresolved_identifier global_symbol event compilation_mode =
   {
-    code = "HCSEMA0026";
+    code = "HCSEMA0028";
     kind =
       Unresolved_identifier
-        { global_symbol; name = event.name; compilation_mode };
+        {
+          global_symbol;
+          dimension_index = event.dimension_index;
+          name = event.name;
+          compilation_mode;
+        };
     origin = Some event.origin;
   }
 
@@ -62,11 +78,13 @@ let error_origin error = error.origin
 let error_message error =
   match error.kind with
   | Invalid_input message -> message
-  | Unresolved_identifier { global_symbol; name; compilation_mode } ->
+  | Unresolved_identifier
+      { global_symbol; dimension_index; name; compilation_mode } ->
       Printf.sprintf
-        "global initializer for %S uses ordinary identifier %S, which is \
-         absent from the visible module records and the complete %s outer \
+        "global array dimension %d for %S uses ordinary identifier %S, which \
+         is absent from the visible module records and the complete %s outer \
          table chain"
+        dimension_index
         (Symbol.name global_symbol)
         name
         (Outer_environment.compilation_mode_name compilation_mode)
@@ -84,19 +102,17 @@ let global_item_of_input input =
 let global_declarator_of_input input =
   Global_type_resolution.global_declarator_index (global_data input)
 
-let global_initializer_of_input input =
-  Global_type_resolution.global_initializer (global_data input)
-
-let make_identifier ~name ~origin ~occurrence_index ~initializer_path =
+let make_identifier ~name ~origin ~occurrence_index ~dimension_index =
   if String.equal name "" then
-    Error "global initializer identifier cannot be empty"
+    Error "global array extent identifier cannot be empty"
   else if occurrence_index < 0 then
-    Error "global initializer occurrence index cannot be negative"
-  else if List.exists (fun index -> index < 0) initializer_path then
-    Error "global initializer path cannot contain a negative index"
-  else Ok { name; origin; occurrence_index; initializer_path }
+    Error "global array extent occurrence index cannot be negative"
+  else if dimension_index < 0 then
+    Error "global array extent dimension index cannot be negative"
+  else Ok { name; origin; occurrence_index; dimension_index }
 
-let make_global ~record events = Ok { record; events }
+let make_dimension ~dimension events = Ok { dimension; events }
+let make_global ~record dimensions = Ok { record; dimensions }
 let globals result = result.globals
 let environment result = result.environment
 let expressions result = result.expressions
@@ -114,40 +130,42 @@ let global_item_index (global : resolved_global) =
 let global_declarator_index (global : resolved_global) =
   global_declarator_of_input global.source
 
-let global_initializer_origin (global : resolved_global) =
-  global_initializer_of_input global.source
-  |> Option.map Global_type_resolution.initializer_origin
+let global_dimensions (global : resolved_global) = global.dimensions
 
-let global_occurrences (global : resolved_global) = global.occurrences
+let dimension_source (dimension : resolved_dimension) =
+  dimension.source.dimension
+
+let dimension_index (dimension : resolved_dimension) =
+  Global_type_resolution.array_dimension_index dimension.source.dimension
+
+let dimension_origin (dimension : resolved_dimension) =
+  Global_type_resolution.array_dimension_origin dimension.source.dimension
+
+let dimension_opening_origin (dimension : resolved_dimension) =
+  Global_type_resolution.array_dimension_opening_origin
+    dimension.source.dimension
+
+let dimension_expression_origin (dimension : resolved_dimension) =
+  Global_type_resolution.array_dimension_expression_origin
+    dimension.source.dimension
+
+let dimension_closing_origin (dimension : resolved_dimension) =
+  Global_type_resolution.array_dimension_closing_origin
+    dimension.source.dimension
+
+let dimension_occurrences (dimension : resolved_dimension) =
+  dimension.occurrences
 
 let occurrence_index (occurrence : occurrence) =
   occurrence.source.occurrence_index
 
+let occurrence_dimension_index (occurrence : occurrence) =
+  occurrence.source.dimension_index
+
 let occurrence_name (occurrence : occurrence) = occurrence.source.name
 let occurrence_origin (occurrence : occurrence) = occurrence.source.origin
-
-let occurrence_initializer_path (occurrence : occurrence) =
-  occurrence.source.initializer_path
-
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
-
-let validate_events input =
-  let rec loop expected = function
-    | [] -> Ok ()
-    | event :: rest ->
-        if event.occurrence_index <> expected then
-          Error
-            (invalid_input
-               "global initializer occurrence indexes are not contiguous")
-        else if String.equal event.name "" then
-          Error (invalid_input "global initializer identifier is empty")
-        else if List.exists (fun index -> index < 0) event.initializer_path then
-          Error
-            (invalid_input "global initializer path contains a negative index")
-        else loop (expected + 1) rest
-  in
-  loop 0 input.events
 
 let same_record left right =
   let left_global = Global_resolution.global_record_global left in
@@ -162,6 +180,71 @@ let same_record left right =
   && Global_resolution.global_record_kind left
      = Global_resolution.global_record_kind right
 
+let same_dimension left right =
+  Global_type_resolution.array_dimension_index left
+  = Global_type_resolution.array_dimension_index right
+  && Global_type_resolution.array_dimension_origin left
+     = Global_type_resolution.array_dimension_origin right
+  && Global_type_resolution.array_dimension_opening_origin left
+     = Global_type_resolution.array_dimension_opening_origin right
+  && Global_type_resolution.array_dimension_expression_origin left
+     = Global_type_resolution.array_dimension_expression_origin right
+  && Global_type_resolution.array_dimension_closing_origin left
+     = Global_type_resolution.array_dimension_closing_origin right
+
+let validate_events expected_occurrence dimension =
+  let dimension_index =
+    Global_type_resolution.array_dimension_index dimension.dimension
+  in
+  if
+    Option.is_none
+      (Global_type_resolution.array_dimension_expression_origin
+         dimension.dimension)
+    && dimension.events <> []
+  then
+    Error (invalid_input "an empty global array dimension contains identifiers")
+  else
+    let rec loop expected = function
+      | [] -> Ok expected
+      | event :: rest ->
+          if event.occurrence_index <> expected then
+            Error
+              (invalid_input
+                 "global array extent occurrence indexes are not contiguous")
+          else if event.dimension_index <> dimension_index then
+            Error
+              (invalid_input
+                 "global array extent identifier has the wrong dimension index")
+          else if String.equal event.name "" then
+            Error (invalid_input "global array extent identifier is empty")
+          else if expected = max_int then
+            Error
+              (invalid_input
+                 "global array extent occurrence identity space is exhausted")
+          else loop (expected + 1) rest
+    in
+    loop expected_occurrence dimension.events
+
+let validate_dimensions semantic (input : global_input) =
+  let rec pair expected_occurrence = function
+    | [], [] -> Ok expected_occurrence
+    | semantic :: semantic_rest, dimension :: input_rest -> (
+        if not (same_dimension semantic dimension.dimension) then
+          Error
+            (invalid_input
+               "global array extent dimensions do not match the global record")
+        else
+          match validate_events expected_occurrence dimension with
+          | Error _ as error -> error
+          | Ok next -> pair next (semantic_rest, input_rest))
+    | [], _ :: _ | _ :: _, [] ->
+        Error
+          (invalid_input
+             "global array extent dimension count does not match the global \
+              record")
+  in
+  pair 0 (semantic, input.dimensions) |> Result.map ignore
+
 let validate_inputs table paired inputs =
   let rec pair = function
     | [], [] -> Ok ()
@@ -171,24 +254,27 @@ let validate_inputs table paired inputs =
         if not (same_record record input.record) then
           Error
             (invalid_input
-               "global initializer inputs do not match the global records")
+               "global array extent inputs do not match the global records")
         else if not (Symbol_table.owns_symbol table symbol) then
           Error
             (invalid_input
-               "global initializer symbol belongs to another symbol table")
+               "global array extent symbol belongs to another symbol table")
         else if
           not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable)
         then
           Error
-            (invalid_input "global initializer owner is not a global variable")
+            (invalid_input "global array extent owner is not a global variable")
         else
-          match validate_events input with
+          let semantic =
+            global_data input |> Global_type_resolution.global_array_dimensions
+          in
+          match validate_dimensions semantic input with
           | Error _ as error -> error
           | Ok () -> pair (expected_rest, input_rest))
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
-             "global initializer input count does not match the global records")
+             "global array extent input count does not match the global records")
   in
   pair (paired, inputs)
 
@@ -210,6 +296,19 @@ let resolve_events environment cursor global_symbol events =
   in
   loop [] events
 
+let resolve_dimensions environment cursor global_symbol dimensions =
+  let rec loop resolved_rev = function
+    | [] -> Ok (List.rev resolved_rev)
+    | dimension :: rest -> (
+        match
+          resolve_events environment cursor global_symbol dimension.events
+        with
+        | Error _ as error -> error
+        | Ok occurrences ->
+            loop ({ source = dimension; occurrences } :: resolved_rev) rest)
+  in
+  loop [] dimensions
+
 let resolve_inputs binding_environment inputs =
   let environment =
     Global_binding_environment.environment binding_environment
@@ -220,29 +319,38 @@ let resolve_inputs binding_environment inputs =
     | paired_global :: paired_rest, input :: input_rest -> (
         let symbol = global_symbol_of_input input in
         match
-          Global_binding_environment.publish_through cursor paired_global
+          Global_binding_environment.publish_before cursor paired_global
         with
         | Error message -> Error (invalid_input message)
-        | Ok cursor -> (
-            match resolve_events environment cursor symbol input.events with
+        | Ok before_cursor -> (
+            match
+              resolve_dimensions environment before_cursor symbol
+                input.dimensions
+            with
             | Error _ as error -> error
-            | Ok occurrences ->
-                let global =
-                  {
-                    source = input;
-                    publication =
-                      Global_binding_environment.global_publication
-                        paired_global;
-                    occurrences;
-                  }
-                in
-                loop cursor (global :: globals_rev)
-                  (Int_map.add (symbol_number symbol) global by_symbol)
-                  paired_rest input_rest))
+            | Ok dimensions -> (
+                match
+                  Global_binding_environment.publish_through before_cursor
+                    paired_global
+                with
+                | Error message -> Error (invalid_input message)
+                | Ok cursor ->
+                    let global =
+                      {
+                        source = input;
+                        publication =
+                          Global_binding_environment.global_publication
+                            paired_global;
+                        dimensions;
+                      }
+                    in
+                    loop cursor (global :: globals_rev)
+                      (Int_map.add (symbol_number symbol) global by_symbol)
+                      paired_rest input_rest)))
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
-             "global initializer input count changed during resolution")
+             "global array extent input count changed during resolution")
   in
   loop
     (Global_binding_environment.initial_cursor binding_environment)

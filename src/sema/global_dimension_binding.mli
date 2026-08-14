@@ -3,8 +3,10 @@ type resolution = Global_binding_environment.resolution =
   | Outer_binding of Outer_environment.binding
 
 type event
+type dimension_input
 type global_input
 type occurrence
+type resolved_dimension
 type resolved_global
 type t
 
@@ -12,6 +14,7 @@ type error_kind =
   | Invalid_input of string
   | Unresolved_identifier of {
       global_symbol : Symbol.t;
+      dimension_index : int;
       name : string;
       compilation_mode : Outer_environment.compilation_mode;
     }
@@ -22,12 +25,17 @@ val make_identifier :
   name:string ->
   origin:Symbol.origin ->
   occurrence_index:int ->
-  initializer_path:int list ->
+  dimension_index:int ->
   (event, string) result
+
+val make_dimension :
+  dimension:Global_type_resolution.array_dimension ->
+  event list ->
+  (dimension_input, string) result
 
 val make_global :
   record:Global_resolution.global_record ->
-  event list ->
+  dimension_input list ->
   (global_input, string) result
 
 val resolve :
@@ -37,10 +45,9 @@ val resolve :
   globals:Global_resolution.t ->
   global_input list ->
   (t, error) result
-(** Resolve ordinary identifiers in global initializers after publishing the
-    owning global record. Module publications remain source ordered, and names
-    missing from the visible module prefix continue through the complete outer
-    table chain. *)
+(** Bind ordinary identifiers in global array extents before publishing the
+    owning global. Earlier records are visible; the current and later records
+    fall through to the complete outer table chain. *)
 
 val globals : t -> resolved_global list
 val environment : t -> Outer_environment.t
@@ -56,12 +63,21 @@ val global_publication :
 val global_symbol : resolved_global -> Symbol.t
 val global_item_index : resolved_global -> int
 val global_declarator_index : resolved_global -> int option
-val global_initializer_origin : resolved_global -> Symbol.origin option
-val global_occurrences : resolved_global -> occurrence list
+val global_dimensions : resolved_global -> resolved_dimension list
+
+val dimension_source :
+  resolved_dimension -> Global_type_resolution.array_dimension
+
+val dimension_index : resolved_dimension -> int
+val dimension_origin : resolved_dimension -> Symbol.origin
+val dimension_opening_origin : resolved_dimension -> Symbol.origin
+val dimension_expression_origin : resolved_dimension -> Symbol.origin option
+val dimension_closing_origin : resolved_dimension -> Symbol.origin
+val dimension_occurrences : resolved_dimension -> occurrence list
 val occurrence_index : occurrence -> int
+val occurrence_dimension_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
-val occurrence_initializer_path : occurrence -> int list
 val occurrence_resolution : occurrence -> resolution
 val error_code : error -> string
 val error_kind : error -> error_kind
