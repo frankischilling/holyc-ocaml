@@ -23,8 +23,9 @@ val analyze :
   calls:Function_call_resolution.t ->
   (t, error) result
 (** Retain the fixed expression conversion path selected by [PrsFunCall]. A
-    provided fixed expression receives the forwarded target class. Defaults,
-    variadic expressions, and deferred callees remain distinct source paths. *)
+    provided fixed expression receives the target class forwarded through
+    aggregate headers visible before its caller. Defaults, variadic expressions,
+    and deferred callees remain distinct source paths. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
@@ -42,6 +43,12 @@ val direct_variadic_arguments :
 
 val fixed_source : fixed_policy -> Function_call_resolution.fixed_argument
 val fixed_path : fixed_policy -> fixed_path
+
+val forwarded_type_class : t -> before_item_index:int -> Type.t -> target_class
+(** Follow the validated by-value aggregate backing relation visible before the
+    supplied module item. Pointers and unbacked aggregates use the integer
+    result path. *)
+
 val target_class_name : target_class -> string
 val fixed_path_name : fixed_path -> string
 val error_code : error -> string

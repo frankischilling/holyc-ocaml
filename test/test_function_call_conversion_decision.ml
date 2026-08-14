@@ -222,7 +222,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
@@ -482,6 +482,184 @@ let postfix_cast_target_validation () =
         "intrinsic spelling diagnostic"
         "semantic type-reference spelling \"F64\" does not match \"F64i\""
         message
+
+let named_postfix_cast_directions_and_backings () =
+  let prepared =
+    prepare ~path:"call-decision-named-postfix-casts.HC"
+      "F64 class FloatBox {};\n\
+       F64i class StorageFloat {};\n\
+       I64 class IntBox {};\n\
+       FloatBox class FloatChain {};\n\
+       F64 * class PointerBox {};\n\
+       class Plain {};\n\
+       union PlainUnion {};\n\
+       extern I64 Target(I64 float_box,F64 int_box,F64 chain,F64 \
+       pointer_box,I64 plain,F64 union_pointer,F64 float_pointer,F64 \
+       storage_float);\n\
+       I64 Caller(I64 value){return \
+       Target(value(FloatBox),value(IntBox),value(FloatChain),value(PointerBox),value(Plain),value(PlainUnion \
+       *),value(FloatBox *),value(StorageFloat));}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "named cast backings select the actual conversion path"
+    [
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:f64-result:none";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:none";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:f64-result:none";
+    ]
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  let targets =
+    fixed
+    |> List.map (fun fixed ->
+        fixed |> provided_expression |> postfix_cast_parts |> snd)
+  in
+  Alcotest.(check (list string))
+    "named cast spellings stay explicit"
+    [
+      "FloatBox";
+      "IntBox";
+      "FloatChain";
+      "PointerBox";
+      "Plain";
+      "PlainUnion";
+      "FloatBox";
+      "StorageFloat";
+    ]
+    (List.map Semantic_type_reference.spelling targets);
+  Alcotest.(check (list int))
+    "named cast pointer depths stay explicit" [ 0; 0; 0; 0; 0; 1; 1; 0 ]
+    (targets
+    |> List.map (fun target ->
+        target |> Semantic_type_reference.resolved_type
+        |> Semantic_type.pointer_depth));
+  Alcotest.(check (list string))
+    "named casts retain canonical aggregate identities"
+    [
+      "FloatBox";
+      "IntBox";
+      "FloatChain";
+      "PointerBox";
+      "Plain";
+      "PlainUnion";
+      "FloatBox";
+      "StorageFloat";
+    ]
+    (targets
+    |> List.map (fun target ->
+        match
+          target |> Semantic_type_reference.resolved_type |> Semantic_type.base
+        with
+        | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+        | Semantic_type.Primitive _ ->
+            Alcotest.fail "expected a named aggregate cast target"))
+
+let named_postfix_cast_source_order () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-named-cast-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           F64 class Box {};\n\
+           I64 BeforeShadow(I64 value){return Target(value(Box));}\n\
+           I64 class Box {};\n\
+           I64 AfterShadow(I64 value){return Target(value(Box));}\n\
+           extern class Later;\n\
+           I64 BeforeCompletion(I64 value){return Target(value(Later));}\n\
+           F64 class Later {};\n\
+           I64 AfterCompletion(I64 value){return Target(value(Later));}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "an earlier function keeps the earlier same-name identity"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "BeforeShadow" |> path_names);
+      Alcotest.(check (list string))
+        "a later function sees the shadowing identity"
+        [ "provided:integer-result:none" ]
+        (only_direct result "AfterShadow" |> path_names);
+      Alcotest.(check (list string))
+        "a later completion does not change an earlier forward cast"
+        [ "provided:integer-result:none" ]
+        (only_direct result "BeforeCompletion" |> path_names);
+      Alcotest.(check (list string))
+        "a function after completion sees the aggregate backing"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "AfterCompletion" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let named_postfix_cast_provenance_and_outer_class () =
+  let prepared =
+    prepare ~path:"call-decision-named-cast-generated.HC"
+      "#define CAST Box\n\
+       F64 class Box {};\n\
+       extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target((value+1)(CAST));}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd
+  in
+  Alcotest.(check string)
+    "the named outer cast replaces its binary operand class"
+    "provided:f64-result:ICF_RES_TO_INT"
+    (fixed |> Semantic_function_call_conversion_decision.fixed_path
+   |> Semantic_function_call_conversion_decision.fixed_path_name);
+  let _, target = fixed |> provided_expression |> postfix_cast_parts in
+  (match Semantic_type_reference.spelling_origin target with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated named cast keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated named cast keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated named cast provenance");
+  with_included_source
+    "F64 class Box {};extern I64 Included(F64 value);I64 Caller(I64 \
+     value){return Included(value(Box *));}" (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included aggregate pointer cast stays on the integer path"
+        "provided:integer-result:ICF_RES_TO_F64"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let _, target = fixed |> provided_expression |> postfix_cast_parts in
+      let location =
+        match Semantic_type_reference.spelling_origin target with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included named cast provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included named cast keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
 
 let integer_primaries_convert_to_f64 () =
   let prepared =
@@ -799,6 +977,12 @@ let tests =
       postfix_cast_provenance_and_purity;
     Alcotest.test_case "postfix cast target validation" `Quick
       postfix_cast_target_validation;
+    Alcotest.test_case "named postfix cast directions" `Quick
+      named_postfix_cast_directions_and_backings;
+    Alcotest.test_case "named postfix cast source order" `Quick
+      named_postfix_cast_source_order;
+    Alcotest.test_case "named postfix cast provenance" `Quick
+      named_postfix_cast_provenance_and_outer_class;
     Alcotest.test_case "integer primaries to F64" `Quick
       integer_primaries_convert_to_f64;
     Alcotest.test_case "integer primaries to integer" `Quick

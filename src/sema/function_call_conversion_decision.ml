@@ -96,22 +96,22 @@ let error_message error =
 let error_to_string error = error.code ^ ": " ^ error_message error
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
-let rec source_actual_class expression =
+let rec source_actual_class policies ~before_item_index expression =
   match Function_call_resolution.argument_expression_kind expression with
   | Function_call_resolution.Integer_literal
   | Function_call_resolution.Character_literal
   | Function_call_resolution.String_literal -> Integer_result
   | Function_call_resolution.Float_literal -> F64_result
   | Function_call_resolution.Parenthesized_expression grouped ->
-      source_actual_class grouped
+      source_actual_class policies ~before_item_index grouped
   | Function_call_resolution.Postfix_cast_expression (_, target) -> (
       let resolved = Type_reference.resolved_type target in
-      if Type.pointer_depth resolved <> 0 then Integer_result
-      else
-        match Type.base resolved with
-        | Type.Primitive (_, Primitive_type.F64) -> F64_result
-        | Type.Primitive _ -> Integer_result
-        | Type.Aggregate _ -> Unresolved_actual_class)
+      match
+        Function_call_conversion_policy.forwarded_type_class policies
+          ~before_item_index resolved
+      with
+      | Function_call_conversion_policy.Integer_result -> Integer_result
+      | Function_call_conversion_policy.F64_result -> F64_result)
   | Function_call_resolution.Unresolved_expression
       ( Function_call_resolution.Current_position_expression
       | Function_call_resolution.Sizeof_expression
@@ -136,7 +136,7 @@ let conversion target actual =
   | Function_call_conversion_policy.Integer_result, Integer_result ->
       No_conversion
 
-let fixed_decision source =
+let fixed_decision policies ~before_item_index source =
   match
     ( Function_call_conversion_policy.fixed_path source,
       source |> Function_call_conversion_policy.fixed_source
@@ -151,7 +151,9 @@ let fixed_decision source =
       | None ->
           Error (invalid_input "provided fixed argument has no expression")
       | Some expression ->
-          let actual = source_actual_class expression in
+          let actual =
+            source_actual_class policies ~before_item_index expression
+          in
           Ok
             {
               source;
@@ -175,10 +177,10 @@ let map_result apply values =
   in
   loop [] values
 
-let direct_call source =
+let direct_call policies ~before_item_index source =
   match
     source |> Function_call_conversion_policy.direct_fixed_policies
-    |> map_result fixed_decision
+    |> map_result (fixed_decision policies ~before_item_index)
   with
   | Error _ as error -> error
   | Ok fixed_decisions ->
@@ -190,18 +192,19 @@ let direct_call source =
             Function_call_conversion_policy.direct_variadic_arguments source;
         }
 
-let call_decision = function
+let call_decision policies ~before_item_index = function
   | Function_call_conversion_policy.Direct_call_policy call -> (
-      match direct_call call with
+      match direct_call policies ~before_item_index call with
       | Error _ as error -> error
       | Ok call -> Ok (Direct_call_decision call))
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_decision call)
 
-let resolve_function source =
+let resolve_function policies source =
+  let item_index = Function_call_conversion_policy.function_item_index source in
   match
     source |> Function_call_conversion_policy.function_calls
-    |> map_result call_decision
+    |> map_result (call_decision policies ~before_item_index:item_index)
   with
   | Error _ as error -> error
   | Ok calls ->
@@ -209,8 +212,7 @@ let resolve_function source =
         {
           symbol = Function_call_conversion_policy.function_symbol source;
           scope = Function_call_conversion_policy.function_scope source;
-          item_index =
-            Function_call_conversion_policy.function_item_index source;
+          item_index;
           calls;
         }
 
@@ -221,7 +223,7 @@ let decide ~table policies =
   else
     match
       policies |> Function_call_conversion_policy.functions
-      |> map_result resolve_function
+      |> map_result (resolve_function policies)
     with
     | Error _ as error -> error
     | Ok functions ->
