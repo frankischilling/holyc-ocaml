@@ -43,8 +43,9 @@ val make_declaration_state :
   ?import_name:string ->
   unit ->
   declaration_state
-(** Capture the parser and compiler-option state at one declaration. Import
-    declarations also carry the exact local or alternate loader spelling. *)
+(** Capture the parser and compiler-option state at one declaration. Explicit
+    and option-converted imports also carry the exact local or alternate loader
+    spelling. *)
 
 val classify :
   Function_resolution.t -> declaration_state list -> (t, string) result

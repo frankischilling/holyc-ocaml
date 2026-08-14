@@ -4269,7 +4269,8 @@ implementation = [
   "src/holyc_lib.ml"
 ]
 tests = [
-  "test/test_function_resolution.ml"
+  "test/test_function_resolution.ml",
+  "test/test_externs_to_imports.ml"
 ]
 status = "implemented"
 issue = 183
@@ -4277,7 +4278,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "named top-level function prototypes and definitions from one checked module; unnamed callback signatures remain independent type records"
 identity_order = "first declaration site in module order"
 identity_symbol = "the first declaration symbol remains the representative because TempleOS updates the selected CHashFun record in place"
-declaration_sites = "every declaration remains available in source order with its function type, binding kind, and resulting state"
+declaration_sites = "every declaration remains available in source order with its function type, source kind, effective kind, compiler-option snapshot, and resulting state"
 replaced_header = "a joined declaration retains the immediately preceding site selected by PrsFunJoin"
 jit_selection = "reuse only the newest same-name unresolved extern; resolved records are shadowing barriers"
 aot_selection = "reuse the newest same-name record unless it is imported; an imported record is a barrier for the next declaration"
@@ -4292,7 +4293,7 @@ header_comparison_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEA
 default_evaluation = "not implemented"
 parent_task_and_system_symbol_lookup = "not implemented"
 alternate_target_and_address_resolution = "not implemented"
-externs_to_imports_option = "not implemented"
+externs_to_imports_option = "implemented by HC-SEMA-EXTERNS-TO-IMPORTS before identity selection"
 function_flags_visibility_calls_and_abi = "record flags and consumer intent are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS; call lowering and ABI behavior are not implemented"
 import_export_record_emission = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsGlblVarLst, and the pinned hash routines state the selection and state transitions directly"
@@ -4328,7 +4329,8 @@ implementation = [
 tests = [
   "test/test_function_flag_source.ml",
   "test/test_function_flag.ml",
-  "test/test_function_record_classification.ml"
+  "test/test_function_record_classification.ml",
+  "test/test_externs_to_imports.ml"
 ]
 status = "implemented"
 issue = 191
@@ -4344,8 +4346,8 @@ call_access = ["internal IC operation", "direct executable call", "JIT extern ad
 hash_value_access = "HashVal returns a function record while Cf_EXTERN is set and the executable address otherwise"
 runtime_lookup = "HashFunSegFind omits records carrying Cf_EXTERN or Ff_INTERNAL"
 map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligible for map output"
-compiler_option_state = "the low-level API accepts a separate option snapshot per declaration; the driver currently applies one explicit option mask to the batch"
-validation = "state count, known staging bits, exact import-name shape, AST item and name association, and resolved identity availability"
+compiler_option_state = "the low-level API accepts a separate option snapshot per declaration; the driver defaults to the snapshot retained by function resolution and accepts a batch override"
+validation = "state count, known staging bits, exact import-name shape, AST item and name association, resolved identity availability, and agreement on OPTf_EXTERNS_TO_IMPORTS"
 mutation = "none"
 header_comparison_default_evaluation_and_warning = "not implemented; MemberLstCmp and OPTf_WARN_HEADER_MISMATCH remain separate"
 alternate_address_resolution_fixups_emission_call_lowering_and_abi = "not implemented"
@@ -4427,7 +4429,8 @@ implementation = [
   "src/holyc_lib.ml"
 ]
 tests = [
-  "test/test_global_resolution.ml"
+  "test/test_global_resolution.ml",
+  "test/test_externs_to_imports.ml"
 ]
 status = "implemented"
 issue = 187
@@ -4435,7 +4438,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "ordinary, grouped, bound, and aggregate-attached globals from one checked module"
 record_creation = "every declarator remains a distinct source-ordered record"
 source_forms = ["definition", "extern", "_extern", "import", "_import", "_intern"]
-target_provenance = "alternate symbol names and intern expression ranges are retained without address evaluation"
+target_provenance = "alternate symbol names and intern expression ranges are retained without address evaluation; source and effective binding kinds remain separate"
 jit_extern_state = "plain extern records are unresolved; AOT plain extern records are declared but do not carry the unresolved state"
 jit_alias = "a definition redirects only the newest same-name plain extern record"
 jit_barriers = ["definition", "_extern", "import-like record"]
@@ -4445,6 +4448,7 @@ alias_transitivity = "none; a later definition does not rewrite an older edge"
 alias_type_check = "none"
 aot_data_heap = "a repeated same-name definition is rejected because the pinned source reports this case as unimplemented"
 high_level_storage = "code heap until source compiler-option execution supplies OPTf_GLBLS_ON_DATA_HEAP per declaration"
+externs_to_imports_option = "implemented by HC-SEMA-EXTERNS-TO-IMPORTS before mode validation and alias selection"
 validation = "session ownership, module scope, AST and global-type association, source and grouped order, unique declaration symbols, exact binding target shape, and mode legality"
 mutation = "none"
 address_and_target_resolution = "not implemented"
@@ -4481,7 +4485,8 @@ implementation = [
 tests = [
   "test/test_global_record_flag_source.ml",
   "test/test_global_record_flag.ml",
-  "test/test_global_record_classification.ml"
+  "test/test_global_record_classification.ml",
+  "test/test_externs_to_imports.ml"
 ]
 status = "implemented"
 issue = 189
@@ -4490,8 +4495,8 @@ source_checks = "the generator validates seven pinned file digests, the global h
 hash_flag_domain = ["private", "public", "export", "import", "immediate", "goto label", "resolve", "unresolved", "local"]
 global_flag_domain = ["function pointer", "import", "extern", "data heap", "alias", "array"]
 parser_staging = "ordered public and static transitions use the checked function-flag staging table"
-compiler_option_state = "OPTf_KEEP_PRIVATE is captured in an explicit source-position record state; the low-level API accepts a different state for every global"
-high_level_option_boundary = "the driver currently applies one explicit option mask to the batch until compile-time option execution supplies source-position snapshots"
+compiler_option_state = "OPTf_KEEP_PRIVATE and the OPTf_EXTERNS_TO_IMPORTS agreement check consume an explicit source-position record state; the low-level API accepts a different state for every global"
+high_level_option_boundary = "the driver defaults to the snapshot retained by global resolution and accepts a batch override until compile-time option execution supplies source-position snapshots"
 jit_extern = "HTF_UNRESOLVED plus GVF_EXTERN selects access through the data-address slot"
 aot_import = "HTF_IMPORT plus GVF_IMPORT retains the local or alternate import spelling and reports import publication intent"
 aot_alternate_extern = "HTF_EXPORT plus GVF_ALIAS selects a bound address and preserves aliased storage during cleanup"
@@ -4499,10 +4504,59 @@ aot_definition = "code-heap definitions and intern records carry HTF_EXPORT; dat
 shape_flags = "function-pointer globals carry GVF_FUN and array-shaped globals carry GVF_ARRAY"
 map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligible for map output"
 publication_scope = "classification reports AOT import or export intent; actual import emission still depends on a use and fixup"
-validation = "record count, checked global-resolution batch, ordered AST modifiers, binding legality, session ownership, and preserved symbol-table state"
+validation = "record count, checked global-resolution batch, ordered AST modifiers, binding legality, session ownership, agreement on OPTf_EXTERNS_TO_IMPORTS, and preserved symbol-table state"
 mutation = "none"
 address_allocation_target_resolution_and_record_emission = "not implemented"
 native_oracle_status = "not required for this classification boundary; the pinned definitions and named consumers state each mask and policy directly"
+
+[[feature]]
+id = "HC-SEMA-EXTERNS-TO-IMPORTS"
+description = "Function and global extern declarations become imports before semantic reconciliation when OPTf_EXTERNS_TO_IMPORTS is enabled."
+sources = [
+  "Compiler/PrsStmt.HC:996-1025 _extern rewrite and alternate import name",
+  "Compiler/PrsStmt.HC:1028-1053 ordinary extern rewrite and aggregate-forward bypass",
+  "Compiler/PrsStmt.HC:265-278 function import flags, name, and AOT guard",
+  "Compiler/PrsStmt.HC:299-333 global import and extern records",
+  "Compiler/PrsStmt.HC:350-363 AOT immediate-prior global alias rule",
+  "Compiler/PrsStmt.HC:399-402 global binding flags",
+  "Kernel/KernelA.HH:1547-1557 compiler-option bit indices",
+  "Doc/Options.DD:5-9 shared Kernel-header use"
+]
+implementation = [
+  "src/sema/function_resolution.ml",
+  "src/driver/function_resolution.ml",
+  "src/sema/function_record_classification.ml",
+  "src/driver/function_record_classification.ml",
+  "src/sema/global_resolution.ml",
+  "src/driver/global_resolution.ml",
+  "src/sema/global_record_classification.ml",
+  "src/driver/global_record_classification.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_externs_to_imports.ml",
+  "test/test_function_resolution.ml",
+  "test/test_function_record_classification.ml",
+  "test/test_global_resolution.ml",
+  "test/test_global_record_classification.ml"
+]
+status = "implemented"
+issue = 230
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_forms = ["extern", "_extern"]
+effective_forms = ["import", "_import"]
+ordinary_import_name = "the declared local spelling"
+alternate_import_name = "the explicit target spelling"
+function_reconciliation = "the converted import participates in AOT identity selection and becomes a barrier for the next same-name declaration"
+global_reconciliation = "the converted import retains normal AOT global behavior; a following code-heap definition redirects the immediate prior record"
+jit_behavior = "the converted import reaches the ordinary import guard and is rejected before reconciliation returns a result"
+aggregate_forwards = "extern class and extern union dispatch before the option check and are not converted"
+state_retention = "each low-level declaration retains its source kind, effective kind, and full compiler-option snapshot"
+high_level_state = "one optional batch mask is applied to every declaration until source-positioned Option execution is available"
+classification_consistency = "a record-classification snapshot whose OPTf_EXTERNS_TO_IMPORTS bit differs from resolution is rejected"
+mutation = "none"
+address_target_fixup_and_loader_record_resolution = "not implemented"
+native_oracle_status = "not required for this semantic boundary; the rewrite gotos, import guards, name assignments, and global alias condition are direct pinned source statements"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"

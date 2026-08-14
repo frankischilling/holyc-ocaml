@@ -40,12 +40,15 @@ val make_source_binding :
 (** Validate one of the exact source binding shapes accepted by the parser. *)
 
 val make_declaration :
+  ?compiler_option_mask:int64 ->
   global:Global_type_resolution.global ->
   storage:storage ->
   ?binding:source_binding ->
   unit ->
   (declaration, string) result
-(** Describe one checked global record without changing the symbol table. *)
+(** Describe one checked global record without changing the symbol table. The
+    option snapshot converts extern forms to their effective import kind while
+    retaining the source binding. *)
 
 val resolve :
   table:Symbol_table.t ->
@@ -62,11 +65,18 @@ val records : t -> global_record list
 val declaration_global : declaration -> Global_type_resolution.global
 val declaration_storage : declaration -> storage
 val declaration_binding : declaration -> source_binding option
+
+(* Return the binding written in the source. *)
+val declaration_source_kind : declaration -> declaration_kind
+
+(* Return the binding used for record reconciliation. *)
 val declaration_kind : declaration -> declaration_kind
+val declaration_compiler_option_mask : declaration -> int64
 val global_record_declaration : global_record -> declaration
 val global_record_global : global_record -> Global_type_resolution.global
 val global_record_symbol : global_record -> Symbol.t
 val global_record_kind : global_record -> declaration_kind
+val global_record_source_kind : global_record -> declaration_kind
 val global_record_storage : global_record -> storage
 val global_record_state : global_record -> state
 val global_record_alias_target : global_record -> Symbol.t option

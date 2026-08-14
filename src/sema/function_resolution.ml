@@ -4,12 +4,16 @@ type state = Unresolved_extern | Imported | Resolved
 
 type declaration = {
   function_ : Function_type_resolution.resolved_function;
+  source_kind : declaration_kind;
   kind : declaration_kind;
+  compiler_option_mask : int64;
 }
 
 type declaration_site = {
   function_ : Function_type_resolution.resolved_function;
+  source_kind : declaration_kind;
   kind : declaration_kind;
+  compiler_option_mask : int64;
   state : state;
 }
 
@@ -40,7 +44,12 @@ let identity_sites (identity : identity) = identity.sites
 let identity_state (identity : identity) = identity.state
 let identity_first_item_index (identity : identity) = identity.first_item_index
 let declaration_site_function (site : declaration_site) = site.function_
+let declaration_site_source_kind (site : declaration_site) = site.source_kind
 let declaration_site_kind (site : declaration_site) = site.kind
+
+let declaration_site_compiler_option_mask (site : declaration_site) =
+  site.compiler_option_mask
+
 let declaration_site_state (site : declaration_site) = site.state
 
 let resolved_declaration_site (declaration : resolved_declaration) =
@@ -73,11 +82,32 @@ let state_after = function
   | Import -> Imported
   | Bound_extern | Intern | Definition -> Resolved
 
-let make_declaration ~function_ ~kind =
+let effective_kind compiler_option_mask kind =
+  if
+    Compiler_option.is_enabled ~mask:compiler_option_mask
+      Compiler_option.Externs_to_imports
+  then
+    match kind with
+    | Extern | Bound_extern -> Import
+    | Import | Intern | Definition -> kind
+  else kind
+
+let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
   let symbol = Function_type_resolution.function_symbol function_ in
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function identity requires a function symbol"
-  else Ok { function_; kind }
+  else
+    Ok
+      {
+        function_;
+        source_kind = kind;
+        kind = effective_kind compiler_option_mask kind;
+        compiler_option_mask;
+      }
+
+let make_declaration ~function_ ~kind =
+  make_declaration_with_options
+    ~compiler_option_mask:Compiler_option.initial_mask ~function_ ~kind
 
 module Int_set = Set.Make (Int)
 module String_map = Map.Make (String)
@@ -172,7 +202,9 @@ let resolve_validated compilation_mode (declarations : declaration list) =
   let site_of (declaration : declaration) =
     {
       function_ = declaration.function_;
+      source_kind = declaration.source_kind;
       kind = declaration.kind;
+      compiler_option_mask = declaration.compiler_option_mask;
       state = state_after declaration.kind;
     }
   in

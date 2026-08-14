@@ -34,7 +34,9 @@ type declaration = {
   global : Global_type_resolution.global;
   storage : storage;
   binding : source_binding option;
+  source_kind : declaration_kind;
   kind : declaration_kind;
+  compiler_option_mask : int64;
 }
 
 type global_record = {
@@ -91,19 +93,48 @@ let declaration_kind_of_binding = function
         _;
       } -> assert false
 
-let make_declaration ~global ~storage ?binding () =
+let effective_kind compiler_option_mask kind =
+  if
+    Compiler_option.is_enabled ~mask:compiler_option_mask
+      Compiler_option.Externs_to_imports
+  then
+    match kind with
+    | Extern -> Import
+    | Alternate_extern -> Alternate_import
+    | Definition | Import | Alternate_import | Intern -> kind
+  else kind
+
+let make_declaration ?(compiler_option_mask = Compiler_option.initial_mask)
+    ~global ~storage ?binding () =
   let symbol = Global_type_resolution.global_symbol global in
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable) then
     Error "semantic global record requires a global-variable symbol"
   else
-    Ok { global; storage; binding; kind = declaration_kind_of_binding binding }
+    let source_kind = declaration_kind_of_binding binding in
+    Ok
+      {
+        global;
+        storage;
+        binding;
+        source_kind;
+        kind = effective_kind compiler_option_mask source_kind;
+        compiler_option_mask;
+      }
 
 let compilation_mode resolution = resolution.compilation_mode
 let records resolution = resolution.records
 let declaration_global (declaration : declaration) = declaration.global
 let declaration_storage (declaration : declaration) = declaration.storage
 let declaration_binding (declaration : declaration) = declaration.binding
+
+let declaration_source_kind (declaration : declaration) =
+  declaration.source_kind
+
 let declaration_kind (declaration : declaration) = declaration.kind
+
+let declaration_compiler_option_mask (declaration : declaration) =
+  declaration.compiler_option_mask
+
 let global_record_declaration (record : global_record) = record.declaration
 let global_record_global (record : global_record) = record.declaration.global
 
@@ -111,6 +142,10 @@ let global_record_symbol (record : global_record) =
   Global_type_resolution.global_symbol record.declaration.global
 
 let global_record_kind (record : global_record) = record.declaration.kind
+
+let global_record_source_kind (record : global_record) =
+  record.declaration.source_kind
+
 let global_record_storage (record : global_record) = record.declaration.storage
 let global_record_state (record : global_record) = record.state
 let global_record_alias_target (record : global_record) = record.alias_target

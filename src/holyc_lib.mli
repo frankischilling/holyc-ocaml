@@ -328,6 +328,7 @@ val resolve_global_types :
     separate passes. *)
 
 val resolve_function_identities :
+  ?compiler_option_mask:int64 ->
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
   functions:Semantic_function_type_resolution.t ->
@@ -335,8 +336,10 @@ val resolve_function_identities :
   Ast.module_ ->
   (Semantic_function_resolution.t, string) result
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
-    Header comparison, task-parent lookup, alternate target resolution, and
-    linkage remain separate passes. *)
+    The optional batch snapshot applies [OPTf_EXTERNS_TO_IMPORTS]; source-
+    positioned option execution remains separate. Header comparison, task-parent
+    lookup, alternate target resolution, and emitted linkage remain separate
+    passes. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->
@@ -346,10 +349,12 @@ val classify_function_records :
   (Semantic_function_record_classification.t, string) result
 (** Replay source-grounded function record mutations and expose raw flags, call
     access, lookup visibility, and AOT linkage intent. The optional option mask
-    is explicit because compile-time option snapshots are not executed yet;
-    addresses, header comparison, and record emission remain separate. *)
+    overrides the declaration snapshots retained by resolution and must agree on
+    [OPTf_EXTERNS_TO_IMPORTS]. Source-positioned option execution, addresses,
+    header comparison, and record emission remain separate. *)
 
 val resolve_global_records :
+  ?compiler_option_mask:int64 ->
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
   globals:Semantic_global_type_resolution.t ->
@@ -357,9 +362,10 @@ val resolve_global_records :
   Ast.module_ ->
   (Semantic_global_resolution.t, string) result
 (** Retain one semantic record per parsed global and attach immediate alias
-    edges using the pinned JIT or AOT rule. Target-address resolution,
-    compiler-option execution, allocation, and linkage remain separate passes.
-*)
+    edges using the pinned JIT or AOT rule. The optional batch snapshot applies
+    [OPTf_EXTERNS_TO_IMPORTS]; source-positioned option execution,
+    target-address resolution, allocation, and emitted linkage remain separate
+    passes. *)
 
 val classify_global_records :
   ?compiler_option_mask:int64 ->
@@ -369,5 +375,6 @@ val classify_global_records :
   (Semantic_global_record_classification.t, string) result
 (** Derive source-grounded hash and global-variable flags, import naming, value
     access, cleanup, map visibility, and AOT publication intent. The optional
-    mask is explicit because compile-time option snapshots are not executed yet;
+    mask overrides the declaration snapshots retained by resolution and must
+    agree on [OPTf_EXTERNS_TO_IMPORTS]. Source-positioned option execution,
     allocation, address resolution, and record emission remain separate. *)
