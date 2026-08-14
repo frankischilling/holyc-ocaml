@@ -77,7 +77,7 @@ let function_entries declarations =
       | Sema.Declaration_collection.Aggregate_attached_global
       | Sema.Declaration_collection.Global_variable -> false)
 
-let declaration_fact entry function_ ast =
+let declaration_fact ~compiler_option_mask entry function_ ast =
   let entry_symbol = Sema.Declaration_collection.entry_symbol entry in
   let function_symbol =
     Sema.Function_type_resolution.function_symbol function_
@@ -103,9 +103,10 @@ let declaration_fact entry function_ ast =
   else if Sema.Symbol.origin entry_symbol <> origin ast.name.location then
     Error "semantic function identity declaration does not match the AST origin"
   else
-    Sema.Function_resolution.make_declaration ~function_ ~kind:ast.identity_kind
+    Sema.Function_resolution.make_declaration_with_options ~compiler_option_mask
+      ~function_ ~kind:ast.identity_kind
 
-let declaration_facts declarations functions module_ =
+let declaration_facts ~compiler_option_mask declarations functions module_ =
   match ast_declarations module_ with
   | Error _ as error -> error
   | Ok ast ->
@@ -115,7 +116,9 @@ let declaration_facts declarations functions module_ =
         match (entries, functions, ast) with
         | [], [], [] -> Ok (List.rev facts_rev)
         | entry :: entry_rest, function_ :: function_rest, ast :: ast_rest -> (
-            match declaration_fact entry function_ ast with
+            match
+              declaration_fact ~compiler_option_mask entry function_ ast
+            with
             | Error _ as error -> error
             | Ok fact ->
                 pair (fact :: facts_rev) entry_rest function_rest ast_rest)
@@ -130,7 +133,8 @@ let semantic_mode = function
   | Frontend.Preprocessor.Jit -> Sema.Function_resolution.Jit
   | Frontend.Preprocessor.Aot -> Sema.Function_resolution.Aot
 
-let resolve ~table ~declarations ~functions ~compilation_mode module_ =
+let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
+    ~declarations ~functions ~compilation_mode module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table parent) then
     Error
@@ -138,7 +142,9 @@ let resolve ~table ~declarations ~functions ~compilation_mode module_ =
   else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
     Error "semantic function identities require a module declaration collection"
   else
-    match declaration_facts declarations functions module_ with
+    match
+      declaration_facts ~compiler_option_mask declarations functions module_
+    with
     | Error _ as error -> error
     | Ok facts ->
         Sema.Function_resolution.resolve ~table ~parent

@@ -232,9 +232,9 @@ let resolve_global_types session ~declarations ~aggregates module_ =
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates module_
 
-let resolve_function_identities session ~declarations ~functions
-    ~compilation_mode module_ =
-  Driver.Function_resolution.resolve
+let resolve_function_identities ?compiler_option_mask session ~declarations
+    ~functions ~compilation_mode module_ =
+  Driver.Function_resolution.resolve ?compiler_option_mask
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~compilation_mode module_
 
@@ -243,9 +243,9 @@ let classify_function_records ?compiler_option_mask _session ~resolution module_
   Driver.Function_record_classification.classify ?compiler_option_mask
     ~resolution module_
 
-let resolve_global_records session ~declarations ~globals ~compilation_mode
-    module_ =
-  Driver.Global_resolution.resolve
+let resolve_global_records ?compiler_option_mask session ~declarations ~globals
+    ~compilation_mode module_ =
+  Driver.Global_resolution.resolve ?compiler_option_mask
     ~table:(Session.semantic_symbols session)
     ~declarations ~globals ~compilation_mode module_
 

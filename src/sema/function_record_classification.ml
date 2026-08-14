@@ -350,8 +350,21 @@ let validate_state declaration (state : declaration_state) =
   in
   let site = Function_resolution.resolved_declaration_site declaration in
   let kind = Function_resolution.declaration_site_kind site in
+  let resolution_externs_to_imports =
+    Compiler_option.is_enabled
+      ~mask:(Function_resolution.declaration_site_compiler_option_mask site)
+      Compiler_option.Externs_to_imports
+  in
+  let state_externs_to_imports =
+    Compiler_option.is_enabled ~mask:state.compiler_option_mask
+      Compiler_option.Externs_to_imports
+  in
   if not (Int64.equal unknown_staging 0L) then
     Error "function record classification received unknown parser staging bits"
+  else if resolution_externs_to_imports <> state_externs_to_imports then
+    Error
+      "function record classification has a different extern-to-imports state \
+       than function resolution"
   else
     match (kind, state.import_name) with
     | Function_resolution.Import, Some name when not (String.equal name "") ->

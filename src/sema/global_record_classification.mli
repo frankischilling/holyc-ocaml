@@ -27,7 +27,8 @@ val make_record_state :
   staging_mask:int64 -> compiler_option_mask:int64 -> record_state
 (** Capture the parser staging and compiler-option state at one declaration. The
     classifier is pure; compile-time option execution can supply a distinct
-    state for each source-ordered record. *)
+    state for each source-ordered record. Its extern-to-imports bit must agree
+    with the state used by global resolution. *)
 
 val classify : Global_resolution.t -> record_state list -> (t, string) result
 (** Derive the pinned [CHashGlblVar] masks and their consumer-facing policy. The

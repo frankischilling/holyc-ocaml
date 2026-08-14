@@ -97,7 +97,7 @@ let source_binding (binding : Frontend.Ast.declaration_binding) =
         ~kind:(binding_kind binding.kind)
         ~spelling:binding.spelling ~origin:(origin binding.location) ~target
 
-let validate_fact ~table entry global (ast : ast_global) =
+let validate_fact ~table ~compiler_option_mask entry global (ast : ast_global) =
   let entry_symbol = Sema.Declaration_collection.entry_symbol entry in
   let global_symbol = Sema.Global_type_resolution.global_symbol global in
   if not (Sema.Symbol_table.owns_symbol table entry_symbol) then
@@ -125,16 +125,17 @@ let validate_fact ~table entry global (ast : ast_global) =
   else
     match ast.binding with
     | None ->
-        Sema.Global_resolution.make_declaration ~global
+        Sema.Global_resolution.make_declaration ~compiler_option_mask ~global
           ~storage:Sema.Global_resolution.Code_heap ()
     | Some binding -> (
         match source_binding binding with
         | Error _ as error -> error
         | Ok binding ->
-            Sema.Global_resolution.make_declaration ~global
-              ~storage:Sema.Global_resolution.Code_heap ~binding ())
+            Sema.Global_resolution.make_declaration ~compiler_option_mask
+              ~global ~storage:Sema.Global_resolution.Code_heap ~binding ())
 
-let declaration_facts ~table ~declarations ~globals module_ =
+let declaration_facts ~table ~compiler_option_mask ~declarations ~globals
+    module_ =
   let entries = global_entries declarations in
   let globals = Sema.Global_type_resolution.globals globals in
   let ast = ast_globals module_ in
@@ -142,7 +143,7 @@ let declaration_facts ~table ~declarations ~globals module_ =
     match (entries, globals, ast) with
     | [], [], [] -> Ok (List.rev facts_rev)
     | entry :: entry_rest, global :: global_rest, ast :: ast_rest -> (
-        match validate_fact ~table entry global ast with
+        match validate_fact ~table ~compiler_option_mask entry global ast with
         | Error _ as error -> error
         | Ok fact -> pair (fact :: facts_rev) entry_rest global_rest ast_rest)
     | [], _, _ | _, [], _ | _, _, [] ->
@@ -154,14 +155,18 @@ let semantic_mode = function
   | Frontend.Preprocessor.Jit -> Sema.Global_resolution.Jit
   | Frontend.Preprocessor.Aot -> Sema.Global_resolution.Aot
 
-let resolve ~table ~declarations ~globals ~compilation_mode module_ =
+let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
+    ~declarations ~globals ~compilation_mode module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table parent) then
     Error "semantic global record module belongs to a different symbol table"
   else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
     Error "semantic global records require a module declaration collection"
   else
-    match declaration_facts ~table ~declarations ~globals module_ with
+    match
+      declaration_facts ~table ~compiler_option_mask ~declarations ~globals
+        module_
+    with
     | Error _ as error -> error
     | Ok facts ->
         Sema.Global_resolution.resolve ~table ~parent

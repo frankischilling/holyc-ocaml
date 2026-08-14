@@ -64,10 +64,13 @@ let validate_pair record ast =
   then Error "global record classification does not match the AST declarator"
   else if not (String.equal (Sema.Symbol.name symbol) ast.name.spelling) then
     Error "global record classification does not match the AST name"
-  else Ok (staging_mask ast.modifiers)
+  else
+    let declaration = Sema.Global_resolution.global_record_declaration record in
+    Ok
+      ( staging_mask ast.modifiers,
+        Sema.Global_resolution.declaration_compiler_option_mask declaration )
 
-let classify ?(compiler_option_mask = Sema.Compiler_option.initial_mask)
-    ~resolution module_ =
+let classify ?compiler_option_mask ~resolution module_ =
   let records = Sema.Global_resolution.records resolution in
   let ast = ast_records module_ in
   let rec pair states records ast =
@@ -77,7 +80,10 @@ let classify ?(compiler_option_mask = Sema.Compiler_option.initial_mask)
     | record :: record_rest, ast_record :: ast_rest -> (
         match validate_pair record ast_record with
         | Error _ as error -> error
-        | Ok staging_mask ->
+        | Ok (staging_mask, resolution_option_mask) ->
+            let compiler_option_mask =
+              Option.value compiler_option_mask ~default:resolution_option_mask
+            in
             let state =
               Sema.Global_record_classification.make_record_state ~staging_mask
                 ~compiler_option_mask

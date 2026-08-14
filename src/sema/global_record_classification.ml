@@ -234,6 +234,23 @@ let classify_record compilation_mode source state =
     aot_publication = aot_publication_for compilation_mode hash_flag_mask;
   }
 
+let validate_state source state =
+  let declaration = Global_resolution.global_record_declaration source in
+  let resolution_externs_to_imports =
+    Compiler_option.is_enabled
+      ~mask:(Global_resolution.declaration_compiler_option_mask declaration)
+      Compiler_option.Externs_to_imports
+  in
+  let state_externs_to_imports =
+    Compiler_option.is_enabled ~mask:state.compiler_option_mask
+      Compiler_option.Externs_to_imports
+  in
+  if resolution_externs_to_imports = state_externs_to_imports then Ok ()
+  else
+    Error
+      "global record classification has a different extern-to-imports state \
+       than global resolution"
+
 let classify resolution states =
   let sources = Global_resolution.records resolution in
   if List.length sources <> List.length states then
@@ -242,8 +259,16 @@ let classify resolution states =
        record"
   else
     let compilation_mode = Global_resolution.compilation_mode resolution in
-    Ok
-      {
-        compilation_mode;
-        records = List.map2 (classify_record compilation_mode) sources states;
-      }
+    let rec classify_all records_rev sources states =
+      match (sources, states) with
+      | [], [] -> Ok { compilation_mode; records = List.rev records_rev }
+      | source :: source_rest, state :: state_rest -> (
+          match validate_state source state with
+          | Error _ as error -> error
+          | Ok () ->
+              classify_all
+                (classify_record compilation_mode source state :: records_rev)
+                source_rest state_rest)
+      | [], _ :: _ | _ :: _, [] -> assert false
+    in
+    classify_all [] sources states
