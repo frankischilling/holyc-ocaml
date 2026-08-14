@@ -17358,6 +17358,38 @@ let no_warn_statement_boundaries_and_nesting () =
   Alcotest.(check int)
     "the statement sequence retains the separating comma" 1
     (List.length first.sequence_following_commas);
+  let _, _, repeated_comma_output =
+    parse_string "U0 Repeated(I64 value){no_warn value,,;}"
+  in
+  let repeated_comma_sequence =
+    expect_ast repeated_comma_output
+    |> expect_one_definition |> expect_function_body |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ sequence ] -> expect_statement_sequence sequence
+    | statements ->
+        Alcotest.failf "expected one repeated-comma sequence, got %d statements"
+          (List.length statements)
+  in
+  (match repeated_comma_sequence.sequence_elements with
+  | [ no_warn_element; empty ] ->
+      let no_warn =
+        expect_no_warn_statement no_warn_element.sequence_statement
+      in
+      Alcotest.(check int)
+        "the target keeps its internal comma" 1
+        (List.length no_warn.no_warn_targets);
+      Alcotest.(check bool)
+        "the target comma remains explicit" true
+        (Option.is_some
+           (List.hd no_warn.no_warn_targets).no_warn_target_following_comma);
+      Alcotest.(check int)
+        "the second comma belongs to statement sequencing" 1
+        (List.length no_warn_element.sequence_following_commas);
+      ignore (expect_empty_statement empty.sequence_statement)
+  | elements ->
+      Alcotest.failf "expected no_warn and empty sequence elements, got %d"
+        (List.length elements));
   let _, _, nested_output =
     parse_string
       "U0 Nested(I64 arg){if(arg)no_warn arg;else {no_warn arg;}while(arg) \
@@ -17396,7 +17428,29 @@ let no_warn_statement_boundaries_and_nesting () =
   in
   Alcotest.(check bool)
     "an empty for-update no_warn has no fabricated semicolon" true
-    (Option.is_none update.no_warn_semicolon)
+    (Option.is_none update.no_warn_semicolon);
+  let _, _, named_update_output =
+    parse_string "U0 Named(I64 active){for(;active;no_warn active,);}"
+  in
+  let named_update =
+    expect_ast named_update_output
+    |> expect_one_definition |> expect_function_body |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ statement ] ->
+        expect_for_statement statement |> fun for_ ->
+        Option.get for_.for_update |> expect_no_warn_statement
+    | statements ->
+        Alcotest.failf "expected one named-update loop, got %d statements"
+          (List.length statements)
+  in
+  Alcotest.(check bool)
+    "a named for-update needs its internal trailing comma" true
+    (Option.is_some
+       (List.hd named_update.no_warn_targets).no_warn_target_following_comma);
+  Alcotest.(check bool)
+    "the named for-update has no fabricated semicolon" true
+    (Option.is_none named_update.no_warn_semicolon)
 
 let pinned_no_warn_statements () =
   let cases =
@@ -17565,10 +17619,6 @@ let no_warn_statement_failures () =
         "U0 Invalid(I64 first,I64 second){no_warn first second;}",
         "HCPARSE0158",
         "expected ',' or ';'" );
-      ( "repeated comma",
-        "U0 Invalid(I64 value){no_warn value,,;}",
-        "HCPARSE0157",
-        "found \",\"" );
       ( "named for-update without the required delimiter",
         "U0 Invalid(I64 active){for(;active;no_warn active);}",
         "HCPARSE0158",

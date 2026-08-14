@@ -4088,10 +4088,8 @@ let parse_no_warn_statement cursor ~boundary : parsed_statement option =
         build targets_rev tokens_rev
           (Some (token_location semicolon_item.token))
           [ semicolon_item.token ]
-    | Token_kind.Punctuation ',' when targets_rev = [] ->
-        build targets_rev tokens_rev None []
-    | Token_kind.Punctuation ')'
-      when targets_rev = [] && is_for_update_boundary boundary ->
+    | Token_kind.Punctuation ',' -> build targets_rev tokens_rev None []
+    | Token_kind.Punctuation ')' when is_for_update_boundary boundary ->
         build targets_rev tokens_rev None []
     | Token_kind.Identifier ->
         let name = token_text target_item.token in
@@ -4139,6 +4137,15 @@ let parse_no_warn_statement cursor ~boundary : parsed_statement option =
                    (token_description next_item.token));
             recover_statement cursor ~boundary;
             None)
+    | _ when targets_rev <> [] ->
+        report cursor target_item ~code:"HCPARSE0158"
+          ~message:
+            (Printf.sprintf
+               "expected another no_warn target or a statement boundary after \
+                ',', but found %s"
+               (token_description target_item.token));
+        recover_statement cursor ~boundary;
+        None
     | _ ->
         report cursor target_item ~code:"HCPARSE0157"
           ~message:
