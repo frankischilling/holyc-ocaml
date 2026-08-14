@@ -59,6 +59,8 @@ val member_declarator_index : member -> int
 val member_declarator_origin : member -> Symbol.origin
 val member_type_reference : member -> type_reference
 val member_declarator_kind : member -> declarator_kind
+val member_flag_mask : member -> int64
+val member_has_flag : member -> Member_flag.t -> bool
 val member_array_dimension_origins : member -> Symbol.origin list
 val type_reference_spelling : type_reference -> string
 val type_reference_spelling_origin : type_reference -> Symbol.origin

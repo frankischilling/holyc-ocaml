@@ -2506,7 +2506,7 @@ missing_name_diagnostic = "HCPARSE0134"
 indirection_depth_diagnostic = "HCPARSE0004 at the source-grounded limit of four stars"
 signature_depth_diagnostic = "HCPARSE0017 at a fixed hosted limit of 32 recursive callback declarators"
 native_oracle_status = "not required for syntax; PrsType and PrsVarLst state the callback handoff, member storage, and MLF_FUN branch directly"
-semantic_function_pointer_identity_member_flag_layout_lookup_lowering_and_execution = "planned"
+semantic_function_pointer_identity_member_flag_layout_lookup_lowering_and_execution = "recursive semantic identity, MLF_FUN retention, closed layout, and direct or inherited lookup are implemented; lowering and execution remain unavailable"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-BACKING-TYPES"
@@ -3452,10 +3452,52 @@ pinned_fixtures = ["Kernel/KernelA.HH:251-289", "Kernel/KernelA.HH:1191-1222 exc
 validation = "session ownership, module parentage, recursive aggregate targets, consecutive parameter indexes, delimiters, pointer limits, source order, and AST association"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-member_flag_emission = "not implemented; the semantic result does not yet serialize MLF_FUN"
+member_flag_emission = "implemented by HC-SEMA-MEMBER-LIST-FLAGS; callback members carry MLF_FUN mask 8 while ordinary members carry zero"
 default_binding_evaluation_and_substitution = "not implemented; only source form and provenance are retained"
 header_comparison_call_checking_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsType constructs the anonymous CHashFun, PrsVarLst stores it in CMemberLst.fun_ptr, and named consumers recover the complete record directly"
+
+[[feature]]
+id = "HC-SEMA-MEMBER-LIST-FLAGS"
+description = "The seven CMemberLst flags are generated from pinned source facts, and semantic aggregate callback members retain MLF_FUN."
+sources = [
+  "Kernel/KernelA.HH:774-818 CMemberLst flags and storage",
+  "Compiler/PrsVar.HC:344,384,393,493,524,632,651,656 flag assignments",
+  "Compiler/LexLib.HC:157-194,221-233 header comparison, cleanup, and sizing",
+  "Compiler/PrsStmt.HC:195,797 warning consumers",
+  "Compiler/PrsExp.HC:455-491,767-776,1009-1011 call and expression consumers"
+]
+implementation = [
+  "tools/member_flag_source.ml",
+  "tools/member_flag_gen.ml",
+  "src/generated/member_flags.ml",
+  "src/sema/member_flag.ml",
+  "src/sema/member_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_member_flag_source.ml",
+  "test/test_member_flag.ml",
+  "test/test_member_type_resolution.ml"
+]
+status = "implemented"
+issue = 218
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_storage = "CMemberLst.flags is U16"
+ordered_flags = ["MLF_DFT_AVAILABLE", "MLF_LASTCLASS", "MLF_STR_DFT_AVAILABLE", "MLF_FUN", "MLF_DOT_DOT_DOT", "MLF_NO_UNUSED_WARN", "MLF_STATIC"]
+ordered_masks = ["0x1", "0x2", "0x4", "0x8", "0x10", "0x20", "0x40"]
+source_checks = "the generator validates five pinned file digests, all seven ordered definitions, exact masks, and 23 named assignments or consumers"
+audited_behavior_count = 23
+semantic_scope = "named aggregate members produced by the checked member type-resolution batch"
+semantic_rule = "ordinary object member -> zero; callback member -> MLF_FUN (0x8)"
+flag_injection = "none; callers cannot supply a contradictory semantic mask"
+provenance = ["definition line", "consumer path and line", "pinned source digest", "reference commit"]
+other_flag_producers = "default, lastclass, string ownership, varargs, warning suppression, and static-local classification remain registry facts until their semantic passes apply them"
+recorded_consumers = "header comparison, cleanup, sizing, warnings, calls, local access, and member access are audited but not implemented by this feature"
+default_binding_evaluation_call_checking_storage_lowering_and_execution = "not implemented"
+compilation_modes = ["jit", "aot"]
+mutation = "none"
+native_oracle_status = "not required for this checked constant and aggregate classification boundary; the pinned definitions and direct assignment branch state the masks and MLF_FUN rule"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-LAYOUT-CLOSED"

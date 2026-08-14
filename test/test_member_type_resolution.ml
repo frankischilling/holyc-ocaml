@@ -99,6 +99,20 @@ let expect_callback member =
   | Semantic_member_type_resolution.Object ->
       Alcotest.fail "expected a callback member"
 
+let check_member_flags ~callback member =
+  let expected =
+    if callback then Member_flag.to_mask Member_flag.Function_pointer else 0L
+  in
+  Alcotest.(check int64)
+    "member-list flag mask" expected
+    (Semantic_member_type_resolution.member_flag_mask member);
+  Member_flag.all
+  |> List.iter (fun flag ->
+      Alcotest.(check bool)
+        (Member_flag.to_source_name flag)
+        (callback && flag = Member_flag.Function_pointer)
+        (Semantic_member_type_resolution.member_has_flag member flag))
+
 let callback_parameters pointer =
   pointer |> Semantic_member_type_resolution.function_pointer_signature
   |> Semantic_function_type_resolution.signature_parameters
@@ -309,6 +323,34 @@ let anonymous_union_paths_and_arrays () =
     (Semantic_member_type_resolution.member_array_dimension_origins flexible
     |> List.length)
 
+let member_flag_masks () =
+  let signatures =
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+    |> List.map (fun mode ->
+        let session = Session.create () in
+        let ast =
+          parse session ~mode ~path:"member-flags.HC"
+            "class Flags { I64 value,(*direct)(I64 input=1); union { U8 byte; \
+             U0 (*nested)(I64 value,...); }; };"
+        in
+        let aggregate =
+          resolve session ast |> fun result -> aggregate_named result "Flags"
+        in
+        let facts =
+          [
+            ("value", false); ("direct", true); ("byte", false); ("nested", true);
+          ]
+          |> List.map (fun (name, callback) ->
+              let member = member_named aggregate name in
+              check_member_flags ~callback member;
+              (name, Semantic_member_type_resolution.member_flag_mask member))
+        in
+        facts)
+  in
+  Alcotest.(check (list (pair string int64)))
+    "JIT and AOT member masks agree" (List.hd signatures)
+    (List.nth signatures 1)
+
 let callback_return_and_indirection () =
   let session = Session.create () in
   let ast =
@@ -322,6 +364,8 @@ let callback_return_and_indirection () =
   let callbacks = aggregate_named results "Callbacks" in
   let invoke = member_named callbacks "invoke" in
   let chain = member_named callbacks "chain" in
+  check_member_flags ~callback:true invoke;
+  check_member_flags ~callback:true chain;
   check_primitive ~form:Semantic_type.Public_spelling
     ~primitive:Primitive_type.I64 ~pointer_depth:1 invoke;
   check_primitive ~form:Semantic_type.Public_spelling
@@ -506,8 +550,11 @@ let pinned_callback_member_signatures () =
         |> resolve math_session
       in
       let math_class = aggregate_named math "CMathODE" in
-      let derive = member_named math_class "derive" |> expect_callback in
-      let derive_parameters = callback_parameters derive in
+      let derive_member = member_named math_class "derive" in
+      check_member_flags ~callback:true derive_member;
+      let derive_parameters =
+        derive_member |> expect_callback |> callback_parameters
+      in
       Alcotest.(check (list (option string)))
         "CMathODE.derive parameter names"
         [ Some "o"; Some "t"; Some "state"; Some "DstateDt" ]
@@ -538,8 +585,11 @@ let pinned_callback_member_signatures () =
         |> resolve doc_session
       in
       let doc_class = aggregate_named doc "CDocEntry" in
-      let left = member_named doc_class "left_cb" |> expect_callback in
-      let left_parameters = callback_parameters left in
+      let left_member = member_named doc_class "left_cb" in
+      check_member_flags ~callback:true left_member;
+      let left_parameters =
+        left_member |> expect_callback |> callback_parameters
+      in
       check_aggregate_parameter
         (List.nth left_parameters 0)
         ~name:"CDoc" ~pointer_depth:1;
@@ -547,6 +597,7 @@ let pinned_callback_member_signatures () =
         (List.nth left_parameters 1)
         ~name:"CDocEntry" ~pointer_depth:1;
       let tag_member = member_named doc_class "tag_cb" in
+      check_member_flags ~callback:true tag_member;
       check_primitive ~form:Semantic_type.Public_spelling
         ~primitive:Primitive_type.U8 ~pointer_depth:1 tag_member;
       let tag_parameters =
@@ -561,9 +612,9 @@ let pinned_callback_member_signatures () =
         |> resolve key_session
       in
       let callbacks = aggregate_named key "CKeyDevGlbls" in
-      let control =
-        member_named callbacks "fp_ctrl_alt_cbs" |> expect_callback
-      in
+      let control_member = member_named callbacks "fp_ctrl_alt_cbs" in
+      check_member_flags ~callback:true control_member;
+      let control = expect_callback control_member in
       Alcotest.(check int)
         "key callback indirection" 2
         (control
@@ -608,8 +659,9 @@ let generated_type_provenance () =
     "the definition site is retained" true
     (Option.is_some type_origin.defined_at);
   let parameter =
-    member_named box "visit" |> expect_callback |> callback_parameters
-    |> List.hd
+    let visit = member_named box "visit" in
+    check_member_flags ~callback:true visit;
+    visit |> expect_callback |> callback_parameters |> List.hd
   in
   let generated_origins =
     [
@@ -680,8 +732,9 @@ let included_type_provenance () =
         "the member type keeps its included source" "members.HC"
         (Source_file.path source |> Filename.basename);
       let parameter_site =
-        member_named included "copy"
-        |> expect_callback |> callback_parameters |> List.hd
+        let copy = member_named included "copy" in
+        check_member_flags ~callback:true copy;
+        copy |> expect_callback |> callback_parameters |> List.hd
         |> Semantic_function_type_resolution.parameter_type_reference
         |> Semantic_type_reference.spelling_origin |> source_origin
       in
@@ -743,12 +796,13 @@ let member_signature member =
           (pointer |> callback_parameters |> List.map parameter_text
          |> String.concat ",")
   in
-  Printf.sprintf "%s:%s:%s:%d"
+  Printf.sprintf "%s:%s:%s:%d:0x%Lx"
     (member |> Semantic_member_type_resolution.member_symbol
    |> Semantic_symbol.name)
     (type_text type_) kind
     (Semantic_member_type_resolution.member_array_dimension_origins member
     |> List.length)
+    (Semantic_member_type_resolution.member_flag_mask member)
 
 let modes_determinism_and_purity () =
   let signatures =
@@ -1157,6 +1211,7 @@ let tests =
       members_use_postpublication_identity;
     Alcotest.test_case "anonymous unions and array origins" `Quick
       anonymous_union_paths_and_arrays;
+    Alcotest.test_case "member-list flag masks" `Quick member_flag_masks;
     Alcotest.test_case "callback return and indirection" `Quick
       callback_return_and_indirection;
     Alcotest.test_case "callback parameter depths and visibility" `Quick

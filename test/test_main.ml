@@ -58,6 +58,8 @@ let () =
       ("function flag", Test_function_flag.tests);
       ("global record flag source", Test_global_record_flag_source.tests);
       ("global record flag", Test_global_record_flag.tests);
+      ("member-list flag source", Test_member_flag_source.tests);
+      ("member-list flag", Test_member_flag.tests);
       ("BIN record source", Test_bin_record_source.tests);
       ("BIN record", Test_bin_record.tests);
     ]
