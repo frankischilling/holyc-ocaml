@@ -4430,7 +4430,8 @@ implementation = [
 ]
 tests = [
   "test/test_global_resolution.ml",
-  "test/test_externs_to_imports.ml"
+  "test/test_externs_to_imports.ml",
+  "test/test_globals_on_data_heap.ml"
 ]
 status = "implemented"
 issue = 187
@@ -4446,13 +4447,13 @@ aot_code_heap_alias = "a definition redirects the newest prior same-name global 
 alias_direction = "the older selected record points to the later definition record"
 alias_transitivity = "none; a later definition does not rewrite an older edge"
 alias_type_check = "none"
-aot_data_heap = "a repeated same-name definition is rejected because the pinned source reports this case as unimplemented"
-high_level_storage = "code heap until source compiler-option execution supplies OPTf_GLBLS_ON_DATA_HEAP per declaration"
+aot_data_heap = "an initializer is rejected before reconciliation, and a preceding same-name global is rejected because the pinned source reports that case as unimplemented"
+high_level_storage = "OPTf_GLBLS_ON_DATA_HEAP selects data-heap policy for definitions and _intern; extern and import forms stay on their binding-specific code-heap paths"
 externs_to_imports_option = "implemented by HC-SEMA-EXTERNS-TO-IMPORTS before mode validation and alias selection"
-validation = "session ownership, module scope, AST and global-type association, source and grouped order, unique declaration symbols, exact binding target shape, and mode legality"
+validation = "session ownership, module scope, AST and global-type association, source and grouped order, unique declaration symbols, exact binding target shape, mode legality, option-derived storage, and the AOT data-heap initializer restriction"
 mutation = "none"
 address_and_target_resolution = "not implemented"
-storage_allocation_and_initializer_evaluation = "not implemented"
+storage_allocation_and_initializer_evaluation = "storage policy and the AOT data-heap initializer rejection are implemented by HC-SEMA-GLOBAL-DATA-HEAP; allocation and initializer evaluation are not implemented"
 visibility_warnings_parent_tasks_and_loader_records = "not implemented"
 native_oracle_status = "not required for this record boundary; PrsGlblVarLst, PrsType, HashVal, HashDel, and the pinned hash routines state the allocation and alias transitions directly"
 
@@ -4486,7 +4487,8 @@ tests = [
   "test/test_global_record_flag_source.ml",
   "test/test_global_record_flag.ml",
   "test/test_global_record_classification.ml",
-  "test/test_externs_to_imports.ml"
+  "test/test_externs_to_imports.ml",
+  "test/test_globals_on_data_heap.ml"
 ]
 status = "implemented"
 issue = 189
@@ -4495,7 +4497,7 @@ source_checks = "the generator validates seven pinned file digests, the global h
 hash_flag_domain = ["private", "public", "export", "import", "immediate", "goto label", "resolve", "unresolved", "local"]
 global_flag_domain = ["function pointer", "import", "extern", "data heap", "alias", "array"]
 parser_staging = "ordered public and static transitions use the checked function-flag staging table"
-compiler_option_state = "OPTf_KEEP_PRIVATE and the OPTf_EXTERNS_TO_IMPORTS agreement check consume an explicit source-position record state; the low-level API accepts a different state for every global"
+compiler_option_state = "OPTf_KEEP_PRIVATE and agreement checks for OPTf_EXTERNS_TO_IMPORTS and OPTf_GLBLS_ON_DATA_HEAP consume an explicit source-position record state; the low-level API accepts a different state for every global"
 high_level_option_boundary = "the driver defaults to the snapshot retained by global resolution and accepts a batch override until compile-time option execution supplies source-position snapshots"
 jit_extern = "HTF_UNRESOLVED plus GVF_EXTERN selects access through the data-address slot"
 aot_import = "HTF_IMPORT plus GVF_IMPORT retains the local or alternate import spelling and reports import publication intent"
@@ -4504,7 +4506,7 @@ aot_definition = "code-heap definitions and intern records carry HTF_EXPORT; dat
 shape_flags = "function-pointer globals carry GVF_FUN and array-shaped globals carry GVF_ARRAY"
 map_visibility = "HTF_IMPORT and HTF_PRIVATE independently make a record ineligible for map output"
 publication_scope = "classification reports AOT import or export intent; actual import emission still depends on a use and fixup"
-validation = "record count, checked global-resolution batch, ordered AST modifiers, binding legality, session ownership, agreement on OPTf_EXTERNS_TO_IMPORTS, and preserved symbol-table state"
+validation = "record count, checked global-resolution batch, ordered AST modifiers, binding legality, session ownership, agreement on both resolution-affecting compiler options, and preserved symbol-table state"
 mutation = "none"
 address_allocation_target_resolution_and_record_emission = "not implemented"
 native_oracle_status = "not required for this classification boundary; the pinned definitions and named consumers state each mask and policy directly"
@@ -4557,6 +4559,48 @@ classification_consistency = "a record-classification snapshot whose OPTf_EXTERN
 mutation = "none"
 address_target_fixup_and_loader_record_resolution = "not implemented"
 native_oracle_status = "not required for this semantic boundary; the rewrite gotos, import guards, name assignments, and global alias condition are direct pinned source statements"
+
+[[feature]]
+id = "HC-SEMA-GLOBAL-DATA-HEAP"
+description = "OPTf_GLBLS_ON_DATA_HEAP selects semantic storage policy for global definitions and enforces the pinned AOT restrictions."
+sources = [
+  "Compiler/PrsStmt.HC:209-240 global parser mode selection",
+  "Compiler/PrsStmt.HC:299-333 binding-specific global record arms",
+  "Compiler/PrsStmt.HC:334-385 AOT and JIT definition allocation arms",
+  "Compiler/PrsStmt.HC:399-445 flags, initializer parsing, and alias update",
+  "Compiler/PrsStmt.HC:1055-1062 _intern global dispatch",
+  "Kernel/KernelA.HH:1546-1558 compiler-option bit indices",
+  "Doc/Options.DD:3-7 data-heap use and AOT initializer restriction"
+]
+implementation = [
+  "src/sema/global_resolution.ml",
+  "src/driver/global_resolution.ml",
+  "src/sema/global_record_classification.ml",
+  "src/driver/global_record_classification.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_globals_on_data_heap.ml",
+  "test/test_global_resolution.ml",
+  "test/test_global_record_classification.ml",
+  "test/test_externs_to_imports.ml"
+]
+status = "implemented"
+issue = 232
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+eligible_source_kinds = ["definition", "_intern"]
+binding_specific_bypass = ["extern", "_extern", "import", "_import", "extern converted to import", "_extern converted to _import"]
+jit_behavior = "eligible records use data-heap policy and retain scalar or braced initializer shape"
+aot_behavior = "eligible records use data-heap policy, carry GVF_DATA_HEAP, omit the code-heap export, and select an AOT data-heap reference"
+aot_initializer = "scalar and braced initializers are rejected before alias reconciliation returns a result"
+aot_same_name = "any preceding same-name global triggers the pinned Feature not implemented case"
+grouped_and_attached = "every grouped or aggregate-attached definition uses its declaration snapshot in source order"
+state_retention = "storage, source kind, effective kind, and the complete compiler-option mask are retained on each immutable declaration"
+classification_consistency = "a classification snapshot whose OPTf_GLBLS_ON_DATA_HEAP bit differs from resolution is rejected"
+mutation = "none"
+source_positioned_option_execution = "not implemented; the high-level entry point applies one supplied mask to the batch while the low-level representation supports distinct snapshots"
+allocation_initializer_evaluation_heap_records_and_bin_emission = "not implemented"
+native_oracle_status = "not required for this semantic boundary; the option checks, binding-specific switch arms, initializer guard, flags, and same-name failure are direct pinned source statements"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-LABELS"
