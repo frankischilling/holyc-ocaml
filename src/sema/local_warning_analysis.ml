@@ -52,12 +52,7 @@ type t = {
 }
 
 type error_kind = Invalid_input of string
-
-type error = {
-  code : string;
-  kind : error_kind;
-  origin : Symbol.origin option;
-}
+type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let make_binding_input ~binding ~initial_flag_mask =
   { binding; initial_flag_mask }
@@ -101,6 +96,7 @@ let binding_source_use_count (binding : binding_analysis) =
 
 let binding_suppression_origins (binding : binding_analysis) =
   binding.suppression_origins
+
 let warning_kind (warning : warning) = warning.kind
 let warning_code (warning : warning) = warning.code
 let warning_function_symbol (warning : warning) = warning.function_symbol
@@ -130,13 +126,12 @@ let error_kind (error : error) = error.kind
 let error_origin (error : error) = error.origin
 
 let error_message (error : error) =
-  match error.kind with Invalid_input message -> message
+  match error.kind with
+  | Invalid_input message -> message
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
-
-let same_symbol left right =
-  Symbol.Id.equal (Symbol.id left) (Symbol.id right)
+let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
 let same_scope left right =
   Symbol.Scope_id.equal
@@ -169,14 +164,17 @@ let has_unknown_bits value known =
 
 let validate_binding_input table expected (input : binding_input) =
   if not (Symbol_table.owns_symbol table input.binding.symbol) then
-    Error (invalid_input "local warning binding belongs to another symbol table")
+    Error
+      (invalid_input "local warning binding belongs to another symbol table")
   else if not (same_binding expected input.binding) then
     Error
-      (invalid_input ~origin:(Symbol.origin input.binding.symbol)
+      (invalid_input
+         ~origin:(Symbol.origin input.binding.symbol)
          "local warning binding does not match the function index")
   else if has_unknown_bits input.initial_flag_mask known_member_flag_mask then
     Error
-      (invalid_input ~origin:(Symbol.origin input.binding.symbol)
+      (invalid_input
+         ~origin:(Symbol.origin input.binding.symbol)
          "local warning binding contains unknown member-list flag bits")
   else Ok ()
 
@@ -184,17 +182,17 @@ let validate_binding_inputs table expected inputs =
   let rec loop seen expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
-    | expected :: expected_rest, input :: input_rest ->
+    | expected :: expected_rest, input :: input_rest -> (
         let number = symbol_number input.binding.symbol in
         if Int_set.mem number seen then
           Error
-            (invalid_input ~origin:(Symbol.origin input.binding.symbol)
+            (invalid_input
+               ~origin:(Symbol.origin input.binding.symbol)
                "local warning binding is repeated")
-        else (
+        else
           match validate_binding_input table expected input with
           | Error _ as error -> error
-          | Ok () ->
-              loop (Int_set.add number seen) expected_rest input_rest)
+          | Ok () -> loop (Int_set.add number seen) expected_rest input_rest)
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
@@ -210,21 +208,23 @@ let validate_function table parent indexed expressions previous_item
   let expression_symbol =
     Function_expression_binding.function_symbol expressions
   in
-  let expression_scope = Function_expression_binding.function_scope expressions in
+  let expression_scope =
+    Function_expression_binding.function_scope expressions
+  in
   let expression_item =
     Function_expression_binding.function_item_index expressions
   in
   if input.item_index <= previous_item then
     Error
-      (invalid_input
-         "local warning functions do not follow module source order")
+      (invalid_input "local warning functions do not follow module source order")
   else if
     not
       (Symbol_table.owns_symbol table input.symbol
       && Symbol_table.owns_symbol table indexed_symbol
       && Symbol_table.owns_symbol table expression_symbol)
   then
-    Error (invalid_input "local warning function belongs to another symbol table")
+    Error
+      (invalid_input "local warning function belongs to another symbol table")
   else if
     not
       (Symbol_table.owns_scope table input.scope
@@ -232,7 +232,8 @@ let validate_function table parent indexed expressions previous_item
       && Symbol_table.owns_scope table expression_scope)
   then
     Error
-      (invalid_input "local warning function scope belongs to another symbol table")
+      (invalid_input
+         "local warning function scope belongs to another symbol table")
   else if
     not
       (same_symbol input.symbol indexed_symbol
@@ -243,7 +244,8 @@ let validate_function table parent indexed expressions previous_item
       (same_scope input.scope indexed_scope
       && same_scope input.scope expression_scope)
   then Error (invalid_input "local warning function scopes do not match")
-  else if input.item_index <> indexed_item || input.item_index <> expression_item
+  else if
+    input.item_index <> indexed_item || input.item_index <> expression_item
   then Error (invalid_input "local warning function positions do not match")
   else if Symbol_table.scope_kind input.scope <> Symbol_table.Function then
     Error (invalid_input "local warning analysis requires a function scope")
@@ -251,7 +253,8 @@ let validate_function table parent indexed expressions previous_item
     match Symbol_table.parent input.scope with
     | Some scope_parent -> not (same_scope scope_parent parent)
     | None -> true
-  then Error (invalid_input "local warning function has the wrong module parent")
+  then
+    Error (invalid_input "local warning function has the wrong module parent")
   else
     validate_binding_inputs table
       (Function_binding_index.function_bindings indexed)
@@ -259,8 +262,7 @@ let validate_function table parent indexed expressions previous_item
 
 let validate table parent bindings expressions compiler_option_mask inputs =
   if not (Symbol_table.owns_scope table parent) then
-    Error
-      (invalid_input "local warning parent belongs to another symbol table")
+    Error (invalid_input "local warning parent belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
     Error (invalid_input "local warning analysis requires a module scope")
   else if has_unknown_bits compiler_option_mask known_compiler_option_mask then
@@ -273,13 +275,14 @@ let validate table parent bindings expressions compiler_option_mask inputs =
       | [], [], [] -> Ok ()
       | ( indexed :: indexed_rest,
           resolved :: resolved_rest,
-          (input : function_input) :: input_rest ) ->
+          (input : function_input) :: input_rest ) -> (
           let number = symbol_number input.symbol in
           if Int_set.mem number seen then
             Error (invalid_input "local warning function is repeated")
-          else (
+          else
             match
-              validate_function table parent indexed resolved previous_item input
+              validate_function table parent indexed resolved previous_item
+                input
             with
             | Error _ as error -> error
             | Ok () ->
@@ -309,13 +312,16 @@ let initial_counts input =
     suppression_origins_rev = [];
   }
 
-let checked_increment function_symbol
-    (binding : Function_binding_index.binding) count label =
+let checked_increment function_symbol (binding : Function_binding_index.binding)
+    count label =
   if count = max_int then
     Error
-      (invalid_input ~origin:(Symbol.origin binding.symbol)
+      (invalid_input
+         ~origin:(Symbol.origin binding.symbol)
          (Printf.sprintf "function %S exhausts the %s counter for %S"
-            (Symbol.name function_symbol) label (Symbol.name binding.symbol)))
+            (Symbol.name function_symbol)
+            label
+            (Symbol.name binding.symbol)))
   else Ok (count + 1)
 
 let update_count states (binding : Function_binding_index.binding) update =
@@ -325,7 +331,8 @@ let update_count states (binding : Function_binding_index.binding) update =
       Result.map (fun state -> Int_map.add key state states) (update state)
   | Some _ | None ->
       Error
-        (invalid_input ~origin:(Symbol.origin binding.symbol)
+        (invalid_input
+           ~origin:(Symbol.origin binding.symbol)
            "local warning event refers to an unindexed binding")
 
 let apply_event function_symbol states = function
@@ -362,17 +369,13 @@ let apply_event function_symbol states = function
         Function_expression_binding.initializer_use_reset_binding reset
       in
       update_count states binding (fun state ->
-          Ok
-            {
-              state with
-              ordinary_use_count = 0;
-              suppression_count = 0;
-            })
+          Ok { state with ordinary_use_count = 0; suppression_count = 0 })
 
 let source_use_count function_symbol state =
   if state.ordinary_use_count > max_int - state.suppression_count then
     Error
-      (invalid_input ~origin:(Symbol.origin state.input.binding.symbol)
+      (invalid_input
+         ~origin:(Symbol.origin state.input.binding.symbol)
          (Printf.sprintf "function %S exhausts the source-use counter for %S"
             (Symbol.name function_symbol)
             (Symbol.name state.input.binding.symbol)))
@@ -433,7 +436,8 @@ let analyze_function compiler_option_mask expressions (input : function_input) =
   let states =
     List.fold_left
       (fun states binding ->
-        Int_map.add (symbol_number binding.binding.symbol)
+        Int_map.add
+          (symbol_number binding.binding.symbol)
           (initial_counts binding) states)
       Int_map.empty input.bindings
   in
@@ -500,7 +504,8 @@ let analyze_validated table compiler_option_mask expressions inputs =
         match analyze_function compiler_option_mask expression input with
         | Error _ as error -> error
         | Ok function_ ->
-            loop (function_ :: functions_rev)
+            loop
+              (function_ :: functions_rev)
               (List.rev_append function_.warnings warnings_rev)
               (Int_map.add (symbol_number function_.symbol) function_ by_symbol)
               expression_rest input_rest)
@@ -513,8 +518,7 @@ let analyze ~table ~parent ~bindings ~expressions ~compiler_option_mask inputs =
     validate table parent bindings expressions compiler_option_mask inputs
   with
   | Error _ as error -> error
-  | Ok () ->
-      analyze_validated table compiler_option_mask expressions inputs
+  | Ok () -> analyze_validated table compiler_option_mask expressions inputs
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

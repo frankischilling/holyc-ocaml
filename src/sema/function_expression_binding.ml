@@ -84,10 +84,7 @@ type error_kind =
       declaration_index : int;
       declarator_index : int;
     }
-  | Suppression_mismatch of {
-      function_symbol : Symbol.t;
-      name : string;
-    }
+  | Suppression_mismatch of { function_symbol : Symbol.t; name : string }
   | Initializer_reset_mismatch of {
       function_symbol : Symbol.t;
       name : string;
@@ -104,10 +101,7 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_binding_events function_ = function_.binding_events
 let function_occurrences (function_ : resolved_function) = function_.occurrences
 let function_suppressions function_ = function_.suppressions
-
-let function_initializer_use_resets function_ =
-  function_.initializer_use_resets
-
+let function_initializer_use_resets function_ = function_.initializer_use_resets
 let occurrence_index (occurrence : occurrence) = occurrence.index
 let occurrence_name (occurrence : occurrence) = occurrence.name
 let occurrence_origin (occurrence : occurrence) = occurrence.origin
@@ -116,7 +110,6 @@ let suppression_index (suppression : suppression) = suppression.index
 let suppression_name (suppression : suppression) = suppression.name
 let suppression_origin (suppression : suppression) = suppression.origin
 let suppression_binding (suppression : suppression) = suppression.binding
-
 let initializer_use_reset_index (reset : initializer_use_reset) = reset.index
 let initializer_use_reset_origin (reset : initializer_use_reset) = reset.origin
 
@@ -203,13 +196,15 @@ let error_message error =
   | Suppression_mismatch { function_symbol; name } ->
       Printf.sprintf
         "function %S cannot bind no_warn target %S at this source position"
-        (Symbol.name function_symbol) name
+        (Symbol.name function_symbol)
+        name
   | Initializer_reset_mismatch
       { function_symbol; name; declaration_index; declarator_index } ->
       Printf.sprintf
         "function %S cannot reset initializer uses for %S at declaration %d, \
          declarator %d"
-        (Symbol.name function_symbol) name declaration_index declarator_index
+        (Symbol.name function_symbol)
+        name declaration_index declarator_index
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 
@@ -465,8 +460,7 @@ let resolve_function indexed (input : function_input) =
         | Some binding ->
             if next_suppression = max_int then
               Error
-                (invalid_input
-                   "function no_warn suppression space is exhausted")
+                (invalid_input "function no_warn suppression space is exhausted")
             else
               let suppression =
                 { index = next_suppression; name; origin; binding }
@@ -496,8 +490,9 @@ let resolve_function indexed (input : function_input) =
               (initializer_reset_mismatch input.symbol name declaration_index
                  declarator_index origin))
   in
-  events (initial_environment bindings) Int_set.empty (local_bindings bindings)
-    [] 0 0 0 input.events
+  events
+    (initial_environment bindings)
+    Int_set.empty (local_bindings bindings) [] 0 0 0 input.events
 
 let resolve_validated indexed_functions inputs =
   let rec loop functions_rev by_symbol indexed_functions inputs =

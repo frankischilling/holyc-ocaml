@@ -72,9 +72,9 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
 
 let analyze ?compiler_option_mask prepared =
   Holyc_lib.analyze_local_warnings ?compiler_option_mask prepared.session
-    ~declarations:prepared.declarations
-    ~function_types:prepared.function_types ~local_types:prepared.local_types
-    ~bindings:prepared.bindings ~expressions:prepared.expressions prepared.ast
+    ~declarations:prepared.declarations ~function_types:prepared.function_types
+    ~local_types:prepared.local_types ~bindings:prepared.bindings
+    ~expressions:prepared.expressions prepared.ast
   |> checked
 
 let function_named result name =
@@ -121,8 +121,7 @@ let counts_flags_and_thresholds () =
       Semantic_local_warning_analysis.binding_suppression_count binding,
       Semantic_local_warning_analysis.binding_source_use_count binding )
   in
-  Alcotest.(check (triple int int int))
-    "ordinary use" (1, 0, 1) (counts "used");
+  Alcotest.(check (triple int int int)) "ordinary use" (1, 0, 1) (counts "used");
   Alcotest.(check (triple int int int))
     "suppressed unused" (0, 1, 1) (counts "suppressed");
   Alcotest.(check (triple int int int))
@@ -132,8 +131,7 @@ let counts_flags_and_thresholds () =
   let argc = binding_named function_ "argc" in
   Alcotest.(check bool)
     "argc keeps its variadic flag" true
-    (Semantic_local_warning_analysis.binding_has_flag argc
-       Member_flag.Variadic);
+    (Semantic_local_warning_analysis.binding_has_flag argc Member_flag.Variadic);
   Alcotest.(check bool)
     "argc gains the no-warning flag" true
     (Semantic_local_warning_analysis.binding_has_flag argc
@@ -141,8 +139,7 @@ let counts_flags_and_thresholds () =
   let stored = binding_named function_ "stored" in
   Alcotest.(check bool)
     "static local keeps its storage flag" true
-    (Semantic_local_warning_analysis.binding_has_flag stored
-       Member_flag.Static);
+    (Semantic_local_warning_analysis.binding_has_flag stored Member_flag.Static);
   Alcotest.(check bool)
     "static local gains the no-warning flag" true
     (Semantic_local_warning_analysis.binding_has_flag stored
@@ -206,8 +203,8 @@ let options_repeats_and_prototypes () =
     (Semantic_local_warning_analysis.function_warnings function_
     |> List.for_all (fun warning ->
         warning |> Semantic_local_warning_analysis.warning_binding_symbol
-        |> Semantic_symbol.name |> fun name ->
-        not (String.equal name "_anon_")))
+        |> Semantic_symbol.name
+        |> fun name -> not (String.equal name "_anon_")))
 
 let initializer_resets_only_the_declared_local () =
   let result =
@@ -252,9 +249,11 @@ let mode_and_generated_provenance () =
     | [ origin ] ->
         let source = source_origin origin in
         Alcotest.(check bool)
-          "generated origin" true (Option.is_some source.generated_from);
+          "generated origin" true
+          (Option.is_some source.generated_from);
         Alcotest.(check bool)
-          "definition origin" true (Option.is_some source.defined_at);
+          "definition origin" true
+          (Option.is_some source.defined_at);
         ( Semantic_local_warning_analysis.binding_effective_flag_mask binding,
           Semantic_local_warning_analysis.binding_source_use_count binding,
           Semantic_local_warning_analysis.function_warnings function_
@@ -262,7 +261,8 @@ let mode_and_generated_provenance () =
     | _ -> Alcotest.fail "expected one generated suppression origin"
   in
   Alcotest.(check (triple int64 int (list (triple string string string))))
-    "JIT and AOT warning facts" (signature Preprocessor.Jit)
+    "JIT and AOT warning facts"
+    (signature Preprocessor.Jit)
     (signature Preprocessor.Aot)
 
 let rec remove_tree path =
@@ -297,9 +297,7 @@ let included_provenance () =
       let ast =
         Holyc_lib.parse_with_config session ~config ~source |> expect_ast
       in
-      let declarations =
-        checked (Holyc_lib.collect_declarations session ast)
-      in
+      let declarations = checked (Holyc_lib.collect_declarations session ast) in
       let aggregates =
         checked (Holyc_lib.resolve_aggregates session ~declarations ast)
       in
@@ -332,8 +330,9 @@ let included_provenance () =
              ~function_types ~local_types ~bindings ~expressions ast)
       in
       let origin =
-        result |> fun result -> function_named result "Included"
-        |> fun function_ -> binding_named function_ "local"
+        result |> fun result ->
+        function_named result "Included" |> fun function_ ->
+        binding_named function_ "local"
         |> Semantic_local_warning_analysis.binding_suppression_origins
         |> List.hd |> source_origin
       in
@@ -355,8 +354,7 @@ let result_signature result =
             ( binding_name binding,
               Semantic_local_warning_analysis.binding_effective_flag_mask
                 binding,
-              Semantic_local_warning_analysis.binding_ordinary_use_count
-                binding,
+              Semantic_local_warning_analysis.binding_ordinary_use_count binding,
               Semantic_local_warning_analysis.binding_suppression_count binding
             )),
         Semantic_local_warning_analysis.function_warnings function_
@@ -380,12 +378,11 @@ let purity_and_validation () =
     "symbol table stays unchanged" (before, before) (middle, after);
   let unknown_option = Int64.shift_left 1L 63 in
   (match
-     Holyc_lib.analyze_local_warnings
-       ~compiler_option_mask:unknown_option prepared.session
-       ~declarations:prepared.declarations
-       ~function_types:prepared.function_types
-       ~local_types:prepared.local_types ~bindings:prepared.bindings
-       ~expressions:prepared.expressions prepared.ast
+     Holyc_lib.analyze_local_warnings ~compiler_option_mask:unknown_option
+       prepared.session ~declarations:prepared.declarations
+       ~function_types:prepared.function_types ~local_types:prepared.local_types
+       ~bindings:prepared.bindings ~expressions:prepared.expressions
+       prepared.ast
    with
   | Ok _ -> Alcotest.fail "expected an unknown option bit to fail"
   | Error message ->
@@ -397,9 +394,9 @@ let purity_and_validation () =
   in
   (match
      Holyc_lib.analyze_local_warnings prepared.session
-       ~declarations:prepared.declarations
-       ~function_types:other.function_types ~local_types:prepared.local_types
-       ~bindings:prepared.bindings ~expressions:prepared.expressions prepared.ast
+       ~declarations:prepared.declarations ~function_types:other.function_types
+       ~local_types:prepared.local_types ~bindings:prepared.bindings
+       ~expressions:prepared.expressions prepared.ast
    with
   | Ok _ -> Alcotest.fail "expected foreign function types to fail"
   | Error message ->
@@ -431,8 +428,7 @@ let pinned_warning_rules () =
   let lexer = read_file "../third_party/TempleOS/Compiler/LexLib.HC" in
   let variables = read_file "../third_party/TempleOS/Compiler/PrsVar.HC" in
   List.iter
-    (fun rule ->
-      Alcotest.(check bool) rule true (contains statements rule))
+    (fun rule -> Alcotest.(check bool) rule true (contains statements rule))
     [
       "tmpm->flags|=MLF_NO_UNUSED_WARN;";
       "tmpm->use_cnt>1&&StrCmp(tmpm->str,\"_anon_\")";

@@ -314,11 +314,11 @@ let suppression_and_initializer_events () =
       function_
   in
   Alcotest.(check (list (pair int string)))
-    "initializer reset binding" [ (0, "local") ]
+    "initializer reset binding"
+    [ (0, "local") ]
     (resets
     |> List.map (fun reset ->
-        ( Semantic_function_expression_binding.initializer_use_reset_index
-            reset,
+        ( Semantic_function_expression_binding.initializer_use_reset_index reset,
           reset
           |> Semantic_function_expression_binding.initializer_use_reset_binding
           |> binding_name )));
@@ -331,8 +331,8 @@ let suppression_and_initializer_events () =
     | Semantic_function_expression_binding.Initializer_use_reset reset ->
         "reset:"
         ^ (reset
-          |> Semantic_function_expression_binding.initializer_use_reset_binding
-          |> binding_name)
+         |> Semantic_function_expression_binding.initializer_use_reset_binding
+         |> binding_name)
   in
   Alcotest.(check (list string))
     "source event order"
@@ -452,7 +452,8 @@ let validation_errors () =
   let bad_suppression =
     checked
       (Semantic_function_expression_binding.make_function ~symbol ~scope
-         ~item_index [ missing_suppression; publication ])
+         ~item_index
+         [ missing_suppression; publication ])
   in
   expect_error_code "HCSEMA0031"
     (Semantic_function_expression_binding.resolve ~table ~parent
@@ -468,7 +469,8 @@ let validation_errors () =
   let bad_reset =
     checked
       (Semantic_function_expression_binding.make_function ~symbol ~scope
-         ~item_index [ publication; wrong_reset ])
+         ~item_index
+         [ publication; wrong_reset ])
   in
   expect_error_code "HCSEMA0032"
     (Semantic_function_expression_binding.resolve ~table ~parent

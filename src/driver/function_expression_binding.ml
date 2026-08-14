@@ -137,12 +137,11 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
                         with
                         | Error _ as error -> error
                         | Ok state ->
-                        if declarator_index = max_int then
-                          Error
-                            "function local declarator identity space is \
-                             exhausted"
-                        else declarators state (declarator_index + 1) rest)
-                    )
+                            if declarator_index = max_int then
+                              Error
+                                "function local declarator identity space is \
+                                 exhausted"
+                            else declarators state (declarator_index + 1) rest))
                 | None ->
                     if declarator_index = max_int then
                       Error
@@ -233,8 +232,7 @@ let rec statement state = function
   | Frontend.Ast.Break_statement _
   | Frontend.Ast.Empty_statement _
   | Frontend.Ast.Goto_statement _
-  | Frontend.Ast.Label_statement _
-    -> Ok state
+  | Frontend.Ast.Label_statement _ -> Ok state
   | Frontend.Ast.No_warn_statement no_warn ->
       fold_result add_no_warn_suppression state no_warn.no_warn_targets
 

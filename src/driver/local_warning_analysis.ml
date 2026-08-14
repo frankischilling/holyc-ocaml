@@ -54,14 +54,14 @@ let named_parameter_facts typed =
   let signature = Sema.Function_type_resolution.function_signature typed in
   let rec loop facts_rev = function
     | [] -> Ok (List.rev facts_rev)
-    | binding :: rest ->
+    | binding :: rest -> (
         let index =
           Sema.Function_type_resolution.parameter_binding_index binding
         in
         let symbol =
           Sema.Function_type_resolution.parameter_binding_symbol binding
         in
-        (match parameter_at signature index with
+        match parameter_at signature index with
         | None -> Error "local warning analysis cannot find a typed parameter"
         | Some parameter ->
             if
@@ -84,8 +84,7 @@ let named_parameter_facts typed =
                 :: facts_rev)
                 rest)
   in
-  loop []
-    (Sema.Function_type_resolution.function_parameter_bindings typed)
+  loop [] (Sema.Function_type_resolution.function_parameter_bindings typed)
 
 let synthetic_fact kind binding =
   {
@@ -140,8 +139,7 @@ let flag_facts typed local_types =
       in
       Ok (named @ synthetic @ locals)
 
-let fact_matches_binding fact
-    (binding : Sema.Function_binding_index.binding) =
+let fact_matches_binding fact (binding : Sema.Function_binding_index.binding) =
   same_symbol fact.symbol binding.symbol
   && fact.kind = binding.kind
   && fact.parameter_index = binding.parameter_index
@@ -200,8 +198,7 @@ let validate_function table indexed typed local_types expressions ast =
       && Sema.Symbol_table.owns_scope table typed_scope
       && Sema.Symbol_table.owns_scope table local_scope
       && Sema.Symbol_table.owns_scope table expression_scope)
-  then
-    Error "local warning semantic scopes belong to another symbol table"
+  then Error "local warning semantic scopes belong to another symbol table"
   else if
     not
       (same_symbol indexed_symbol typed_symbol
@@ -216,11 +213,13 @@ let validate_function table indexed typed local_types expressions ast =
   then Error "local warning semantic function scopes do not match"
   else if
     indexed_item <> typed_item || indexed_item <> local_item
-    || indexed_item <> expression_item || indexed_item <> ast.item_index
+    || indexed_item <> expression_item
+    || indexed_item <> ast.item_index
   then Error "local warning semantic function positions do not match"
   else if not (String.equal (Sema.Symbol.name indexed_symbol) ast.name.spelling)
   then Error "local warning function does not match the AST name"
-  else if Sema.Symbol.origin indexed_symbol <> origin_of_location ast.name.location
+  else if
+    Sema.Symbol.origin indexed_symbol <> origin_of_location ast.name.location
   then Error "local warning function does not match the AST origin"
   else
     match flag_facts typed local_types with
@@ -231,7 +230,8 @@ let validate_function table indexed typed local_types expressions ast =
         | Ok bindings ->
             Sema.Local_warning_analysis.make_function_input
               ~symbol:indexed_symbol ~scope:indexed_scope
-              ~item_index:indexed_item ~is_definition:ast.is_definition bindings)
+              ~item_index:indexed_item ~is_definition:ast.is_definition bindings
+        )
 
 let function_inputs table bindings function_types local_types expressions ast =
   let rec loop inputs_rev bindings function_types local_types expressions ast =

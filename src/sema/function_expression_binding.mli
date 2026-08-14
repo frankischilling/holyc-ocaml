@@ -32,10 +32,7 @@ type error_kind =
       declaration_index : int;
       declarator_index : int;
     }
-  | Suppression_mismatch of {
-      function_symbol : Symbol.t;
-      name : string;
-    }
+  | Suppression_mismatch of { function_symbol : Symbol.t; name : string }
   | Initializer_reset_mismatch of {
       function_symbol : Symbol.t;
       name : string;
@@ -104,9 +101,7 @@ val suppression_name : suppression -> string
 val suppression_origin : suppression -> Symbol.origin
 val suppression_binding : suppression -> Function_binding_index.binding
 val initializer_use_reset_index : initializer_use_reset -> int
-
-val initializer_use_reset_origin :
-  initializer_use_reset -> Symbol.origin
+val initializer_use_reset_origin : initializer_use_reset -> Symbol.origin
 
 val initializer_use_reset_binding :
   initializer_use_reset -> Function_binding_index.binding

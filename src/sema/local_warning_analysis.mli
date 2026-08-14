@@ -1,12 +1,10 @@
 type binding_input
 type function_input
-
 type warning_kind = Unused_variable | Unneeded_no_warn
 type warning
 type binding_analysis
 type analyzed_function
 type t
-
 type error_kind = Invalid_input of string
 type error
 
@@ -31,9 +29,9 @@ val analyze :
   compiler_option_mask:int64 ->
   function_input list ->
   (t, error) result
-(** Reproduce the represented [CMemberLst.use_cnt] and
-    [MLF_NO_UNUSED_WARN] rules without changing the symbol table. The compiler
-    option mask applies to the complete function batch. *)
+(** Reproduce the represented [CMemberLst.use_cnt] and [MLF_NO_UNUSED_WARN]
+    rules without changing the symbol table. The compiler option mask applies to
+    the complete function batch. *)
 
 val compiler_option_mask : t -> int64
 val functions : t -> analyzed_function list
