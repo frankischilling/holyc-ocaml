@@ -114,6 +114,8 @@ Member names have a narrow contextual rule. TempleOS lexes keyword spellings as 
 
 Member metadata follows the same contextual identifier boundary but has no independent symbol-table entry. Each declarator keeps its source-ordered names and either an extended string or ordinary expression value. Duplicate metadata names remain present. Direct-member collection creates one symbol for the declarator name and deliberately ignores those metadata names. A later metadata pass must reproduce TempleOS's prepended list and last-written lookup precedence rather than silently deduplicating them. The parser does not yet evaluate expression values, allocate `CMemberLstMeta`, set `MLMF_IS_STR`, or implement `MemberMetaData` and `MemberMetaFind`. Issue #149 records this syntax and the remaining semantic boundary.
 
+`no_warn` uses that function-wide parser context directly. The target token is accepted only when the current lookup reports a local shadow, which covers fixed parameters, synthetic variadic bindings, and locals published earlier in source order. A same-named global remains irrelevant once a local is visible; a global by itself, an unresolved name, or a later local is rejected. The AST keeps those targets and separators but does not modify the collected semantic binding or its `CMemberLst` flags. Applying `MLF_NO_UNUSED_WARN` and classifying later unused-variable diagnostics are separate semantic work under issue #161.
+
 ## Parser visibility inspection
 
 `holyc dump-symbols FILE` runs the ordinary preprocessor and parser, then prints the session environment in stable ID order. The default view includes the 570 entries seeded from the pinned language, type, register, directive, and opcode tables. `--source-only` keeps entries published from the input stream. `--format=json` selects the structured form; both renderers identify schema `holyc-symbol-visibility-v2` and reference commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
@@ -129,6 +131,8 @@ This is the parser's source-order routing state. It explains why a token was tre
 [Issue #200](https://github.com/frankischilling/holyc-ocaml/issues/200) records the semantic local type-reference boundary.
 
 [Issue #222](https://github.com/frankischilling/holyc-ocaml/issues/222) records declaration-time member-list masks on semantic locals.
+
+[Issue #224](https://github.com/frankischilling/holyc-ocaml/issues/224) records parser visibility and source shape for `no_warn` targets; semantic warning suppression is not part of that issue.
 
 [Issue #204](https://github.com/frankischilling/holyc-ocaml/issues/204) records the semantic function-expression binding boundary.
 

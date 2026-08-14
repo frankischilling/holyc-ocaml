@@ -525,6 +525,19 @@ type local_declaration = private {
   local_declaration_location : location;
 }
 
+type no_warn_target = private {
+  no_warn_target_name : identifier;
+  no_warn_target_following_comma : location option;
+  no_warn_target_location : location;
+}
+
+type no_warn_statement = private {
+  no_warn_keyword : location;
+  no_warn_targets : no_warn_target list;
+  no_warn_semicolon : location option;
+  no_warn_location : location;
+}
+
 type switch_mode = Bounded_switch | No_bound_switch
 
 type switch_case_range = private {
@@ -642,6 +655,7 @@ type statement =
   | Label_statement of label_statement
   | Local_declaration_statement of local_declaration
   | Lock_statement of lock_statement
+  | No_warn_statement of no_warn_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | Switch_statement of switch_statement
@@ -1373,6 +1387,19 @@ val make_label_statement :
 
 val make_lock_statement :
   keyword:location -> body:statement -> location:location -> lock_statement
+
+val make_no_warn_target :
+  name:identifier ->
+  following_comma:location option ->
+  location:location ->
+  no_warn_target
+
+val make_no_warn_statement :
+  keyword:location ->
+  targets:no_warn_target list ->
+  semicolon:location option ->
+  location:location ->
+  no_warn_statement
 
 val make_switch_case_range :
   start:expression ->

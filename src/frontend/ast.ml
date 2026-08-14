@@ -520,6 +520,19 @@ type local_declaration = {
   local_declaration_location : location;
 }
 
+type no_warn_target = {
+  no_warn_target_name : identifier;
+  no_warn_target_following_comma : location option;
+  no_warn_target_location : location;
+}
+
+type no_warn_statement = {
+  no_warn_keyword : location;
+  no_warn_targets : no_warn_target list;
+  no_warn_semicolon : location option;
+  no_warn_location : location;
+}
+
 type switch_mode = Bounded_switch | No_bound_switch
 
 type switch_case_range = {
@@ -637,6 +650,7 @@ type statement =
   | Label_statement of label_statement
   | Local_declaration_statement of local_declaration
   | Lock_statement of lock_statement
+  | No_warn_statement of no_warn_statement
   | Return_statement of return_statement
   | Sequence_statement of statement_sequence
   | Switch_statement of switch_statement
@@ -1445,6 +1459,21 @@ let make_label_statement ~name ~colon ~location =
 let make_lock_statement ~keyword ~body ~location =
   { lock_keyword = keyword; lock_body = body; lock_location = location }
 
+let make_no_warn_target ~name ~following_comma ~location =
+  {
+    no_warn_target_name = name;
+    no_warn_target_following_comma = following_comma;
+    no_warn_target_location = location;
+  }
+
+let make_no_warn_statement ~keyword ~targets ~semicolon ~location =
+  {
+    no_warn_keyword = keyword;
+    no_warn_targets = targets;
+    no_warn_semicolon = semicolon;
+    no_warn_location = location;
+  }
+
 let make_switch_case_range ~start ~ellipsis ~end_ ~location =
   {
     case_range_start = start;
@@ -1568,6 +1597,7 @@ let statement_location = function
   | Local_declaration_statement declaration ->
       declaration.local_declaration_location
   | Lock_statement statement -> statement.lock_location
+  | No_warn_statement statement -> statement.no_warn_location
   | Return_statement statement -> statement.return_location
   | Sequence_statement sequence -> sequence.sequence_location
   | Switch_statement statement -> statement.switch_location

@@ -129,6 +129,7 @@ let rec statement_occurrences state = function
   | Frontend.Ast.Expression_statement _
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Local_declaration_statement _
+  | Frontend.Ast.No_warn_statement _
   | Frontend.Ast.Return_statement _ -> Ok state
 
 and statements_occurrences state statements =
@@ -218,6 +219,7 @@ let rec outside_statement = function
   | Frontend.Ast.Expression_statement _
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Local_declaration_statement _
+  | Frontend.Ast.No_warn_statement _
   | Frontend.Ast.Return_statement _ -> None
 
 and outside_statements = function

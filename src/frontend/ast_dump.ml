@@ -962,6 +962,35 @@ let rec print_statement buffer sources ~indent = function
       Printf.bprintf buffer "%sbody\n" child_indent;
       print_statement buffer sources ~indent:(child_indent ^ "  ")
         statement.lock_body
+  | Ast.No_warn_statement statement -> (
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer
+        "%sno_warn_statement span=%s targets=%d semicolon=%b\n" indent
+        (location_text sources statement.no_warn_location)
+        (List.length statement.no_warn_targets)
+        (Option.is_some statement.no_warn_semicolon);
+      Printf.bprintf buffer "%skeyword span=%s\n" child_indent
+        (location_text sources statement.no_warn_keyword);
+      List.iteri
+        (fun index (target : Ast.no_warn_target) ->
+          Printf.bprintf buffer "%starget index=%d name=%S span=%s\n"
+            child_indent index target.no_warn_target_name.spelling
+            (location_text sources target.no_warn_target_location);
+          Printf.bprintf buffer "%s  name spelling=%S span=%s\n" child_indent
+            target.no_warn_target_name.spelling
+            (location_text sources target.no_warn_target_name.location);
+          match target.no_warn_target_following_comma with
+          | None ->
+              Printf.bprintf buffer "%s  following_comma omitted\n" child_indent
+          | Some comma ->
+              Printf.bprintf buffer "%s  following_comma span=%s\n" child_indent
+                (location_text sources comma))
+        statement.no_warn_targets;
+      match statement.no_warn_semicolon with
+      | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
+      | Some semicolon ->
+          Printf.bprintf buffer "%ssemicolon span=%s\n" child_indent
+            (location_text sources semicolon))
   | Ast.Switch_statement statement ->
       let child_indent = indent ^ "  " in
       let mode =
@@ -2504,6 +2533,31 @@ let rec statement_to_yojson sources = function
           ("keyword", location_to_yojson sources statement.lock_keyword);
           ("body", statement_to_yojson sources statement.lock_body);
           ("location", location_to_yojson sources statement.lock_location);
+        ]
+  | Ast.No_warn_statement statement ->
+      let target_to_yojson (target : Ast.no_warn_target) =
+        `Assoc
+          [
+            ("name", identifier_to_yojson sources target.no_warn_target_name);
+            ( "following_comma",
+              match target.no_warn_target_following_comma with
+              | None -> `Null
+              | Some comma -> location_to_yojson sources comma );
+            ( "location",
+              location_to_yojson sources target.no_warn_target_location );
+          ]
+      in
+      `Assoc
+        [
+          ("kind", `String "no_warn_statement");
+          ("keyword", location_to_yojson sources statement.no_warn_keyword);
+          ( "targets",
+            `List (List.map target_to_yojson statement.no_warn_targets) );
+          ( "semicolon",
+            match statement.no_warn_semicolon with
+            | None -> `Null
+            | Some semicolon -> location_to_yojson sources semicolon );
+          ("location", location_to_yojson sources statement.no_warn_location);
         ]
   | Ast.Switch_statement statement ->
       `Assoc

@@ -453,6 +453,7 @@ let rec statement_facts declaration_index = function
   | Frontend.Ast.Goto_statement _
   | Frontend.Ast.Implicit_output_statement _
   | Frontend.Ast.Label_statement _
+  | Frontend.Ast.No_warn_statement _
   | Frontend.Ast.Return_statement _ -> Ok ([], declaration_index)
 
 and statements_facts declaration_index statements =

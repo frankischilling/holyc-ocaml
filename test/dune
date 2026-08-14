@@ -138,6 +138,7 @@
   ../third_party/TempleOS/Compiler/AsmInit.HC
   ../third_party/TempleOS/Compiler/AsmLib.HC
   ../third_party/TempleOS/Kernel/PCIBIOS.HC
+  ../third_party/TempleOS/Apps/Budget/BgtMain.HC
   (source_tree ../third_party/TempleOS/Adam)
   (source_tree ../third_party/TempleOS/Compiler)
   (source_tree ../third_party/TempleOS/Demo)
@@ -3132,6 +3133,74 @@
        --format=json
        cli/parse-try-catch-error.hc))))
    (diff cli/parse-try-catch-error.json parse-try-catch-error.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-no-warn-statements.human.actual)
+ (deps cli/parse-no-warn-statements.hc cli/parse-no-warn-statements.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-no-warn-statements.human.actual
+    (run %{exe:../bin/holyc.exe} parse cli/parse-no-warn-statements.hc))
+   (diff
+    cli/parse-no-warn-statements.human
+    parse-no-warn-statements.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets parse-no-warn-statements.json.actual)
+ (deps cli/parse-no-warn-statements.hc cli/parse-no-warn-statements.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-no-warn-statements.json.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     dump-ast
+     --format=json
+     cli/parse-no-warn-statements.hc))
+   (diff
+    cli/parse-no-warn-statements.json
+    parse-no-warn-statements.json.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-no-warn-error.human.actual
+  parse-no-warn-error.human.stdout.actual)
+ (deps cli/parse-no-warn-error.hc cli/parse-no-warn-error.human)
+ (action
+  (progn
+   (with-stdout-to
+    parse-no-warn-error.human.stdout.actual
+    (with-stderr-to
+     parse-no-warn-error.human.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} parse cli/parse-no-warn-error.hc))))
+   (diff cli/parse-no-warn-error.human parse-no-warn-error.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  parse-no-warn-error.json.actual
+  parse-no-warn-error.json.stdout.actual)
+ (deps cli/parse-no-warn-error.hc cli/parse-no-warn-error.json)
+ (action
+  (progn
+   (with-stdout-to
+    parse-no-warn-error.json.stdout.actual
+    (with-stderr-to
+     parse-no-warn-error.json.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       parse
+       --format=json
+       cli/parse-no-warn-error.hc))))
+   (diff cli/parse-no-warn-error.json parse-no-warn-error.json.actual))))
 
 (rule
  (alias runtest)

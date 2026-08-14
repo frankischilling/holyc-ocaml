@@ -447,6 +447,10 @@ let expect_lock_statement = function
   | Ast.Lock_statement statement -> statement
   | _ -> Alcotest.fail "expected a lock statement"
 
+let expect_no_warn_statement = function
+  | Ast.No_warn_statement statement -> statement
+  | _ -> Alcotest.fail "expected a no_warn statement"
+
 let expect_switch_statement = function
   | Ast.Switch_statement statement -> statement
   | _ -> Alcotest.fail "expected a switch statement"
@@ -15402,6 +15406,7 @@ let pinned_inline_assembly_snippets () =
             | Ast.Implicit_output_statement _
             | Ast.Label_statement _
             | Ast.Local_declaration_statement _
+            | Ast.No_warn_statement _
             | Ast.Return_statement _ -> 0
           in
           Alcotest.(check bool)
@@ -17202,6 +17207,466 @@ let deterministic_try_catch_dumps () =
     "JSON keeps the nested try/catch kind" "try_catch_statement"
     (inner |> member "kind" |> to_string)
 
+let no_warn_statement_source_behavior () =
+  let statement_parser =
+    pinned "Compiler/PrsStmt.HC"
+    |> String.split_on_char '\r' |> String.concat ""
+  in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool)
+        description true
+        (contains statement_parser fragment))
+    [
+      ("PrsStmt dispatches no_warn", "case KW_NO_WARN:");
+      ("no_warn advances past its keyword", "Lex(cc);\n\t\t  PrsNoWarn(cc);");
+      ("PrsNoWarn accepts identifier targets", "while (cc->token==TK_IDENT)");
+      ("each target must be local", "if (!(tmpm=cc->local_var_entry))");
+      ( "the parser applies the suppression bit",
+        "tmpm->flags|=MLF_NO_UNUSED_WARN;" );
+      ("targets may be comma-separated", "if (Lex(cc)==',')");
+      ("the statement uses the common terminator", "goto sm_semicolon;");
+      ( "the function-end pass checks the suppression bit",
+        "if (tmpm->flags & MLF_NO_UNUSED_WARN)" );
+    ];
+  Alcotest.(check bool)
+    "no_warn keeps its pinned keyword ID" true
+    (contains (pinned "Compiler/CompilerA.HH") "#define KW_NO_WARN\t38");
+  let guide = pinned "Doc/HolyC.DD" in
+  Alcotest.(check bool)
+    "the language guide documents suppression" true
+    (contains guide
+       "A $FG,2$no_warn$FG$ stmt will suppress an unused var warning.");
+  Alcotest.(check bool)
+    "the language guide shows a target" true
+    (contains guide "  no_warn i;");
+  let live_paths =
+    [
+      "Apps/Budget/BgtMain.HC";
+      "Kernel/SerialDev/Mouse.HC";
+      "Kernel/KTask.HC";
+      "Kernel/KDbg.HC";
+      "Demo/MultiCore/Palindrome.HC";
+      "Demo/MultiCore/MPRadix.HC";
+    ]
+  in
+  let live_statements =
+    live_paths
+    |> List.concat_map (fun path ->
+        pinned path |> String.split_on_char '\n'
+        |> List.filter (fun line ->
+            String.starts_with ~prefix:"no_warn " (String.trim line)))
+  in
+  Alcotest.(check int)
+    "six pinned files contain eight live no_warn statements" 8
+    (List.length live_statements);
+  Alcotest.(check bool)
+    "the Adam occurrence is retained inside generated source text" true
+    (contains (pinned "Adam/Ctrls/CtrlsSlider.HC") "  no_warn down;")
+
+let no_warn_statement_shapes () =
+  let source =
+    "U0 Example(I64 arg,...){I64 first,second;no_warn;no_warn \
+     arg,argc,argv,first,second;no_warn first,second,;}"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let block =
+        expect_ast output |> expect_one_definition |> expect_function_body
+        |> expect_block_statement
+      in
+      match block.block_statements with
+      | [ declaration_sequence; complete; trailing ] ->
+          let declaration_sequence =
+            expect_statement_sequence declaration_sequence
+          in
+          let empty =
+            match declaration_sequence.sequence_elements with
+            | [ local; empty ] ->
+                ignore (expect_local_declaration local.sequence_statement);
+                expect_no_warn_statement empty.sequence_statement
+            | elements ->
+                Alcotest.failf
+                  "expected a local declaration followed by empty no_warn, got \
+                   %d sequence elements"
+                  (List.length elements)
+          in
+          Alcotest.(check int)
+            "empty no_warn has no targets" 0
+            (List.length empty.no_warn_targets);
+          Alcotest.(check bool)
+            "empty no_warn keeps its semicolon" true
+            (Option.is_some empty.no_warn_semicolon);
+          let complete = expect_no_warn_statement complete in
+          Alcotest.(check (list string))
+            "parameters, varargs, and prior locals stay ordered"
+            [ "arg"; "argc"; "argv"; "first"; "second" ]
+            (List.map
+               (fun (target : Ast.no_warn_target) ->
+                 target.no_warn_target_name.spelling)
+               complete.no_warn_targets);
+          Alcotest.(check (list bool))
+            "ordinary list commas belong to preceding targets"
+            [ true; true; true; true; false ]
+            (List.map
+               (fun (target : Ast.no_warn_target) ->
+                 Option.is_some target.no_warn_target_following_comma)
+               complete.no_warn_targets);
+          let trailing = expect_no_warn_statement trailing in
+          Alcotest.(check (list bool))
+            "a comma before the semicolon remains explicit" [ true; true ]
+            (List.map
+               (fun (target : Ast.no_warn_target) ->
+                 Option.is_some target.no_warn_target_following_comma)
+               trailing.no_warn_targets);
+          Alcotest.(check bool)
+            "the trailing-comma statement keeps its semicolon" true
+            (Option.is_some trailing.no_warn_semicolon)
+      | statements ->
+          Alcotest.failf "expected three function-body statements, got %d"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let no_warn_statement_boundaries_and_nesting () =
+  let _, _, top_level = parse_string "no_warn;" in
+  let top_level_statement =
+    match (expect_ast top_level).Ast.items with
+    | [ Ast.Top_level_statement statement ] ->
+        expect_no_warn_statement statement
+    | items ->
+        Alcotest.failf "expected one top-level no_warn, got %d items"
+          (List.length items)
+  in
+  Alcotest.(check int)
+    "an empty top-level no_warn follows the pinned no-op path" 0
+    (List.length top_level_statement.no_warn_targets);
+  let _, _, sequence_output = parse_string "I64 value;no_warn,value++;" in
+  let sequence =
+    match (expect_ast sequence_output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement sequence ] ->
+        expect_statement_sequence sequence
+    | items ->
+        Alcotest.failf "expected a global and statement sequence, got %d items"
+          (List.length items)
+  in
+  let first = List.hd sequence.sequence_elements in
+  let empty = expect_no_warn_statement first.sequence_statement in
+  Alcotest.(check bool)
+    "a comma-terminated empty no_warn has no semicolon" true
+    (Option.is_none empty.no_warn_semicolon);
+  Alcotest.(check int)
+    "the statement sequence retains the separating comma" 1
+    (List.length first.sequence_following_commas);
+  let _, _, repeated_comma_output =
+    parse_string "U0 Repeated(I64 value){no_warn value,,;}"
+  in
+  let repeated_comma_sequence =
+    expect_ast repeated_comma_output
+    |> expect_one_definition |> expect_function_body |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ sequence ] -> expect_statement_sequence sequence
+    | statements ->
+        Alcotest.failf "expected one repeated-comma sequence, got %d statements"
+          (List.length statements)
+  in
+  (match repeated_comma_sequence.sequence_elements with
+  | [ no_warn_element; empty ] ->
+      let no_warn =
+        expect_no_warn_statement no_warn_element.sequence_statement
+      in
+      Alcotest.(check int)
+        "the target keeps its internal comma" 1
+        (List.length no_warn.no_warn_targets);
+      Alcotest.(check bool)
+        "the target comma remains explicit" true
+        (Option.is_some
+           (List.hd no_warn.no_warn_targets).no_warn_target_following_comma);
+      Alcotest.(check int)
+        "the second comma belongs to statement sequencing" 1
+        (List.length no_warn_element.sequence_following_commas);
+      ignore (expect_empty_statement empty.sequence_statement)
+  | elements ->
+      Alcotest.failf "expected no_warn and empty sequence elements, got %d"
+        (List.length elements));
+  let _, _, nested_output =
+    parse_string
+      "U0 Nested(I64 arg){if(arg)no_warn arg;else {no_warn arg;}while(arg) \
+       no_warn arg;}"
+  in
+  let block =
+    expect_ast nested_output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+  in
+  (match block.block_statements with
+  | [ conditional; loop ] ->
+      let conditional = expect_if_statement conditional in
+      ignore (expect_no_warn_statement conditional.if_then_branch);
+      let else_block =
+        conditional.if_else_clause |> Option.get |> fun clause ->
+        expect_block_statement clause.else_branch
+      in
+      ignore
+        (match else_block.block_statements with
+        | [ statement ] -> expect_no_warn_statement statement
+        | _ -> Alcotest.fail "expected one no_warn in the else block");
+      let loop = expect_while_statement loop in
+      ignore (expect_no_warn_statement loop.while_body)
+  | statements ->
+      Alcotest.failf "expected a conditional and loop, got %d statements"
+        (List.length statements));
+  let _, _, update_output = parse_string "I64 active;for(;active;no_warn);" in
+  let update =
+    match (expect_ast update_output).Ast.items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_for_statement statement |> fun for_ ->
+        Option.get for_.for_update |> expect_no_warn_statement
+    | items ->
+        Alcotest.failf "expected a global and for loop, got %d items"
+          (List.length items)
+  in
+  Alcotest.(check bool)
+    "an empty for-update no_warn has no fabricated semicolon" true
+    (Option.is_none update.no_warn_semicolon);
+  let _, _, named_update_output =
+    parse_string "U0 Named(I64 active){for(;active;no_warn active,);}"
+  in
+  let named_update =
+    expect_ast named_update_output
+    |> expect_one_definition |> expect_function_body |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ statement ] ->
+        expect_for_statement statement |> fun for_ ->
+        Option.get for_.for_update |> expect_no_warn_statement
+    | statements ->
+        Alcotest.failf "expected one named-update loop, got %d statements"
+          (List.length statements)
+  in
+  Alcotest.(check bool)
+    "a named for-update needs its internal trailing comma" true
+    (Option.is_some
+       (List.hd named_update.no_warn_targets).no_warn_target_following_comma);
+  Alcotest.(check bool)
+    "the named for-update has no fabricated semicolon" true
+    (Option.is_none named_update.no_warn_semicolon)
+
+let pinned_no_warn_statements () =
+  let cases =
+    [
+      ( "budget scan code",
+        "Apps/Budget/BgtMain.HC",
+        3,
+        5,
+        "extern class CDoc;\n",
+        "sc" );
+      ("mouse driver dummy", "Kernel/SerialDev/Mouse.HC", 294, 296, "", "dummy");
+      ("server task dummy", "Kernel/KTask.HC", 406, 408, "", "dummy");
+      ("user task dummy", "Kernel/KTask.HC", 414, 416, "", "dummy");
+      ("fault error code", "Kernel/KDbg.HC", 564, 566, "", "fault_err_code");
+      ( "palindrome worker dummy",
+        "Demo/MultiCore/Palindrome.HC",
+        37,
+        39,
+        "",
+        "dummy" );
+      ("sort worker dummy", "Demo/MultiCore/MPRadix.HC", 64, 66, "", "dummy");
+      ("radix worker dummy", "Demo/MultiCore/MPRadix.HC", 71, 73, "", "dummy");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, path, first, last, prefix, expected_target) ->
+          let source = prefix ^ pinned_lines path ~first ~last ^ "\n}" in
+          let _, _, output = parse_string ~path ~compilation_mode:mode source in
+          let block =
+            expect_ast output |> fun ast ->
+            match List.rev ast.Ast.items with
+            | Ast.Function_definition definition :: _ ->
+                expect_function_body definition |> expect_block_statement
+            | items ->
+                Alcotest.failf "%s produced %d trailing items" name
+                  (List.length items)
+          in
+          let statement =
+            match block.block_statements with
+            | [ statement ] -> expect_no_warn_statement statement
+            | statements ->
+                Alcotest.failf "%s produced %d body statements" name
+                  (List.length statements)
+          in
+          Alcotest.(check (list string))
+            (name ^ " target") [ expected_target ]
+            (List.map
+               (fun (target : Ast.no_warn_target) ->
+                 target.no_warn_target_name.spelling)
+               statement.no_warn_targets))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let no_warn_statement_provenance () =
+  let source =
+    "#define QUIET no_warn\n\
+     #define ARG arg\n\
+     #define SEP ,\n\
+     #define END ;\n\
+     U0 Generated(I64 arg,I64 other){QUIET ARG SEP other SEP END}"
+  in
+  let session, _, output = parse_string source in
+  let statement =
+    expect_ast output |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ statement ] -> expect_no_warn_statement statement
+    | _ -> Alcotest.fail "expected one generated no_warn statement"
+  in
+  let first_target = List.hd statement.no_warn_targets in
+  let trailing_target = List.nth statement.no_warn_targets 1 in
+  List.iter
+    (fun (name, location) ->
+      Alcotest.(check bool)
+        (name ^ " retains its invocation")
+        true
+        (Option.is_some location.Ast.generated_from);
+      Alcotest.(check bool)
+        (name ^ " retains its definition")
+        true
+        (Option.is_some location.Ast.defined_at))
+    [
+      ("keyword", statement.no_warn_keyword);
+      ("first target", first_target.no_warn_target_name.location);
+      ("first comma", Option.get first_target.no_warn_target_following_comma);
+      ( "trailing comma",
+        Option.get trailing_target.no_warn_target_following_comma );
+      ("semicolon", Option.get statement.no_warn_semicolon);
+    ];
+  let open Yojson.Safe.Util in
+  let statement_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd |> member "body"
+    |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON retains generated target provenance" true
+    (statement_json |> member "targets" |> to_list |> List.hd |> member "name"
+   |> member "location" |> member "generated_from" <> `Null);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let statement_file = Filename.concat directory "quiet.HC" in
+      write_file root_file "#include \"quiet\"";
+      write_file statement_file "U0 Included(I64 arg){no_warn arg;}";
+      let include_session = Session.create () in
+      let root =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root
+      in
+      let included =
+        expect_ast include_output |> expect_one_definition
+        |> expect_function_body |> expect_block_statement
+        |> fun block ->
+        match block.block_statements with
+        | [ statement ] -> expect_no_warn_statement statement
+        | _ -> Alcotest.fail "expected one included no_warn statement"
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.no_warn_keyword.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included no_warn keeps its canonical source"
+        (Unix.realpath statement_file)
+        (Source_file.path included_source))
+
+let no_warn_statement_failures () =
+  List.iter
+    (fun (name, source, code, found) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        (name ^ " has no AST") true
+        (Option.is_none output.ast);
+      let diagnostic = first_diagnostic output in
+      Alcotest.(check string) (name ^ " diagnostic") code diagnostic.code;
+      Alcotest.(check bool)
+        (name ^ " describes the failure")
+        true
+        (contains diagnostic.message found))
+    [
+      ( "global target",
+        "I64 global;U0 Invalid(){no_warn global;}",
+        "HCPARSE0157",
+        "not a visible parameter or local" );
+      ( "unknown target",
+        "U0 Invalid(){no_warn missing;}",
+        "HCPARSE0157",
+        "not a visible parameter or local" );
+      ( "later local",
+        "U0 Invalid(){no_warn later;I64 later;}",
+        "HCPARSE0157",
+        "not a visible parameter or local" );
+      ( "numeric target",
+        "U0 Invalid(){no_warn 1;}",
+        "HCPARSE0157",
+        "found \"1\"" );
+      ( "missing comma",
+        "U0 Invalid(I64 first,I64 second){no_warn first second;}",
+        "HCPARSE0158",
+        "expected ',' or ';'" );
+      ( "named for-update without the required delimiter",
+        "U0 Invalid(I64 active){for(;active;no_warn active);}",
+        "HCPARSE0158",
+        "found \")\"" );
+    ];
+  let _, _, recovery =
+    parse_string "U0 Invalid(I64 value){{no_warn value}value++;}"
+  in
+  Alcotest.(check string)
+    "recovery preserves the enclosing block boundary" "HCPARSE0158"
+    (first_diagnostic recovery).code
+
+let deterministic_no_warn_dumps () =
+  let session, _, output =
+    parse_string "U0 Quiet(I64 arg,...){no_warn arg,argc,argv,;}"
+  in
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human no_warn dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON no_warn dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump identifies no_warn statements" true
+    (contains human "no_warn_statement");
+  let open Yojson.Safe.Util in
+  let statement =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd |> member "body"
+    |> member "statements" |> to_list |> List.hd
+  in
+  Alcotest.(check string)
+    "JSON keeps the no_warn kind" "no_warn_statement"
+    (statement |> member "kind" |> to_string);
+  Alcotest.(check (list string))
+    "JSON keeps target order" [ "arg"; "argc"; "argv" ]
+    (statement |> member "targets" |> to_list
+    |> List.map (fun target ->
+        target |> member "name" |> member "spelling" |> to_string));
+  Alcotest.(check bool)
+    "JSON distinguishes the trailing comma" true
+    (statement |> member "targets" |> to_list |> List.rev |> List.hd
+   |> member "following_comma" <> `Null)
+
 let break_statement_source_behavior () =
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
   List.iter
@@ -18303,6 +18768,20 @@ let tests =
       try_catch_statement_failures;
     Alcotest.test_case "deterministic try/catch dumps" `Quick
       deterministic_try_catch_dumps;
+    Alcotest.test_case "pinned no_warn behavior" `Quick
+      no_warn_statement_source_behavior;
+    Alcotest.test_case "no_warn statement shapes" `Quick
+      no_warn_statement_shapes;
+    Alcotest.test_case "no_warn boundaries and nesting" `Quick
+      no_warn_statement_boundaries_and_nesting;
+    Alcotest.test_case "pinned no_warn statements" `Quick
+      pinned_no_warn_statements;
+    Alcotest.test_case "no_warn statement provenance" `Quick
+      no_warn_statement_provenance;
+    Alcotest.test_case "no_warn statement failures" `Quick
+      no_warn_statement_failures;
+    Alcotest.test_case "deterministic no_warn dumps" `Quick
+      deterministic_no_warn_dumps;
     Alcotest.test_case "pinned break behavior" `Quick
       break_statement_source_behavior;
     Alcotest.test_case "break statement shapes" `Quick break_statement_shapes;
