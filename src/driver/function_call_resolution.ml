@@ -37,71 +37,129 @@ let call_syntax (call : Frontend.Ast.call_expression) =
   | Frontend.Ast.Parenthesis_free_call ->
       Sema.Function_call_resolution.Parenthesis_free
 
+let cast_type_reference (cast : Frontend.Ast.postfix_cast_expression) =
+  let pointer_origins =
+    List.map
+      (fun (layer : Frontend.Ast.pointer_layer) -> origin layer.location)
+      cast.cast_pointer_layers
+  in
+  let pointer_depth = List.length pointer_origins in
+  let make form primitive =
+    match Sema.Type.make_primitive ~form ~primitive ~pointer_depth with
+    | Error _ as error -> error
+    | Ok resolved_type ->
+        Sema.Type_reference.make
+          ~spelling:(Frontend.Ast.type_specifier_spelling cast.cast_type)
+          ~spelling_origin:
+            (origin (Frontend.Ast.type_specifier_location cast.cast_type))
+          ~pointer_origins ~resolved_type
+  in
+  match cast.cast_type with
+  | Frontend.Ast.Primitive_type_specifier primitive ->
+      make Sema.Type.Public_spelling primitive.primitive
+      |> Result.map Option.some
+  | Frontend.Ast.Internal_type_specifier internal ->
+      make Sema.Type.Internal_storage internal.primitive
+      |> Result.map Option.some
+  | Frontend.Ast.Named_type_specifier _ -> Ok None
+
 let rec argument_expression (expression : Frontend.Ast.expression) =
-  let kind =
+  let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal _ ->
-        Sema.Function_call_resolution.Integer_literal
+        Ok Sema.Function_call_resolution.Integer_literal
     | Frontend.Ast.Float_literal _ ->
-        Sema.Function_call_resolution.Float_literal
+        Ok Sema.Function_call_resolution.Float_literal
     | Frontend.Ast.Character_literal _ ->
-        Sema.Function_call_resolution.Character_literal
+        Ok Sema.Function_call_resolution.Character_literal
     | Frontend.Ast.String_literal _ ->
-        Sema.Function_call_resolution.String_literal
-    | Frontend.Ast.Parenthesized_expression grouped ->
-        Sema.Function_call_resolution.Parenthesized_expression
-          (argument_expression grouped.grouped_expression)
+        Ok Sema.Function_call_resolution.String_literal
+    | Frontend.Ast.Parenthesized_expression grouped -> (
+        match argument_expression grouped.grouped_expression with
+        | Error _ as error -> error
+        | Ok grouped ->
+            Ok (Sema.Function_call_resolution.Parenthesized_expression grouped))
     | Frontend.Ast.Identifier_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Identifier_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Identifier_expression)
     | Frontend.Ast.Current_position_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Current_position_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Current_position_expression)
     | Frontend.Ast.Sizeof_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Sizeof_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Sizeof_expression)
     | Frontend.Ast.Offset_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Offset_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Offset_expression)
     | Frontend.Ast.Defined_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Defined_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Defined_expression)
     | Frontend.Ast.Prefix_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Prefix_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Prefix_expression)
     | Frontend.Ast.Postfix_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Postfix_expression
-    | Frontend.Ast.Postfix_cast_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Postfix_cast_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Postfix_expression)
+    | Frontend.Ast.Postfix_cast_expression cast -> (
+        match cast_type_reference cast with
+        | Error _ as error -> error
+        | Ok None ->
+            Ok
+              (Sema.Function_call_resolution.Unresolved_expression
+                 Sema.Function_call_resolution.Postfix_cast_expression)
+        | Ok (Some target) -> (
+            match argument_expression cast.cast_operand with
+            | Error _ as error -> error
+            | Ok operand ->
+                Ok
+                  (Sema.Function_call_resolution.Postfix_cast_expression
+                     (operand, target))))
     | Frontend.Ast.Binary_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Binary_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Binary_expression)
     | Frontend.Ast.Call_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Call_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Call_expression)
     | Frontend.Ast.Index_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Index_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Index_expression)
     | Frontend.Ast.Member_expression _ ->
-        Sema.Function_call_resolution.Unresolved_expression
-          Sema.Function_call_resolution.Member_expression
+        Ok
+          (Sema.Function_call_resolution.Unresolved_expression
+             Sema.Function_call_resolution.Member_expression)
   in
-  Sema.Function_call_resolution.make_argument_expression ~kind
-    ~origin:(origin (Frontend.Ast.expression_location expression))
+  Result.map
+    (fun kind ->
+      Sema.Function_call_resolution.make_argument_expression ~kind
+        ~origin:(origin (Frontend.Ast.expression_location expression)))
+    kind_result
 
 let argument index (argument : Frontend.Ast.call_argument) =
-  let kind, expression =
+  let prepared =
     match argument.call_argument_value with
     | Frontend.Ast.Provided_call_argument expression ->
-        ( Sema.Function_call_resolution.Provided,
-          Some (argument_expression expression) )
+        Result.map
+          (fun expression ->
+            (Sema.Function_call_resolution.Provided, Some expression))
+          (argument_expression expression)
     | Frontend.Ast.Omitted_call_argument ->
-        (Sema.Function_call_resolution.Omitted, None)
+        Ok (Sema.Function_call_resolution.Omitted, None)
   in
-  Sema.Function_call_resolution.make_argument ~index ~kind ~expression
-    ~origin:(origin argument.call_argument_location)
+  match prepared with
+  | Error _ as error -> error
+  | Ok (kind, expression) ->
+      Sema.Function_call_resolution.make_argument ~index ~kind ~expression
+        ~origin:(origin argument.call_argument_location)
 
 let call_arguments call =
   let rec loop index rev = function

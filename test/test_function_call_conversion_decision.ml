@@ -121,6 +121,14 @@ let provided_expression fixed =
   fixed |> provided_argument
   |> Semantic_function_call_resolution.argument_expression |> Option.get
 
+let postfix_cast_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Postfix_cast_expression (operand, target)
+    -> (operand, target)
+  | _ -> Alcotest.fail "expected a retained postfix cast target"
+
 let literal_directions_and_expression_retention () =
   let prepared =
     prepare ~path:"call-decision-literals.HC"
@@ -197,7 +205,7 @@ let source_expression_classes_stay_explicit () =
        extern I64 Target(F64 a,F64 b,F64 c,F64 d,F64 e,F64 f,F64 g,F64 h,F64 \
        i,F64 j,F64 k,F64 l);\n\
        I64 Caller(I64 value){I64 array[1];Box box;return \
-       Target(value,$$,sizeof(I64),offset(Box.member),defined(value),-4,value++,3(F64),1+2,Nested(1),array[0],box.member);}"
+       Target(value,$$,sizeof(I64),offset(Box.member),defined(value),-4,value++,3(Box),1+2,Nested(1),array[0],box.member);}"
   in
   let fixed =
     decide prepared |> checked_decision |> fun result ->
@@ -245,6 +253,235 @@ let source_expression_classes_stay_explicit () =
         fixed |> provided_expression
         |> Semantic_function_call_resolution.argument_expression_kind
         |> Semantic_function_call_resolution.argument_expression_kind_name))
+
+let primitive_postfix_cast_directions_and_retention () =
+  let prepared =
+    prepare ~path:"call-decision-postfix-casts.HC"
+      "extern I64 Target(I64 scalar_f64,F64 scalar_int,F64 int_pointer,I64 \
+       f64_pointer,F64 intrinsic_f64);\n\
+       I64 Caller(I64 value){return Target(value(F64),value(I64),value(I64 \
+       *),value(F64 *),value(F64i));}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "postfix cast targets select the call conversion"
+    [
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:none";
+      "provided:f64-result:none";
+    ]
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  let targets =
+    List.map
+      (fun fixed -> fixed |> provided_expression |> postfix_cast_parts |> snd)
+      fixed
+  in
+  Alcotest.(check (list string))
+    "cast source spellings stay explicit"
+    [ "F64"; "I64"; "I64"; "F64"; "F64i" ]
+    (List.map Semantic_type_reference.spelling targets);
+  Alcotest.(check (list int))
+    "cast pointer depths stay explicit" [ 0; 0; 1; 1; 0 ]
+    (targets
+    |> List.map (fun target ->
+        target |> Semantic_type_reference.resolved_type
+        |> Semantic_type.pointer_depth));
+  Alcotest.(check (list int))
+    "cast pointer origins match their depths" [ 0; 0; 1; 1; 0 ]
+    (List.map
+       (fun target ->
+         target |> Semantic_type_reference.pointer_origins |> List.length)
+       targets);
+  let all_spellings =
+    [
+      "I0";
+      "I8";
+      "I16";
+      "I32";
+      "I64";
+      "U0";
+      "U8";
+      "U16";
+      "U32";
+      "U64";
+      "F64";
+      "Bool";
+      "I0i";
+      "U0i";
+      "I8i";
+      "U8i";
+      "I16i";
+      "U16i";
+      "I32i";
+      "U32i";
+      "I64i";
+      "U64i";
+      "F64i";
+    ]
+  in
+  let parameters =
+    all_spellings
+    |> List.mapi (fun index _ -> Printf.sprintf "F64 p%d" index)
+    |> String.concat ","
+  in
+  let arguments =
+    all_spellings |> List.map (Printf.sprintf "value(%s)") |> String.concat ","
+  in
+  let every =
+    prepare ~path:"call-decision-all-primitive-casts.HC"
+      (Printf.sprintf
+         "extern I64 Every(%s);I64 Caller(I64 value){return Every(%s);}"
+         parameters arguments)
+  in
+  Alcotest.(check (list string))
+    "every public and intrinsic scalar cast follows its raw result class"
+    (List.map
+       (fun spelling ->
+         if String.equal spelling "F64" || String.equal spelling "F64i" then
+           "provided:f64-result:none"
+         else "provided:integer-result:ICF_RES_TO_F64")
+       all_spellings)
+    ( decide every |> checked_decision |> fun result ->
+      only_direct result "Caller" |> path_names )
+
+let outer_postfix_cast_wins_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-outer-postfix-cast.HC"
+          "extern I64 Nested();\n\
+           extern I64 Target(F64 from_binary,I64 from_value,F64 from_call,I64 \
+           from_nested);\n\
+           I64 Caller(I64 value){return \
+           Target(((value+1)(I64)),value(F64),Nested()(I64),value(F64)(I64));}"
+      in
+      Alcotest.(check (list string))
+        "the outer cast replaces the operand class"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:none";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          direct_named result "Caller" "Target" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let postfix_cast_provenance_and_purity () =
+  let prepared =
+    prepare ~path:"call-decision-postfix-cast-generated.HC"
+      "#define CONVERT value(F64i)\n\
+       extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(CONVERT);}"
+  in
+  let result = decide prepared |> checked_decision in
+  let fixed =
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd
+  in
+  Alcotest.(check string)
+    "generated intrinsic cast converts to integer"
+    "provided:f64-result:ICF_RES_TO_INT"
+    (fixed |> Semantic_function_call_conversion_decision.fixed_path
+   |> Semantic_function_call_conversion_decision.fixed_path_name);
+  let _, target = fixed |> provided_expression |> postfix_cast_parts in
+  (match Semantic_type_reference.spelling_origin target with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated cast target keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated cast target keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated cast target provenance");
+  let table = Session.semantic_symbols prepared.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  Alcotest.(check (list string))
+    "postfix cast decisions are deterministic"
+    (only_direct result "Caller" |> path_names)
+    ( decide prepared |> checked_decision |> fun next ->
+      only_direct next "Caller" |> path_names );
+  Alcotest.(check int)
+    "postfix cast decisions do not mutate symbols" before
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  with_included_source
+    "extern I64 Included(F64 value);I64 Caller(I64 value){return \
+     Included(value(I64 *));}" (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun included_result ->
+        only_direct included_result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included pointer cast follows the integer conversion path"
+        "provided:integer-result:ICF_RES_TO_F64"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let _, target = fixed |> provided_expression |> postfix_cast_parts in
+      let location =
+        match Semantic_type_reference.spelling_origin target with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included cast target provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included cast target keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
+let postfix_cast_target_validation () =
+  let origin = Semantic_symbol.Synthesized "postfix cast validation" in
+  let pointer_type =
+    Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+      ~primitive:Primitive_type.F64 ~pointer_depth:1
+    |> function
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  (match
+     Semantic_type_reference.make ~spelling:"F64" ~spelling_origin:origin
+       ~pointer_origins:[] ~resolved_type:pointer_type
+   with
+  | Ok _ -> Alcotest.fail "expected missing pointer provenance to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "pointer provenance diagnostic"
+        "semantic type-reference pointer provenance does not match its type"
+        message);
+  let scalar_type =
+    Semantic_type.make_primitive ~form:Semantic_type.Internal_storage
+      ~primitive:Primitive_type.F64 ~pointer_depth:0
+    |> function
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  match
+    Semantic_type_reference.make ~spelling:"F64" ~spelling_origin:origin
+      ~pointer_origins:[] ~resolved_type:scalar_type
+  with
+  | Ok _ -> Alcotest.fail "expected an intrinsic spelling mismatch to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "intrinsic spelling diagnostic"
+        "semantic type-reference spelling \"F64\" does not match \"F64i\""
+        message
 
 let integer_primaries_convert_to_f64 () =
   let prepared =
@@ -554,6 +791,14 @@ let tests =
       pointer_callback_and_backed_targets;
     Alcotest.test_case "source expression classes" `Quick
       source_expression_classes_stay_explicit;
+    Alcotest.test_case "primitive postfix cast directions" `Quick
+      primitive_postfix_cast_directions_and_retention;
+    Alcotest.test_case "outer postfix cast and modes" `Quick
+      outer_postfix_cast_wins_in_both_modes;
+    Alcotest.test_case "postfix cast provenance and purity" `Quick
+      postfix_cast_provenance_and_purity;
+    Alcotest.test_case "postfix cast target validation" `Quick
+      postfix_cast_target_validation;
     Alcotest.test_case "integer primaries to F64" `Quick
       integer_primaries_convert_to_f64;
     Alcotest.test_case "integer primaries to integer" `Quick
