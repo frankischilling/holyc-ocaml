@@ -150,8 +150,8 @@ let counts_flags_and_thresholds () =
   Alcotest.(check (list (triple string string string)))
     "warning order and thresholds"
     [
-      ("HCSEMA0024", "unneeded-no-warn", "noisy");
-      ("HCSEMA0023", "unused-variable", "automatic");
+      ("HCSEMA0035", "unneeded-no-warn", "noisy");
+      ("HCSEMA0034", "unused-variable", "automatic");
     ]
     (Semantic_local_warning_analysis.function_warnings function_
     |> List.map warning_signature);
@@ -189,7 +189,7 @@ let options_repeats_and_prototypes () =
   let function_ = function_named result "Options" in
   Alcotest.(check (list (triple string string string)))
     "unneeded suppression ignores the unused option"
-    [ ("HCSEMA0024", "unneeded-no-warn", "repeated") ]
+    [ ("HCSEMA0035", "unneeded-no-warn", "repeated") ]
     (Semantic_local_warning_analysis.function_warnings function_
     |> List.map warning_signature);
   let repeated = binding_named function_ "repeated" in
@@ -391,7 +391,7 @@ let purity_and_validation () =
   | Error message ->
       Alcotest.(check bool)
         "stable option error" true
-        (String.starts_with ~prefix:"HCSEMA0022: " message));
+        (String.starts_with ~prefix:"HCSEMA0033: " message));
   let other =
     prepare ~path:"local-warning-other.HC" "U0 Other(I64 value){value;}"
   in
@@ -405,7 +405,7 @@ let purity_and_validation () =
   | Error message ->
       Alcotest.(check bool)
         "stable ownership error" true
-        (String.starts_with ~prefix:"HCSEMA0022: " message));
+        (String.starts_with ~prefix:"HCSEMA0033: " message));
   Alcotest.(check int)
     "failed analysis does not add symbols" before
     (Semantic_symbol_table.all_symbols table |> List.length)

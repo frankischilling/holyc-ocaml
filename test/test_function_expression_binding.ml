@@ -454,7 +454,7 @@ let validation_errors () =
       (Semantic_function_expression_binding.make_function ~symbol ~scope
          ~item_index [ missing_suppression; publication ])
   in
-  expect_error_code "HCSEMA0020"
+  expect_error_code "HCSEMA0031"
     (Semantic_function_expression_binding.resolve ~table ~parent
        ~bindings:semantic_inputs.bindings [ bad_suppression ]);
   let wrong_reset =
@@ -470,7 +470,7 @@ let validation_errors () =
       (Semantic_function_expression_binding.make_function ~symbol ~scope
          ~item_index [ publication; wrong_reset ])
   in
-  expect_error_code "HCSEMA0021"
+  expect_error_code "HCSEMA0032"
     (Semantic_function_expression_binding.resolve ~table ~parent
        ~bindings:semantic_inputs.bindings [ bad_reset ]);
   let foreign = Semantic_symbol_table.create () in

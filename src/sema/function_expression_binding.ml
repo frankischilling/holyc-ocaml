@@ -155,7 +155,7 @@ let missing_publication function_symbol
 
 let suppression_mismatch function_symbol name origin =
   {
-    code = "HCSEMA0020";
+    code = "HCSEMA0031";
     kind = Suppression_mismatch { function_symbol; name };
     origin = Some origin;
   }
@@ -163,7 +163,7 @@ let suppression_mismatch function_symbol name origin =
 let initializer_reset_mismatch function_symbol name declaration_index
     declarator_index origin =
   {
-    code = "HCSEMA0021";
+    code = "HCSEMA0032";
     kind =
       Initializer_reset_mismatch
         { function_symbol; name; declaration_index; declarator_index };

@@ -284,5 +284,5 @@ let analyze ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
   Result.map_error
     (fun message ->
       if String.starts_with ~prefix:"HCSEMA" message then message
-      else "HCSEMA0022: " ^ message)
+      else "HCSEMA0033: " ^ message)
     result

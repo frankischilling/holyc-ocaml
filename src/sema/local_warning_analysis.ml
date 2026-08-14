@@ -123,7 +123,7 @@ let warning_message (warning : warning) =
         (Symbol.name warning.function_symbol)
 
 let invalid_input ?origin message =
-  { code = "HCSEMA0022"; kind = Invalid_input message; origin }
+  { code = "HCSEMA0033"; kind = Invalid_input message; origin }
 
 let error_code (error : error) = error.code
 let error_kind (error : error) = error.kind
@@ -408,7 +408,7 @@ let warning_for compiler_option_mask function_symbol analysis =
       Some
         {
           kind = Unneeded_no_warn;
-          code = "HCSEMA0024";
+          code = "HCSEMA0035";
           function_symbol;
           binding_symbol = binding.symbol;
           origin;
@@ -422,7 +422,7 @@ let warning_for compiler_option_mask function_symbol analysis =
     Some
       {
         kind = Unused_variable;
-        code = "HCSEMA0023";
+        code = "HCSEMA0034";
         function_symbol;
         binding_symbol = binding.symbol;
         origin = Symbol.origin binding.symbol;
