@@ -116,6 +116,41 @@ let rec source_actual_class policies ~before_item_index expression =
       | Function_call_resolution.Dereference
       | Function_call_resolution.Pre_increment
       | Function_call_resolution.Pre_decrement -> Unresolved_actual_class)
+  | Function_call_resolution.Binary_expression binary -> (
+      match Function_call_resolution.binary_operator binary with
+      | Generated.Intermediate_codes.Ic_power -> F64_result
+      | Generated.Intermediate_codes.Ic_equ_equ
+      | Generated.Intermediate_codes.Ic_not_equ
+      | Generated.Intermediate_codes.Ic_less
+      | Generated.Intermediate_codes.Ic_greater_equ
+      | Generated.Intermediate_codes.Ic_greater
+      | Generated.Intermediate_codes.Ic_less_equ
+      | Generated.Intermediate_codes.Ic_and_and
+      | Generated.Intermediate_codes.Ic_or_or
+      | Generated.Intermediate_codes.Ic_xor_xor -> Integer_result
+      | Generated.Intermediate_codes.Ic_shl
+      | Generated.Intermediate_codes.Ic_shr
+      | Generated.Intermediate_codes.Ic_mul
+      | Generated.Intermediate_codes.Ic_div
+      | Generated.Intermediate_codes.Ic_mod
+      | Generated.Intermediate_codes.Ic_and
+      | Generated.Intermediate_codes.Ic_or
+      | Generated.Intermediate_codes.Ic_xor
+      | Generated.Intermediate_codes.Ic_add
+      | Generated.Intermediate_codes.Ic_sub -> (
+          match
+            ( source_actual_class policies ~before_item_index
+                (Function_call_resolution.binary_left binary),
+              source_actual_class policies ~before_item_index
+                (Function_call_resolution.binary_right binary) )
+          with
+          | F64_result, _ | _, F64_result -> F64_result
+          | Integer_result, Integer_result -> Integer_result
+          | Integer_result, Unresolved_actual_class
+          | Unresolved_actual_class, Integer_result
+          | Unresolved_actual_class, Unresolved_actual_class ->
+              Unresolved_actual_class)
+      | _ -> Unresolved_actual_class)
   | Function_call_resolution.Postfix_cast_expression (_, target) -> (
       let resolved = Type_reference.resolved_type target in
       match
@@ -133,7 +168,6 @@ let rec source_actual_class policies ~before_item_index expression =
       ( Function_call_resolution.Identifier_expression
       | Function_call_resolution.Postfix_expression
       | Function_call_resolution.Postfix_cast_expression
-      | Function_call_resolution.Binary_expression
       | Function_call_resolution.Call_expression
       | Function_call_resolution.Index_expression
       | Function_call_resolution.Member_expression ) -> Unresolved_actual_class

@@ -9,7 +9,6 @@ type unresolved_expression_kind =
   | Defined_expression
   | Postfix_expression
   | Postfix_cast_expression
-  | Binary_expression
   | Call_expression
   | Index_expression
   | Member_expression
@@ -32,6 +31,7 @@ type argument_expression_kind =
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
+  | Binary_expression of binary_expression
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
@@ -43,6 +43,13 @@ and prefix_expression = {
   prefix_operator : prefix_operator;
   prefix_operator_origin : Symbol.origin;
   prefix_operand : argument_expression;
+}
+
+and binary_expression = {
+  binary_operator : Generated.Intermediate_codes.t;
+  binary_operator_origin : Symbol.origin;
+  binary_left : argument_expression;
+  binary_right : argument_expression;
 }
 
 type argument = {
@@ -165,6 +172,13 @@ let prefix_operator_origin (prefix : prefix_expression) =
   prefix.prefix_operator_origin
 
 let prefix_operand (prefix : prefix_expression) = prefix.prefix_operand
+let binary_operator (binary : binary_expression) = binary.binary_operator
+
+let binary_operator_origin (binary : binary_expression) =
+  binary.binary_operator_origin
+
+let binary_left (binary : binary_expression) = binary.binary_left
+let binary_right (binary : binary_expression) = binary.binary_right
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -196,6 +210,8 @@ let prefix_operator_name = function
   | Pre_increment -> "pre-increment"
   | Pre_decrement -> "pre-decrement"
 
+let binary_operator_name = Generated.Intermediate_codes.to_source_name
+
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
@@ -204,7 +220,6 @@ let unresolved_expression_kind_name = function
   | Defined_expression -> "defined"
   | Postfix_expression -> "postfix"
   | Postfix_cast_expression -> "postfix-cast"
-  | Binary_expression -> "binary"
   | Call_expression -> "call"
   | Index_expression -> "index"
   | Member_expression -> "member"
@@ -217,6 +232,7 @@ let argument_expression_kind_name = function
   | Parenthesized_expression _ -> "parenthesized"
   | Prefix_expression _ -> "prefix"
   | Postfix_cast_expression _ -> "postfix-cast"
+  | Binary_expression _ -> "binary"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
@@ -304,6 +320,30 @@ let make_prefix_argument_expression ~operator ~operator_origin ~operand =
            prefix_operator = operator;
            prefix_operator_origin = operator_origin;
            prefix_operand = operand;
+         })
+
+let checked_binary_operator operator =
+  let source_name = binary_operator_name operator in
+  List.exists
+    (fun (candidate : Generated.Operator_tables.binary_operator) ->
+      String.equal candidate.ic_name source_name)
+    Generated.Operator_tables.binary_operators
+
+let make_binary_argument_expression ~operator ~operator_origin ~left ~right =
+  if not (checked_binary_operator operator) then
+    Error
+      (Printf.sprintf "%s is not a checked binary operator"
+         (binary_operator_name operator))
+  else if not (valid_origin operator_origin) then
+    Error "call argument binary operator has an invalid source origin"
+  else
+    Ok
+      (Binary_expression
+         {
+           binary_operator = operator;
+           binary_operator_origin = operator_origin;
+           binary_left = left;
+           binary_right = right;
          })
 
 let argument_expression_kind expression = expression.expression_kind
@@ -423,6 +463,13 @@ let rec validate_argument_expression table parent visible expression =
       validate_argument_expression table parent visible grouped
   | Prefix_expression prefix ->
       validate_argument_expression table parent visible prefix.prefix_operand
+  | Binary_expression binary -> (
+      match
+        validate_argument_expression table parent visible binary.binary_left
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_argument_expression table parent visible binary.binary_right)
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
