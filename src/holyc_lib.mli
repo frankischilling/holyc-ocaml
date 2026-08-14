@@ -390,8 +390,9 @@ val decide_function_call_conversions :
   ( Semantic_function_call_conversion_decision.t,
     Semantic_function_call_conversion_decision.error )
   result
-(** Select fixed-call conversion intent for literal actual expressions.
-    Unsupported expression classes remain explicit unresolved results. *)
+(** Select fixed-call conversion intent for literals and audited non-F64
+    primary expressions. Unsupported expression classes remain explicit
+    unresolved results. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->

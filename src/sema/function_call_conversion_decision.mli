@@ -22,9 +22,11 @@ type error
 
 val decide :
   table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
-(** Select the pinned fixed-call conversion intent for literal actuals. Integer,
-    character, string, and float literals retain exact source classes through
-    parentheses. Other expression shapes remain explicit unresolved results. *)
+(** Select the pinned fixed-call conversion intent for audited source classes.
+    Literals keep their exact result class. Current position, [sizeof],
+    [offset], and [defined] use the pinned non-F64 side of the comparison.
+    Parentheses preserve either class, and other expression shapes remain
+    explicit unresolved results. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option

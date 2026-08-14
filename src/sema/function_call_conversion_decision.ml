@@ -96,15 +96,28 @@ let error_message error =
 let error_to_string error = error.code ^ ": " ^ error_message error
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
-let rec literal_actual_class expression =
+let rec source_actual_class expression =
   match Function_call_resolution.argument_expression_kind expression with
   | Function_call_resolution.Integer_literal
   | Function_call_resolution.Character_literal
   | Function_call_resolution.String_literal -> Integer_result
   | Function_call_resolution.Float_literal -> F64_result
   | Function_call_resolution.Parenthesized_expression grouped ->
-      literal_actual_class grouped
-  | Function_call_resolution.Unresolved_expression _ -> Unresolved_actual_class
+      source_actual_class grouped
+  | Function_call_resolution.Unresolved_expression
+      ( Function_call_resolution.Current_position_expression
+      | Function_call_resolution.Sizeof_expression
+      | Function_call_resolution.Offset_expression
+      | Function_call_resolution.Defined_expression ) -> Integer_result
+  | Function_call_resolution.Unresolved_expression
+      ( Function_call_resolution.Identifier_expression
+      | Function_call_resolution.Prefix_expression
+      | Function_call_resolution.Postfix_expression
+      | Function_call_resolution.Postfix_cast_expression
+      | Function_call_resolution.Binary_expression
+      | Function_call_resolution.Call_expression
+      | Function_call_resolution.Index_expression
+      | Function_call_resolution.Member_expression ) -> Unresolved_actual_class
 
 let conversion target actual =
   match (target, actual) with
@@ -130,7 +143,7 @@ let fixed_decision source =
       | None ->
           Error (invalid_input "provided fixed argument has no expression")
       | Some expression ->
-          let actual = literal_actual_class expression in
+          let actual = source_actual_class expression in
           Ok
             {
               source;
