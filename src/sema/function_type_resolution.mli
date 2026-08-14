@@ -3,6 +3,7 @@ type parameter_default =
       origin : Symbol.origin;
       equals_origin : Symbol.origin;
       expression_origin : Symbol.origin;
+      contains_string_literal : bool;
     }
   | Lastclass_default of {
       origin : Symbol.origin;
@@ -110,6 +111,8 @@ val parameter_name_origin : parameter -> Symbol.origin option
 val parameter_type_reference : parameter -> Type_reference.t
 val parameter_declarator_kind : parameter -> declarator_kind
 val parameter_default : parameter -> parameter_default option
+val parameter_flag_mask : parameter -> int64
+val parameter_has_flag : parameter -> Member_flag.t -> bool
 val parameter_delimiter_origin : parameter -> Symbol.origin option
 val function_pointer_origin : function_pointer -> Symbol.origin
 val function_pointer_opening_origin : function_pointer -> Symbol.origin
@@ -129,4 +132,6 @@ val synthetic_binding_symbol : synthetic_binding -> Symbol.t
 val synthetic_binding_index : synthetic_binding -> int
 val synthetic_binding_type : synthetic_binding -> Type.t
 val synthetic_binding_shape : synthetic_binding -> synthetic_shape
+val synthetic_binding_flag_mask : synthetic_binding -> int64
+val synthetic_binding_has_flag : synthetic_binding -> Member_flag.t -> bool
 val synthetic_parameter_name : synthetic_parameter -> string

@@ -356,8 +356,8 @@ let callback_return_and_indirection () =
   let ast =
     parse session ~path:"member-callbacks.HC"
       "class Node {}; class Callbacks { I64 *(*invoke)(Node \
-       *node,I64=1,I64=lastclass,U8 *(*nested)(I64 value,...),...); I64 \
-       (**chain)(I64 value); };"
+       *node,I64=1,I64=lastclass,U8 *(*nested)(I64 value=\"nested\",...),...); \
+       I64 (**chain)(I64 value); };"
   in
   let results = resolve session ast in
   let node = aggregate_named results "Node" in
@@ -396,6 +396,11 @@ let callback_return_and_indirection () =
   let parameters =
     Semantic_function_type_resolution.signature_parameters signature
   in
+  Alcotest.(check (list int64))
+    "member callback parameters retain source-derived masks"
+    [ 0L; 0x21L; 0x23L; 0x8L ]
+    (parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   let node_type = List.nth parameters 0 |> parameter_type in
   Alcotest.(check int)
     "self parameter pointer depth" 1
@@ -445,6 +450,10 @@ let callback_return_and_indirection () =
     "nested callback parameter" [ Some "value" ]
     (nested_signature |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_name);
+  Alcotest.(check (list int64))
+    "nested member callback keeps its string-default mask" [ 0x5L ]
+    (nested_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   Alcotest.(check bool)
     "nested callback keeps its terminal ellipsis" true
     (nested_signature

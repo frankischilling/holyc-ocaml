@@ -58,6 +58,31 @@ let parameters function_ =
 let parameter_at function_ index = List.nth (parameters function_) index
 let resolved_type reference = Semantic_type_reference.resolved_type reference
 
+let check_parameter_mask description expected parameter =
+  let actual =
+    Semantic_function_type_resolution.parameter_flag_mask parameter
+  in
+  Alcotest.(check int64) description expected actual;
+  Member_flag.all
+  |> List.iter (fun flag ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s: %s" description (Member_flag.to_source_name flag))
+        (Member_flag.is_set ~mask:expected flag)
+        (Semantic_function_type_resolution.parameter_has_flag parameter flag))
+
+let check_synthetic_mask description expected binding =
+  let actual =
+    Semantic_function_type_resolution.synthetic_binding_flag_mask binding
+  in
+  Alcotest.(check int64) description expected actual;
+  Member_flag.all
+  |> List.iter (fun flag ->
+      Alcotest.(check bool)
+        (Printf.sprintf "%s: %s" description (Member_flag.to_source_name flag))
+        (Member_flag.is_set ~mask:expected flag)
+        (Semantic_function_type_resolution.synthetic_binding_has_flag binding
+           flag))
+
 let parameter_type parameter =
   parameter |> Semantic_function_type_resolution.parameter_type_reference
   |> resolved_type
@@ -336,6 +361,69 @@ let recursive_callbacks_defaults_and_varargs () =
   | Semantic_function_type_resolution.Scalar ->
       Alcotest.fail "expected argv to retain an array shape"
 
+let parameter_flags_follow_pinned_assignments () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"function-parameter-flags.HC"
+      "extern U0 Flags(I64 named,I64,I64 numeric=1,I64 current=lastclass,U8 \
+       *mask=\"*\",U0 (*callback)(I64 \
+       nested=\"nested\",I64=lastclass,...),...);"
+  in
+  let function_ =
+    resolve session ast |> fun results -> function_named results "Flags"
+  in
+  Alcotest.(check (list int64))
+    "fixed parameters receive exact member-list masks"
+    [ 0L; 0x20L; 0x1L; 0x3L; 0x5L; 0x8L ]
+    (parameters function_
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
+  parameters function_
+  |> List.iter2
+       (fun expected parameter ->
+         check_parameter_mask "fixed parameter mask" expected parameter)
+       [ 0L; 0x20L; 0x1L; 0x3L; 0x5L; 0x8L ];
+  let callback = parameter_at function_ 5 |> expect_callback in
+  let callback_parameters =
+    callback |> Semantic_function_type_resolution.function_pointer_signature
+    |> Semantic_function_type_resolution.signature_parameters
+  in
+  Alcotest.(check (list int64))
+    "nested callback parameters derive their own masks" [ 0x5L; 0x23L ]
+    (callback_parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
+  List.iter2
+    (fun expected parameter ->
+      check_parameter_mask "nested callback parameter mask" expected parameter)
+    [ 0x5L; 0x23L ] callback_parameters;
+  check_parameter_mask "outer callback excludes nested defaults" 0x8L
+    (parameter_at function_ 5);
+  let variadic =
+    function_ |> Semantic_function_type_resolution.function_variadic_bindings
+    |> Option.get
+  in
+  check_synthetic_mask "argc variadic mask" 0x10L
+    (Semantic_function_type_resolution.variadic_argc variadic);
+  check_synthetic_mask "argv variadic mask" 0x10L
+    (Semantic_function_type_resolution.variadic_argv variadic)
+
+let string_defaults_are_found_recursively () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"recursive-string-defaults.HC"
+      "extern U0 Defaults(U8 *direct=\"direct\",U8 \
+       *nested=&Factory(,(\"nested\"))(U8 *)[0].field++ + 1,U8 *right=1 + \
+       \"right\",U8 *callee=(\"callee\")(),I64 \
+       plain=Factory(,1)(I64)[0].field++ + 1);"
+  in
+  let function_ =
+    resolve session ast |> fun results -> function_named results "Defaults"
+  in
+  Alcotest.(check (list int64))
+    "only string-bearing defaults receive owned-string metadata"
+    [ 0x5L; 0x5L; 0x5L; 0x5L; 0x1L ]
+    (parameters function_
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask)
+
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
@@ -348,7 +436,8 @@ let generated_signature_provenance () =
       "#define TYPE I64i\n\
        #define STAR *\n\
        #define NAME generated\n\
-       extern TYPE STAR Generated(TYPE NAME,...);"
+       #define DEFAULT \"*\"\n\
+       extern TYPE STAR Generated(U8 STAR NAME=DEFAULT,...);"
   in
   let function_ =
     resolve session ast |> fun results -> function_named results "Generated"
@@ -368,7 +457,17 @@ let generated_signature_provenance () =
     |> Semantic_function_type_resolution.parameter_name_origin |> Option.get
     |> source_origin
   in
-  [ return_origin; pointer_origin; parameter_origin ]
+  let parameter = parameter_at function_ 0 in
+  check_parameter_mask "generated string default mask" 0x5L parameter;
+  let default_origin =
+    match Semantic_function_type_resolution.parameter_default parameter with
+    | Some
+        (Semantic_function_type_resolution.Expression_default
+           { expression_origin; _ }) -> source_origin expression_origin
+    | None | Some (Semantic_function_type_resolution.Lastclass_default _) ->
+        Alcotest.fail "expected a generated expression default"
+  in
+  [ return_origin; pointer_origin; parameter_origin; default_origin ]
   |> List.iter (fun (provenance : Semantic_symbol.source_origin) ->
       Alcotest.(check bool)
         "generated source keeps its invocation" true
@@ -400,7 +499,7 @@ let included_signature_provenance () =
       let include_path = Filename.concat directory "signatures.HC" in
       write_file root_path "#include \"signatures\"";
       write_file include_path
-        "class Included {}; extern Included Use(Included value);";
+        "class Included {}; extern Included Use(Included value,U8 *mask=\"*\");";
       let session = Session.create () in
       let source = checked (Session.load_source session ~path:root_path) in
       let config =
@@ -422,7 +521,24 @@ let included_signature_provenance () =
       in
       Alcotest.(check string)
         "the return type keeps its included source" "signatures.HC"
-        (Source_file.path source |> Filename.basename))
+        (Source_file.path source |> Filename.basename);
+      let parameter = parameter_at function_ 1 in
+      check_parameter_mask "included string default mask" 0x5L parameter;
+      let default_site =
+        match Semantic_function_type_resolution.parameter_default parameter with
+        | Some
+            (Semantic_function_type_resolution.Expression_default
+               { expression_origin; _ }) -> source_origin expression_origin
+        | None | Some (Semantic_function_type_resolution.Lastclass_default _) ->
+            Alcotest.fail "expected an included expression default"
+      in
+      let default_source =
+        Source_manager.find (Session.sources session) default_site.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "the default keeps its included source" "signatures.HC"
+        (Source_file.path default_source |> Filename.basename))
 
 let type_signature function_ =
   let type_text reference =
@@ -457,24 +573,38 @@ let type_signature function_ =
               .function_pointer_indirection_origins |> List.length)
             nested
     in
-    Printf.sprintf "%d:%s:%s:%s"
+    Printf.sprintf "%d:%s:%s:%s:flags=%Ld"
       (Semantic_function_type_resolution.parameter_index parameter)
       (Semantic_function_type_resolution.parameter_name parameter
       |> Option.value ~default:"_")
       (parameter |> Semantic_function_type_resolution.parameter_type_reference
      |> type_text)
       kind
+      (Semantic_function_type_resolution.parameter_flag_mask parameter)
   in
-  Printf.sprintf "%s=%s(%s)"
-    (function_ |> Semantic_function_type_resolution.function_symbol
-   |> Semantic_symbol.name)
-    (function_ |> Semantic_function_type_resolution.function_return_type
-   |> type_text)
-    (parameters function_ |> List.map parameter_text |> String.concat ",")
+  let fixed =
+    Printf.sprintf "%s=%s(%s)"
+      (function_ |> Semantic_function_type_resolution.function_symbol
+     |> Semantic_symbol.name)
+      (function_ |> Semantic_function_type_resolution.function_return_type
+     |> type_text)
+      (parameters function_ |> List.map parameter_text |> String.concat ",")
+  in
+  match
+    Semantic_function_type_resolution.function_variadic_bindings function_
+  with
+  | None -> fixed
+  | Some variadic ->
+      let argc = Semantic_function_type_resolution.variadic_argc variadic in
+      let argv = Semantic_function_type_resolution.variadic_argv variadic in
+      Printf.sprintf "%s;varargs=%Ld,%Ld" fixed
+        (Semantic_function_type_resolution.synthetic_binding_flag_mask argc)
+        (Semantic_function_type_resolution.synthetic_binding_flag_mask argv)
 
 let modes_determinism_and_purity () =
   let source =
-    "class Node {}; extern Node *Walk(Node *node,U0 (*visit)(Node *value),...);"
+    "class Node {}; extern Node *Walk(Node *node,U8 \
+     *mask=\"*\",I64=lastclass,U0 (*visit)(Node *value),...);"
   in
   let summaries =
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -760,6 +890,10 @@ let tests =
       declaration_kinds_and_callback_depths;
     Alcotest.test_case "callbacks, defaults, and varargs" `Quick
       recursive_callbacks_defaults_and_varargs;
+    Alcotest.test_case "source-derived parameter flags" `Quick
+      parameter_flags_follow_pinned_assignments;
+    Alcotest.test_case "recursive string-default classification" `Quick
+      string_defaults_are_found_recursively;
     Alcotest.test_case "generated signature provenance" `Quick
       generated_signature_provenance;
     Alcotest.test_case "included signature provenance" `Quick

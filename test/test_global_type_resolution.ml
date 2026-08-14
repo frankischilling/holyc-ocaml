@@ -300,7 +300,7 @@ let function_pointer_shapes () =
       "class Node {};\n\
        U8 *(*one)(); U8 *(**two)(); U8 *(***three)(); U8 *(****four)();\n\
        U0 (**handler)(Node *node,I64=lastclass,U8 *(*nested)(I64 \
-       value,...),...);"
+       value=\"nested\",...),...);"
   in
   [ "one"; "two"; "three"; "four" ]
   |> List.iteri (fun index name ->
@@ -346,6 +346,10 @@ let function_pointer_shapes () =
   let parameters =
     Semantic_function_type_resolution.signature_parameters signature
   in
+  Alcotest.(check (list int64))
+    "global callback parameters retain source-derived masks" [ 0L; 0x23L; 0x8L ]
+    (parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   let node_type =
     List.nth parameters 0
     |> Semantic_function_type_resolution.parameter_type_reference
@@ -387,6 +391,10 @@ let function_pointer_shapes () =
   Alcotest.(check (list (option string)))
     "nested callback parameters" [ Some "value" ]
     (parameter_names nested_signature);
+  Alcotest.(check (list int64))
+    "nested global callback keeps its string-default mask" [ 0x5L ]
+    (nested_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_flag_mask);
   Alcotest.(check bool)
     "nested callback is variadic" true
     (nested_signature

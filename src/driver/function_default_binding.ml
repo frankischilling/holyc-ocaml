@@ -116,14 +116,26 @@ let validate_default semantic ast =
   | None, None -> Ok ()
   | ( Some
         (Sema.Function_type_resolution.Expression_default
-           { origin = semantic_origin; equals_origin; expression_origin }),
+           {
+             origin = semantic_origin;
+             equals_origin;
+             expression_origin;
+             contains_string_literal;
+           }),
       Some (ast : Frontend.Ast.parameter_default) ) -> (
       match ast.value with
       | Frontend.Ast.Expression_default expression
         when semantic_origin = origin ast.location
              && equals_origin = origin ast.equals
              && expression_origin
-                = origin (Frontend.Ast.expression_location expression) -> Ok ()
+                = origin (Frontend.Ast.expression_location expression) ->
+          if
+            contains_string_literal
+            = Expression_facts.contains_string_literal expression
+          then Ok ()
+          else
+            Error
+              "function default expression has the wrong storage classification"
       | Frontend.Ast.Expression_default _ ->
           Error "function default expression has the wrong source origin"
       | Frontend.Ast.Lastclass_default _ ->
