@@ -395,7 +395,7 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
                  (fun (marker : Frontend.Ast.variadic_marker) ->
                    origin marker.location)
                  variadic)
-             ~variadic_register_requests ~closing_origin:(origin closing) ()))
+            ~variadic_register_requests ~closing_origin:(origin closing) ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
   Result.bind (Register_request.of_list parameter.register_qualifiers)
