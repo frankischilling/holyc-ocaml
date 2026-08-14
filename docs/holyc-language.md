@@ -396,6 +396,14 @@ The AST retains the `try` keyword, recursively parsed body, `catch` keyword, rec
 
 `HCPARSE0079`, `HCPARSE0080`, and `HCPARSE0081` report a missing body, missing `catch`, or missing handler. A standalone `catch` reaches the pinned compiler's generic `Missing expression` path; the hosted parser preserves rejection but uses the more useful `HCPARSE0082` message. An independent 256-level `HCPARSE0083` guard bounds recursive unbraced pairs, with no matching source-language limit identified. This slice does not emit `SysTry` or `SysUntry`, allocate handler labels, transfer exceptions, unwind returns, lower `throw` calls, or execute exception code.
 
+## `no_warn` statements
+
+`Compiler/PrsStmt.HC` advances past `KW_NO_WARN` and calls `PrsNoWarn`. That routine visits identifiers while `cc->local_var_entry` names the active function member, sets `MLF_NO_UNUSED_WARN`, and advances across one comma after each target. The accepted names are therefore fixed parameters, synthetic variadic `argc` and `argv`, and locals already published in the function-wide parser context. A global, an unresolved spelling, or a later local is not a valid target.
+
+The internal comma and the outer statement comma are separate. `no_warn a,b;` keeps one comma between targets, while `no_warn a,b,;` also keeps the comma after `b`. If another comma follows, the common `PrsStmt` loop owns that second comma as a statement separator. An empty `no_warn;` is valid. In a `for` update, an empty form may end at `)`, and a named form may do so only after its internal trailing comma. A named target without either a comma or semicolon follows the pinned `Expecting ','` failure path.
+
+The AST records the keyword, ordered targets, every internal comma, an optional semicolon, and complete source provenance. `HCPARSE0157` reports a token or name that is not a visible parameter or local. `HCPARSE0158` reports a missing target delimiter or statement boundary. These are parser checks only: the semantic member-list record is not mutated, and use counts, `OPTf_WARN_UNUSED_VAR`, unused-variable warnings, and unneeded-suppression warnings remain unimplemented.
+
 ## Brace-delimited assembly statements
 
 `Compiler/PrsStmt.HC:PrsStmt` dispatches `asm` to the assembly block path in both compilation modes. The top-level AOT path calls `Compiler/Asm.HC:PrsAsmBlk` directly, while top-level JIT and function compilation join through `CMPF_ASM_BLK`. `PrsAsmBlk` requires `{`, consumes assembly tokens until `}`, recognizes label delimiters, and selects directives and instructions through the `HTT_ASM_KEYWORD` and `HTT_OPCODE` records loaded from `Compiler/OpCodes.DD`.

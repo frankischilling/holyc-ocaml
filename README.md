@@ -32,6 +32,8 @@ Top-level named function defaults bind after `PrsFunJoin` has published the curr
 
 Aggregate header resolution distinguishes public primitive spellings, intrinsic storage spellings, and aggregate identities at pointer depths zero through four. It resolves an optional backing against the state before the definition is published, then publishes the canonical identity before resolving an optional base. Definition, keyword, backing, pointer, colon, and base-name origins remain available to later diagnostics. This is a checked semantic header boundary, not class layout or general type checking.
 
+`no_warn` has its own AST node. It keeps each target and comma in order, including a trailing comma, and accepts only parameters or locals visible in the function-wide parser context. Empty forms follow the common statement boundary. Parsing does not yet set `MLF_NO_UNUSED_WARN`, count uses, or issue unused-variable warnings.
+
 ## What is not implemented
 
 The parser remains a syntax layer. Its function-wide lookup context routes identifiers and preprocessor conditionals, and its function entries retain enough shape to parse direct calls. Semantic collection gives accepted top-level declarations, named direct aggregate members, named fixed parameters, variadic `argc` and `argv`, and accepted local declarators stable IDs in explicit scopes. Aggregate reconciliation maps each accepted forward and definition to the source-ordered aggregate identity selected by `PrsClass`; label resolution binds language `goto` statements to language or structural assembly-block definitions in the same function. Member type resolution binds aggregate member heads, ordinary pointers, and complete recursive callback signatures, and records `MLF_FUN` only on callback members. It does not bind or evaluate callback defaults, check indirect calls, or lower them. The closed-layout pass evaluates array extents only when their dependencies are already available. Function type and identity passes bind top-level signatures and reconcile source-ordered records, while record classification retains source-backed flags and consumer intent. They do not compare evaluated prototype defaults, check calls, resolve alternate addresses, create fixups, emit loader records, honor register requests, assign runtime storage, or apply ABI rules.
@@ -105,6 +107,7 @@ dune exec holyc -- parse test/cli/parse-function-pointer-local.hc
 dune exec holyc -- parse test/cli/parse-lock-statements.hc
 dune exec holyc -- parse test/cli/parse-switch-statements.hc
 dune exec holyc -- parse test/cli/parse-try-catch-statements.hc
+dune exec holyc -- parse test/cli/parse-no-warn-statements.hc
 dune exec holyc -- parse test/cli/parse-assembly-block.hc
 dune exec holyc -- parse test/cli/parse-inline-assembly.hc
 dune exec holyc -- dump-ast --format=json test/cli/parse-implicit-output.hc
