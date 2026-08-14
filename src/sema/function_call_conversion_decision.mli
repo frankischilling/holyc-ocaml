@@ -1,0 +1,59 @@
+type actual_class = Integer_result | F64_result | Unresolved_actual_class
+
+type conversion =
+  | No_conversion
+  | Result_to_f64
+  | Result_to_int
+  | Unresolved_conversion
+
+type provided_decision
+type fixed_path = Provided_path of provided_decision | Declared_default_path
+type fixed_decision
+type direct_call
+
+type call_decision =
+  | Direct_call_decision of direct_call
+  | Deferred_call_decision of Function_call_resolution.call_resolution
+
+type resolved_function
+type t
+type error_kind = Invalid_input of string
+type error
+
+val decide :
+  table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
+(** Select the pinned fixed-call conversion intent for literal actuals. Integer,
+    character, string, and float literals retain exact source classes through
+    parentheses. Other expression shapes remain explicit unresolved results. *)
+
+val functions : t -> resolved_function list
+val find_function : t -> Symbol.t -> resolved_function option
+val compilation_mode : t -> Function_resolution.compilation_mode
+val owns_table : t -> Symbol_table.t -> bool
+val function_symbol : resolved_function -> Symbol.t
+val function_scope : resolved_function -> Symbol_table.scope
+val function_item_index : resolved_function -> int
+val function_calls : resolved_function -> call_decision list
+val direct_source : direct_call -> Function_call_conversion_policy.direct_call
+val direct_fixed_decisions : direct_call -> fixed_decision list
+
+val direct_variadic_arguments :
+  direct_call -> Function_call_resolution.argument list
+
+val fixed_source :
+  fixed_decision -> Function_call_conversion_policy.fixed_policy
+
+val fixed_path : fixed_decision -> fixed_path
+
+val provided_target :
+  provided_decision -> Function_call_conversion_policy.target_class
+
+val provided_actual : provided_decision -> actual_class
+val provided_conversion : provided_decision -> conversion
+val actual_class_name : actual_class -> string
+val conversion_name : conversion -> string
+val fixed_path_name : fixed_path -> string
+val error_code : error -> string
+val error_kind : error -> error_kind
+val error_message : error -> string
+val error_to_string : error -> string

@@ -67,6 +67,9 @@ module Semantic_function_call_resolution = Sema.Function_call_resolution
 module Semantic_function_call_conversion_policy =
   Sema.Function_call_conversion_policy
 
+module Semantic_function_call_conversion_decision =
+  Sema.Function_call_conversion_decision
+
 module Semantic_function_record_classification =
   Sema.Function_record_classification
 
@@ -380,6 +383,15 @@ val analyze_function_call_conversions :
 (** Classify the forwarded target path for each provided fixed argument.
     Defaults, variadic expressions, actual expression types, and deferred
     callees remain separate. *)
+
+val decide_function_call_conversions :
+  Session.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  ( Semantic_function_call_conversion_decision.t,
+    Semantic_function_call_conversion_decision.error )
+  result
+(** Select fixed-call conversion intent for literal actual expressions.
+    Unsupported expression classes remain explicit unresolved results. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->

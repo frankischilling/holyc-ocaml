@@ -1,6 +1,39 @@
 type call_syntax = Parenthesized | Parenthesis_free
 type argument_kind = Provided | Omitted
-type argument = { index : int; kind : argument_kind; origin : Symbol.origin }
+
+type unresolved_expression_kind =
+  | Identifier_expression
+  | Current_position_expression
+  | Sizeof_expression
+  | Offset_expression
+  | Defined_expression
+  | Prefix_expression
+  | Postfix_expression
+  | Postfix_cast_expression
+  | Binary_expression
+  | Call_expression
+  | Index_expression
+  | Member_expression
+
+type argument_expression_kind =
+  | Integer_literal
+  | Float_literal
+  | Character_literal
+  | String_literal
+  | Parenthesized_expression of argument_expression
+  | Unresolved_expression of unresolved_expression_kind
+
+and argument_expression = {
+  expression_kind : argument_expression_kind;
+  expression_origin : Symbol.origin;
+}
+
+type argument = {
+  index : int;
+  kind : argument_kind;
+  expression : argument_expression option;
+  origin : Symbol.origin;
+}
 
 type call = {
   index : int;
@@ -106,6 +139,7 @@ let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
 let argument_index (argument : argument) = argument.index
 let argument_kind (argument : argument) = argument.kind
+let argument_expression (argument : argument) = argument.expression
 let argument_origin (argument : argument) = argument.origin
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
@@ -127,6 +161,28 @@ let call_syntax_name = function
 let argument_kind_name = function
   | Provided -> "provided"
   | Omitted -> "omitted"
+
+let unresolved_expression_kind_name = function
+  | Identifier_expression -> "identifier"
+  | Current_position_expression -> "current-position"
+  | Sizeof_expression -> "sizeof"
+  | Offset_expression -> "offset"
+  | Defined_expression -> "defined"
+  | Prefix_expression -> "prefix"
+  | Postfix_expression -> "postfix"
+  | Postfix_cast_expression -> "postfix-cast"
+  | Binary_expression -> "binary"
+  | Call_expression -> "call"
+  | Index_expression -> "index"
+  | Member_expression -> "member"
+
+let argument_expression_kind_name = function
+  | Integer_literal -> "integer-literal"
+  | Float_literal -> "float-literal"
+  | Character_literal -> "character-literal"
+  | String_literal -> "string-literal"
+  | Parenthesized_expression _ -> "parenthesized"
+  | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
   | Local_callee _ -> "local-callee"
@@ -194,9 +250,19 @@ let error_message error =
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 
-let make_argument ~index ~kind ~origin =
+let make_argument_expression ~kind ~origin =
+  { expression_kind = kind; expression_origin = origin }
+
+let argument_expression_kind expression = expression.expression_kind
+let argument_expression_origin expression = expression.expression_origin
+
+let make_argument ~index ~kind ~expression ~origin =
   if index < 0 then Error "call argument index cannot be negative"
-  else Ok { index; kind; origin }
+  else
+    match (kind, expression) with
+    | Provided, Some _ | Omitted, None -> Ok { index; kind; expression; origin }
+    | Provided, None -> Error "provided call argument has no expression"
+    | Omitted, Some _ -> Error "omitted call argument has an expression"
 
 let validate_argument_indexes (arguments : argument list) =
   let rec loop expected = function

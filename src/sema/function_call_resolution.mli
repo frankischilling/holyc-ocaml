@@ -1,12 +1,41 @@
 type call_syntax = Parenthesized | Parenthesis_free
 type argument_kind = Provided | Omitted
+
+type unresolved_expression_kind =
+  | Identifier_expression
+  | Current_position_expression
+  | Sizeof_expression
+  | Offset_expression
+  | Defined_expression
+  | Prefix_expression
+  | Postfix_expression
+  | Postfix_cast_expression
+  | Binary_expression
+  | Call_expression
+  | Index_expression
+  | Member_expression
+
+type argument_expression_kind =
+  | Integer_literal
+  | Float_literal
+  | Character_literal
+  | String_literal
+  | Parenthesized_expression of argument_expression
+  | Unresolved_expression of unresolved_expression_kind
+
+and argument_expression
+
 type argument
 type call
 type function_input
 
+val make_argument_expression :
+  kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
+
 val make_argument :
   index:int ->
   kind:argument_kind ->
+  expression:argument_expression option ->
   origin:Symbol.origin ->
   (argument, string) result
 
@@ -98,7 +127,10 @@ val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
 val argument_index : argument -> int
 val argument_kind : argument -> argument_kind
+val argument_expression : argument -> argument_expression option
 val argument_origin : argument -> Symbol.origin
+val argument_expression_kind : argument_expression -> argument_expression_kind
+val argument_expression_origin : argument_expression -> Symbol.origin
 
 val default_parameter_default :
   default_use -> Function_type_resolution.parameter_default
@@ -118,6 +150,8 @@ val direct_variadic_arguments : direct_call -> argument list
 val direct_variadic_count : direct_call -> int64
 val call_syntax_name : call_syntax -> string
 val argument_kind_name : argument_kind -> string
+val unresolved_expression_kind_name : unresolved_expression_kind -> string
+val argument_expression_kind_name : argument_expression_kind -> string
 val deferred_reason_name : deferred_reason -> string
 val error_code : error -> string
 val error_kind : error -> error_kind
