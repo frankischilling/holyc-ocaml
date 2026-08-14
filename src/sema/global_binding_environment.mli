@@ -1,4 +1,4 @@
-type resolution =
+type resolution = Module_binding_environment.resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 

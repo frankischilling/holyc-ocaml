@@ -1,36 +1,20 @@
-type resolution =
+type resolution = Module_binding_environment.resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 
-type owner = unit ref
-
 type global = {
-  owner : owner;
   record : Global_resolution.global_record;
-  publication : Module_expression_binding.publication;
+  point : Module_binding_environment.point;
 }
 
-module Int_map = Map.Make (Int)
-module Int_set = Set.Make (Int)
-module String_map = Map.Make (String)
-
 type t = {
-  owner : owner;
-  table : Symbol_table.t;
-  environment : Outer_environment.t;
-  expressions : Module_expression_binding.t;
+  module_environment : Module_binding_environment.t;
   source_globals : Global_resolution.t;
   globals : global list;
 }
 
-type cursor = {
-  owner : owner;
-  environment : Outer_environment.t;
-  visible : Module_expression_binding.publication String_map.t;
-  remaining : Module_expression_binding.publication list;
-}
+type cursor = Module_binding_environment.cursor
 
-let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 let global_data record = Global_resolution.global_record_global record
 let global_symbol record = Global_resolution.global_record_symbol record
@@ -48,43 +32,6 @@ let global_mode_matches globals mode =
   | Global_resolution.Jit, Function_resolution.Aot
   | Global_resolution.Aot, Function_resolution.Jit -> false
 
-let publication_map table expressions =
-  let rec collect expected_index previous_item seen by_symbol = function
-    | [] -> Ok by_symbol
-    | publication :: rest ->
-        let source =
-          Module_expression_binding.publication_source_symbol publication
-        in
-        let canonical =
-          Module_expression_binding.publication_canonical_symbol publication
-        in
-        let source_number = symbol_number source in
-        let declaration_index =
-          Module_expression_binding.publication_declaration_index publication
-        in
-        let item_index =
-          Module_expression_binding.publication_item_index publication
-        in
-        if declaration_index <> expected_index then
-          Error "module publication declaration indexes are not contiguous"
-        else if item_index < previous_item then
-          Error "module publications do not follow source item order"
-        else if Int_set.mem source_number seen then
-          Error "module publication source symbol is repeated"
-        else if
-          not
-            (Symbol_table.owns_symbol table source
-            && Symbol_table.owns_symbol table canonical)
-        then Error "module publication belongs to another symbol table"
-        else
-          collect (expected_index + 1) item_index
-            (Int_set.add source_number seen)
-            (Int_map.add source_number publication by_symbol)
-            rest
-  in
-  collect 0 (-1) Int_set.empty Int_map.empty
-    (Module_expression_binding.publications expressions)
-
 let ordered_after previous_item previous_declarator item_index declarator_index
     =
   item_index > previous_item
@@ -95,19 +42,19 @@ let ordered_after previous_item previous_declarator item_index declarator_index
      | Some left, Some right -> right > left
      | None, None | Some _, None -> false
 
-let validate_global_publication table publications previous_index record =
+let validate_global_publication table module_environment previous_index record =
   let symbol = global_symbol record in
   let item_index = global_item_index record in
   let declarator_index = global_declarator_index record in
-  let number = symbol_number symbol in
   if not (Symbol_table.owns_symbol table symbol) then
     Error "global record belongs to another symbol table"
   else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable)
   then Error "global record symbol is not a global variable"
   else
-    match Int_map.find_opt number publications with
+    match Module_binding_environment.find_point module_environment symbol with
     | None -> Error "global record has no module publication"
-    | Some publication ->
+    | Some point ->
+        let publication = Module_binding_environment.point_publication point in
         let source =
           Module_expression_binding.publication_source_symbol publication
         in
@@ -131,9 +78,9 @@ let validate_global_publication table publications previous_index record =
         then Error "global publication has the wrong source position"
         else if publication_index <= previous_index then
           Error "global publications are not source ordered"
-        else Ok (publication_index, publication)
+        else Ok (publication_index, point)
 
-let pair_globals owner table publications records =
+let pair_globals table module_environment records =
   let rec loop previous_item previous_declarator previous_publication paired_rev
       = function
     | [] -> Ok (List.rev paired_rev)
@@ -147,109 +94,64 @@ let pair_globals owner table publications records =
         then Error "global records are not source ordered"
         else
           match
-            validate_global_publication table publications previous_publication
-              record
+            validate_global_publication table module_environment
+              previous_publication record
           with
           | Error _ as error -> error
-          | Ok (publication_index, publication) ->
+          | Ok (publication_index, point) ->
               loop item_index declarator_index publication_index
-                ({ owner; record; publication } :: paired_rev)
+                ({ record; point } :: paired_rev)
                 rest)
   in
   loop (-1) None (-1) [] records
 
-let create ~table ~environment ~expressions ~globals =
-  if not (Module_expression_binding.owns_table expressions table) then
-    Error "module expression bindings belong to another symbol table"
-  else if not (Outer_environment.owns_table environment table) then
-    Error "outer environment belongs to another symbol table"
-  else if
-    Module_expression_binding.compilation_mode expressions
-    <> Outer_environment.compilation_mode environment
-  then
-    Error
-      "module expression bindings and outer environment use different \
-       compilation modes"
-  else if
+let create ~table ~environment ~expressions ~globals:source_globals =
+  if
     not
-      (global_mode_matches globals
+      (global_mode_matches source_globals
          (Module_expression_binding.compilation_mode expressions))
   then
     Error
       "global records and module expressions use different compilation modes"
   else
-    match publication_map table expressions with
+    match
+      Module_binding_environment.create ~table ~environment ~expressions
+    with
     | Error _ as error -> error
-    | Ok publications -> (
-        let owner = ref () in
+    | Ok module_environment -> (
         match
-          pair_globals owner table publications
-            (Global_resolution.records globals)
+          pair_globals table module_environment
+            (Global_resolution.records source_globals)
         with
         | Error _ as error -> error
-        | Ok paired ->
-            Ok
-              {
-                owner;
-                table;
-                environment;
-                expressions;
-                source_globals = globals;
-                globals = paired;
-              })
+        | Ok globals -> Ok { module_environment; source_globals; globals })
 
-let table (state : t) = state.table
-let environment (state : t) = state.environment
-let expressions (state : t) = state.expressions
-let source_globals (state : t) = state.source_globals
-let globals (state : t) = state.globals
-let owns_table (state : t) table = state.table == table
+let table state = Module_binding_environment.table state.module_environment
+
+let environment state =
+  Module_binding_environment.environment state.module_environment
+
+let expressions state =
+  Module_binding_environment.expressions state.module_environment
+
+let source_globals state = state.source_globals
+let globals state = state.globals
+
+let owns_table state table =
+  Module_binding_environment.owns_table state.module_environment table
+
 let global_record (global : global) = global.record
-let global_publication (global : global) = global.publication
 
-let initial_cursor (state : t) =
-  {
-    owner = state.owner;
-    environment = state.environment;
-    visible = String_map.empty;
-    remaining = Module_expression_binding.publications state.expressions;
-  }
+let global_publication (global : global) =
+  Module_binding_environment.point_publication global.point
 
-let add_publication visible publication =
-  String_map.add
-    (Module_expression_binding.publication_source_symbol publication
-    |> Symbol.name)
-    publication visible
+let initial_cursor state =
+  Module_binding_environment.initial_cursor state.module_environment
 
-let rec publish_while predicate visible = function
-  | publication :: rest when predicate publication ->
-      publish_while predicate (add_publication visible publication) rest
-  | remaining -> (visible, remaining)
+let publish_before cursor global =
+  Module_binding_environment.publish_before cursor global.point
 
-let advance comparison (cursor : cursor) (global : global) =
-  if cursor.owner != global.owner then
-    Error
-      "global publication cursor and record belong to different environments"
-  else
-    let boundary =
-      Module_expression_binding.publication_declaration_index global.publication
-    in
-    let visible, remaining =
-      publish_while
-        (fun publication ->
-          comparison
-            (Module_expression_binding.publication_declaration_index publication)
-            boundary)
-        cursor.visible cursor.remaining
-    in
-    Ok { cursor with visible; remaining }
+let publish_through cursor global =
+  Module_binding_environment.publish_through cursor global.point
 
-let publish_before cursor global = advance ( < ) cursor global
-let publish_through cursor global = advance ( <= ) cursor global
-
-let resolve cursor name =
-  match String_map.find_opt name cursor.visible with
-  | Some publication -> Some (Module_binding publication)
-  | None ->
-      Outer_environment.find cursor.environment name
-      |> Option.map (fun binding -> Outer_binding binding)
+let resolve = Module_binding_environment.resolve

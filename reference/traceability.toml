@@ -4014,6 +4014,53 @@ extent_evaluation_constant_conversion_typing_allocation_layout_lowering_and_exec
 native_oracle_status = "not required for this binding boundary; PrsGlblVarLst calls PrsType before HashAdd, and the pinned dimension, expression, and table-chain paths state the lookup order directly"
 
 [[feature]]
+id = "HC-SEMA-FUNCTION-DEFAULT-BINDINGS"
+description = "Ordinary identifiers in defaults on top-level named function headers bind after the current function is published but before its parameter locals become active."
+sources = [
+  "Compiler/PrsStmt.HC:62-138 PrsFunJoin publication before PrsVarLst",
+  "Compiler/PrsStmt.HC:140-207 PrsFun local-list activation after header parsing",
+  "Compiler/PrsVar.HC:485-529 parameter member insertion",
+  "Compiler/PrsVar.HC:619-658 expression and lastclass defaults",
+  "Compiler/Lex.HC:493-509 local-before-hash lookup",
+  "Compiler/PrsExp.HC:383-480 call-time default consumption",
+  "Compiler/LexLib.HC:157-180 function-header comparison",
+  "Compiler/CMain.HC:60-74 JIT and AOT successor selection",
+  "Kernel/KernelA.HH:774-784 member-list default flags",
+  "Doc/HolyC.DD:228 lastclass"
+]
+implementation = [
+  "src/sema/module_binding_environment.ml",
+  "src/sema/function_default_binding.ml",
+  "src/driver/function_default_binding.ml",
+  "src/sema/module_expression_binding.ml",
+  "src/sema/outer_environment.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_default_binding.ml"
+]
+status = "implemented"
+issue = 214
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier occurrences in fixed-parameter defaults on named top-level prototypes and definitions"
+publication_boundary = "the current function header is visible; later module records are unavailable"
+parameter_visibility = "the function member list is not the active local environment while the header is parsed"
+lookup_precedence = ["newest visible compilation-unit publication", "complete mode-specific outer table chain"]
+canonical_identity = "each result retains its source declaration and the joined canonical function identity selected by reconciliation"
+lastclass = "retained as a distinct resolved default with no ordinary identifier occurrence"
+occurrence_identity = "zero-based and contiguous across one header, with the owning parameter index retained"
+excluded_identifier_roles = ["member suffixes", "type syntax", "sizeof", "offset", "defined"]
+excluded_default_contexts = ["callback parameters", "aggregate members", "globals", "locals"]
+validation = "table and session ownership, mode agreement, exact resolved-declaration and parameter sequence, source order, publication identity, canonical identity, occurrence indexes, parameter indexes, default kind, and AST association"
+diagnostics = ["HCSEMA0029 invalid input", "HCSEMA0030 unresolved function default identifier"]
+provenance = ["source declaration", "canonical function symbol", "module publication", "parameter and default origin", "identifier occurrence", "generated invocation and definition origin", "selected module or outer binding"]
+mutation = "none"
+complexity = "module publications advance once with the ordered function declarations; no full declaration rescan occurs per default"
+compilation_modes = ["jit", "aot"]
+default_evaluation_conversion_string_storage_header_comparison_and_call_substitution = "not implemented"
+native_oracle_status = "not required for this binding boundary; PrsFunJoin, PrsFun, PrsVarLst, Lex, and CMain state the publication, local-list, and outer-chain order directly"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
 description = "Function declarations reconcile to source-ordered identities using TempleOS's distinct JIT and AOT selection rules."
 sources = [
