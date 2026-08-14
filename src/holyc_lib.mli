@@ -51,6 +51,7 @@ module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_expression_binding = Sema.Function_expression_binding
+module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -232,6 +233,19 @@ val resolve_function_expressions :
 (** Bind ordinary function-body identifiers to parameters and locals at their
     source publication points. Nonlocal names remain explicit candidates for
     later global and type resolution. This pass does not update use counts. *)
+
+val resolve_module_expressions :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  aggregates:Semantic_aggregate_resolution.t ->
+  functions:Semantic_function_resolution.t ->
+  globals:Semantic_global_resolution.t ->
+  expressions:Semantic_function_expression_binding.t ->
+  (Semantic_module_expression_binding.t, string) result
+(** Bind nonlocal function expression candidates to source-visible aggregate,
+    function, and global records. Names absent from the compilation unit remain
+    explicit outer-environment candidates. This pass does not update use counts.
+*)
 
 val resolve_global_types :
   Session.t ->
