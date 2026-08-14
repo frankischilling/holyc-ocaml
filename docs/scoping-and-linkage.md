@@ -114,7 +114,11 @@ Member names have a narrow contextual rule. TempleOS lexes keyword spellings as 
 
 Member metadata follows the same contextual identifier boundary but has no independent symbol-table entry. Each declarator keeps its source-ordered names and either an extended string or ordinary expression value. Duplicate metadata names remain present. Direct-member collection creates one symbol for the declarator name and deliberately ignores those metadata names. A later metadata pass must reproduce TempleOS's prepended list and last-written lookup precedence rather than silently deduplicating them. The parser does not yet evaluate expression values, allocate `CMemberLstMeta`, set `MLMF_IS_STR`, or implement `MemberMetaData` and `MemberMetaFind`. Issue #149 records this syntax and the remaining semantic boundary.
 
-`no_warn` uses that function-wide parser context directly. The target token is accepted only when the current lookup reports a local shadow, which covers fixed parameters, synthetic variadic bindings, and locals published earlier in source order. A same-named global remains irrelevant once a local is visible; a global by itself, an unresolved name, or a later local is rejected. The AST keeps those targets and separators but does not modify the collected semantic binding or its `CMemberLst` flags. Applying `MLF_NO_UNUSED_WARN` and classifying later unused-variable diagnostics are separate semantic work under issue #161.
+`no_warn` uses that function-wide parser context directly. The target token is accepted only when the current lookup reports a local shadow, which covers fixed parameters, synthetic variadic bindings, and locals published earlier in source order. A same-named global remains irrelevant once a local is visible; a global by itself, an unresolved name, or a later local is rejected. The semantic function-binding stream resolves each accepted target to that same stable binding. It records the suppression separately from ordinary expression uses and records the count reset after an initialized local.
+
+`Sema.Local_warning_analysis` copies the declaration-time member mask, adds `MLF_NO_UNUSED_WARN` to its immutable result, and computes ordinary, suppression, and combined source counts. A definition reports an unflagged zero-count binding when `OPTf_WARN_UNUSED_VAR` is enabled. A flagged binding reports an unneeded suppression when its combined count exceeds one, except for `_anon_`; that second warning does not depend on the option. Prototypes produce no warnings. The result retains binding and suppression origins, but it does not mutate `Sema.Symbol_table` or allocate a `CMemberLst`.
+
+The count includes the ordinary identifier roles already resolved by `Driver.Function_expression_binding`. Type syntax, member names, `sizeof`, `offset`, `defined`, labels, and assembly tokens remain outside this pass. The driver currently receives one compiler-option mask for the batch, so source-executed option changes and a CLI diagnostic renderer remain later work.
 
 ## Parser visibility inspection
 
@@ -132,7 +136,7 @@ This is the parser's source-order routing state. It explains why a token was tre
 
 [Issue #222](https://github.com/frankischilling/holyc-ocaml/issues/222) records declaration-time member-list masks on semantic locals.
 
-[Issue #224](https://github.com/frankischilling/holyc-ocaml/issues/224) records parser visibility and source shape for `no_warn` targets; semantic warning suppression is not part of that issue.
+[Issue #224](https://github.com/frankischilling/holyc-ocaml/issues/224) records parser visibility and source shape for `no_warn` targets. [Issue #226](https://github.com/frankischilling/holyc-ocaml/issues/226) records stable suppression binding, effective flags, represented use counts, and warning classification.
 
 [Issue #204](https://github.com/frankischilling/holyc-ocaml/issues/204) records the semantic function-expression binding boundary.
 

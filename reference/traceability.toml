@@ -4606,9 +4606,66 @@ live_source_files = 6
 live_statements = 8
 generated_source_string_occurrences = 1
 corpus_effect = "Demo/MultiCore/Palindrome.HC has one fewer recovered HCPARSE0048; phase counts and first errors are unchanged"
-member_list_flag_mutation = "not implemented"
-use_count_and_warning_emission = "not implemented"
-compiler_option_effects = "not implemented"
+member_list_flag_mutation = "the parser does not mutate semantic state; HC-SEMA-LOCAL-WARNINGS derives an immutable effective mask"
+use_count_and_warning_emission = "implemented for the ordinary identifier roles recorded by function expression binding; see HC-SEMA-LOCAL-WARNINGS"
+compiler_option_effects = "one supplied function-diagnostic mask is implemented; source-positioned Option execution is not"
+
+[[feature]]
+id = "HC-SEMA-LOCAL-WARNINGS"
+description = "Stable function bindings retain no_warn suppressions and source-compatible represented use counts for local warning classification."
+sources = [
+  "Compiler/PrsStmt.HC:193-204 function-completion warning loop",
+  "Compiler/PrsStmt.HC:791-803 PrsNoWarn",
+  "Compiler/LexLib.HC:68-83 MemberFind use increment",
+  "Compiler/PrsExp.HC:338,376,1000 non-value lookup decrements",
+  "Compiler/PrsVar.HC:584,614 initializer count resets",
+  "Kernel/KernelA.HH:774-818 CMemberLst flags and use_cnt",
+  "Doc/HolyC.DD:148-158 no_warn statement",
+  "Doc/Options.DD:9 OPTf_WARN_UNUSED_VAR"
+]
+implementation = [
+  "src/sema/function_expression_binding.ml",
+  "src/sema/function_expression_binding.mli",
+  "src/driver/function_expression_binding.ml",
+  "src/sema/local_warning_analysis.ml",
+  "src/sema/local_warning_analysis.mli",
+  "src/driver/local_warning_analysis.ml",
+  "src/driver/local_warning_analysis.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_function_expression_binding.ml",
+  "test/test_local_warning_analysis.ml"
+]
+status = "implemented"
+issue = 226
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+binding_kinds = ["named fixed parameter", "variadic argc", "variadic argv", "automatic local", "static local"]
+binding_identity = "each suppression resolves at its source position to one stable Function_binding_index binding"
+event_order = ["ordinary bound identifier use", "no_warn suppression lookup", "declared-local initializer count reset"]
+flag_behavior = "the result preserves declaration-time flags and derives MLF_NO_UNUSED_WARN without mutating the symbol table"
+source_use_count = "effective ordinary uses after initializer reset plus effective suppression lookups"
+initializer_reset = "resets only the binding being declared; uses of earlier bindings in the initializer remain"
+unused_rule = "an unflagged zero-count binding warns only when OPTf_WARN_UNUSED_VAR is enabled"
+unneeded_rule = "a flagged count greater than one warns regardless of OPTf_WARN_UNUSED_VAR, except for _anon_"
+prototype_rule = "function prototypes do not receive function-completion warnings"
+compiler_option_scope = "one explicit mask per analyzed batch; the default is Compiler_option.initial_mask"
+diagnostics = [
+  "HCSEMA0031 inconsistent no_warn binding event",
+  "HCSEMA0032 inconsistent initializer reset event",
+  "HCSEMA0033 invalid warning-analysis input",
+  "HCSEMA0034 unused variable",
+  "HCSEMA0035 unneeded no_warn"
+]
+provenance = ["binding origin", "ordered suppression origins", "included canonical source", "generated invocation origin", "definition origin"]
+counted_identifier_roles = "ordinary identifiers retained by Driver.Function_expression_binding"
+uncounted_roles = ["type syntax", "member names", "sizeof targets", "offset targets", "defined operands", "labels", "assembly tokens"]
+warning_delivery = "structured holyc_lib result; CLI rendering is not implemented"
+source_positioned_option_execution = "not implemented"
+pre_mutation_validation = "AST, function, scope, binding, type, option-mask, and ownership associations are checked before a result is returned"
+native_oracle_status = "not required for this boundary; the pinned counter increments, resets, flag branch, threshold, exception, and option condition are direct source statements"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"

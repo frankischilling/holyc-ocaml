@@ -402,7 +402,13 @@ The AST retains the `try` keyword, recursively parsed body, `catch` keyword, rec
 
 The internal comma and the outer statement comma are separate. `no_warn a,b;` keeps one comma between targets, while `no_warn a,b,;` also keeps the comma after `b`. If another comma follows, the common `PrsStmt` loop owns that second comma as a statement separator. An empty `no_warn;` is valid. In a `for` update, an empty form may end at `)`, and a named form may do so only after its internal trailing comma. A named target without either a comma or semicolon follows the pinned `Expecting ','` failure path.
 
-The AST records the keyword, ordered targets, every internal comma, an optional semicolon, and complete source provenance. `HCPARSE0157` reports a token or name that is not a visible parameter or local. `HCPARSE0158` reports a missing target delimiter or statement boundary. These are parser checks only: the semantic member-list record is not mutated, and use counts, `OPTf_WARN_UNUSED_VAR`, unused-variable warnings, and unneeded-suppression warnings remain unimplemented.
+The AST records the keyword, ordered targets, every internal comma, an optional semicolon, and complete source provenance. `HCPARSE0157` reports a token or name that is not a visible parameter or local. `HCPARSE0158` reports a missing target delimiter or statement boundary.
+
+`MemberFind` increments `use_cnt` when the target token is read, so a suppression contributes one lookup. Function completion first checks `MLF_NO_UNUSED_WARN`: a count greater than one reports an unneeded suppression unless the name is `_anon_`. Without that flag, a zero count reports an unused variable only when `OPTf_WARN_UNUSED_VAR` is enabled. A local initializer resets the declared local's count after parsing its value; uses of earlier bindings in the same initializer remain counted.
+
+The semantic binding stream keeps an ordinary use, a `no_warn` lookup, and an initializer reset as different source-ordered events. `Sema.Local_warning_analysis` derives the effective member mask and the three resulting counts without changing the session symbol table. Prototypes receive no body warnings. `HCSEMA0031` and `HCSEMA0032` reject inconsistent suppression or reset events, `HCSEMA0033` rejects inconsistent warning inputs, and the structured findings use `HCSEMA0034` for an unused variable and `HCSEMA0035` for an unneeded `no_warn`.
+
+This result covers ordinary identifier occurrences handled by the current function-expression pass. Type syntax, member names, `sizeof`, `offset`, `defined`, labels, and assembly tokens are not counted. The API accepts one compiler-option mask for the batch until source-positioned `Option(...)` execution supplies a state for each function. The warnings are available through `holyc_lib`; no `holyc check` renderer exists yet.
 
 ## Brace-delimited assembly statements
 
