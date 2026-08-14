@@ -22,8 +22,8 @@
     "parser_diagnostics": 491,
     "read_errors": 0,
     "internal_errors": 0,
-    "diagnostics": 37415,
-    "baseline_sha256": "3dee7472529e439c38ee91af86b3e24b99c2953d5499cb609ed5a8baa739b530"
+    "diagnostics": 37414,
+    "baseline_sha256": "876c46d4dbbb08d4c6057e76b7d9e2ce8093107630d2dd4794ff59c41116dc8a"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",
@@ -37,6 +37,7 @@
     "nested": 6
   },
   "files": [
+    {"path": "Apps/Budget/BgtMain.HC", "sha256": "ba2c006053ef87a13dd86dc51cb218d5134e51a6120bb7278fb1f0605d3076d4"},
     {"path": "Compiler/Compiler.PRJ", "sha256": "bbf936462dbe22b5ef4dc8bd0e33269d56c26d246ba7cff48c26c4e4be5477bd"},
     {"path": "Compiler/CompilerA.HH", "sha256": "9eca54eff7d1c0803172e45e5483a57262e24f7b759a6a727c29beaf660967b2"},
     {"path": "Compiler/CompilerB.HH", "sha256": "829136ab966141dbdb6539bf1a8fb6c6291cce55605acf287fe6de904fc76b48"},
@@ -73,6 +74,7 @@
     {"path": "Kernel/Compress.HC", "sha256": "8e49bae4e7ea8d948a39af8bd95034242c64c4fe4db752d2bdad88dbd0465eee"},
     {"path": "Kernel/FunSeg.HC", "sha256": "e499763482dd544696cd9a1318cf366da50f9072440cdd8d4d926f4443819486"},
     {"path": "Kernel/KDefine.HC", "sha256": "d6176184fb06ed79e9e72ded9b276b4111df6e704217c2da7ade4dfcd3394ac7"},
+    {"path": "Kernel/KDbg.HC", "sha256": "f20fe795894dc822c9d017e6eb1e27d8df1fa16f97ae7ca51fe225015e7adc34"},
     {"path": "Kernel/KHashA.HC", "sha256": "76780258c5faf76775a57488c0a9747bb90c5c5c7b1f3e7eceb09804598d0da3"},
     {"path": "Kernel/KHashB.HC", "sha256": "260e17f94bfddf8c5d3d5f95dbffd3b8e34bcfd0581167275ed4cf736bfab03d"},
     {"path": "Kernel/KLoad.HC", "sha256": "da0c11feab995197faf94593bf5eaebb7f110ce2aaefa1ef2583b10002c6f88b"},
@@ -84,6 +86,7 @@
     {"path": "Kernel/KTask.HC", "sha256": "4ea967e45c3b82a81925a4aebd11e9daa8e6d1f4c5708ddee6124f3e502d4188"},
     {"path": "Kernel/KUtils.HC", "sha256": "0372304b077110f40b13883af21aa5365b57ddfcb8572e0f75cb40af5a65131a"},
     {"path": "Kernel/PCIBIOS.HC", "sha256": "5de3bf71156770f599c09407d7bb865a3f0d22070ca484dce414f758372d18c5"},
+    {"path": "Kernel/SerialDev/Mouse.HC", "sha256": "f20414566a4981630549a416b6c7555df2b44b9e0feec7be0766789673c18ead"},
     {"path": "Kernel/BlkDev/DskStrA.HC", "sha256": "169357c8460fb5cbd0c1dca0476cefbb7a26c7368ff2d249423c0eb0c287cdff"},
     {"path": "Kernel/StrA.HC", "sha256": "3a14834309e6a59a9345606ab64c74ba0e719e3b35b12d1f75554757e4444780"},
     {"path": "Kernel/StrPrint.HC", "sha256": "5faa7c97acae07d38a2775e15fa73844f36480eca4c8023a9f55362d7be05daa"},
@@ -96,8 +99,11 @@
     {"path": "Demo/Lectures/NegDisp.HC", "sha256": "2b052f277c8ace880eb69eb791ff1dd67d85a74002c8297c90cf5b1255637eb3"},
     {"path": "Demo/MultiCore/LoadTest.HC", "sha256": "09f23ac0a4cd204e95127274fb6902223ec96bef1dc951de440b661a92f01ca5"},
     {"path": "Demo/MultiCore/Lock.HC", "sha256": "02b3029b9a9b0084877f8d241364f0b9826eb9236dd81fa316d897acdb2e27b7"},
+    {"path": "Demo/MultiCore/MPRadix.HC", "sha256": "dd5e343ae7526321fe116f29a7812f3a448770c2a9696d9d69cf17e0f50b8ee8"},
+    {"path": "Demo/MultiCore/Palindrome.HC", "sha256": "44b56d5067b4990c31b42b97092fbc5ee835564a926a3be9be4a7cc6e157b2e2"},
     {"path": "Demo/NullCase.HC", "sha256": "ddd8cc82cf34020e33c9a387b43cf806b125f3341591f7b684d47998c6a43383"},
     {"path": "Demo/SubSwitch.HC", "sha256": "8500ac305868454e90bef308031c42c1950ffcc70850d251925be1fc1c1cc1a9"},
+    {"path": "Adam/Ctrls/CtrlsSlider.HC", "sha256": "a99b85f224bed986aa36c83f3d9b25aa06b325e0363ae390bcc0e3e6cee90396"},
     {"path": "Adam/Gr/Gr.HH", "sha256": "061bd85ddb417a77b432dc8908b75d29461ed972d0b6199bbb487a85119c7823"},
     {"path": "Adam/Gr/GrGlbls.HC", "sha256": "8f952ca14766ec24e7c2dae5629ca31a2873e9d557a0e842d1c852a497b44baa"},
     {"path": "Adam/Gr/SpriteMesh.HC", "sha256": "56be009cc3b1d4af7a08ccacbba841f9ff3cfec2b96a8fb224c2fde7223b3428"},

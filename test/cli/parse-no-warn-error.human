@@ -1,0 +1,3 @@
+cli/parse-no-warn-error.hc:5:11: error[HCPARSE0157]: no_warn target "global" is not a visible parameter or local
+    5 |   no_warn global;
+      |           ^^^^^^

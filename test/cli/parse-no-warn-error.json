@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCPARSE0157",
+    "severity": "error",
+    "message": "no_warn target \"global\" is not a visible parameter or local",
+    "primary": {
+      "path": "cli/parse-no-warn-error.hc",
+      "line": 5,
+      "column": 11,
+      "source_id": 0,
+      "start": 38,
+      "stop": 44
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]

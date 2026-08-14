@@ -4553,6 +4553,64 @@ control_flow_and_ir = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsStmt, COCGoToLabelFind, COCDel, and Asm.HC state the namespace, use count, and definition behavior directly"
 
 [[feature]]
+id = "HC-PARSER-NO-WARN-STATEMENTS"
+description = "The parser retains source-shaped no_warn statements and validates targets against the active function-local context."
+sources = [
+  "Compiler/PrsStmt.HC:193-204 unused-local warning consumer",
+  "Compiler/PrsStmt.HC:791-803 PrsNoWarn",
+  "Compiler/PrsStmt.HC:904-1221 PrsStmt dispatch, comma loop, and common terminator",
+  "Compiler/Lex.HC:493-509 local-first identifier lookup",
+  "Compiler/LexLib.HC:68-83 MemberFind",
+  "Kernel/KernelA.HH:774-818 CMemberLst and MLF_NO_UNUSED_WARN",
+  "Doc/HolyC.DD:148-158 no_warn statement",
+  "Doc/Options.DD:9 OPTf_WARN_UNUSED_VAR",
+  "Apps/Budget/BgtMain.HC:5",
+  "Kernel/SerialDev/Mouse.HC:296",
+  "Kernel/KTask.HC:408,416",
+  "Kernel/KDbg.HC:566",
+  "Demo/MultiCore/Palindrome.HC:39",
+  "Demo/MultiCore/MPRadix.HC:66,73",
+  "Adam/Ctrls/CtrlsSlider.HC:151 generated HolyC text"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/parser.ml",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-no-warn-statements.hc",
+  "test/cli/parse-no-warn-statements.human",
+  "test/cli/parse-no-warn-statements.json",
+  "test/cli/parse-no-warn-error.hc",
+  "test/cli/parse-no-warn-error.human",
+  "test/cli/parse-no-warn-error.json",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 224
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+keyword_id = 38
+ast_schema = "holyc-ast-v1"
+compilation_modes = ["jit", "aot"]
+accepted_targets = ["named fixed parameter", "variadic argc", "variadic argv", "prior automatic local", "prior static local"]
+target_lookup = "the active parser environment must report Shadowed_by_local"
+rejected_targets = ["global without a local shadow", "unresolved name", "later local", "nonidentifier token"]
+empty_statement = "accepted with a semicolon; the semicolon-free for-update boundary is also retained"
+target_separator = "the comma consumed after a target belongs to that target"
+outer_separator = "a second consecutive comma remains in the common statement sequence"
+trailing_comma = "retained before a semicolon or semicolon-free for-update close"
+diagnostics = ["HCPARSE0157 invalid target", "HCPARSE0158 missing target delimiter or statement boundary"]
+live_source_files = 6
+live_statements = 8
+generated_source_string_occurrences = 1
+corpus_effect = "Demo/MultiCore/Palindrome.HC has one fewer recovered HCPARSE0048; phase counts and first errors are unchanged"
+member_list_flag_mutation = "not implemented"
+use_count_and_warning_emission = "not implemented"
+compiler_option_effects = "not implemented"
+
+[[feature]]
 id = "HC-PARSER-CORPUS"
 description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
 sources = [
@@ -4582,8 +4640,8 @@ frontend_diagnostics = 16
 parser_diagnostics = 491
 read_errors = 0
 internal_errors = 0
-diagnostics = 37415
-baseline_sha256 = "3dee7472529e439c38ee91af86b3e24b99c2953d5499cb609ed5a8baa739b530"
+diagnostics = 37414
+baseline_sha256 = "876c46d4dbbb08d4c6057e76b7d9e2ce8093107630d2dd4794ff59c41116dc8a"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"

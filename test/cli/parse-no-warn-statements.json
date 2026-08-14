@@ -1,0 +1,1445 @@
+{
+  "schema": "holyc-ast-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "module": {
+    "source_id": 0,
+    "span": {
+      "path": "cli/parse-no-warn-statements.hc",
+      "line": 1,
+      "column": 1,
+      "source_id": 0,
+      "start": 0,
+      "stop": 71
+    },
+    "items": [
+      {
+        "kind": "function_definition",
+        "return_type": {
+          "kind": "primitive",
+          "primitive": "U0",
+          "spelling": "U0",
+          "location": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 1,
+                "column": 1,
+                "source_id": 0,
+                "start": 0,
+                "stop": 2
+              }
+            ]
+          }
+        },
+        "name": {
+          "spelling": "Quiet",
+          "location": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 8
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 1,
+                "column": 4,
+                "source_id": 0,
+                "start": 3,
+                "stop": 8
+              }
+            ]
+          }
+        },
+        "opening_parenthesis": {
+          "span": {
+            "path": "cli/parse-no-warn-statements.hc",
+            "line": 1,
+            "column": 9,
+            "source_id": 0,
+            "start": 8,
+            "stop": 9
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 9
+            }
+          ]
+        },
+        "parameters": [
+          {
+            "type": {
+              "kind": "primitive",
+              "primitive": "I64",
+              "spelling": "I64",
+              "location": {
+                "span": {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 9,
+                  "stop": 12
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 1,
+                    "column": 10,
+                    "source_id": 0,
+                    "start": 9,
+                    "stop": 12
+                  }
+                ]
+              }
+            },
+            "name": {
+              "spelling": "arg",
+              "location": {
+                "span": {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 16
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 1,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 13,
+                    "stop": 16
+                  }
+                ]
+              }
+            },
+            "delimiter": {
+              "kind": "comma",
+              "spelling": ",",
+              "location": {
+                "span": {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 1,
+                    "column": 17,
+                    "source_id": 0,
+                    "start": 16,
+                    "stop": 17
+                  }
+                ]
+              }
+            },
+            "location": {
+              "span": {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 1,
+                "column": 10,
+                "source_id": 0,
+                "start": 9,
+                "stop": 17
+              },
+              "source_segments": [
+                {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 10,
+                  "source_id": 0,
+                  "start": 9,
+                  "stop": 12
+                },
+                {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 14,
+                  "source_id": 0,
+                  "start": 13,
+                  "stop": 16
+                },
+                {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 1,
+                  "column": 17,
+                  "source_id": 0,
+                  "start": 16,
+                  "stop": 17
+                }
+              ]
+            }
+          }
+        ],
+        "variadic": {
+          "spelling": "...",
+          "location": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 20
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 1,
+                "column": 18,
+                "source_id": 0,
+                "start": 17,
+                "stop": 20
+              }
+            ]
+          }
+        },
+        "closing_parenthesis": {
+          "span": {
+            "path": "cli/parse-no-warn-statements.hc",
+            "line": 1,
+            "column": 21,
+            "source_id": 0,
+            "start": 20,
+            "stop": 21
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            }
+          ]
+        },
+        "body": {
+          "kind": "block_statement",
+          "opening_brace": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 22,
+                "stop": 23
+              }
+            ]
+          },
+          "statements": [
+            {
+              "kind": "statement_sequence",
+              "leading_commas": [],
+              "elements": [
+                {
+                  "statement": {
+                    "kind": "local_declaration_statement",
+                    "storage": "automatic",
+                    "type": {
+                      "kind": "primitive",
+                      "primitive": "I64",
+                      "spelling": "I64",
+                      "location": {
+                        "span": {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 3,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 29
+                        },
+                        "source_segments": [
+                          {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 3,
+                            "column": 3,
+                            "source_id": 0,
+                            "start": 26,
+                            "stop": 29
+                          }
+                        ]
+                      }
+                    },
+                    "declarators": [
+                      {
+                        "name": {
+                          "spelling": "local",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 3,
+                              "column": 7,
+                              "source_id": 0,
+                              "start": 30,
+                              "stop": 35
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 3,
+                                "column": 7,
+                                "source_id": 0,
+                                "start": 30,
+                                "stop": 35
+                              }
+                            ]
+                          }
+                        },
+                        "delimiter": {
+                          "kind": "semicolon",
+                          "spelling": ";",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 3,
+                              "column": 12,
+                              "source_id": 0,
+                              "start": 35,
+                              "stop": 36
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 3,
+                                "column": 12,
+                                "source_id": 0,
+                                "start": 35,
+                                "stop": 36
+                              }
+                            ]
+                          }
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 3,
+                            "column": 7,
+                            "source_id": 0,
+                            "start": 30,
+                            "stop": 36
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 3,
+                              "column": 7,
+                              "source_id": 0,
+                              "start": 30,
+                              "stop": 35
+                            },
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 3,
+                              "column": 12,
+                              "source_id": 0,
+                              "start": 35,
+                              "stop": 36
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 36
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 3,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 26,
+                          "stop": 29
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 3,
+                          "column": 7,
+                          "source_id": 0,
+                          "start": 30,
+                          "stop": 35
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 3,
+                          "column": 12,
+                          "source_id": 0,
+                          "start": 35,
+                          "stop": 36
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-no-warn-statements.hc",
+                      "line": 3,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 26,
+                      "stop": 36
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 3,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 26,
+                        "stop": 29
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 3,
+                        "column": 7,
+                        "source_id": 0,
+                        "start": 30,
+                        "stop": 35
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 3,
+                        "column": 12,
+                        "source_id": 0,
+                        "start": 35,
+                        "stop": 36
+                      }
+                    ]
+                  }
+                },
+                {
+                  "statement": {
+                    "kind": "no_warn_statement",
+                    "keyword": {
+                      "span": {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 46
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 39,
+                          "stop": 46
+                        }
+                      ]
+                    },
+                    "targets": [
+                      {
+                        "name": {
+                          "spelling": "arg",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 47,
+                              "stop": 50
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 4,
+                                "column": 11,
+                                "source_id": 0,
+                                "start": 47,
+                                "stop": 50
+                              }
+                            ]
+                          }
+                        },
+                        "following_comma": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 14,
+                            "source_id": 0,
+                            "start": 50,
+                            "stop": 51
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 14,
+                              "source_id": 0,
+                              "start": 50,
+                              "stop": 51
+                            }
+                          ]
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 11,
+                            "source_id": 0,
+                            "start": 47,
+                            "stop": 51
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 11,
+                              "source_id": 0,
+                              "start": 47,
+                              "stop": 50
+                            },
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 14,
+                              "source_id": 0,
+                              "start": 50,
+                              "stop": 51
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": {
+                          "spelling": "argc",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 15,
+                              "source_id": 0,
+                              "start": 51,
+                              "stop": 55
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 4,
+                                "column": 15,
+                                "source_id": 0,
+                                "start": 51,
+                                "stop": 55
+                              }
+                            ]
+                          }
+                        },
+                        "following_comma": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 19,
+                            "source_id": 0,
+                            "start": 55,
+                            "stop": 56
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 19,
+                              "source_id": 0,
+                              "start": 55,
+                              "stop": 56
+                            }
+                          ]
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 15,
+                            "source_id": 0,
+                            "start": 51,
+                            "stop": 56
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 15,
+                              "source_id": 0,
+                              "start": 51,
+                              "stop": 55
+                            },
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 19,
+                              "source_id": 0,
+                              "start": 55,
+                              "stop": 56
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": {
+                          "spelling": "argv",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 56,
+                              "stop": 60
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 4,
+                                "column": 20,
+                                "source_id": 0,
+                                "start": 56,
+                                "stop": 60
+                              }
+                            ]
+                          }
+                        },
+                        "following_comma": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 24,
+                            "source_id": 0,
+                            "start": 60,
+                            "stop": 61
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 24,
+                              "source_id": 0,
+                              "start": 60,
+                              "stop": 61
+                            }
+                          ]
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 20,
+                            "source_id": 0,
+                            "start": 56,
+                            "stop": 61
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 20,
+                              "source_id": 0,
+                              "start": 56,
+                              "stop": 60
+                            },
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 24,
+                              "source_id": 0,
+                              "start": 60,
+                              "stop": 61
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": {
+                          "spelling": "local",
+                          "location": {
+                            "span": {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 25,
+                              "source_id": 0,
+                              "start": 61,
+                              "stop": 66
+                            },
+                            "source_segments": [
+                              {
+                                "path": "cli/parse-no-warn-statements.hc",
+                                "line": 4,
+                                "column": 25,
+                                "source_id": 0,
+                                "start": 61,
+                                "stop": 66
+                              }
+                            ]
+                          }
+                        },
+                        "following_comma": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 30,
+                            "source_id": 0,
+                            "start": 66,
+                            "stop": 67
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 30,
+                              "source_id": 0,
+                              "start": 66,
+                              "stop": 67
+                            }
+                          ]
+                        },
+                        "location": {
+                          "span": {
+                            "path": "cli/parse-no-warn-statements.hc",
+                            "line": 4,
+                            "column": 25,
+                            "source_id": 0,
+                            "start": 61,
+                            "stop": 67
+                          },
+                          "source_segments": [
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 25,
+                              "source_id": 0,
+                              "start": 61,
+                              "stop": 66
+                            },
+                            {
+                              "path": "cli/parse-no-warn-statements.hc",
+                              "line": 4,
+                              "column": 30,
+                              "source_id": 0,
+                              "start": 66,
+                              "stop": 67
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "semicolon": {
+                      "span": {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 67,
+                        "stop": 68
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 67,
+                          "stop": 68
+                        }
+                      ]
+                    },
+                    "location": {
+                      "span": {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 68
+                      },
+                      "source_segments": [
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 3,
+                          "source_id": 0,
+                          "start": 39,
+                          "stop": 46
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 11,
+                          "source_id": 0,
+                          "start": 47,
+                          "stop": 50
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 14,
+                          "source_id": 0,
+                          "start": 50,
+                          "stop": 51
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 15,
+                          "source_id": 0,
+                          "start": 51,
+                          "stop": 55
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 19,
+                          "source_id": 0,
+                          "start": 55,
+                          "stop": 56
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 20,
+                          "source_id": 0,
+                          "start": 56,
+                          "stop": 60
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 24,
+                          "source_id": 0,
+                          "start": 60,
+                          "stop": 61
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 25,
+                          "source_id": 0,
+                          "start": 61,
+                          "stop": 66
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 30,
+                          "source_id": 0,
+                          "start": 66,
+                          "stop": 67
+                        },
+                        {
+                          "path": "cli/parse-no-warn-statements.hc",
+                          "line": 4,
+                          "column": 31,
+                          "source_id": 0,
+                          "start": 67,
+                          "stop": 68
+                        }
+                      ]
+                    }
+                  },
+                  "following_commas": [],
+                  "location": {
+                    "span": {
+                      "path": "cli/parse-no-warn-statements.hc",
+                      "line": 4,
+                      "column": 3,
+                      "source_id": 0,
+                      "start": 39,
+                      "stop": 68
+                    },
+                    "source_segments": [
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 3,
+                        "source_id": 0,
+                        "start": 39,
+                        "stop": 46
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 11,
+                        "source_id": 0,
+                        "start": 47,
+                        "stop": 50
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 14,
+                        "source_id": 0,
+                        "start": 50,
+                        "stop": 51
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 15,
+                        "source_id": 0,
+                        "start": 51,
+                        "stop": 55
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 19,
+                        "source_id": 0,
+                        "start": 55,
+                        "stop": 56
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 20,
+                        "source_id": 0,
+                        "start": 56,
+                        "stop": 60
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 24,
+                        "source_id": 0,
+                        "start": 60,
+                        "stop": 61
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 25,
+                        "source_id": 0,
+                        "start": 61,
+                        "stop": 66
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 30,
+                        "source_id": 0,
+                        "start": 66,
+                        "stop": 67
+                      },
+                      {
+                        "path": "cli/parse-no-warn-statements.hc",
+                        "line": 4,
+                        "column": 31,
+                        "source_id": 0,
+                        "start": 67,
+                        "stop": 68
+                      }
+                    ]
+                  }
+                }
+              ],
+              "location": {
+                "span": {
+                  "path": "cli/parse-no-warn-statements.hc",
+                  "line": 3,
+                  "column": 3,
+                  "source_id": 0,
+                  "start": 26,
+                  "stop": 68
+                },
+                "source_segments": [
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 3,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 26,
+                    "stop": 29
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 3,
+                    "column": 7,
+                    "source_id": 0,
+                    "start": 30,
+                    "stop": 35
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 3,
+                    "column": 12,
+                    "source_id": 0,
+                    "start": 35,
+                    "stop": 36
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 3,
+                    "source_id": 0,
+                    "start": 39,
+                    "stop": 46
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 11,
+                    "source_id": 0,
+                    "start": 47,
+                    "stop": 50
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 14,
+                    "source_id": 0,
+                    "start": 50,
+                    "stop": 51
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 15,
+                    "source_id": 0,
+                    "start": 51,
+                    "stop": 55
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 19,
+                    "source_id": 0,
+                    "start": 55,
+                    "stop": 56
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 20,
+                    "source_id": 0,
+                    "start": 56,
+                    "stop": 60
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 24,
+                    "source_id": 0,
+                    "start": 60,
+                    "stop": 61
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 25,
+                    "source_id": 0,
+                    "start": 61,
+                    "stop": 66
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 30,
+                    "source_id": 0,
+                    "start": 66,
+                    "stop": 67
+                  },
+                  {
+                    "path": "cli/parse-no-warn-statements.hc",
+                    "line": 4,
+                    "column": 31,
+                    "source_id": 0,
+                    "start": 67,
+                    "stop": 68
+                  }
+                ]
+              }
+            }
+          ],
+          "closing_brace": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 69,
+                "stop": 70
+              }
+            ]
+          },
+          "location": {
+            "span": {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 22,
+              "stop": 70
+            },
+            "source_segments": [
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 2,
+                "column": 1,
+                "source_id": 0,
+                "start": 22,
+                "stop": 23
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 3,
+                "column": 3,
+                "source_id": 0,
+                "start": 26,
+                "stop": 29
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 3,
+                "column": 7,
+                "source_id": 0,
+                "start": 30,
+                "stop": 35
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 3,
+                "column": 12,
+                "source_id": 0,
+                "start": 35,
+                "stop": 36
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 3,
+                "source_id": 0,
+                "start": 39,
+                "stop": 46
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 11,
+                "source_id": 0,
+                "start": 47,
+                "stop": 50
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 14,
+                "source_id": 0,
+                "start": 50,
+                "stop": 51
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 15,
+                "source_id": 0,
+                "start": 51,
+                "stop": 55
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 19,
+                "source_id": 0,
+                "start": 55,
+                "stop": 56
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 20,
+                "source_id": 0,
+                "start": 56,
+                "stop": 60
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 24,
+                "source_id": 0,
+                "start": 60,
+                "stop": 61
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 25,
+                "source_id": 0,
+                "start": 61,
+                "stop": 66
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 30,
+                "source_id": 0,
+                "start": 66,
+                "stop": 67
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 4,
+                "column": 31,
+                "source_id": 0,
+                "start": 67,
+                "stop": 68
+              },
+              {
+                "path": "cli/parse-no-warn-statements.hc",
+                "line": 5,
+                "column": 1,
+                "source_id": 0,
+                "start": 69,
+                "stop": 70
+              }
+            ]
+          }
+        },
+        "location": {
+          "span": {
+            "path": "cli/parse-no-warn-statements.hc",
+            "line": 1,
+            "column": 1,
+            "source_id": 0,
+            "start": 0,
+            "stop": 70
+          },
+          "source_segments": [
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 1,
+              "source_id": 0,
+              "start": 0,
+              "stop": 2
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 4,
+              "source_id": 0,
+              "start": 3,
+              "stop": 8
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 9,
+              "source_id": 0,
+              "start": 8,
+              "stop": 9
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 10,
+              "source_id": 0,
+              "start": 9,
+              "stop": 12
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 14,
+              "source_id": 0,
+              "start": 13,
+              "stop": 16
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 17,
+              "source_id": 0,
+              "start": 16,
+              "stop": 17
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 18,
+              "source_id": 0,
+              "start": 17,
+              "stop": 20
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 1,
+              "column": 21,
+              "source_id": 0,
+              "start": 20,
+              "stop": 21
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 2,
+              "column": 1,
+              "source_id": 0,
+              "start": 22,
+              "stop": 23
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 3,
+              "column": 3,
+              "source_id": 0,
+              "start": 26,
+              "stop": 29
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 3,
+              "column": 7,
+              "source_id": 0,
+              "start": 30,
+              "stop": 35
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 3,
+              "column": 12,
+              "source_id": 0,
+              "start": 35,
+              "stop": 36
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 3,
+              "source_id": 0,
+              "start": 39,
+              "stop": 46
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 11,
+              "source_id": 0,
+              "start": 47,
+              "stop": 50
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 14,
+              "source_id": 0,
+              "start": 50,
+              "stop": 51
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 15,
+              "source_id": 0,
+              "start": 51,
+              "stop": 55
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 19,
+              "source_id": 0,
+              "start": 55,
+              "stop": 56
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 20,
+              "source_id": 0,
+              "start": 56,
+              "stop": 60
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 24,
+              "source_id": 0,
+              "start": 60,
+              "stop": 61
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 25,
+              "source_id": 0,
+              "start": 61,
+              "stop": 66
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 30,
+              "source_id": 0,
+              "start": 66,
+              "stop": 67
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 4,
+              "column": 31,
+              "source_id": 0,
+              "start": 67,
+              "stop": 68
+            },
+            {
+              "path": "cli/parse-no-warn-statements.hc",
+              "line": 5,
+              "column": 1,
+              "source_id": 0,
+              "start": 69,
+              "stop": 70
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
