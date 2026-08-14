@@ -26,6 +26,7 @@ let () =
       ("semantic function type resolution", Test_function_type_resolution.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic local type resolution", Test_local_type_resolution.tests);
+      ("semantic function binding index", Test_function_binding_index.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
       ( "semantic function record classification",
         Test_function_record_classification.tests );

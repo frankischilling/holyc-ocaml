@@ -49,6 +49,7 @@ module Semantic_aggregate_layout_dump = Sema.Aggregate_layout_dump
 module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
+module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_resolution = Sema.Function_resolution
 
 module Semantic_function_record_classification =
@@ -164,6 +165,12 @@ let resolve_local_types session ~declarations ~aggregates ~functions module_ =
   Driver.Local_type_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions module_
+
+let index_function_bindings session ~declarations ~functions ~function_types
+    ~local_types =
+  Driver.Function_binding_index.build
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~functions ~function_types ~local_types
 
 let resolve_global_types session ~declarations ~aggregates module_ =
   Driver.Global_type_resolution.resolve
