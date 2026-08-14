@@ -8,6 +8,48 @@ let checked_decision = function
 
 let prepare = Test_function_call_conversion_policy.prepare
 
+let with_included_source contents apply =
+  let directory = Filename.temp_dir "holyc-call-decision-" "" in
+  let rec remove_tree path =
+    if Sys.file_exists path then
+      if Sys.is_directory path then (
+        Sys.readdir path
+        |> Array.iter (fun entry -> remove_tree (Filename.concat path entry));
+        Unix.rmdir path)
+      else Sys.remove path
+  in
+  let write_file path contents =
+    let channel = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out channel)
+      (fun () -> output_string channel contents)
+  in
+  Fun.protect
+    ~finally:(fun () -> remove_tree directory)
+    (fun () ->
+      let root_path = Filename.concat directory "root.HC" in
+      let include_path = Filename.concat directory "calls.HC" in
+      write_file root_path "#include \"calls\"";
+      write_file include_path contents;
+      let session = Session.create () in
+      let source =
+        Test_function_call_conversion_policy.checked
+          (Session.load_source session ~path:root_path)
+      in
+      let ast =
+        Holyc_lib.parse_with_config session
+          ~config:
+            (Test_function_call_conversion_policy.config
+               ~working_directory:directory Preprocessor.Jit)
+          ~source
+        |> Test_function_call_conversion_policy.expect_ast
+      in
+      let prepared =
+        Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
+          session ast
+      in
+      apply prepared)
+
 let decide prepared =
   let policies =
     Test_function_call_conversion_policy.analyze prepared
@@ -147,7 +189,7 @@ let pointer_callback_and_backed_targets () =
     ]
     paths
 
-let unsupported_expression_classes_stay_unresolved () =
+let source_expression_classes_stay_explicit () =
   let prepared =
     prepare ~path:"call-decision-unresolved.HC"
       "class Box {I64 member;};\n\
@@ -163,13 +205,13 @@ let unsupported_expression_classes_stay_unresolved () =
     |> Semantic_function_call_conversion_decision.direct_fixed_decisions
   in
   Alcotest.(check (list string))
-    "unsupported actual classes remain explicit"
+    "known primaries and unresolved actual classes remain explicit"
     [
       "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
@@ -203,6 +245,141 @@ let unsupported_expression_classes_stay_unresolved () =
         fixed |> provided_expression
         |> Semantic_function_call_resolution.argument_expression_kind
         |> Semantic_function_call_resolution.argument_expression_kind_name))
+
+let integer_primaries_convert_to_f64 () =
+  let prepared =
+    prepare ~path:"call-decision-integer-primaries.HC"
+      "class Box {I64 member;};\n\
+       extern I64 Target(F64 position,F64 size,F64 member_offset,F64 condition);\n\
+       I64 Caller(){return \
+       Target($$,sizeof(I64),offset(Box.member),defined(Box));}"
+  in
+  Alcotest.(check (list string))
+    "integer-result primaries convert to a scalar F64 target"
+    [
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+    ]
+    ( decide prepared |> checked_decision |> fun result ->
+      only_direct result "Caller" |> path_names )
+
+let integer_primaries_need_no_integer_conversion () =
+  let prepared =
+    prepare ~path:"call-decision-integer-primary-identity.HC"
+      "class Box {I64 member;};\n\
+       extern I64 Target(I64 position,I64 size,I64 member_offset,I64 condition);\n\
+       I64 Caller(){return \
+       Target($$,sizeof(I64),offset(Box.member),defined(Box));}"
+  in
+  Alcotest.(check (list string))
+    "integer-result primaries already match an integer target"
+    [
+      "provided:integer-result:none";
+      "provided:integer-result:none";
+      "provided:integer-result:none";
+      "provided:integer-result:none";
+    ]
+    ( decide prepared |> checked_decision |> fun result ->
+      only_direct result "Caller" |> path_names )
+
+let integer_primary_parentheses_and_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-integer-primary-modes.HC"
+          "class Box {I64 member;};\n\
+           extern I64 Target(F64 position,F64 size,F64 member_offset,F64 \
+           condition);\n\
+           I64 Caller(){return \
+           Target((($$)),((sizeof(I64))),((offset(Box.member))),((defined(Box))));}"
+      in
+      Alcotest.(check (list string))
+        "parentheses and compilation mode preserve primary result classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          only_direct result "Caller" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let integer_primary_provenance_and_purity () =
+  let prepared =
+    prepare ~path:"call-decision-integer-primary-generated.HC"
+      "#define QUERY defined(Target)\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(QUERY);}"
+  in
+  let result = decide prepared |> checked_decision in
+  let fixed =
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd
+  in
+  Alcotest.(check (list string))
+    "generated defined expression keeps the integer result"
+    [ "provided:integer-result:ICF_RES_TO_F64" ]
+    (only_direct result "Caller" |> path_names);
+  let origin =
+    fixed |> provided_expression
+    |> Semantic_function_call_resolution.argument_expression_origin
+  in
+  (match origin with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated primary keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated primary keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated primary provenance");
+  let table = Session.semantic_symbols prepared.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  Alcotest.(check (list string))
+    "repeated primary decisions are deterministic"
+    (only_direct result "Caller" |> path_names)
+    ( decide prepared |> checked_decision |> fun next ->
+      only_direct next "Caller" |> path_names );
+  Alcotest.(check int)
+    "primary decision does not mutate symbols" before
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  with_included_source
+    "extern I64 Included(F64 value);I64 Caller(){return Included(sizeof(I64));}"
+    (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun included_result ->
+        only_direct included_result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included sizeof follows the integer conversion path"
+        "provided:integer-result:ICF_RES_TO_F64"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let location =
+        match
+          fixed |> provided_expression
+          |> Semantic_function_call_resolution.argument_expression_origin
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included primary provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included primary keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
 
 let defaults_and_variadics_remain_separate () =
   let prepared =
@@ -341,46 +518,9 @@ let deferred_provenance_foreign_and_purity () =
       Alcotest.(check string)
         "foreign session diagnostic" "HCSEMA0045"
         (Semantic_function_call_conversion_decision.error_code error));
-  let directory = Filename.temp_dir "holyc-call-decision-" "" in
-  let rec remove_tree path =
-    if Sys.file_exists path then
-      if Sys.is_directory path then (
-        Sys.readdir path
-        |> Array.iter (fun entry -> remove_tree (Filename.concat path entry));
-        Unix.rmdir path)
-      else Sys.remove path
-  in
-  let write_file path contents =
-    let channel = open_out_bin path in
-    Fun.protect
-      ~finally:(fun () -> close_out channel)
-      (fun () -> output_string channel contents)
-  in
-  Fun.protect
-    ~finally:(fun () -> remove_tree directory)
-    (fun () ->
-      let root_path = Filename.concat directory "root.HC" in
-      let include_path = Filename.concat directory "calls.HC" in
-      write_file root_path "#include \"calls\"";
-      write_file include_path
-        "extern I64 Included(F64 value);I64 Caller(){return Included(1);}";
-      let session = Session.create () in
-      let source =
-        Test_function_call_conversion_policy.checked
-          (Session.load_source session ~path:root_path)
-      in
-      let ast =
-        Holyc_lib.parse_with_config session
-          ~config:
-            (Test_function_call_conversion_policy.config
-               ~working_directory:directory Preprocessor.Jit)
-          ~source
-        |> Test_function_call_conversion_policy.expect_ast
-      in
-      let prepared =
-        Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
-          session ast
-      in
+  with_included_source
+    "extern I64 Included(F64 value);I64 Caller(){return Included(1);}"
+    (fun prepared ->
       let expression =
         decide prepared |> checked_decision |> fun result ->
         only_direct result "Caller"
@@ -397,7 +537,9 @@ let deferred_provenance_foreign_and_purity () =
             Alcotest.fail "expected included expression provenance"
       in
       let source_file =
-        Source_manager.find (Session.sources session) location.span.source
+        Source_manager.find
+          (Session.sources prepared.session)
+          location.span.source
         |> Option.get
       in
       Alcotest.(check string)
@@ -410,8 +552,16 @@ let tests =
       literal_directions_and_expression_retention;
     Alcotest.test_case "pointer, callback, and backed targets" `Quick
       pointer_callback_and_backed_targets;
-    Alcotest.test_case "unsupported actual classes" `Quick
-      unsupported_expression_classes_stay_unresolved;
+    Alcotest.test_case "source expression classes" `Quick
+      source_expression_classes_stay_explicit;
+    Alcotest.test_case "integer primaries to F64" `Quick
+      integer_primaries_convert_to_f64;
+    Alcotest.test_case "integer primaries to integer" `Quick
+      integer_primaries_need_no_integer_conversion;
+    Alcotest.test_case "integer primary parentheses and modes" `Quick
+      integer_primary_parentheses_and_modes;
+    Alcotest.test_case "integer primary provenance and purity" `Quick
+      integer_primary_provenance_and_purity;
     Alcotest.test_case "default and variadic paths" `Quick
       defaults_and_variadics_remain_separate;
     Alcotest.test_case "source-visible replacement headers" `Quick

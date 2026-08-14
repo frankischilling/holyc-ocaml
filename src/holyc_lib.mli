@@ -390,7 +390,7 @@ val decide_function_call_conversions :
   ( Semantic_function_call_conversion_decision.t,
     Semantic_function_call_conversion_decision.error )
   result
-(** Select fixed-call conversion intent for literal actual expressions.
+(** Select fixed-call conversion intent for audited argument classes.
     Unsupported expression classes remain explicit unresolved results. *)
 
 val classify_function_records :

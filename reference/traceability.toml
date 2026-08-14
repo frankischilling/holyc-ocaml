@@ -4521,7 +4521,8 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "current-position", "sizeof", "offset", "defined", "prefix", "postfix", "postfix-cast", "binary", "call", "index", "member"]
+unresolved_actuals = ["identifier", "prefix", "postfix", "postfix-cast", "binary", "call", "index", "member"]
+integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4532,6 +4533,44 @@ compilation_modes = ["jit", "aot"]
 ic_flag_emission = "not implemented; the result records intent only"
 general_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this literal-class boundary; PrsUnaryTerm and PrsFunCall state both raw classes and the conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
+description = "Current-position, sizeof, offset, and defined fixed arguments retain the non-F64 result class selected by their pinned parser paths and the resulting direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:303-351 sizeof result",
+  "Compiler/PrsExp.HC:353-381 offset result",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:707-721 current-position result",
+  "Compiler/PrsExp.HC:936-953 defined result",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 244
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed current-position, sizeof, offset, and defined arguments on already resolved direct function-body calls after target policy"
+result_class = "integer-result, meaning the non-F64 side of the PrsFunCall comparison"
+current_position = "RT_I64 or pointer in the pinned contexts; both select the non-F64 side"
+sizeof = "ends in an RT_I64 immediate"
+offset = "ends in an RT_I64 immediate"
+defined = "produces an RT_I64 Boolean"
+parentheses = "preserve the primary result class"
+to_f64_rule = "forwarded scalar F64 target records ICF_RES_TO_F64 intent"
+no_conversion_rule = "every non-F64 target records no conversion"
+provenance = ["primary source", "nested parenthesis", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; each primary path and PrsFunCall state the raw class and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
