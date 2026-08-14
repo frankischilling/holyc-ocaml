@@ -3493,7 +3493,8 @@ semantic_rule = "ordinary object member -> zero; callback member -> MLF_FUN (0x8
 flag_injection = "none; callers cannot supply a contradictory semantic mask"
 provenance = ["definition line", "consumer path and line", "pinned source digest", "reference commit"]
 parameter_application = "implemented by HC-SEMA-FUNCTION-PARAMETER-FLAGS"
-remaining_flag_producer = "MLF_STATIC remains a registry fact until local storage classification applies it"
+local_application = "implemented by HC-SEMA-LOCAL-MEMBER-FLAGS"
+remaining_flag_producer = "the later MLF_NO_UNUSED_WARN mutation for unused-local warning suppression remains unimplemented"
 recorded_consumers = "header comparison, cleanup, sizing, warnings, calls, local access, and member access are audited but not implemented by this feature"
 default_binding_evaluation_call_checking_storage_lowering_and_execution = "not implemented"
 compilation_modes = ["jit", "aot"]
@@ -3885,9 +3886,49 @@ compilation_modes = ["jit", "aot"]
 array_extent_and_initializer_evaluation = "not implemented"
 duplicate_checking = "implemented separately by HC-SEMA-FUNCTION-BINDING-INDEX"
 ordinary_reference_resolution = "function-local parameter and local occurrences are implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
+declaration_flag_application = "implemented separately by HC-SEMA-LOCAL-MEMBER-FLAGS"
 stack_static_storage_and_register_allocation = "not implemented"
 abi_and_linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsStmt, PrsVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained facts directly"
+
+[[feature]]
+id = "HC-SEMA-LOCAL-MEMBER-FLAGS"
+description = "Accepted local variables retain the declaration-time CMemberLst mask assigned by the pinned compiler."
+sources = [
+  "Kernel/KernelA.HH:774-818 CMemberLst and member-list flags",
+  "Compiler/PrsVar.HC:490-524 local flag assignments",
+  "Compiler/PrsVar.HC:534-582 static allocation consumers",
+  "Compiler/PrsExp.HC:763-804 callback and static-address consumers",
+  "Doc/ScopingLinkage.DD:34-118 function static storage",
+  "Kernel/KMisc.HC:87 static comma group",
+  "Adam/WinMgr.HC:38 static braced local",
+  "Adam/Gr/SpriteMesh.HC:65 static scalar local"
+]
+implementation = [
+  "src/sema/local_type_resolution.ml",
+  "src/driver/local_type_resolution.ml"
+]
+tests = [
+  "test/test_local_type_resolution.ml"
+]
+status = "implemented"
+issue = 222
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ordinary_automatic_mask = "0x0"
+automatic_callback_mask = "0x8 (MLF_FUN)"
+ordinary_static_mask = "0x40 (MLF_STATIC)"
+static_callback_mask = "0x48 (MLF_STATIC | MLF_FUN)"
+recursive_rule = "each local derives its own mask; flags on nested callback parameters do not change the owner"
+comma_groups = "each declarator derives its mask independently from its own storage and callback shape"
+flag_injection = "none; make_local derives its private mask"
+provenance = ["ordinary source", "included source", "definition-generated source"]
+pinned_fixtures = ["Kernel/KMisc.HC:87", "Adam/WinMgr.HC:38", "Adam/Gr/SpriteMesh.HC:65"]
+compilation_modes = ["jit", "aot"]
+validation = "exact masks, per-flag queries, declarator independence, recursive independence, source provenance, deterministic replay, session ownership, and immutable failures"
+mutation = "none"
+later_no_warning_mutation = "not implemented"
+allocation_initializer_evaluation_address_lowering_callback_cleanup_abi_and_execution = "not implemented"
+native_oracle_status = "not required for this retained record boundary; the pinned assignment branches state the exact masks, including the source path for a static callback even though none occurs in the pinned corpus"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-BINDING-INDEX"

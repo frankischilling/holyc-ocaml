@@ -43,6 +43,14 @@ This is syntax and metadata capture, not ABI implementation. Function type compa
 
 These are checked semantic signature facts, not a calling-convention implementation. Prototype/definition identities and top-level function record flags are now modeled by separate passes. Header comparison, default evaluation, explicit register requests, argument placement, cleanup emission, storage, indirect calls, and native entry points remain separate work. [Issue #181](https://github.com/frankischilling/holyc-ocaml/issues/181) records the signature boundary, [issue #220](https://github.com/frankischilling/holyc-ocaml/issues/220) records the parameter masks, and [issue #191](https://github.com/frankischilling/holyc-ocaml/issues/191) records the function-record boundary.
 
+## Local variable member flags
+
+`Compiler/PrsVar.HC:490-524` allocates a zeroed `CMemberLst` for each local declarator. Static-local mode adds `MLF_STATIC` before `PrsType`; a callback declarator adds `MLF_FUN` afterward. The two decisions are independent, so an ordinary automatic object has mask `0x0`, an automatic callback has `0x8`, an ordinary static object has `0x40`, and a static callback has `0x48`. A nested callback parameter keeps its own parameter mask and does not add bits to the owning local.
+
+`Sema.Local_type_resolution` derives this declaration-time mask from its checked storage and declarator kind. The public constructor accepts neither a raw mask nor individual flags, while accessors expose the exact mask and typed queries. Comma-group declarators are classified independently. The pinned corpus supplies ordinary static locals, including the three-variable group at `Kernel/KMisc.HC:87`; no static callback local was found there, so the combined mask is direct source-path coverage rather than a corpus-frequency claim.
+
+`Compiler/PrsExp.HC:763-804` consumes `MLF_FUN` to recover callback metadata and `MLF_STATIC` to choose an AOT absolute address or JIT immediate address instead of an RBP-relative local. Those address, allocation, initializer, cleanup, and execution paths are not implemented yet. [Issue #222](https://github.com/frankischilling/holyc-ocaml/issues/222) records the retained metadata boundary.
+
 ## Classified function records
 
 `PrsFunJoin` copies staged calling bits only when it creates a `CHashFun`. A later header that joins the same record does not replace those stored bits. The record can still accumulate `Ff_DOT_DOT_DOT` and `Ff_RET1`; `HTF_PUBLIC` is replaced on every header, and `HTF_PRIVATE` may accumulate from `OPTf_KEEP_PRIVATE`. Binding paths then set or clear `Cf_EXTERN`, `Ff_INTERNAL`, `Ff__EXTERN`, `HTF_IMPORT`, `HTF_EXPORT`, and `HTF_RESOLVE` in source order.
