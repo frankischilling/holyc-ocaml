@@ -209,7 +209,8 @@ let options_repeats_and_prototypes () =
 let initializer_resets_only_the_declared_local () =
   let result =
     prepare ~path:"local-warning-initializers.HC"
-      "U0 Initializers(I64 earlier){I64 self=self,later=earlier;}"
+      "U0 Initializers(I64 earlier){I64 \
+       ordinary_self=ordinary_self,query_self=sizeof(query_self),later=offset(earlier.member);}"
     |> analyze
   in
   let function_ = function_named result "Initializers" in
@@ -218,14 +219,66 @@ let initializer_resets_only_the_declared_local () =
     |> Semantic_local_warning_analysis.binding_source_use_count
   in
   Alcotest.(check int) "earlier local use survives" 1 (counts "earlier");
-  Alcotest.(check int) "self initializer is reset" 0 (counts "self");
+  Alcotest.(check int) "ordinary self-use is reset" 0 (counts "ordinary_self");
+  Alcotest.(check int) "query self-use is reset" 0 (counts "query_self");
   Alcotest.(check int) "later initializer reset" 0 (counts "later");
   Alcotest.(check (list string))
-    "only the declared locals are unused" [ "self"; "later" ]
+    "only the declared locals are unused"
+    [ "ordinary_self"; "query_self"; "later" ]
     (Semantic_local_warning_analysis.function_warnings function_
     |> List.map (fun warning ->
         warning |> Semantic_local_warning_analysis.warning_binding_symbol
         |> Semantic_symbol.name))
+
+let specialized_queries_count_as_uses () =
+  let result =
+    prepare ~path:"local-warning-specialized-queries.HC"
+      "U0 QueryCounts(I64 size_only,I64 offset_only,I64 defined_only,I64 \
+       suppressed,I64 ordinary,I64 numeric){I64 \
+       member;sizeof(size_only.member);offset(offset_only.member);defined(defined_only);no_warn \
+       suppressed;sizeof(suppressed.member);ordinary;defined(0);}"
+    |> analyze
+  in
+  let function_ = function_named result "QueryCounts" in
+  let counts name =
+    let binding = binding_named function_ name in
+    ( Semantic_local_warning_analysis.binding_ordinary_use_count binding,
+      ( Semantic_local_warning_analysis.binding_query_use_count binding,
+        Semantic_local_warning_analysis.binding_suppression_count binding,
+        Semantic_local_warning_analysis.binding_source_use_count binding ) )
+  in
+  let query_only name =
+    Alcotest.(check (pair int (triple int int int)))
+      (name ^ " query count")
+      (0, (1, 0, 1))
+      (counts name)
+  in
+  List.iter query_only [ "size_only"; "offset_only"; "defined_only" ];
+  Alcotest.(check (pair int (triple int int int)))
+    "query plus suppression crosses the unneeded threshold"
+    (0, (1, 1, 2))
+    (counts "suppressed");
+  Alcotest.(check (pair int (triple int int int)))
+    "ordinary use remains separate"
+    (1, (0, 0, 1))
+    (counts "ordinary");
+  Alcotest.(check (pair int (triple int int int)))
+    "non-name defined operand contributes no use"
+    (0, (0, 0, 0))
+    (counts "numeric");
+  Alcotest.(check (pair int (triple int int int)))
+    "member spelling contributes no use"
+    (0, (0, 0, 0))
+    (counts "member");
+  Alcotest.(check (list (triple string string string)))
+    "warning thresholds include query uses"
+    [
+      ("HCSEMA0035", "unneeded-no-warn", "suppressed");
+      ("HCSEMA0034", "unused-variable", "numeric");
+      ("HCSEMA0034", "unused-variable", "member");
+    ]
+    (Semantic_local_warning_analysis.function_warnings function_
+    |> List.map warning_signature)
 
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
@@ -355,6 +408,7 @@ let result_signature result =
               Semantic_local_warning_analysis.binding_effective_flag_mask
                 binding,
               Semantic_local_warning_analysis.binding_ordinary_use_count binding,
+              Semantic_local_warning_analysis.binding_query_use_count binding,
               Semantic_local_warning_analysis.binding_suppression_count binding
             )),
         Semantic_local_warning_analysis.function_warnings function_
@@ -427,6 +481,7 @@ let pinned_warning_rules () =
   let statements = read_file "../third_party/TempleOS/Compiler/PrsStmt.HC" in
   let lexer = read_file "../third_party/TempleOS/Compiler/LexLib.HC" in
   let variables = read_file "../third_party/TempleOS/Compiler/PrsVar.HC" in
+  let expressions = read_file "../third_party/TempleOS/Compiler/PrsExp.HC" in
   List.iter
     (fun rule -> Alcotest.(check bool) rule true (contains statements rule))
     [
@@ -439,7 +494,16 @@ let pinned_warning_rules () =
     (contains lexer "tmpm->use_cnt++;");
   Alcotest.(check bool)
     "initializer parsing resets the declared local" true
-    (contains variables "tmpm->use_cnt=0;")
+    (contains variables "tmpm->use_cnt=0;");
+  Alcotest.(check bool)
+    "specialized roots can resolve locals" true
+    (contains expressions "tmpm=cc->local_var_entry");
+  Alcotest.(check bool)
+    "member spellings undo incidental local lookups" true
+    (contains expressions "cc->local_var_entry->use_cnt--;");
+  Alcotest.(check bool)
+    "defined accepts a resolved local" true
+    (contains expressions "(cc->hash_entry || cc->local_var_entry)")
 
 let tests =
   [
@@ -449,6 +513,8 @@ let tests =
       options_repeats_and_prototypes;
     Alcotest.test_case "initializer resets only the declared local" `Quick
       initializer_resets_only_the_declared_local;
+    Alcotest.test_case "specialized queries count as uses" `Quick
+      specialized_queries_count_as_uses;
     Alcotest.test_case "mode and generated provenance" `Quick
       mode_and_generated_provenance;
     Alcotest.test_case "included provenance" `Quick included_provenance;

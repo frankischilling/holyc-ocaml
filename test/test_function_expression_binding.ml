@@ -80,6 +80,12 @@ let binding_of_occurrence occurrence =
   | Semantic_function_expression_binding.Function_binding binding ->
       Some binding
 
+let binding_of_query query =
+  match Semantic_function_expression_binding.query_resolution query with
+  | Semantic_function_expression_binding.Nonlocal_candidate -> None
+  | Semantic_function_expression_binding.Function_binding binding ->
+      Some binding
+
 let occurrence_signature occurrence =
   let name = Semantic_function_expression_binding.occurrence_name occurrence in
   let binding_name =
@@ -230,6 +236,63 @@ let excluded_identifier_roles () =
     [ ("obj", Some "obj") ]
     (signature function_)
 
+let specialized_name_queries () =
+  let result =
+    prepare ~path:"specialized-name-queries.HC"
+      "#define ROOT root\n\
+       U0 Queries(){sizeof(later.member);I64 \
+       root,member,later;sizeof(ROOT.member);offset(root.member);defined(root);defined(0);offset(later.member);sizeof(outside.member);root;}"
+  in
+  let function_ = function_named result "Queries" in
+  Alcotest.(check (list (pair string (option string))))
+    "ordinary occurrences remain separate"
+    [ ("root", Some "root") ]
+    (signature function_);
+  let queries =
+    Semantic_function_expression_binding.function_queries function_
+  in
+  Alcotest.(check (list (pair int (triple string string (option string)))))
+    "query roles and resolutions"
+    [
+      (0, ("sizeof-root", "later", None));
+      (1, ("sizeof-root", "root", Some "root"));
+      (2, ("offset-root", "root", Some "root"));
+      (3, ("defined-operand", "root", Some "root"));
+      (4, ("offset-root", "later", Some "later"));
+      (5, ("sizeof-root", "outside", None));
+    ]
+    (queries
+    |> List.map (fun query ->
+        ( Semantic_function_expression_binding.query_index query,
+          ( query |> Semantic_function_expression_binding.query_role
+            |> Semantic_function_expression_binding.query_role_name,
+            Semantic_function_expression_binding.query_name query,
+            binding_of_query query
+            |> Option.map
+                 (fun (binding : Semantic_function_binding_index.binding) ->
+                   Semantic_symbol.name binding.symbol) ) )));
+  Alcotest.(check bool)
+    "member spellings and non-name defined operands do not become queries" true
+    (queries
+    |> List.for_all (fun query ->
+        not
+          (String.equal
+             (Semantic_function_expression_binding.query_name query)
+             "member")));
+  match List.nth_opt queries 1 with
+  | Some generated -> (
+      match Semantic_function_expression_binding.query_origin generated with
+      | Semantic_symbol.Source_location source ->
+          Alcotest.(check bool)
+            "definition expansion keeps its invocation origin" true
+            (Option.is_some source.generated_from);
+          Alcotest.(check bool)
+            "definition expansion keeps its declaration origin" true
+            (Option.is_some source.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated query provenance")
+  | None -> Alcotest.fail "expected a generated specialized query"
+
 let statement_expression_order () =
   let source =
     "U0 Walk(I64 a,I64 b){\n\
@@ -325,6 +388,8 @@ let suppression_and_initializer_events () =
   let event_signature = function
     | Semantic_function_expression_binding.Bound_use occurrence ->
         "use:" ^ Semantic_function_expression_binding.occurrence_name occurrence
+    | Semantic_function_expression_binding.Bound_query query ->
+        "query:" ^ Semantic_function_expression_binding.query_name query
     | Semantic_function_expression_binding.No_warn_suppression suppression ->
         "suppress:"
         ^ Semantic_function_expression_binding.suppression_name suppression
@@ -510,6 +575,8 @@ let tests =
       permitted_repeats_keep_first;
     Alcotest.test_case "excluded identifier roles" `Quick
       excluded_identifier_roles;
+    Alcotest.test_case "specialized name queries" `Quick
+      specialized_name_queries;
     Alcotest.test_case "statement expression order" `Quick
       statement_expression_order;
     Alcotest.test_case "suppression and initializer events" `Quick

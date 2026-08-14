@@ -1,16 +1,19 @@
 type event
 type function_input
+type query_role = Sizeof_root | Offset_root | Defined_operand
 
 type resolution =
   | Function_binding of Function_binding_index.binding
   | Nonlocal_candidate
 
 type occurrence
+type query
 type suppression
 type initializer_use_reset
 
 type binding_event =
   | Bound_use of occurrence
+  | Bound_query of query
   | No_warn_suppression of suppression
   | Initializer_use_reset of initializer_use_reset
 
@@ -45,6 +48,12 @@ type error
 val make_identifier :
   name:string -> origin:Symbol.origin -> (event, string) result
 
+val make_name_query :
+  role:query_role ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
 val make_local_publication :
   name:string ->
   origin:Symbol.origin ->
@@ -75,10 +84,11 @@ val resolve :
   bindings:Function_binding_index.t ->
   function_input list ->
   (t, error) result
-(** Bind ordinary identifier occurrences in source order. Parameters are visible
-    at body entry. Each local becomes visible at its publication event and
-    remains visible for the rest of the function. Names that have no visible
-    function binding remain explicit nonlocal candidates. *)
+(** Bind ordinary identifier occurrences and specialized name queries in source
+    order. Parameters are visible at body entry. Each local becomes visible at
+    its publication event and remains visible for the rest of the function.
+    Names that have no visible function binding remain explicit nonlocal
+    candidates. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
@@ -87,6 +97,7 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_binding_events : resolved_function -> binding_event list
 val function_occurrences : resolved_function -> occurrence list
+val function_queries : resolved_function -> query list
 val function_suppressions : resolved_function -> suppression list
 
 val function_initializer_use_resets :
@@ -96,6 +107,12 @@ val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
+val query_index : query -> int
+val query_role : query -> query_role
+val query_name : query -> string
+val query_origin : query -> Symbol.origin
+val query_resolution : query -> resolution
+val query_role_name : query_role -> string
 val suppression_index : suppression -> int
 val suppression_name : suppression -> string
 val suppression_origin : suppression -> Symbol.origin

@@ -48,6 +48,7 @@ val binding_initial_flag_mask : binding_analysis -> int64
 val binding_effective_flag_mask : binding_analysis -> int64
 val binding_has_flag : binding_analysis -> Member_flag.t -> bool
 val binding_ordinary_use_count : binding_analysis -> int
+val binding_query_use_count : binding_analysis -> int
 val binding_suppression_count : binding_analysis -> int
 val binding_source_use_count : binding_analysis -> int
 val binding_suppression_origins : binding_analysis -> Symbol.origin list

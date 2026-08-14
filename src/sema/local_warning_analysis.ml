@@ -26,6 +26,7 @@ type binding_analysis = {
   initial_flag_mask : int64;
   effective_flag_mask : int64;
   ordinary_use_count : int;
+  query_use_count : int;
   suppression_count : int;
   source_use_count : int;
   suppression_origins : Symbol.origin list;
@@ -87,6 +88,9 @@ let binding_has_flag (binding : binding_analysis) flag =
 
 let binding_ordinary_use_count (binding : binding_analysis) =
   binding.ordinary_use_count
+
+let binding_query_use_count (binding : binding_analysis) =
+  binding.query_use_count
 
 let binding_suppression_count (binding : binding_analysis) =
   binding.suppression_count
@@ -299,6 +303,7 @@ type counts = {
   input : binding_input;
   effective_flag_mask : int64;
   ordinary_use_count : int;
+  query_use_count : int;
   suppression_count : int;
   suppression_origins_rev : Symbol.origin list;
 }
@@ -308,6 +313,7 @@ let initial_counts input =
     input;
     effective_flag_mask = input.initial_flag_mask;
     ordinary_use_count = 0;
+    query_use_count = 0;
     suppression_count = 0;
     suppression_origins_rev = [];
   }
@@ -345,6 +351,15 @@ let apply_event function_symbol states = function
                 (fun count -> { state with ordinary_use_count = count })
                 (checked_increment function_symbol binding
                    state.ordinary_use_count "ordinary-use")))
+  | Function_expression_binding.Bound_query query -> (
+      match Function_expression_binding.query_resolution query with
+      | Function_expression_binding.Nonlocal_candidate -> Ok states
+      | Function_expression_binding.Function_binding binding ->
+          update_count states binding (fun state ->
+              Result.map
+                (fun count -> { state with query_use_count = count })
+                (checked_increment function_symbol binding state.query_use_count
+                   "specialized-query-use")))
   | Function_expression_binding.No_warn_suppression suppression ->
       let binding =
         Function_expression_binding.suppression_binding suppression
@@ -369,17 +384,34 @@ let apply_event function_symbol states = function
         Function_expression_binding.initializer_use_reset_binding reset
       in
       update_count states binding (fun state ->
-          Ok { state with ordinary_use_count = 0; suppression_count = 0 })
+          Ok
+            {
+              state with
+              ordinary_use_count = 0;
+              query_use_count = 0;
+              suppression_count = 0;
+            })
 
 let source_use_count function_symbol state =
-  if state.ordinary_use_count > max_int - state.suppression_count then
+  if state.ordinary_use_count > max_int - state.query_use_count then
     Error
       (invalid_input
          ~origin:(Symbol.origin state.input.binding.symbol)
          (Printf.sprintf "function %S exhausts the source-use counter for %S"
             (Symbol.name function_symbol)
             (Symbol.name state.input.binding.symbol)))
-  else Ok (state.ordinary_use_count + state.suppression_count)
+  else
+    let expression_use_count =
+      state.ordinary_use_count + state.query_use_count
+    in
+    if expression_use_count > max_int - state.suppression_count then
+      Error
+        (invalid_input
+           ~origin:(Symbol.origin state.input.binding.symbol)
+           (Printf.sprintf "function %S exhausts the source-use counter for %S"
+              (Symbol.name function_symbol)
+              (Symbol.name state.input.binding.symbol)))
+    else Ok (expression_use_count + state.suppression_count)
 
 let binding_analysis function_symbol state =
   Result.map
@@ -389,6 +421,7 @@ let binding_analysis function_symbol state =
         initial_flag_mask = state.input.initial_flag_mask;
         effective_flag_mask = state.effective_flag_mask;
         ordinary_use_count = state.ordinary_use_count;
+        query_use_count = state.query_use_count;
         suppression_count = state.suppression_count;
         source_use_count;
         suppression_origins = List.rev state.suppression_origins_rev;
