@@ -2,6 +2,8 @@
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
+Global declarator expressions share one immutable publication cursor. `Sema.Global_binding_environment` validates the module stream, global records, compilation mode, and outer snapshot once. Initializer binding advances through the owning global; dimension binding stops immediately before it and advances afterward for the next declarator. `Driver.Global_dimension_binding` checks each AST suffix against the resolved global type, retains empty dimensions, and assigns ordinary identifier occurrences one order across the whole declarator. The public `resolve_global_dimensions` entry point exposes this binding boundary without evaluating extents.
+
 The current slice has seven layers:
 
 - `Common` owns source files, byte positions, spans, diagnostics, deterministic rendering, and target-width integer helpers.
