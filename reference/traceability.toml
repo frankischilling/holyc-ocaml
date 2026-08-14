@@ -4441,7 +4441,7 @@ diagnostics = ["HCSEMA0039 invalid input", "HCSEMA0040 missing required fixed ar
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 default_expression_evaluation_and_lastclass_substitution = "not implemented"
-argument_type_conversion = "the target half is implemented separately by HC-SEMA-DIRECT-CALL-CONVERSION-POLICY; actual expression typing and final conversion flags remain unavailable"
+argument_type_conversion = "the target half is implemented by HC-SEMA-DIRECT-CALL-CONVERSION-POLICY; literal actuals and their combined intent are implemented by HC-SEMA-LITERAL-CALL-CONVERSION-DECISION; other expression classes and IC emission remain unavailable"
 indirect_call_checking = "not implemented; callback variables remain explicit deferred results"
 top_level_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "the parenthesis-free fixture was observed with the pinned compiler; the fixed-slot and variadic state transitions are direct statements in PrsFunCall"
@@ -4486,9 +4486,52 @@ validation = "symbol-table ownership, module parentage, source-ordered aggregate
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 actual_expression_class = "not implemented"
-final_conversion_flag = "not selected; ICF_RES_TO_F64 and ICF_RES_TO_INT require the future typed actual expression"
+final_conversion_flag = "not selected by this target-policy pass; HC-SEMA-LITERAL-CALL-CONVERSION-DECISION records intent for literal actuals, while other expression classes remain unavailable"
 default_evaluation_lastclass_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this target-policy boundary; PrsFunCall and OptClassFwd state the target forwarding and fixed/default/variadic branch split directly"
+
+[[feature]]
+id = "HC-SEMA-LITERAL-CALL-CONVERSION-DECISION"
+description = "Literal fixed arguments retain their actual result class and the conversion intent selected by the PrsFunCall target-versus-actual branch."
+sources = [
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:679-700 literal IC classes",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT",
+  "Compiler/CInit.HC:1-14 intrinsic raw types"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 242
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed literal arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
+integer_actuals = ["integer literal", "character literal", "string literal"]
+f64_actuals = ["float literal"]
+parentheses = "preserve the nested literal class"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
+to_int_rule = "every non-F64 target with an F64 literal actual"
+no_conversion_rule = "target and actual use the same F64-versus-integer path"
+unresolved_actuals = ["identifier", "current-position", "sizeof", "offset", "defined", "prefix", "postfix", "postfix-cast", "binary", "call", "index", "member"]
+declared_default_behavior = "retained as a separate fixed path"
+variadic_behavior = "source view retained without entering the fixed conversion decision"
+deferred_call_behavior = "retained without a conversion decision"
+diagnostics = ["HCSEMA0045 foreign policy input"]
+provenance = ["literal source", "nested parenthesis", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+ic_flag_emission = "not implemented; the result records intent only"
+general_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this literal-class boundary; PrsUnaryTerm and PrsFunCall state both raw classes and the conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
