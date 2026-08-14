@@ -244,8 +244,14 @@ let explicit_storage_and_private_state () =
       "I64 Code; public I64 Heap;"
   in
   let globals = Semantic_global_type_resolution.globals prepared.globals in
-  let declaration global storage =
-    checked (Semantic_global_resolution.make_declaration ~global ~storage ())
+  let data_heap_mask, _ =
+    Compiler_option.set ~mask:Compiler_option.initial_mask
+      Compiler_option.Globals_on_data_heap true
+  in
+  let declaration ?compiler_option_mask global =
+    checked
+      (Semantic_global_resolution.make_declaration ?compiler_option_mask ~global
+         ())
   in
   let resolution =
     checked
@@ -254,13 +260,12 @@ let explicit_storage_and_private_state () =
          ~parent:(Semantic_declaration_collection.scope prepared.declarations)
          ~compilation_mode:Semantic_global_resolution.Aot
          [
-           declaration (List.nth globals 0) Semantic_global_resolution.Code_heap;
-           declaration (List.nth globals 1) Semantic_global_resolution.Data_heap;
+           declaration (List.nth globals 0);
+           declaration ~compiler_option_mask:data_heap_mask (List.nth globals 1);
          ])
   in
   let keep_private_mask, _ =
-    Compiler_option.set ~mask:Compiler_option.initial_mask
-      Compiler_option.Keep_private true
+    Compiler_option.set ~mask:data_heap_mask Compiler_option.Keep_private true
   in
   let public_mask =
     Function_flag.apply_modifier ~mask:0L Function_flag.Modifier.Public

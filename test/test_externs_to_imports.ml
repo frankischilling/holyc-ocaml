@@ -412,8 +412,6 @@ let low_level_snapshots_and_aggregate_forwards () =
         checked
           (Semantic_global_resolution.make_declaration ~compiler_option_mask
              ~global:(Semantic_global_resolution.declaration_global declaration)
-             ~storage:
-               (Semantic_global_resolution.declaration_storage declaration)
              ?binding:
                (Semantic_global_resolution.declaration_binding declaration)
              ()))

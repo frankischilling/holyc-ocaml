@@ -42,13 +42,13 @@ val make_source_binding :
 val make_declaration :
   ?compiler_option_mask:int64 ->
   global:Global_type_resolution.global ->
-  storage:storage ->
   ?binding:source_binding ->
   unit ->
   (declaration, string) result
 (** Describe one checked global record without changing the symbol table. The
-    option snapshot converts extern forms to their effective import kind while
-    retaining the source binding. *)
+    option snapshot converts extern forms to their effective import kind and
+    selects data-heap storage for definitions while retaining the source
+    binding. *)
 
 val resolve :
   table:Symbol_table.t ->
