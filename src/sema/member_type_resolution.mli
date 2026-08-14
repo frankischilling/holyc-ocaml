@@ -1,9 +1,8 @@
 type type_reference = Type_reference.t
 (** The shared semantic source-type reference. *)
 
-type function_pointer
-(** The source head of a callback member. Its recursive signature is resolved by
-    a later declarator pass. *)
+type function_pointer = Function_type_resolution.function_pointer
+(** The complete recursive signature of a callback member. *)
 
 type declarator_kind = Object | Function_pointer of function_pointer
 type member
@@ -19,7 +18,10 @@ val make_type_reference :
 
 val make_function_pointer :
   origin:Symbol.origin ->
+  opening_origin:Symbol.origin ->
   indirection_origins:Symbol.origin list ->
+  closing_origin:Symbol.origin ->
+  signature:Function_type_resolution.signature ->
   (function_pointer, string) result
 
 val make_member :
@@ -63,6 +65,12 @@ val type_reference_spelling_origin : type_reference -> Symbol.origin
 val type_reference_pointer_origins : type_reference -> Symbol.origin list
 val type_reference_type : type_reference -> Type.t
 val function_pointer_origin : function_pointer -> Symbol.origin
+val function_pointer_opening_origin : function_pointer -> Symbol.origin
 
 val function_pointer_indirection_origins :
   function_pointer -> Symbol.origin list
+
+val function_pointer_closing_origin : function_pointer -> Symbol.origin
+
+val function_pointer_signature :
+  function_pointer -> Function_type_resolution.signature

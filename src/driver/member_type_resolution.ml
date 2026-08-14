@@ -423,6 +423,101 @@ let validate_collected_aggregate ~table ~scope event collected
     in
     pair [] entries expected
 
+let default_fact (default : Frontend.Ast.parameter_default) =
+  let default_origin = origin default.location in
+  let equals_origin = origin default.equals in
+  match default.value with
+  | Frontend.Ast.Expression_default expression ->
+      Sema.Function_type_resolution.Expression_default
+        {
+          origin = default_origin;
+          equals_origin;
+          expression_origin =
+            origin (Frontend.Ast.expression_location expression);
+        }
+  | Frontend.Ast.Lastclass_default lastclass ->
+      Sema.Function_type_resolution.Lastclass_default
+        {
+          origin = default_origin;
+          equals_origin;
+          keyword_origin = origin lastclass.lastclass_location;
+        }
+
+let rec signature_fact visible ~opening parameters variadic ~closing =
+  let rec parameter_facts index facts_rev = function
+    | [] -> Ok (List.rev facts_rev)
+    | (parameter : Frontend.Ast.function_parameter) :: rest -> (
+        match parameter_fact visible index parameter with
+        | Error _ as error -> error
+        | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
+  in
+  match parameter_facts 0 [] parameters with
+  | Error _ as error -> error
+  | Ok parameters ->
+      Sema.Function_type_resolution.make_signature
+        ~opening_origin:(origin opening) ~parameters
+        ?variadic_origin:
+          (Option.map
+             (fun (marker : Frontend.Ast.variadic_marker) ->
+               origin marker.location)
+             variadic)
+        ~closing_origin:(origin closing) ()
+
+and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
+  match
+    make_type_reference visible parameter.type_specifier
+      parameter.pointer_layers
+  with
+  | Error _ as error -> error
+  | Ok type_reference -> (
+      match declarator_kind_fact visible parameter.function_pointer with
+      | Error _ as error -> error
+      | Ok declarator_kind ->
+          Sema.Function_type_resolution.make_parameter ~index
+            ~origin:(origin parameter.location)
+            ?name:
+              (Option.map
+                 (fun (name : Frontend.Ast.identifier) -> name.spelling)
+                 parameter.name)
+            ?name_origin:
+              (Option.map
+                 (fun (name : Frontend.Ast.identifier) -> origin name.location)
+                 parameter.name)
+            ~type_reference ~declarator_kind
+            ~default:(Option.map default_fact parameter.default)
+            ?delimiter_origin:
+              (Option.map
+                 (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
+                   origin delimiter.location)
+                 parameter.delimiter)
+            ())
+
+and function_pointer_fact visible
+    (pointer : Frontend.Ast.function_pointer_declarator) =
+  match pointer_depth pointer.indirection_layers with
+  | Error _ as error -> error
+  | Ok _ -> (
+      match
+        signature_fact visible ~opening:pointer.signature_opening_parenthesis
+          pointer.signature_parameters pointer.signature_variadic
+          ~closing:pointer.signature_closing_parenthesis
+      with
+      | Error _ as error -> error
+      | Ok signature ->
+          Sema.Member_type_resolution.make_function_pointer
+            ~origin:(origin pointer.function_pointer_location)
+            ~opening_origin:(origin pointer.declarator_opening_parenthesis)
+            ~indirection_origins:(pointer_origins pointer.indirection_layers)
+            ~closing_origin:(origin pointer.declarator_closing_parenthesis)
+            ~signature)
+
+and declarator_kind_fact visible = function
+  | None -> Ok Sema.Function_type_resolution.Object
+  | Some pointer ->
+      Result.map
+        (fun pointer -> Sema.Function_type_resolution.Function_pointer pointer)
+        (function_pointer_fact visible pointer)
+
 let member_fact visible entry ast_member =
   let declarator = ast_member.declarator in
   match
@@ -434,21 +529,11 @@ let member_fact visible entry ast_member =
       let declarator_kind =
         match declarator.member_function_pointer with
         | None -> Ok Sema.Member_type_resolution.Object
-        | Some function_pointer -> (
-            match pointer_depth function_pointer.indirection_layers with
-            | Error _ as error -> error
-            | Ok _ -> (
-                match
-                  Sema.Member_type_resolution.make_function_pointer
-                    ~origin:(origin function_pointer.function_pointer_location)
-                    ~indirection_origins:
-                      (pointer_origins function_pointer.indirection_layers)
-                with
-                | Error _ as error -> error
-                | Ok function_pointer ->
-                    Ok
-                      (Sema.Member_type_resolution.Function_pointer
-                         function_pointer)))
+        | Some function_pointer ->
+            Result.map
+              (fun function_pointer ->
+                Sema.Member_type_resolution.Function_pointer function_pointer)
+              (function_pointer_fact visible function_pointer)
       in
       Result.bind declarator_kind (fun declarator_kind ->
           Sema.Member_type_resolution.make_member

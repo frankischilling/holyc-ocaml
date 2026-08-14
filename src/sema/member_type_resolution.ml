@@ -1,10 +1,5 @@
 type type_reference = Type_reference.t
-
-type function_pointer = {
-  origin : Symbol.origin;
-  indirection_origins : Symbol.origin list;
-}
-
+type function_pointer = Function_type_resolution.function_pointer
 type declarator_kind = Object | Function_pointer of function_pointer
 
 type member = {
@@ -45,24 +40,22 @@ let type_reference_spelling = Type_reference.spelling
 let type_reference_spelling_origin = Type_reference.spelling_origin
 let type_reference_pointer_origins = Type_reference.pointer_origins
 let type_reference_type = Type_reference.resolved_type
-let function_pointer_origin (pointer : function_pointer) = pointer.origin
+let function_pointer_origin = Function_type_resolution.function_pointer_origin
 
-let function_pointer_indirection_origins (pointer : function_pointer) =
-  pointer.indirection_origins
+let function_pointer_opening_origin =
+  Function_type_resolution.function_pointer_opening_origin
+
+let function_pointer_indirection_origins =
+  Function_type_resolution.function_pointer_indirection_origins
+
+let function_pointer_closing_origin =
+  Function_type_resolution.function_pointer_closing_origin
+
+let function_pointer_signature =
+  Function_type_resolution.function_pointer_signature
 
 let make_type_reference = Type_reference.make
-
-let make_function_pointer ~origin ~indirection_origins =
-  let depth = List.length indirection_origins in
-  if depth = 0 then
-    Error "semantic callback member requires at least one indirection layer"
-  else if depth > Type.max_pointer_depth then
-    Error
-      (Printf.sprintf
-         "semantic callback member indirection depth %d exceeds HolyC's limit \
-          of %d"
-         depth Type.max_pointer_depth)
-  else Ok { origin; indirection_origins }
+let make_function_pointer = Function_type_resolution.make_function_pointer
 
 let make_member ~symbol ~member_path ~declarator_index ~declarator_origin
     ~type_reference ~declarator_kind ~array_dimension_origins =
@@ -142,6 +135,30 @@ let validate_type_reference ~table ~parent reference =
       then Error "semantic member type target does not belong to the module"
       else Ok ()
 
+let rec validate_signature_types ~table ~parent signature =
+  let rec validate_parameters = function
+    | [] -> Ok ()
+    | parameter :: rest -> (
+        match
+          validate_type_reference ~table ~parent
+            (Function_type_resolution.parameter_type_reference parameter)
+        with
+        | Error _ as error -> error
+        | Ok () -> (
+            match
+              Function_type_resolution.parameter_declarator_kind parameter
+            with
+            | Function_type_resolution.Object -> validate_parameters rest
+            | Function_type_resolution.Function_pointer pointer -> (
+                match
+                  validate_signature_types ~table ~parent
+                    (Function_type_resolution.function_pointer_signature pointer)
+                with
+                | Error _ as error -> error
+                | Ok () -> validate_parameters rest)))
+  in
+  validate_parameters (Function_type_resolution.signature_parameters signature)
+
 let validate_member ~table ~parent ~scope seen (member : member) =
   let symbol_id = Symbol.Id.to_int (Symbol.id member.symbol) in
   if not (Symbol_table.owns_symbol table member.symbol) then
@@ -157,9 +174,16 @@ let validate_member ~table ~parent ~scope seen (member : member) =
   else if Int_set.mem symbol_id seen then
     Error "semantic member type symbols cannot repeat"
   else
-    Result.map
-      (fun () -> Int_set.add symbol_id seen)
-      (validate_type_reference ~table ~parent member.type_reference)
+    match validate_type_reference ~table ~parent member.type_reference with
+    | Error _ as error -> error
+    | Ok () -> (
+        match member.declarator_kind with
+        | Object -> Ok (Int_set.add symbol_id seen)
+        | Function_pointer pointer ->
+            Result.map
+              (fun () -> Int_set.add symbol_id seen)
+              (validate_signature_types ~table ~parent
+                 (Function_type_resolution.function_pointer_signature pointer)))
 
 let validate_members ~table ~parent ~scope members =
   if not (members_are_ordered members) then

@@ -21,6 +21,23 @@ let parse ?(mode = Preprocessor.Jit) session ~path contents =
   Holyc_lib.parse_with_config session ~config:(config mode) ~source
   |> expect_ast
 
+let read_file path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let pinned_lines path ~first ~last =
+  [ "third_party/TempleOS"; "../third_party/TempleOS" ]
+  |> List.map (fun root -> Filename.concat root path)
+  |> List.find_opt Sys.file_exists
+  |> function
+  | None -> Alcotest.failf "pinned source is unavailable: %s" path
+  | Some source ->
+      read_file source |> String.split_on_char '\n'
+      |> List.filteri (fun index _ -> index + 1 >= first && index + 1 <= last)
+      |> String.concat "\n"
+
 type semantic_results = {
   declarations : Semantic_declaration_collection.t;
   aggregates : Semantic_aggregate_resolution.t;
@@ -75,6 +92,20 @@ let member_names aggregate =
 let member_type member =
   member |> Semantic_member_type_resolution.member_type_reference
   |> Semantic_member_type_resolution.type_reference_type
+
+let expect_callback member =
+  match Semantic_member_type_resolution.member_declarator_kind member with
+  | Semantic_member_type_resolution.Function_pointer pointer -> pointer
+  | Semantic_member_type_resolution.Object ->
+      Alcotest.fail "expected a callback member"
+
+let callback_parameters pointer =
+  pointer |> Semantic_member_type_resolution.function_pointer_signature
+  |> Semantic_function_type_resolution.signature_parameters
+
+let parameter_type parameter =
+  parameter |> Semantic_function_type_resolution.parameter_type_reference
+  |> Semantic_type_reference.resolved_type
 
 let aggregate_target member =
   match member |> member_type |> Semantic_type.base with
@@ -282,9 +313,12 @@ let callback_return_and_indirection () =
   let session = Session.create () in
   let ast =
     parse session ~path:"member-callbacks.HC"
-      "class Callbacks { I64 *(*invoke)(U8 arg); I64 (**chain)(I64 value); };"
+      "class Node {}; class Callbacks { I64 *(*invoke)(Node \
+       *node,I64=1,I64=lastclass,U8 *(*nested)(I64 value,...),...); I64 \
+       (**chain)(I64 value); };"
   in
   let results = resolve session ast in
+  let node = aggregate_named results "Node" in
   let callbacks = aggregate_named results "Callbacks" in
   let invoke = member_named callbacks "invoke" in
   let chain = member_named callbacks "chain" in
@@ -293,19 +327,256 @@ let callback_return_and_indirection () =
   check_primitive ~form:Semantic_type.Public_spelling
     ~primitive:Primitive_type.I64 ~pointer_depth:0 chain;
   let callback_depth member =
-    match Semantic_member_type_resolution.member_declarator_kind member with
-    | Semantic_member_type_resolution.Object ->
-        Alcotest.fail "expected a callback member"
-    | Semantic_member_type_resolution.Function_pointer pointer ->
-        pointer
-        |> Semantic_member_type_resolution.function_pointer_indirection_origins
-        |> List.length
+    member |> expect_callback
+    |> Semantic_member_type_resolution.function_pointer_indirection_origins
+    |> List.length
   in
   Alcotest.(check int)
     "return pointer is separate from callback indirection" 1
     (callback_depth invoke);
   Alcotest.(check int)
-    "callback indirection retains both stars" 2 (callback_depth chain)
+    "callback indirection retains both stars" 2 (callback_depth chain);
+  let invoke_pointer = expect_callback invoke in
+  let signature =
+    Semantic_member_type_resolution.function_pointer_signature invoke_pointer
+  in
+  Alcotest.(check (list (option string)))
+    "callback slots retain names and gaps"
+    [ Some "node"; None; None; Some "nested" ]
+    (signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_name);
+  Alcotest.(check bool)
+    "outer callback keeps its terminal ellipsis" true
+    (signature |> Semantic_function_type_resolution.signature_variadic_origin
+   |> Option.is_some);
+  let parameters =
+    Semantic_function_type_resolution.signature_parameters signature
+  in
+  let node_type = List.nth parameters 0 |> parameter_type in
+  Alcotest.(check int)
+    "self parameter pointer depth" 1
+    (Semantic_type.pointer_depth node_type);
+  (match Semantic_type.base node_type with
+  | Semantic_type.Aggregate symbol ->
+      Alcotest.(check int)
+        "self parameter uses the canonical identity"
+        (node |> Semantic_member_type_resolution.aggregate_symbol |> symbol_id)
+        (symbol_id symbol)
+  | Semantic_type.Primitive _ -> Alcotest.fail "expected a Node parameter");
+  (match
+     List.nth parameters 1
+     |> Semantic_function_type_resolution.parameter_default
+   with
+  | Some (Semantic_function_type_resolution.Expression_default _) -> ()
+  | None | Some (Semantic_function_type_resolution.Lastclass_default _) ->
+      Alcotest.fail "expected a non-trailing expression default");
+  (match
+     List.nth parameters 2
+     |> Semantic_function_type_resolution.parameter_default
+   with
+  | Some (Semantic_function_type_resolution.Lastclass_default _) -> ()
+  | None | Some (Semantic_function_type_resolution.Expression_default _) ->
+      Alcotest.fail "expected a non-trailing lastclass default");
+  let nested =
+    match
+      List.nth parameters 3
+      |> Semantic_function_type_resolution.parameter_declarator_kind
+    with
+    | Semantic_function_type_resolution.Function_pointer pointer -> pointer
+    | Semantic_function_type_resolution.Object ->
+        Alcotest.fail "expected a nested callback"
+  in
+  Alcotest.(check int)
+    "nested return pointer remains outside its callback indirection" 1
+    (List.nth parameters 3 |> parameter_type |> Semantic_type.pointer_depth);
+  Alcotest.(check int)
+    "nested callback indirection" 1
+    (nested
+   |> Semantic_function_type_resolution.function_pointer_indirection_origins
+   |> List.length);
+  let nested_signature =
+    Semantic_function_type_resolution.function_pointer_signature nested
+  in
+  Alcotest.(check (list (option string)))
+    "nested callback parameter" [ Some "value" ]
+    (nested_signature |> Semantic_function_type_resolution.signature_parameters
+    |> List.map Semantic_function_type_resolution.parameter_name);
+  Alcotest.(check bool)
+    "nested callback keeps its terminal ellipsis" true
+    (nested_signature
+   |> Semantic_function_type_resolution.signature_variadic_origin
+   |> Option.is_some);
+  [
+    Semantic_member_type_resolution.function_pointer_opening_origin
+      invoke_pointer;
+    Semantic_member_type_resolution.function_pointer_closing_origin
+      invoke_pointer;
+    Semantic_function_type_resolution.signature_opening_origin signature;
+    Semantic_function_type_resolution.signature_closing_origin signature;
+  ]
+  |> List.iter (function
+    | Semantic_symbol.Source_location _ -> ()
+    | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+        Alcotest.fail "expected callback punctuation to retain source origins")
+
+let callback_parameter_pointer_depths_and_visibility () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"member-callback-parameter-depths.HC"
+      "class Earlier {}; class Depths { U0 (*visit)(I64 zero,I64 *one,I64 \
+       **two,I64 ***three,I64 ****four,Earlier *earlier,Depths *self); };"
+  in
+  let results = resolve session ast in
+  let earlier = aggregate_named results "Earlier" in
+  let depths = aggregate_named results "Depths" in
+  let parameters =
+    member_named depths "visit" |> expect_callback |> callback_parameters
+  in
+  Alcotest.(check (list int))
+    "ordinary callback parameter pointer depths" [ 0; 1; 2; 3; 4 ]
+    (parameters
+    |> List.filteri (fun index _ -> index < 5)
+    |> List.map (fun parameter ->
+        parameter |> parameter_type |> Semantic_type.pointer_depth));
+  let check_identity index aggregate =
+    match List.nth parameters index |> parameter_type |> Semantic_type.base with
+    | Semantic_type.Aggregate symbol ->
+        Alcotest.(check int)
+          "callback parameter aggregate identity"
+          (aggregate |> Semantic_member_type_resolution.aggregate_symbol
+         |> symbol_id)
+          (symbol_id symbol)
+    | Semantic_type.Primitive _ ->
+        Alcotest.fail "expected an aggregate callback parameter"
+  in
+  check_identity 5 earlier;
+  check_identity 6 depths
+
+let pinned_callback_member_signatures () =
+  let check_aggregate_parameter parameter ~name ~pointer_depth =
+    let type_ = parameter_type parameter in
+    Alcotest.(check int)
+      (name ^ " pointer depth") pointer_depth
+      (Semantic_type.pointer_depth type_);
+    match Semantic_type.base type_ with
+    | Semantic_type.Aggregate symbol ->
+        Alcotest.(check string)
+          (name ^ " aggregate") name
+          (Semantic_symbol.name symbol)
+    | Semantic_type.Primitive _ ->
+        Alcotest.failf "expected %s to be an aggregate parameter" name
+  in
+  let check_primitive_parameter parameter ~primitive ~pointer_depth =
+    let type_ = parameter_type parameter in
+    Alcotest.(check int)
+      "primitive parameter pointer depth" pointer_depth
+      (Semantic_type.pointer_depth type_);
+    match Semantic_type.base type_ with
+    | Semantic_type.Primitive (form, actual) ->
+        Alcotest.(check string)
+          "primitive parameter form"
+          (Semantic_type.primitive_form_name Semantic_type.Public_spelling)
+          (Semantic_type.primitive_form_name form);
+        Alcotest.(check string)
+          "primitive parameter"
+          (Primitive_type.to_string primitive)
+          (Primitive_type.to_string actual)
+    | Semantic_type.Aggregate _ ->
+        Alcotest.fail "expected a primitive callback parameter"
+  in
+  let math_ode =
+    "extern class CTask; extern class CMass; extern class CSpring;\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:251 ~last:289
+  in
+  let doc_entry =
+    "class CDocEntryBase {};\n\
+     extern class CDoc;\n\
+     extern class CTask;\n\
+     extern class CDocBin;\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:1191 ~last:1220
+    ^ "\n"
+    ^ pinned_lines "Kernel/KernelA.HH" ~first:1222 ~last:1222
+  in
+  let key_devices = pinned_lines "Kernel/KernelA.HH" ~first:3754 ~last:3771 in
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let math_session = Session.create () in
+      let math =
+        parse math_session ~mode ~path:"Kernel/KernelA.HH:251-289" math_ode
+        |> resolve math_session
+      in
+      let math_class = aggregate_named math "CMathODE" in
+      let derive = member_named math_class "derive" |> expect_callback in
+      let derive_parameters = callback_parameters derive in
+      Alcotest.(check (list (option string)))
+        "CMathODE.derive parameter names"
+        [ Some "o"; Some "t"; Some "state"; Some "DstateDt" ]
+        (List.map Semantic_function_type_resolution.parameter_name
+           derive_parameters);
+      check_aggregate_parameter
+        (List.nth derive_parameters 0)
+        ~name:"CMathODE" ~pointer_depth:1;
+      check_primitive_parameter
+        (List.nth derive_parameters 1)
+        ~primitive:Primitive_type.F64 ~pointer_depth:0;
+      [ 2; 3 ]
+      |> List.iter (fun index ->
+          check_primitive_parameter
+            (List.nth derive_parameters index)
+            ~primitive:Primitive_type.F64 ~pointer_depth:1);
+      let mp_derive =
+        member_named math_class "mp_derive"
+        |> expect_callback |> callback_parameters
+      in
+      Alcotest.(check int)
+        "CMathODE.mp_derive parameter count" 5 (List.length mp_derive);
+      check_primitive_parameter (List.nth mp_derive 2)
+        ~primitive:Primitive_type.I64 ~pointer_depth:0;
+      let doc_session = Session.create () in
+      let doc =
+        parse doc_session ~mode ~path:"Kernel/KernelA.HH:1191-1222" doc_entry
+        |> resolve doc_session
+      in
+      let doc_class = aggregate_named doc "CDocEntry" in
+      let left = member_named doc_class "left_cb" |> expect_callback in
+      let left_parameters = callback_parameters left in
+      check_aggregate_parameter
+        (List.nth left_parameters 0)
+        ~name:"CDoc" ~pointer_depth:1;
+      check_aggregate_parameter
+        (List.nth left_parameters 1)
+        ~name:"CDocEntry" ~pointer_depth:1;
+      let tag_member = member_named doc_class "tag_cb" in
+      check_primitive ~form:Semantic_type.Public_spelling
+        ~primitive:Primitive_type.U8 ~pointer_depth:1 tag_member;
+      let tag_parameters =
+        tag_member |> expect_callback |> callback_parameters
+      in
+      check_aggregate_parameter
+        (List.nth tag_parameters 2)
+        ~name:"CTask" ~pointer_depth:1;
+      let key_session = Session.create () in
+      let key =
+        parse key_session ~mode ~path:"Kernel/KernelA.HH:3754-3771" key_devices
+        |> resolve key_session
+      in
+      let callbacks = aggregate_named key "CKeyDevGlbls" in
+      let control =
+        member_named callbacks "fp_ctrl_alt_cbs" |> expect_callback
+      in
+      Alcotest.(check int)
+        "key callback indirection" 2
+        (control
+       |> Semantic_member_type_resolution.function_pointer_indirection_origins
+       |> List.length);
+      let control_parameters = callback_parameters control in
+      Alcotest.(check (list (option string)))
+        "key callback parameter" [ Some "sc" ]
+        (List.map Semantic_function_type_resolution.parameter_name
+           control_parameters);
+      check_primitive_parameter
+        (List.hd control_parameters)
+        ~primitive:Primitive_type.I64 ~pointer_depth:0)
 
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
@@ -316,13 +587,15 @@ let generated_type_provenance () =
   let session = Session.create () in
   let ast =
     parse session ~path:"generated-member-type.HC"
-      "#define STORAGE I64i\nclass Box { STORAGE value; };"
+      "#define STORAGE I64i\n\
+       #define STAR *\n\
+       #define ARG payload\n\
+       class Box { STORAGE value; STORAGE (*visit)(STORAGE STAR ARG,...); };"
   in
-  let member =
-    resolve session ast |> fun results ->
-    aggregate_named results "Box" |> fun aggregate ->
-    member_named aggregate "value"
+  let box =
+    resolve session ast |> fun results -> aggregate_named results "Box"
   in
+  let member = member_named box "value" in
   let type_origin =
     member |> Semantic_member_type_resolution.member_type_reference
     |> Semantic_member_type_resolution.type_reference_spelling_origin
@@ -333,7 +606,30 @@ let generated_type_provenance () =
     (Option.is_some type_origin.generated_from);
   Alcotest.(check bool)
     "the definition site is retained" true
-    (Option.is_some type_origin.defined_at)
+    (Option.is_some type_origin.defined_at);
+  let parameter =
+    member_named box "visit" |> expect_callback |> callback_parameters
+    |> List.hd
+  in
+  let generated_origins =
+    [
+      parameter |> Semantic_function_type_resolution.parameter_type_reference
+      |> Semantic_type_reference.spelling_origin;
+      parameter |> Semantic_function_type_resolution.parameter_type_reference
+      |> Semantic_type_reference.pointer_origins |> List.hd;
+      parameter |> Semantic_function_type_resolution.parameter_name_origin
+      |> Option.get;
+    ]
+  in
+  generated_origins
+  |> List.iter (fun origin ->
+      let site = source_origin origin in
+      Alcotest.(check bool)
+        "generated signature spelling keeps its invocation" true
+        (Option.is_some site.generated_from);
+      Alcotest.(check bool)
+        "generated signature spelling keeps its definition" true
+        (Option.is_some site.defined_at))
 
 let rec remove_tree path =
   match (Unix.lstat path).st_kind with
@@ -357,7 +653,8 @@ let included_type_provenance () =
       let root_path = Filename.concat directory "root.HC" in
       let include_path = Filename.concat directory "members.HC" in
       write_file root_path "#include \"members\"";
-      write_file include_path "class Included { I64 value; };";
+      write_file include_path
+        "class Included { I64 value; Included *(*copy)(Included *input); };";
       let session = Session.create () in
       let source = checked (Session.load_source session ~path:root_path) in
       let config =
@@ -366,11 +663,10 @@ let included_type_provenance () =
       let ast =
         Holyc_lib.parse_with_config session ~config ~source |> expect_ast
       in
-      let member =
-        resolve session ast |> fun results ->
-        aggregate_named results "Included" |> fun aggregate ->
-        member_named aggregate "value"
+      let included =
+        resolve session ast |> fun results -> aggregate_named results "Included"
       in
+      let member = member_named included "value" in
       let site =
         member |> Semantic_member_type_resolution.member_type_reference
         |> Semantic_member_type_resolution.type_reference_spelling_origin
@@ -382,36 +678,75 @@ let included_type_provenance () =
       in
       Alcotest.(check string)
         "the member type keeps its included source" "members.HC"
-        (Source_file.path source |> Filename.basename))
+        (Source_file.path source |> Filename.basename);
+      let parameter_site =
+        member_named included "copy"
+        |> expect_callback |> callback_parameters |> List.hd
+        |> Semantic_function_type_resolution.parameter_type_reference
+        |> Semantic_type_reference.spelling_origin |> source_origin
+      in
+      let parameter_source =
+        Source_manager.find (Session.sources session) parameter_site.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "the callback parameter keeps its included source" "members.HC"
+        (Source_file.path parameter_source |> Filename.basename))
 
 let member_signature member =
-  let type_ = member_type member in
-  let base =
-    match Semantic_type.base type_ with
-    | Semantic_type.Primitive (form, primitive) ->
-        Printf.sprintf "%s:%s"
-          (Semantic_type.primitive_form_name form)
-          (Primitive_type.to_string primitive)
-    | Semantic_type.Aggregate symbol ->
-        Printf.sprintf "aggregate:%s:%d"
-          (Semantic_symbol.name symbol)
-          (symbol_id symbol)
+  let type_text type_ =
+    let base =
+      match Semantic_type.base type_ with
+      | Semantic_type.Primitive (form, primitive) ->
+          Printf.sprintf "%s:%s"
+            (Semantic_type.primitive_form_name form)
+            (Primitive_type.to_string primitive)
+      | Semantic_type.Aggregate symbol ->
+          Printf.sprintf "aggregate:%s:%d"
+            (Semantic_symbol.name symbol)
+            (symbol_id symbol)
+    in
+    Printf.sprintf "%s:%d" base (Semantic_type.pointer_depth type_)
   in
+  let rec parameter_text parameter =
+    let kind =
+      match
+        Semantic_function_type_resolution.parameter_declarator_kind parameter
+      with
+      | Semantic_function_type_resolution.Object -> "object"
+      | Semantic_function_type_resolution.Function_pointer pointer ->
+          Printf.sprintf "callback:%d(%s)"
+            (pointer
+           |> Semantic_function_type_resolution
+              .function_pointer_indirection_origins |> List.length)
+            (pointer
+           |> Semantic_function_type_resolution.function_pointer_signature
+           |> Semantic_function_type_resolution.signature_parameters
+           |> List.map parameter_text |> String.concat ",")
+    in
+    Printf.sprintf "%d:%s:%s:%s"
+      (Semantic_function_type_resolution.parameter_index parameter)
+      (Semantic_function_type_resolution.parameter_name parameter
+      |> Option.value ~default:"_")
+      (parameter |> parameter_type |> type_text)
+      kind
+  in
+  let type_ = member_type member in
   let kind =
     match Semantic_member_type_resolution.member_declarator_kind member with
     | Semantic_member_type_resolution.Object -> "object"
     | Semantic_member_type_resolution.Function_pointer pointer ->
-        Printf.sprintf "callback:%d"
+        Printf.sprintf "callback:%d(%s)"
           (pointer
          |> Semantic_member_type_resolution.function_pointer_indirection_origins
          |> List.length)
+          (pointer |> callback_parameters |> List.map parameter_text
+         |> String.concat ",")
   in
-  Printf.sprintf "%s:%s:%d:%s:%d"
+  Printf.sprintf "%s:%s:%s:%d"
     (member |> Semantic_member_type_resolution.member_symbol
    |> Semantic_symbol.name)
-    base
-    (Semantic_type.pointer_depth type_)
-    kind
+    (type_text type_) kind
     (Semantic_member_type_resolution.member_array_dimension_origins member
     |> List.length)
 
@@ -570,18 +905,29 @@ let low_level_validation () =
   Alcotest.(check bool)
     "pointer provenance must match the type" true
     (reference (public_i64 1) |> Result.is_error);
+  let empty_signature =
+    checked
+      (Semantic_function_type_resolution.make_signature
+         ~opening_origin:(synthesized "signature opening")
+         ~parameters:[]
+         ~closing_origin:(synthesized "signature closing")
+         ())
+  in
+  let make_pointer indirection_origins =
+    Semantic_member_type_resolution.make_function_pointer
+      ~origin:(synthesized "callback")
+      ~opening_origin:(synthesized "declarator opening")
+      ~indirection_origins
+      ~closing_origin:(synthesized "declarator closing")
+      ~signature:empty_signature
+  in
   Alcotest.(check bool)
     "a callback requires indirection" true
-    (Semantic_member_type_resolution.make_function_pointer
-       ~origin:(synthesized "callback") ~indirection_origins:[]
-    |> Result.is_error);
+    (make_pointer [] |> Result.is_error);
   Alcotest.(check bool)
     "a callback rejects a fifth pointer star" true
-    (Semantic_member_type_resolution.make_function_pointer
-       ~origin:(synthesized "callback")
-       ~indirection_origins:
-         (List.init 5 (fun index ->
-              synthesized (Printf.sprintf "star %d" index)))
+    (make_pointer
+       (List.init 5 (fun index -> synthesized (Printf.sprintf "star %d" index)))
     |> Result.is_error);
   let table = Semantic_symbol_table.create () in
   let module_scope =
@@ -722,6 +1068,76 @@ let low_level_validation () =
     (Semantic_member_type_resolution.resolve ~table ~parent:module_scope
        [ foreign_fact ]
     |> Result.is_error);
+  let foreign_parameter =
+    checked
+      (Semantic_function_type_resolution.make_parameter ~index:0
+         ~origin:(synthesized "foreign parameter")
+         ~type_reference:foreign_reference
+         ~declarator_kind:Semantic_function_type_resolution.Object ~default:None
+         ())
+  in
+  let foreign_signature =
+    checked
+      (Semantic_function_type_resolution.make_signature
+         ~opening_origin:(synthesized "foreign signature opening")
+         ~parameters:[ foreign_parameter ]
+         ~closing_origin:(synthesized "foreign signature closing")
+         ())
+  in
+  let foreign_pointer =
+    checked
+      (Semantic_member_type_resolution.make_function_pointer
+         ~origin:(synthesized "foreign callback")
+         ~opening_origin:(synthesized "foreign declarator opening")
+         ~indirection_origins:[ synthesized "foreign callback star" ]
+         ~closing_origin:(synthesized "foreign declarator closing")
+         ~signature:foreign_signature)
+  in
+  let foreign_callback =
+    checked
+      (Semantic_member_type_resolution.make_member
+         ~symbol:(add_member "foreign_callback")
+         ~member_path:[ 3 ] ~declarator_index:0
+         ~declarator_origin:(synthesized "foreign callback declarator")
+         ~type_reference
+         ~declarator_kind:
+           (Semantic_member_type_resolution.Function_pointer foreign_pointer)
+         ~array_dimension_origins:[])
+  in
+  let foreign_callback_fact =
+    checked
+      (Semantic_member_type_resolution.make_aggregate ~symbol:aggregate_symbol
+         ~scope:aggregate_scope ~item_index:0 [ foreign_callback ])
+  in
+  Alcotest.(check bool)
+    "a foreign recursive callback type is rejected" true
+    (Semantic_member_type_resolution.resolve ~table ~parent:module_scope
+       [ foreign_callback_fact ]
+    |> Result.is_error);
+  let first_parameter =
+    checked
+      (Semantic_function_type_resolution.make_parameter ~index:0
+         ~origin:(synthesized "first parameter")
+         ~type_reference
+         ~declarator_kind:Semantic_function_type_resolution.Object ~default:None
+         ())
+  in
+  let second_parameter =
+    checked
+      (Semantic_function_type_resolution.make_parameter ~index:1
+         ~origin:(synthesized "second parameter")
+         ~type_reference
+         ~declarator_kind:Semantic_function_type_resolution.Object ~default:None
+         ())
+  in
+  Alcotest.(check bool)
+    "callback parameter delimiters must match their position" true
+    (Semantic_function_type_resolution.make_signature
+       ~opening_origin:(synthesized "malformed signature opening")
+       ~parameters:[ first_parameter; second_parameter ]
+       ~closing_origin:(synthesized "malformed signature closing")
+       ()
+    |> Result.is_error);
   Alcotest.(check bool)
     "a task scope cannot host member type facts" true
     (Semantic_member_type_resolution.resolve ~table
@@ -743,6 +1159,10 @@ let tests =
       anonymous_union_paths_and_arrays;
     Alcotest.test_case "callback return and indirection" `Quick
       callback_return_and_indirection;
+    Alcotest.test_case "callback parameter depths and visibility" `Quick
+      callback_parameter_pointer_depths_and_visibility;
+    Alcotest.test_case "pinned callback member signatures" `Quick
+      pinned_callback_member_signatures;
     Alcotest.test_case "generated type provenance" `Quick
       generated_type_provenance;
     Alcotest.test_case "included type provenance" `Quick
