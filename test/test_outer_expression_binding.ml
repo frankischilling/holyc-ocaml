@@ -301,8 +301,8 @@ let top_level_aot_has_only_the_assembler_table () =
 let local_and_module_bindings_take_precedence () =
   let prepared =
     prepare ~path:"outer-inner-precedence.HC"
-      "I64 ModuleValue;I64 Read(I64 \
-       LocalValue){return LocalValue+ModuleValue+OuterValue;}"
+      "I64 ModuleValue;I64 Read(I64 LocalValue){return \
+       LocalValue+ModuleValue+OuterValue;}"
   in
   let task =
     make_table prepared ~table_kind:(Semantic_outer_environment.Jit_task 0)
@@ -464,9 +464,7 @@ let determinism_purity_and_validation () =
   expect_binding_error "HCSEMA0023"
     (Semantic_outer_expression_binding.resolve ~table ~environment:aot
        ~expressions:prepared.expressions);
-  let foreign =
-    prepare ~path:"outer-foreign.HC" "I64 Read(){return Target;}"
-  in
+  let foreign = prepare ~path:"outer-foreign.HC" "I64 Read(){return Target;}" in
   expect_binding_error "HCSEMA0023"
     (Semantic_outer_expression_binding.resolve ~table ~environment:outer
        ~expressions:foreign.expressions)

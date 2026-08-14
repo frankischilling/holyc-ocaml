@@ -3870,16 +3870,67 @@ cross_kind_shadowing = "aggregate, function, and global spellings share one newe
 canonical_identity = "aggregate and function sites retain their source symbol and select the reconciled canonical symbol; globals retain their record symbol"
 recursion = "the current function publication is visible while resolving its body"
 later_declarations = "not visible to an earlier function body"
-outer_candidate = "retained for later JIT task, parent-task, AOT parent, assembler, export, or loader lookup"
+outer_candidate = "retained for HC-SEMA-OUTER-EXPRESSION-BINDINGS"
 provenance = ["identifier occurrence", "publication site", "canonical identity", "generated source origin"]
 validation = "declaration collection, aggregate, function, global, and function-expression results must share a table, module scope, source order, symbols, positions, and compilation mode"
 diagnostics = ["HCSEMA0020 invalid input", "HCSEMA0021 missing function publication"]
 complexity = "functions and publications advance together; no declaration-list rescan per function"
 mutation = "none"
 use_counts = "not modified"
-task_parent_aot_parent_member_typing_call_checking_storage_lowering_and_execution = "not implemented"
+supplied_outer_table_resolution = "implemented separately by HC-SEMA-OUTER-EXPRESSION-BINDINGS"
+member_typing_call_checking_storage_lowering_and_execution = "not implemented"
 compilation_modes = ["jit", "aot"]
 native_oracle_status = "not required for this lookup boundary; the pinned hash insertion, table-chain lookup, parser publication, and expression dispatch paths state the order directly"
+
+[[feature]]
+id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
+description = "Ordinary identifier candidates bind through explicit JIT task-parent or AOT enclosing-compilation tables before the assembler table."
+sources = [
+  "Kernel/KernelA.HH:647-652 CHashTable.next",
+  "Kernel/KHashA.HC:29-106 single-table and chained lookup",
+  "Kernel/KTask.HC:215 task hash-table ownership",
+  "Kernel/KTask.HC:244-273 Spawn parent-table link",
+  "Compiler/AsmInit.HC:197-208 Adam-to-assembler link",
+  "Compiler/CMain.HC:60-74 JIT and AOT successor selection",
+  "Compiler/Lex.HC:493-509 local-before-table lookup",
+  "Compiler/PrsExp.HC:761-907 ordinary identifier record cases",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/outer_environment.ml",
+  "src/sema/outer_expression_binding.ml",
+  "src/sema/module_expression_binding.ml",
+  "src/driver/outer_expression_binding.ml",
+  "src/driver/module_expression_binding.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_outer_expression_binding.ml",
+  "test/test_module_expression_binding.ml"
+]
+status = "implemented"
+issue = 208
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier occurrences left as explicit outer candidates by HC-SEMA-MODULE-EXPRESSION-BINDINGS"
+table_roles = ["jit current task", "jit parent task", "aot enclosing compilation", "assembler"]
+jit_order = "current task at depth zero, parent tasks in contiguous depth order, then one assembler table"
+aot_order = "zero or more enclosing compilations in contiguous depth order, then one assembler table; top-level AOT is assembler-only"
+table_order = "the current table is exhausted before the next table is searched"
+entry_order = "callers supply records oldest to newest; the final matching spelling in one table is selected"
+record_kinds = ["aggregate", "function", "global variable", "export system symbol"]
+lookup_precedence = ["visible parameter or local", "visible compilation-unit publication", "outer table chain"]
+result_identity = ["original occurrence", "stable semantic symbol", "record kind", "entry index", "table role", "table index"]
+export_system_representation = "uses the existing semantic assembler-symbol kind until address and loader metadata are modeled"
+missing_name = "HCSEMA0024 rejects an ordinary name absent from the complete chain; no implicit import is created"
+validation = "compilation mode, table roles, contiguous table and entry indexes, record and symbol kind, session ownership, repeated symbol identities, prior binding ownership, and mode agreement"
+diagnostics = ["HCSEMA0022 invalid environment", "HCSEMA0023 invalid binding input", "HCSEMA0024 unresolved ordinary identifier"]
+provenance = ["identifier occurrence", "generated invocation", "definition origin", "stable selected symbol", "table and record positions"]
+mutation = "none"
+complexity = "one immutable name index per table; each occurrence checks tables in chain order"
+live_task_and_compiler_table_construction = "not implemented; callers supply an audited snapshot"
+address_target_import_fixup_and_loader_resolution = "not implemented"
+member_resolution_typing_use_counts_storage_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this lookup boundary; CHashTable.next, the hash routines, Spawn, CmpJoin, and AsmHashLoad state the chain and search order directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
