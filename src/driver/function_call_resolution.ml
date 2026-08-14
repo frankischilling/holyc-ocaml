@@ -37,15 +37,70 @@ let call_syntax (call : Frontend.Ast.call_expression) =
   | Frontend.Ast.Parenthesis_free_call ->
       Sema.Function_call_resolution.Parenthesis_free
 
-let argument index (argument : Frontend.Ast.call_argument) =
+let rec argument_expression (expression : Frontend.Ast.expression) =
   let kind =
-    match argument.call_argument_value with
-    | Frontend.Ast.Provided_call_argument _ ->
-        Sema.Function_call_resolution.Provided
-    | Frontend.Ast.Omitted_call_argument ->
-        Sema.Function_call_resolution.Omitted
+    match expression with
+    | Frontend.Ast.Integer_literal _ ->
+        Sema.Function_call_resolution.Integer_literal
+    | Frontend.Ast.Float_literal _ ->
+        Sema.Function_call_resolution.Float_literal
+    | Frontend.Ast.Character_literal _ ->
+        Sema.Function_call_resolution.Character_literal
+    | Frontend.Ast.String_literal _ ->
+        Sema.Function_call_resolution.String_literal
+    | Frontend.Ast.Parenthesized_expression grouped ->
+        Sema.Function_call_resolution.Parenthesized_expression
+          (argument_expression grouped.grouped_expression)
+    | Frontend.Ast.Identifier_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Identifier_expression
+    | Frontend.Ast.Current_position_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Current_position_expression
+    | Frontend.Ast.Sizeof_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Sizeof_expression
+    | Frontend.Ast.Offset_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Offset_expression
+    | Frontend.Ast.Defined_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Defined_expression
+    | Frontend.Ast.Prefix_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Prefix_expression
+    | Frontend.Ast.Postfix_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Postfix_expression
+    | Frontend.Ast.Postfix_cast_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Postfix_cast_expression
+    | Frontend.Ast.Binary_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Binary_expression
+    | Frontend.Ast.Call_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Call_expression
+    | Frontend.Ast.Index_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Index_expression
+    | Frontend.Ast.Member_expression _ ->
+        Sema.Function_call_resolution.Unresolved_expression
+          Sema.Function_call_resolution.Member_expression
   in
-  Sema.Function_call_resolution.make_argument ~index ~kind
+  Sema.Function_call_resolution.make_argument_expression ~kind
+    ~origin:(origin (Frontend.Ast.expression_location expression))
+
+let argument index (argument : Frontend.Ast.call_argument) =
+  let kind, expression =
+    match argument.call_argument_value with
+    | Frontend.Ast.Provided_call_argument expression ->
+        ( Sema.Function_call_resolution.Provided,
+          Some (argument_expression expression) )
+    | Frontend.Ast.Omitted_call_argument ->
+        (Sema.Function_call_resolution.Omitted, None)
+  in
+  Sema.Function_call_resolution.make_argument ~index ~kind ~expression
     ~origin:(origin argument.call_argument_location)
 
 let call_arguments call =

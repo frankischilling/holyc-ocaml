@@ -67,6 +67,9 @@ module Semantic_function_call_resolution = Sema.Function_call_resolution
 module Semantic_function_call_conversion_policy =
   Sema.Function_call_conversion_policy
 
+module Semantic_function_call_conversion_decision =
+  Sema.Function_call_conversion_decision
+
 module Semantic_function_record_classification =
   Sema.Function_record_classification
 
@@ -260,6 +263,11 @@ let analyze_function_call_conversions session ~declarations ~headers ~calls =
     ~table:(Session.semantic_symbols session)
     ~parent:(Sema.Declaration_collection.scope declarations)
     ~headers ~calls
+
+let decide_function_call_conversions session ~policies =
+  Sema.Function_call_conversion_decision.decide
+    ~table:(Session.semantic_symbols session)
+    policies
 
 let classify_function_records ?compiler_option_mask _session ~resolution module_
     =
