@@ -62,6 +62,7 @@ module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis
+module Semantic_function_call_resolution = Sema.Function_call_resolution
 
 module Semantic_function_record_classification =
   Sema.Function_record_classification
@@ -244,6 +245,12 @@ let analyze_function_headers session ~functions inputs =
   Sema.Function_header_analysis.analyze
     ~table:(Session.semantic_symbols session)
     ~functions inputs
+
+let resolve_function_calls session ~declarations ~function_types ~functions
+    ~expressions module_ =
+  Driver.Function_call_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~function_types ~functions ~expressions module_
 
 let classify_function_records ?compiler_option_mask _session ~resolution module_
     =

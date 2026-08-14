@@ -1,0 +1,511 @@
+open Holyc_lib
+
+let checked = function
+  | Ok value -> value
+  | Error message -> Alcotest.fail message
+
+let expect_ast = function
+  | Ok ast -> ast
+  | Error diagnostics ->
+      Alcotest.failf "expected an AST, got %s"
+        (diagnostics
+        |> List.map (fun diagnostic ->
+            Printf.sprintf "%s: %s" diagnostic.Diagnostic.code
+              diagnostic.message)
+        |> String.concat ", ")
+
+let config ?working_directory mode =
+  checked
+    (Preprocessor.Config.create ?working_directory ~compilation_mode:mode ())
+
+type prepared = {
+  mode : Preprocessor.compilation_mode;
+  session : Session.t;
+  ast : Ast.module_;
+  declarations : Semantic_declaration_collection.t;
+  function_types : Semantic_function_type_resolution.t;
+  functions : Semantic_function_resolution.t;
+  module_expressions : Semantic_module_expression_binding.t;
+}
+
+let finish_prepare mode session ast =
+  let declarations = checked (Holyc_lib.collect_declarations session ast) in
+  let aggregates =
+    checked (Holyc_lib.resolve_aggregates session ~declarations ast)
+  in
+  let collected_functions =
+    checked (Holyc_lib.collect_functions session ~declarations ast)
+  in
+  let function_types =
+    checked
+      (Holyc_lib.resolve_function_types session ~declarations ~aggregates
+         ~functions:collected_functions ast)
+  in
+  let local_types =
+    checked
+      (Holyc_lib.resolve_local_types session ~declarations ~aggregates
+         ~functions:collected_functions ast)
+  in
+  let bindings =
+    checked
+      (Holyc_lib.index_function_bindings session ~declarations
+         ~functions:collected_functions ~function_types ~local_types)
+  in
+  let expressions =
+    checked
+      (Holyc_lib.resolve_function_expressions session ~declarations
+         ~functions:collected_functions ~local_types ~bindings ast)
+  in
+  let global_types =
+    checked
+      (Holyc_lib.resolve_global_types session ~declarations ~aggregates ast)
+  in
+  let functions =
+    checked
+      (Holyc_lib.resolve_function_identities session ~declarations
+         ~functions:function_types ~compilation_mode:mode ast)
+  in
+  let globals =
+    checked
+      (Holyc_lib.resolve_global_records session ~declarations
+         ~globals:global_types ~compilation_mode:mode ast)
+  in
+  let module_expressions =
+    checked
+      (Holyc_lib.resolve_module_expressions session ~declarations ~aggregates
+         ~functions ~globals ~expressions)
+  in
+  {
+    mode;
+    session;
+    ast;
+    declarations;
+    function_types;
+    functions;
+    module_expressions;
+  }
+
+let prepare ?(mode = Preprocessor.Jit) ~path contents =
+  let session = Session.create () in
+  let source = Session.add_source session ~path ~contents in
+  let ast =
+    Holyc_lib.parse_with_config session ~config:(config mode) ~source
+    |> expect_ast
+  in
+  finish_prepare mode session ast
+
+let resolve prepared =
+  Holyc_lib.resolve_function_calls prepared.session
+    ~declarations:prepared.declarations ~function_types:prepared.function_types
+    ~functions:prepared.functions ~expressions:prepared.module_expressions
+    prepared.ast
+
+let function_named result name =
+  Semantic_function_call_resolution.functions result
+  |> List.filter (fun function_ ->
+      function_ |> Semantic_function_call_resolution.function_symbol
+      |> Semantic_symbol.name |> String.equal name)
+  |> List.rev |> List.hd
+
+let calls_named result name =
+  function_named result name |> Semantic_function_call_resolution.function_calls
+
+let direct = function
+  | Semantic_function_call_resolution.Direct_call call -> call
+  | Semantic_function_call_resolution.Deferred_call _ ->
+      Alcotest.fail "expected a resolved direct function call"
+
+let only_direct result name =
+  match calls_named result name with
+  | [ call ] -> direct call
+  | calls ->
+      Alcotest.failf "expected one call in %s, got %d" name (List.length calls)
+
+let symbol_id symbol = Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
+
+let defaulted = function
+  | Semantic_function_call_resolution.Declared_default use -> use
+  | Semantic_function_call_resolution.Provided_argument _ ->
+      Alcotest.fail "expected a declared default"
+
+let provided = function
+  | Semantic_function_call_resolution.Provided_argument argument -> argument
+  | Semantic_function_call_resolution.Declared_default _ ->
+      Alcotest.fail "expected a provided call argument"
+
+let fixed_values call =
+  call |> Semantic_function_call_resolution.direct_fixed_arguments
+  |> List.map Semantic_function_call_resolution.fixed_value
+
+let source_location = function
+  | Semantic_symbol.Source_location location -> location
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a source-positioned call"
+
+let fixed_defaults_and_sparse_slots () =
+  let prepared =
+    prepare ~path:"function-call-fixed.HC"
+      "extern I64 Mix(I64 first=1,I64 required,I64 last=3);\n\
+       I64 Caller(){return Mix(,7);}"
+  in
+  let result = resolve prepared |> checked in
+  let call = only_direct result "Caller" in
+  Alcotest.(check string)
+    "call syntax" "parenthesized"
+    (call |> Semantic_function_call_resolution.direct_source
+   |> Semantic_function_call_resolution.call_syntax
+   |> Semantic_function_call_resolution.call_syntax_name);
+  let values = fixed_values call in
+  Alcotest.(check int) "three fixed bindings" 3 (List.length values);
+  let first = List.nth values 0 |> defaulted in
+  Alcotest.(check bool)
+    "explicit first omission is retained" true
+    (first |> Semantic_function_call_resolution.default_omission
+   |> Option.is_some);
+  let second = List.nth values 1 |> provided in
+  Alcotest.(check int)
+    "required argument keeps its source slot" 1
+    (Semantic_function_call_resolution.argument_index second);
+  let last = List.nth values 2 |> defaulted in
+  Alcotest.(check bool)
+    "absent trailing slot is distinct" true
+    (last |> Semantic_function_call_resolution.default_omission
+   |> Option.is_none);
+  Alcotest.(check int64)
+    "fixed call has no variadic extras" 0L
+    (Semantic_function_call_resolution.direct_variadic_count call)
+
+let active_header_and_canonical_identity () =
+  let joined =
+    prepare ~path:"function-call-joined.HC"
+      "extern I64 Joined(I64 value=1);\n\
+       I64 Joined(I64 value=2){return Joined();}"
+  in
+  let result = resolve joined |> checked in
+  let call = only_direct result "Joined" in
+  let header_symbol =
+    call |> Semantic_function_call_resolution.direct_active_header
+    |> Semantic_function_type_resolution.function_symbol
+  in
+  let target = Semantic_function_call_resolution.direct_target_symbol call in
+  Alcotest.(check bool)
+    "definition header and joined identity stay distinct" true
+    (symbol_id header_symbol <> symbol_id target);
+  Alcotest.(check int)
+    "the definition supplies the active header" 1
+    (call |> Semantic_function_call_resolution.direct_active_header
+   |> Semantic_function_type_resolution.function_item_index);
+  let visible =
+    prepare ~path:"function-call-visible-header.HC"
+      "extern I64 Pick(I64 value=1);\n\
+       I64 Before(){return Pick();}\n\
+       extern I64 Pick(I64 value=2);\n\
+       I64 After(){return Pick();}"
+  in
+  let calls = resolve visible |> checked in
+  Alcotest.(check int)
+    "earlier caller sees the first header" 0
+    (only_direct calls "Before"
+   |> Semantic_function_call_resolution.direct_active_header
+   |> Semantic_function_type_resolution.function_item_index);
+  Alcotest.(check int)
+    "later caller sees the replacement header" 2
+    (only_direct calls "After"
+   |> Semantic_function_call_resolution.direct_active_header
+   |> Semantic_function_type_resolution.function_item_index)
+
+let parenthesis_free_and_oracle_evidence () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-call-parenthesis-free.HC"
+          "extern I64 Mixed(I64 first=1,I64 required,I64 last=3);\n\
+           extern I64 Zero();\n\
+           extern I64 Var(...);\n\
+           I64 Caller(){Mixed 7;Zero;return Var;}"
+      in
+      let result = resolve prepared |> checked in
+      let calls = calls_named result "Caller" in
+      Alcotest.(check int) "three parenthesis-free calls" 3 (List.length calls);
+      let mixed = List.nth calls 0 |> direct in
+      Alcotest.(check string)
+        "mixed syntax" "parenthesis-free"
+        (mixed |> Semantic_function_call_resolution.direct_source
+       |> Semantic_function_call_resolution.call_syntax
+       |> Semantic_function_call_resolution.call_syntax_name);
+      let omissions =
+        fixed_values mixed
+        |> List.filter_map (fun value ->
+            match value with
+            | Semantic_function_call_resolution.Provided_argument _ -> None
+            | Semantic_function_call_resolution.Declared_default use ->
+                Semantic_function_call_resolution.default_omission use)
+      in
+      Alcotest.(check int)
+        "parenthesis-free defaults retain two omitted slots" 2
+        (List.length omissions);
+      let var = List.nth calls 2 |> direct in
+      Alcotest.(check int64)
+        "parenthesis-free variadic tail is empty" 0L
+        (Semantic_function_call_resolution.direct_variadic_count var))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let fixture =
+    [
+      "oracle/parenthesis-free-calls.json";
+      "test/oracle/parenthesis-free-calls.json";
+      "../test/oracle/parenthesis-free-calls.json";
+    ]
+    |> List.find_opt Sys.file_exists
+    |> Option.get |> Yojson.Safe.from_file
+  in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "oracle reference commit" "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+    (fixture |> member "reference" |> member "commit" |> to_string);
+  Alcotest.(check (list int))
+    "native oracle values"
+    [ 10; 46; 173; 23; 0; 12; 1 ]
+    (fixture |> member "observed_values" |> to_list |> List.map to_int)
+
+let variadic_slots_and_shape_errors () =
+  let prepared =
+    prepare ~path:"function-call-variadic.HC"
+      "extern I64 Var(I64 fixed=1,...);\nI64 Caller(){Var();return Var(2,3,4);}"
+  in
+  let result = resolve prepared |> checked in
+  let calls = calls_named result "Caller" |> List.map direct in
+  Alcotest.(check (list int64))
+    "variadic counts" [ 0L; 2L ]
+    (List.map Semantic_function_call_resolution.direct_variadic_count calls);
+  Alcotest.(check (list int))
+    "variadic source slots" [ 1; 2 ]
+    (List.nth calls 1
+   |> Semantic_function_call_resolution.direct_variadic_arguments
+    |> List.map Semantic_function_call_resolution.argument_index);
+  let expect_error code text source =
+    let prepared = prepare ~path:"function-call-error.HC" source in
+    match resolve prepared with
+    | Ok _ -> Alcotest.failf "expected %s" code
+    | Error message ->
+        Alcotest.(check bool)
+          "stable call diagnostic" true
+          (String.starts_with ~prefix:(code ^ ": ") message);
+        Alcotest.(check bool)
+          "specific call diagnostic" true
+          (String.ends_with ~suffix:text message)
+  in
+  expect_error "HCSEMA0040"
+    "call to \"Fixed\" is missing required argument 1 (value)"
+    "extern I64 Fixed(I64 value);I64 Caller(){return Fixed();}";
+  expect_error "HCSEMA0041"
+    "call to \"Fixed\" provides argument 2, but its active header has 1 fixed \
+     parameter"
+    "extern I64 Fixed(I64 value);I64 Caller(){return Fixed(1,2);}";
+  expect_error "HCSEMA0042"
+    "call to \"Var\" omits variadic argument 2; variadic positions require an \
+     expression"
+    "extern I64 Var(I64 fixed,...);I64 Caller(){return Var(1,,3);}"
+
+let indirect_categories_remain_deferred () =
+  let prepared =
+    prepare ~path:"function-call-deferred.HC"
+      "I64 (*GlobalCallback)();\n\
+       I64 Caller(I64 (*local_callback)()){\n\
+       local_callback();return GlobalCallback();\n\
+       }"
+  in
+  let result = resolve prepared |> checked in
+  let reasons =
+    calls_named result "Caller"
+    |> List.map (function
+      | Semantic_function_call_resolution.Direct_call _ -> "direct"
+      | Semantic_function_call_resolution.Deferred_call { reason; _ } ->
+          Semantic_function_call_resolution.deferred_reason_name reason)
+  in
+  Alcotest.(check (list string))
+    "function pointers are not mislabeled as direct calls"
+    [ "local-callee"; "global-callee" ]
+    reasons
+
+let generated_and_included_call_provenance () =
+  let generated =
+    prepare ~path:"function-call-generated.HC"
+      "#define TARGET Callee\n\
+       extern I64 Callee(I64 value=1);\n\
+       I64 Caller(){return TARGET();}"
+  in
+  let call =
+    resolve generated |> checked |> fun result -> only_direct result "Caller"
+  in
+  let callee =
+    call |> Semantic_function_call_resolution.direct_source
+    |> Semantic_function_call_resolution.call_callee_origin |> source_location
+  in
+  Alcotest.(check bool)
+    "generated callee keeps its invocation" true
+    (Option.is_some callee.generated_from);
+  Alcotest.(check bool)
+    "generated callee keeps its definition" true
+    (Option.is_some callee.defined_at);
+  let directory = Filename.temp_dir "holyc-call-resolution-" "" in
+  let rec remove_tree path =
+    if Sys.file_exists path then
+      if Sys.is_directory path then (
+        Sys.readdir path
+        |> Array.iter (fun entry -> remove_tree (Filename.concat path entry));
+        Unix.rmdir path)
+      else Sys.remove path
+  in
+  let write_file path contents =
+    let channel = open_out_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_out channel)
+      (fun () -> output_string channel contents)
+  in
+  Fun.protect
+    ~finally:(fun () -> remove_tree directory)
+    (fun () ->
+      let root_path = Filename.concat directory "root.HC" in
+      let include_path = Filename.concat directory "calls.HC" in
+      write_file root_path "#include \"calls\"";
+      write_file include_path
+        "extern I64 Included(I64 value=1);I64 Caller(){return Included();}";
+      let session = Session.create () in
+      let source = checked (Session.load_source session ~path:root_path) in
+      let ast =
+        Holyc_lib.parse_with_config session
+          ~config:(config ~working_directory:directory Preprocessor.Jit)
+          ~source
+        |> expect_ast
+      in
+      let prepared = finish_prepare Preprocessor.Jit session ast in
+      let location =
+        resolve prepared |> checked |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_resolution.direct_source
+        |> Semantic_function_call_resolution.call_origin |> source_location
+      in
+      let call_source =
+        Source_manager.find (Session.sources session) location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included call keeps its source file" "calls.HC"
+        (Source_file.path call_source |> Filename.basename))
+
+let invalid_inputs_are_stable_and_pure () =
+  let prepared =
+    prepare ~path:"function-call-invalid.HC"
+      "extern I64 Target(I64 value=1);I64 Caller(){return Target();}"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = resolve prepared |> checked in
+  let second = resolve prepared |> checked in
+  let signature result =
+    only_direct result "Caller"
+    |> Semantic_function_call_resolution.direct_fixed_arguments
+    |> List.map (fun fixed ->
+        match Semantic_function_call_resolution.fixed_value fixed with
+        | Semantic_function_call_resolution.Provided_argument argument ->
+            "provided:"
+            ^ string_of_int
+                (Semantic_function_call_resolution.argument_index argument)
+        | Semantic_function_call_resolution.Declared_default use ->
+            "default:"
+            ^ string_of_bool
+                (use |> Semantic_function_call_resolution.default_omission
+               |> Option.is_some))
+  in
+  Alcotest.(check (list string))
+    "repeated call resolution is deterministic" (signature first)
+    (signature second);
+  Alcotest.(check int)
+    "call resolution does not mutate symbols" before
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let inputs =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        let calls =
+          if String.equal (Semantic_symbol.name symbol) "Caller" then
+            let occurrence =
+              function_
+              |> Semantic_module_expression_binding.function_occurrences
+              |> List.hd
+            in
+            [
+              checked
+                (Semantic_function_call_resolution.make_call ~index:0
+                   ~callee_occurrence_index:
+                     (Semantic_module_expression_binding.occurrence_index
+                        occurrence
+                     + 1)
+                   ~callee_name:
+                     (Semantic_module_expression_binding.occurrence_name
+                        occurrence)
+                   ~callee_origin:
+                     (Semantic_module_expression_binding.occurrence_origin
+                        occurrence)
+                   ~origin:
+                     (Semantic_module_expression_binding.occurrence_origin
+                        occurrence)
+                   ~syntax:Semantic_function_call_resolution.Parenthesized []);
+            ]
+          else []
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             calls))
+  in
+  let expect_invalid label inputs =
+    match
+      Semantic_function_call_resolution.resolve ~table
+        ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+        ~function_types:prepared.function_types ~functions:prepared.functions
+        ~expressions:prepared.module_expressions inputs
+    with
+    | Ok _ -> Alcotest.failf "expected %s to fail" label
+    | Error error ->
+        Alcotest.(check string)
+          (label ^ " diagnostic") "HCSEMA0039"
+          (Semantic_function_call_resolution.error_code error)
+  in
+  expect_invalid "reordered batch" (List.rev inputs);
+  expect_invalid "callee occurrence drift" inputs;
+  let foreign = Session.create () in
+  match
+    Holyc_lib.resolve_function_calls foreign ~declarations:prepared.declarations
+      ~function_types:prepared.function_types ~functions:prepared.functions
+      ~expressions:prepared.module_expressions prepared.ast
+  with
+  | Ok _ -> Alcotest.fail "expected a foreign-session failure"
+  | Error message ->
+      Alcotest.(check string)
+        "foreign session diagnostic"
+        "HCSEMA0039: function call declarations belong to another symbol table"
+        message
+
+let tests =
+  [
+    Alcotest.test_case "fixed defaults and sparse slots" `Quick
+      fixed_defaults_and_sparse_slots;
+    Alcotest.test_case "active header and canonical identity" `Quick
+      active_header_and_canonical_identity;
+    Alcotest.test_case "parenthesis-free oracle evidence" `Quick
+      parenthesis_free_and_oracle_evidence;
+    Alcotest.test_case "variadic slots and shape errors" `Quick
+      variadic_slots_and_shape_errors;
+    Alcotest.test_case "indirect categories are deferred" `Quick
+      indirect_categories_remain_deferred;
+    Alcotest.test_case "generated and included provenance" `Quick
+      generated_and_included_call_provenance;
+    Alcotest.test_case "invalid inputs, determinism, and purity" `Quick
+      invalid_inputs_are_stable_and_pure;
+  ]
