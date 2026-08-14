@@ -3630,7 +3630,7 @@ default_and_initializer_evaluation = "not implemented"
 register_and_storage_assignment = "not implemented"
 duplicate_validation = "implemented separately by HC-SEMA-FUNCTION-BINDING-INDEX"
 label_resolution = "implemented by the separate HC-SEMA-FUNCTION-LABELS feature"
-ordinary_reference_resolution = "not implemented"
+ordinary_reference_resolution = "function-local parameter and local occurrences are implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
 linkage = "not implemented"
 native_oracle_status = "not required for this identity boundary; PrsFunJoin, PrsFun, PrsVarLst, PrsDotDotDot, MemberAdd, and MemberFind state the insertion order and shared function namespace directly"
 
@@ -3737,7 +3737,7 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 array_extent_and_initializer_evaluation = "not implemented"
 duplicate_checking = "implemented separately by HC-SEMA-FUNCTION-BINDING-INDEX"
-ordinary_reference_resolution = "not implemented"
+ordinary_reference_resolution = "function-local parameter and local occurrences are implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
 stack_static_storage_and_register_allocation = "not implemented"
 abi_and_linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsStmt, PrsVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained facts directly"
@@ -3781,10 +3781,57 @@ provenance = ["ordinary source", "generated invocation", "definition origin"]
 validation = "session ownership, module parent, function scopes, function order, parameter-before-local order, binding kinds and positions, stable symbols, and association with HC-SEMA-FUNCTION-TYPES and HC-SEMA-LOCAL-TYPES"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-expression_publication_and_binding = "not implemented; this index does not replace parser-time visibility or bind occurrences"
+expression_publication_and_binding = "implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS; this completed index remains read-only"
 use_counts = "not modified"
 storage_register_allocation_and_abi = "not implemented"
 native_oracle_status = "not required; MemberAdd, MemberFind, PrsVarLst, PrsFun, and Lex state the function namespace and duplicate rules directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
+description = "Ordinary function-body identifier occurrences bind to the parameter or local visible at each TempleOS publication point."
+sources = [
+  "Compiler/Lex.HC:493-499 local lookup before global hash lookup",
+  "Compiler/LexLib.HC:67-84 MemberFind",
+  "Compiler/LexLib.HC:103-129 MemberAdd",
+  "Compiler/PrsVar.HC:521-529 local insertion after declarator syntax",
+  "Compiler/PrsVar.HC:555-584 static-local initializer path",
+  "Compiler/PrsVar.HC:607-614 automatic-local initializer path",
+  "Compiler/PrsExp.HC:761-904 identifier expression lowering",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/function_expression_binding.ml",
+  "src/driver/function_expression_binding.ml",
+  "src/sema/function_binding_index.ml",
+  "src/driver/function_binding_index.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_expression_binding.ml"
+]
+status = "implemented"
+issue = 204
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier expression nodes inside checked function bodies"
+function_order = "prototype and definition records remain independent in module item order; prototypes have no occurrences"
+initial_visibility = ["named fixed parameters", "variadic argc", "variadic argv"]
+local_publication = "after the current local's type, callback, pointer, and array declarator syntax and before its initializer"
+remainder_scope = "a published local remains visible through every later nested or sibling statement in the function"
+lookup_precedence = "visible function binding before any later global, function, type, or unresolved-symbol pass"
+nonlocal_names = "retained as explicit nonlocal candidates without a false successful binding"
+permitted_duplicate_lookup = "pad, reserved, and _anon_ continue to select their first source binding"
+ordinary_expression_routes = ["parenthesized", "prefix", "postfix", "postfix cast operand", "binary", "call callee and provided arguments", "index base and value", "member base"]
+statement_routes = ["block", "do-while", "expression", "for", "if/else", "implicit output", "local initializer", "lock", "return", "sequence", "switch and sub-switch", "try/catch", "while"]
+excluded_identifier_roles = ["type syntax", "member names", "sizeof", "offset", "defined", "labels", "assembly tokens"]
+provenance = ["primary span", "source segments", "generated invocation", "definition origin"]
+validation = "AST, declaration scope, function collection, local type batch, completed binding index, stable symbols, scopes, module positions, declarator positions, publication order, and session ownership"
+diagnostics = ["HCSEMA0017 invalid input", "HCSEMA0018 publication mismatch", "HCSEMA0019 missing publication"]
+mutation = "none"
+use_counts = "not modified; initializer self-references bind but do not implement the later unused-variable accounting rule"
+compilation_modes = ["jit", "aot"]
+remaining_resolution = "globals, functions, aggregate members, types, imports, labels, and assembly operands"
+typing_lvalue_conversion_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this binding boundary; Lex, MemberFind, MemberAdd, PrsVarLst, and PrsUnaryTerm state lookup precedence and publication timing directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-IDENTITIES"
