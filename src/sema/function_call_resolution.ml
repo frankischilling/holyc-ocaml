@@ -92,6 +92,7 @@ type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let functions (result : t) = result.functions
 let compilation_mode (result : t) = result.compilation_mode
+let owns_table (result : t) table = result.table == table
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index

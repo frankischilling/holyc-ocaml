@@ -64,6 +64,9 @@ module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis
 module Semantic_function_call_resolution = Sema.Function_call_resolution
 
+module Semantic_function_call_conversion_policy =
+  Sema.Function_call_conversion_policy
+
 module Semantic_function_record_classification =
   Sema.Function_record_classification
 
@@ -365,6 +368,18 @@ val resolve_function_calls :
 (** Bind syntactically direct calls in function bodies to the source-visible
     function header. Fixed slots retain provided or declared-default origins;
     indirect and outer targets remain explicit deferred results. *)
+
+val analyze_function_call_conversions :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  headers:Semantic_aggregate_header_resolution.t ->
+  calls:Semantic_function_call_resolution.t ->
+  ( Semantic_function_call_conversion_policy.t,
+    Semantic_function_call_conversion_policy.error )
+  result
+(** Classify the forwarded target path for each provided fixed argument.
+    Defaults, variadic expressions, actual expression types, and deferred
+    callees remain separate. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->

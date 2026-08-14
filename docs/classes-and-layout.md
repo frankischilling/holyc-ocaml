@@ -22,6 +22,8 @@ The result is deterministic and pure after validation. `Driver.Aggregate_resolut
 
 A header that selected a forward keeps the canonical identity chosen by aggregate reconciliation. If a later body completes that forward, existing header references already point to the definition symbol. This is separate from the `fwd_class` relation followed by `Compiler/OptLib.HC:OptClassFwd`; the implementation records that relation as a backing type and does not merge declarations because of it.
 
+Direct call conversion policy is the first consumer that follows this backing relation. A by-value fixed target reaches the final primitive, intrinsic, or ordinary aggregate class; a pointer stops the walk. This identifies the target half of the `PrsFunCall` `RT_F64` comparison without changing aggregate identity or layout. `HCSEMA0044` rejects a backing cycle. Actual expression typing and a final conversion flag remain separate work under issue #240.
+
 This pass does not follow backing chains, reject backing or inheritance cycles, calculate offsets, or search inherited members. It also does not resolve member, global, parameter, local, cast, `sizeof`, or `offset` type uses.
 
 ## Direct-member identity
