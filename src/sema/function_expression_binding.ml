@@ -1,5 +1,8 @@
+type query_role = Sizeof_root | Offset_root | Defined_operand
+
 type event =
   | Identifier of { name : string; origin : Symbol.origin }
+  | Name_query of { role : query_role; name : string; origin : Symbol.origin }
   | Publish_local of {
       name : string;
       origin : Symbol.origin;
@@ -32,6 +35,14 @@ type occurrence = {
   resolution : resolution;
 }
 
+type query = {
+  index : int;
+  role : query_role;
+  name : string;
+  origin : Symbol.origin;
+  resolution : resolution;
+}
+
 type suppression = {
   index : int;
   name : string;
@@ -47,6 +58,7 @@ type initializer_use_reset = {
 
 type binding_event =
   | Bound_use of occurrence
+  | Bound_query of query
   | No_warn_suppression of suppression
   | Initializer_use_reset of initializer_use_reset
 
@@ -56,6 +68,7 @@ type resolved_function = {
   item_index : int;
   binding_events : binding_event list;
   occurrences : occurrence list;
+  queries : query list;
   suppressions : suppression list;
   initializer_use_resets : initializer_use_reset list;
 }
@@ -100,12 +113,24 @@ let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_binding_events function_ = function_.binding_events
 let function_occurrences (function_ : resolved_function) = function_.occurrences
+let function_queries (function_ : resolved_function) = function_.queries
 let function_suppressions function_ = function_.suppressions
 let function_initializer_use_resets function_ = function_.initializer_use_resets
 let occurrence_index (occurrence : occurrence) = occurrence.index
 let occurrence_name (occurrence : occurrence) = occurrence.name
 let occurrence_origin (occurrence : occurrence) = occurrence.origin
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let query_index (query : query) = query.index
+let query_role (query : query) = query.role
+let query_name (query : query) = query.name
+let query_origin (query : query) = query.origin
+let query_resolution (query : query) = query.resolution
+
+let query_role_name = function
+  | Sizeof_root -> "sizeof-root"
+  | Offset_root -> "offset-root"
+  | Defined_operand -> "defined-operand"
+
 let suppression_index (suppression : suppression) = suppression.index
 let suppression_name (suppression : suppression) = suppression.name
 let suppression_origin (suppression : suppression) = suppression.origin
@@ -220,6 +245,13 @@ let make_identifier ~name ~origin =
   else if not (valid_origin origin) then
     Error "function expression identifier has an invalid source origin"
   else Ok (Identifier { name; origin })
+
+let make_name_query ~role ~name ~origin =
+  if String.equal name "" then
+    Error "function expression query name cannot be empty"
+  else if not (valid_origin origin) then
+    Error "function expression query has an invalid source origin"
+  else Ok (Name_query { role; name; origin })
 
 let make_local_publication ~name ~origin ~declaration_index ~declarator_index =
   if String.equal name "" then Error "local publication name cannot be empty"
@@ -367,7 +399,8 @@ let local_bindings bindings = List.filter binding_is_local bindings
 
 let publication_matches event (binding : Function_binding_index.binding) =
   match event with
-  | Identifier _ | No_warn_target _ | Reset_local_initializer _ -> false
+  | Identifier _ | Name_query _ | No_warn_target _ | Reset_local_initializer _
+    -> false
   | Publish_local { name; origin; declaration_index; declarator_index } ->
       String.equal name (Symbol.name binding.symbol)
       && Symbol.origin binding.symbol = origin
@@ -393,21 +426,23 @@ module Int_set = Set.Make (Int)
 let resolve_function indexed (input : function_input) =
   let bindings = Function_binding_index.function_bindings indexed in
   let rec events environment published remaining_locals binding_events_rev
-      next_occurrence next_suppression next_reset = function
+      next_occurrence next_query next_suppression next_reset = function
     | [] -> (
         match remaining_locals with
         | [] ->
             let binding_events = List.rev binding_events_rev in
-            let occurrences, suppressions, initializer_use_resets =
+            let occurrences, queries, suppressions, initializer_use_resets =
               List.fold_left
-                (fun (occurrences, suppressions, resets) -> function
+                (fun (occurrences, queries, suppressions, resets) -> function
                   | Bound_use occurrence ->
-                      (occurrence :: occurrences, suppressions, resets)
+                      (occurrence :: occurrences, queries, suppressions, resets)
+                  | Bound_query query ->
+                      (occurrences, query :: queries, suppressions, resets)
                   | No_warn_suppression suppression ->
-                      (occurrences, suppression :: suppressions, resets)
+                      (occurrences, queries, suppression :: suppressions, resets)
                   | Initializer_use_reset reset ->
-                      (occurrences, suppressions, reset :: resets))
-                ([], [], []) binding_events
+                      (occurrences, queries, suppressions, reset :: resets))
+                ([], [], [], []) binding_events
             in
             Ok
               {
@@ -416,6 +451,7 @@ let resolve_function indexed (input : function_input) =
                 item_index = input.item_index;
                 binding_events;
                 occurrences = List.rev occurrences;
+                queries = List.rev queries;
                 suppressions = List.rev suppressions;
                 initializer_use_resets = List.rev initializer_use_resets;
               }
@@ -435,15 +471,28 @@ let resolve_function indexed (input : function_input) =
           in
           events environment published remaining_locals
             (Bound_use occurrence :: binding_events_rev)
-            (next_occurrence + 1) next_suppression next_reset rest
+            (next_occurrence + 1) next_query next_suppression next_reset rest
+    | Name_query { role; name; origin } :: rest ->
+        if next_query = max_int then
+          Error (invalid_input "function expression query space is exhausted")
+        else
+          let resolution =
+            match String_map.find_opt name environment with
+            | Some binding -> Function_binding binding
+            | None -> Nonlocal_candidate
+          in
+          let query = { index = next_query; role; name; origin; resolution } in
+          events environment published remaining_locals
+            (Bound_query query :: binding_events_rev)
+            next_occurrence (next_query + 1) next_suppression next_reset rest
     | (Publish_local publication as event) :: rest -> (
         match remaining_locals with
         | binding :: local_rest when publication_matches event binding ->
             let environment = add_first publication.name binding environment in
             events environment
               (Int_set.add (symbol_number binding.symbol) published)
-              local_rest binding_events_rev next_occurrence next_suppression
-              next_reset rest
+              local_rest binding_events_rev next_occurrence next_query
+              next_suppression next_reset rest
         | binding :: _ ->
             Error
               (publication_mismatch input.symbol publication.name
@@ -467,7 +516,8 @@ let resolve_function indexed (input : function_input) =
               in
               events environment published remaining_locals
                 (No_warn_suppression suppression :: binding_events_rev)
-                next_occurrence (next_suppression + 1) next_reset rest)
+                next_occurrence next_query (next_suppression + 1) next_reset
+                rest)
     | Reset_local_initializer
         { name; origin; declaration_index; declarator_index }
       :: rest -> (
@@ -484,7 +534,8 @@ let resolve_function indexed (input : function_input) =
               let reset = { index = next_reset; origin; binding } in
               events environment published remaining_locals
                 (Initializer_use_reset reset :: binding_events_rev)
-                next_occurrence next_suppression (next_reset + 1) rest
+                next_occurrence next_query next_suppression (next_reset + 1)
+                rest
         | Some _ | None ->
             Error
               (initializer_reset_mismatch input.symbol name declaration_index
@@ -492,7 +543,7 @@ let resolve_function indexed (input : function_input) =
   in
   events
     (initial_environment bindings)
-    Int_set.empty (local_bindings bindings) [] 0 0 0 input.events
+    Int_set.empty (local_bindings bindings) [] 0 0 0 0 input.events
 
 let resolve_validated indexed_functions inputs =
   let rec loop functions_rev by_symbol indexed_functions inputs =

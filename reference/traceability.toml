@@ -4607,7 +4607,7 @@ live_statements = 8
 generated_source_string_occurrences = 1
 corpus_effect = "Demo/MultiCore/Palindrome.HC has one fewer recovered HCPARSE0048; phase counts and first errors are unchanged"
 member_list_flag_mutation = "the parser does not mutate semantic state; HC-SEMA-LOCAL-WARNINGS derives an immutable effective mask"
-use_count_and_warning_emission = "implemented for the ordinary identifier roles recorded by function expression binding; see HC-SEMA-LOCAL-WARNINGS"
+use_count_and_warning_emission = "implemented for ordinary identifier roles and the specialized roots recorded by function expression binding; see HC-SEMA-LOCAL-WARNINGS and HC-SEMA-SPECIALIZED-LOCAL-QUERIES"
 compiler_option_effects = "one supplied function-diagnostic mask is implemented; source-positioned Option execution is not"
 
 [[feature]]
@@ -4644,9 +4644,9 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 compilation_modes = ["jit", "aot"]
 binding_kinds = ["named fixed parameter", "variadic argc", "variadic argv", "automatic local", "static local"]
 binding_identity = "each suppression resolves at its source position to one stable Function_binding_index binding"
-event_order = ["ordinary bound identifier use", "no_warn suppression lookup", "declared-local initializer count reset"]
+event_order = ["ordinary bound identifier use", "specialized bound name query", "no_warn suppression lookup", "declared-local initializer count reset"]
 flag_behavior = "the result preserves declaration-time flags and derives MLF_NO_UNUSED_WARN without mutating the symbol table"
-source_use_count = "effective ordinary uses after initializer reset plus effective suppression lookups"
+source_use_count = "effective ordinary and specialized-query uses after initializer reset plus effective suppression lookups"
 initializer_reset = "resets only the binding being declared; uses of earlier bindings in the initializer remain"
 unused_rule = "an unflagged zero-count binding warns only when OPTf_WARN_UNUSED_VAR is enabled"
 unneeded_rule = "a flagged count greater than one warns regardless of OPTf_WARN_UNUSED_VAR, except for _anon_"
@@ -4660,12 +4660,48 @@ diagnostics = [
   "HCSEMA0035 unneeded no_warn"
 ]
 provenance = ["binding origin", "ordered suppression origins", "included canonical source", "generated invocation origin", "definition origin"]
-counted_identifier_roles = "ordinary identifiers retained by Driver.Function_expression_binding"
-uncounted_roles = ["type syntax", "member names", "sizeof targets", "offset targets", "defined operands", "labels", "assembly tokens"]
+counted_identifier_roles = ["ordinary identifiers retained by Driver.Function_expression_binding", "locally resolved sizeof roots", "locally resolved offset roots", "locally resolved name-shaped defined operands"]
+uncounted_roles = ["type syntax", "member names", "non-name defined operands", "labels", "assembly tokens"]
 warning_delivery = "structured holyc_lib result; CLI rendering is not implemented"
 source_positioned_option_execution = "not implemented"
 pre_mutation_validation = "AST, function, scope, binding, type, option-mask, and ownership associations are checked before a result is returned"
 native_oracle_status = "not required for this boundary; the pinned counter increments, resets, flag branch, threshold, exception, and option condition are direct source statements"
+
+[[feature]]
+id = "HC-SEMA-SPECIALIZED-LOCAL-QUERIES"
+description = "Function-local warning accounting retains the source-defined root lookups performed by sizeof, offset, and defined."
+sources = [
+  "Compiler/PrsExp.HC:303-351 PrsSizeOf root and member lookup",
+  "Compiler/PrsExp.HC:353-380 PrsOffsetOf root and member lookup",
+  "Compiler/PrsExp.HC:936-947 KW_DEFINED operand lookup",
+  "Compiler/LexLib.HC:68-83 MemberFind use increment",
+  "Compiler/PrsVar.HC:584,614 initializer count resets",
+  "Compiler/PrsStmt.HC:193-204 function-completion warning loop"
+]
+implementation = [
+  "src/sema/function_expression_binding.ml",
+  "src/sema/function_expression_binding.mli",
+  "src/driver/function_expression_binding.ml",
+  "src/sema/local_warning_analysis.ml",
+  "src/sema/local_warning_analysis.mli"
+]
+tests = [
+  "test/test_function_expression_binding.ml",
+  "test/test_local_warning_analysis.ml"
+]
+status = "implemented"
+issue = 228
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+query_roles = ["sizeof root", "offset root", "name-shaped defined operand"]
+resolution_scope = "the publication-ordered parameter and local environment used by function expression binding"
+ordinary_occurrence_contract = "queries stay out of function_occurrences, so module and outer ordinary-name binding results do not change"
+member_behavior = "member-path spellings create no query, matching the pinned decrement after incidental local lookup"
+defined_non_name_behavior = "a non-name operand creates no query"
+initializer_reset = "the declared binding loses both ordinary and query uses recorded in its initializer; earlier bindings keep their uses"
+warning_accounting = "a locally resolved query contributes one to source_use_count and therefore participates in unused and unneeded-no_warn thresholds"
+value_semantics = "not implemented; the query does not calculate sizeof or offset, resolve a member, or choose the Boolean value of defined"
+provenance = ["source span", "include source", "generated invocation origin", "definition origin"]
+native_oracle_status = "not required for this boundary; the root increments, member decrements, defined test, reset, and warning thresholds are direct pinned-source statements"
 
 [[feature]]
 id = "HC-PARSER-CORPUS"
