@@ -186,6 +186,10 @@ let declaration_shapes () =
     (first_request
    |> Semantic_local_type_resolution.register_request_explicit_register
    |> Option.get);
+  Alcotest.(check (option int))
+    "explicit register number" (Some 15)
+    (Semantic_local_type_resolution.register_request_explicit_register_number
+       first_request);
   Alcotest.(check string)
     "register allocation request" "reg"
     (first_request |> Semantic_local_type_resolution.register_request_kind
@@ -337,10 +341,10 @@ let expect_callback local =
 let callback_types () =
   let results =
     prepare ~path:"local-type-callbacks.HC"
-      "class Node {};\n\
+       "class Node {};\n\
        U0 Callbacks(){\n\
-       U8 reg R9 *(**handler)(Node *node,I64=lastclass,U8 *(*nested)(I64 \
-       value=\"nested\",...),...);\n\
+       U8 reg R9 *(**handler)(Node *node,I64=lastclass,U8 *(*nested)(reg R8 \
+       noreg I64 value=\"nested\",...),...);\n\
        }"
   in
   let local =
@@ -401,6 +405,22 @@ let callback_types () =
     (nested |> Semantic_function_type_resolution.function_pointer_signature
    |> Semantic_function_type_resolution.signature_parameters
     |> List.map Semantic_function_type_resolution.parameter_flag_mask);
+  let nested_parameter =
+    nested |> Semantic_function_type_resolution.function_pointer_signature
+    |> Semantic_function_type_resolution.signature_parameters |> List.hd
+  in
+  Alcotest.(check (list int))
+    "nested local callback keeps ordered register requests" [ 8; 32 ]
+    (nested_parameter
+    |> Semantic_function_type_resolution.parameter_register_requests
+    |> List.map (fun request ->
+        Semantic_register_request.effective [ request ]
+        |> Semantic_register_request.source_code));
+  Alcotest.(check int)
+    "nested local callback uses the last register request" 32
+    (nested_parameter
+    |> Semantic_function_type_resolution.parameter_register_selection
+    |> Semantic_register_request.source_code);
   let request =
     Semantic_local_type_resolution.local_register_requests local |> List.hd
   in

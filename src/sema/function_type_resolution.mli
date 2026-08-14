@@ -32,6 +32,7 @@ type t
 val make_parameter :
   index:int ->
   origin:Symbol.origin ->
+  ?register_requests:Register_request.t list ->
   ?name:string ->
   ?name_origin:Symbol.origin ->
   type_reference:Type_reference.t ->
@@ -53,6 +54,7 @@ val make_signature :
   opening_origin:Symbol.origin ->
   parameters:parameter list ->
   ?variadic_origin:Symbol.origin ->
+  ?variadic_register_requests:Register_request.t list ->
   closing_origin:Symbol.origin ->
   unit ->
   (signature, string) result
@@ -65,7 +67,9 @@ val make_synthetic_binding :
   symbol:Symbol.t ->
   parameter_index:int ->
   resolved_type:Type.t ->
+  ?register_requests:Register_request.t list ->
   shape:synthetic_shape ->
+  unit ->
   (synthetic_binding, string) result
 
 val make_variadic_bindings :
@@ -103,9 +107,16 @@ val function_variadic_bindings : resolved_function -> variadic_bindings option
 val signature_opening_origin : signature -> Symbol.origin
 val signature_parameters : signature -> parameter list
 val signature_variadic_origin : signature -> Symbol.origin option
+val signature_variadic_register_requests : signature -> Register_request.t list
+
+val signature_variadic_register_selection :
+  signature -> Register_request.selection
+
 val signature_closing_origin : signature -> Symbol.origin
 val parameter_index : parameter -> int
 val parameter_origin : parameter -> Symbol.origin
+val parameter_register_requests : parameter -> Register_request.t list
+val parameter_register_selection : parameter -> Register_request.selection
 val parameter_name : parameter -> string option
 val parameter_name_origin : parameter -> Symbol.origin option
 val parameter_type_reference : parameter -> Type_reference.t
@@ -132,6 +143,11 @@ val synthetic_binding_symbol : synthetic_binding -> Symbol.t
 val synthetic_binding_index : synthetic_binding -> int
 val synthetic_binding_type : synthetic_binding -> Type.t
 val synthetic_binding_shape : synthetic_binding -> synthetic_shape
+val synthetic_binding_register_requests : synthetic_binding -> Register_request.t list
+
+val synthetic_binding_register_selection :
+  synthetic_binding -> Register_request.selection
+
 val synthetic_binding_flag_mask : synthetic_binding -> int64
 val synthetic_binding_has_flag : synthetic_binding -> Member_flag.t -> bool
 val synthetic_parameter_name : synthetic_parameter -> string

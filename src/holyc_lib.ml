@@ -12,6 +12,7 @@ module Compiler_option = Sema.Compiler_option
 module Function_flag = Sema.Function_flag
 module Global_record_flag = Sema.Global_record_flag
 module Member_flag = Sema.Member_flag
+module Semantic_register_request = Sema.Register_request
 module Semantic_symbol = Sema.Symbol
 module Semantic_symbol_table = Sema.Symbol_table
 module Ir_opcode = Ir.Opcode
