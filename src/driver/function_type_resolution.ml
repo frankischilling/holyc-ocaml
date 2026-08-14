@@ -395,11 +395,10 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
                  (fun (marker : Frontend.Ast.variadic_marker) ->
                    origin marker.location)
                  variadic)
-            ~variadic_register_requests ~closing_origin:(origin closing) ()))
+             ~variadic_register_requests ~closing_origin:(origin closing) ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
-  Result.bind
-    (Register_request.of_list parameter.register_qualifiers)
+  Result.bind (Register_request.of_list parameter.register_qualifiers)
     (fun register_requests ->
       match
         make_type_reference visible parameter.type_specifier
@@ -440,7 +439,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
           | Error _ as error -> error
           | Ok declarator_kind ->
               Sema.Function_type_resolution.make_parameter ~index
-                ~origin:(origin parameter.location) ~register_requests
+                ~origin:(origin parameter.location)
+                ~register_requests
                 ?name:
                   (Option.map
                      (fun (name : Frontend.Ast.identifier) -> name.spelling)
@@ -531,10 +531,7 @@ let variadic_bindings ast argc argv =
               match
                 variadic_binding Sema.Function_type_resolution.Argv argv_entry
                   (Sema.Function_type_resolution.Array
-                     {
-                       source_extent = None;
-                       compiler_placeholder_extent = 127;
-                     })
+                     { source_extent = None; compiler_placeholder_extent = 127 })
                   register_requests
               with
               | Error _ as error -> error

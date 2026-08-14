@@ -635,11 +635,11 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       match declarator_kind with
       | Error _ as error -> error
       | Ok declarator_kind ->
-          Result.bind
-            (Register_request.of_list parameter.register_qualifiers)
+          Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
               Sema.Function_type_resolution.make_parameter ~index
-                ~origin:(origin parameter.location) ~register_requests
+                ~origin:(origin parameter.location)
+                ~register_requests
                 ?name:
                   (Option.map
                      (fun (name : Frontend.Ast.identifier) -> name.spelling)

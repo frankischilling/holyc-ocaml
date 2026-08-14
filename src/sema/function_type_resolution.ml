@@ -254,7 +254,7 @@ let make_signature ~opening_origin ~parameters ?variadic_origin
   match (variadic_origin, variadic_register_requests) with
   | None, _ :: _ ->
       Error "semantic variadic register requests require an ellipsis"
-  | (None, [] | Some _, _) -> (
+  | None, [] | Some _, _ -> (
       match validate 0 parameters with
       | Error _ as error -> error
       | Ok () ->
@@ -263,8 +263,7 @@ let make_signature ~opening_origin ~parameters ?variadic_origin
               signature_opening_origin_ = opening_origin;
               signature_parameters_ = parameters;
               signature_variadic_origin_ = variadic_origin;
-              signature_variadic_register_requests_ =
-                variadic_register_requests;
+              signature_variadic_register_requests_ = variadic_register_requests;
               signature_closing_origin_ = closing_origin;
             })
 
@@ -380,8 +379,7 @@ let validate_variadic_bindings signature bindings =
              signature.signature_variadic_register_requests_
              actual.variadic_argc_.synthetic_register_requests)
       then
-        Error
-          "semantic variadic register requests do not match the signature"
+        Error "semantic variadic register requests do not match the signature"
       else Ok ()
   | Some _, Some _ ->
       Error "semantic variadic bindings do not match the ellipsis origin"

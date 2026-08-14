@@ -100,9 +100,7 @@ val register_request_position : register_request -> register_position
 val register_request_spelling : register_request -> string
 val register_request_origin : register_request -> Symbol.origin
 val register_request_explicit_register : register_request -> string option
-
-val register_request_explicit_register_number :
-  register_request -> int option
+val register_request_explicit_register_number : register_request -> int option
 
 val register_request_explicit_register_origin :
   register_request -> Symbol.origin option

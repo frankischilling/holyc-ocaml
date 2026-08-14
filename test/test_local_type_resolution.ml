@@ -341,7 +341,7 @@ let expect_callback local =
 let callback_types () =
   let results =
     prepare ~path:"local-type-callbacks.HC"
-       "class Node {};\n\
+      "class Node {};\n\
        U0 Callbacks(){\n\
        U8 reg R9 *(**handler)(Node *node,I64=lastclass,U8 *(*nested)(reg R8 \
        noreg I64 value=\"nested\",...),...);\n\
@@ -412,15 +412,15 @@ let callback_types () =
   Alcotest.(check (list int))
     "nested local callback keeps ordered register requests" [ 8; 32 ]
     (nested_parameter
-    |> Semantic_function_type_resolution.parameter_register_requests
+   |> Semantic_function_type_resolution.parameter_register_requests
     |> List.map (fun request ->
         Semantic_register_request.effective [ request ]
         |> Semantic_register_request.source_code));
   Alcotest.(check int)
     "nested local callback uses the last register request" 32
     (nested_parameter
-    |> Semantic_function_type_resolution.parameter_register_selection
-    |> Semantic_register_request.source_code);
+   |> Semantic_function_type_resolution.parameter_register_selection
+   |> Semantic_register_request.source_code);
   let request =
     Semantic_local_type_resolution.local_register_requests local |> List.hd
   in

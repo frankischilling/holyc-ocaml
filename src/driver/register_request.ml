@@ -24,7 +24,8 @@ let of_ast (qualifier : Frontend.Ast.register_qualifier) =
       qualifier.explicit_register
   in
   let explicit_register_number =
-    Option.bind explicit_register Sema.Register_request.canonical_u64_register_number
+    Option.bind explicit_register
+      Sema.Register_request.canonical_u64_register_number
   in
   let explicit_register_origin =
     Option.map
@@ -32,8 +33,8 @@ let of_ast (qualifier : Frontend.Ast.register_qualifier) =
       qualifier.explicit_register
   in
   Sema.Register_request.make ~kind ~position ~spelling:qualifier.spelling
-    ~origin:(origin qualifier.location) ?explicit_register
-    ?explicit_register_number ?explicit_register_origin ()
+    ~origin:(origin qualifier.location)
+    ?explicit_register ?explicit_register_number ?explicit_register_origin ()
 
 let of_list qualifiers =
   let rec collect requests_rev = function

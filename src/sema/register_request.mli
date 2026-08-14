@@ -26,8 +26,8 @@ val make :
   unit ->
   (t, string) result
 (** Build one checked [reg] or [noreg] request. Explicit register fields must be
-    supplied together and must identify the same canonical [ST_U64_REGS]
-    entry. *)
+    supplied together and must identify the same canonical [ST_U64_REGS] entry.
+*)
 
 val kind : t -> kind
 val position : t -> position

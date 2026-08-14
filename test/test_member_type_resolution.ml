@@ -357,8 +357,7 @@ let callback_return_and_indirection () =
     parse session ~path:"member-callbacks.HC"
       "class Node {}; class Callbacks { I64 *(*invoke)(Node \
        *node,I64=1,I64=lastclass,U8 *(*nested)(reg R10 noreg I64 \
-       value=\"nested\",...),...); \
-       I64 (**chain)(I64 value); };"
+       value=\"nested\",...),...); I64 (**chain)(I64 value); };"
   in
   let results = resolve session ast in
   let node = aggregate_named results "Node" in
@@ -462,15 +461,15 @@ let callback_return_and_indirection () =
   Alcotest.(check (list int))
     "nested member callback keeps ordered register requests" [ 10; 32 ]
     (nested_parameter
-    |> Semantic_function_type_resolution.parameter_register_requests
+   |> Semantic_function_type_resolution.parameter_register_requests
     |> List.map (fun request ->
         Semantic_register_request.effective [ request ]
         |> Semantic_register_request.source_code));
   Alcotest.(check int)
     "nested member callback uses the last register request" 32
     (nested_parameter
-    |> Semantic_function_type_resolution.parameter_register_selection
-    |> Semantic_register_request.source_code);
+   |> Semantic_function_type_resolution.parameter_register_selection
+   |> Semantic_register_request.source_code);
   Alcotest.(check bool)
     "nested callback keeps its terminal ellipsis" true
     (nested_signature

@@ -40,12 +40,14 @@ let canonical_u64_registers =
 let canonical_u64_register_number spelling =
   canonical_u64_registers
   |> List.find_map (fun (candidate, number) ->
-         if String.equal candidate spelling then Some number else None)
+      if String.equal candidate spelling then Some number else None)
 
 let is_canonical_u64_register spelling =
   Option.is_some (canonical_u64_register_number spelling)
 
-let kind_name = function Allocate -> "reg" | Disable -> "noreg"
+let kind_name = function
+  | Allocate -> "reg"
+  | Disable -> "noreg"
 
 let position_name = function
   | Before_type -> "before-type"
@@ -87,8 +89,12 @@ let make ~kind ~position ~spelling ~origin ?explicit_register
                 explicit_register =
                   Some { spelling = register; number; origin = register_origin };
               })
-    | None, None, Some _ | None, Some _, None | None, Some _, Some _
-    | Some _, None, None | Some _, None, Some _ | Some _, Some _, None ->
+    | None, None, Some _
+    | None, Some _, None
+    | None, Some _, Some _
+    | Some _, None, None
+    | Some _, None, Some _
+    | Some _, Some _, None ->
         Error
           "semantic explicit register spelling, number, and source location \
            must be supplied together"
@@ -98,7 +104,10 @@ let position request = request.position
 let spelling request = request.spelling
 let origin request = request.origin
 let explicit_register request = request.explicit_register
-let explicit_register_spelling (register : explicit_register) = register.spelling
+
+let explicit_register_spelling (register : explicit_register) =
+  register.spelling
+
 let explicit_register_number (register : explicit_register) = register.number
 let explicit_register_origin (register : explicit_register) = register.origin
 

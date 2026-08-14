@@ -143,7 +143,9 @@ val synthetic_binding_symbol : synthetic_binding -> Symbol.t
 val synthetic_binding_index : synthetic_binding -> int
 val synthetic_binding_type : synthetic_binding -> Type.t
 val synthetic_binding_shape : synthetic_binding -> synthetic_shape
-val synthetic_binding_register_requests : synthetic_binding -> Register_request.t list
+
+val synthetic_binding_register_requests :
+  synthetic_binding -> Register_request.t list
 
 val synthetic_binding_register_selection :
   synthetic_binding -> Register_request.selection
