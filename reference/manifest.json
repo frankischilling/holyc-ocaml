@@ -81,6 +81,7 @@
     {"path": "Kernel/KExcept.HC", "sha256": "4dbd451002990b2d310e2a19fae380f2fe6a9942578c456e44f214a6485099ad"},
     {"path": "Kernel/KStart16.HC", "sha256": "db71f3cef755745bb23ff6888cdf958e6e63046f2e68a9d96b7c9c0ec0685a85"},
     {"path": "Kernel/KStart32.HC", "sha256": "8b913008c3f10876353889562da44c26fadcb3b5e6618f48d2ee56da39b8adc2"},
+    {"path": "Kernel/KTask.HC", "sha256": "4ea967e45c3b82a81925a4aebd11e9daa8e6d1f4c5708ddee6124f3e502d4188"},
     {"path": "Kernel/KUtils.HC", "sha256": "0372304b077110f40b13883af21aa5365b57ddfcb8572e0f75cb40af5a65131a"},
     {"path": "Kernel/PCIBIOS.HC", "sha256": "5de3bf71156770f599c09407d7bb865a3f0d22070ca484dce414f758372d18c5"},
     {"path": "Kernel/BlkDev/DskStrA.HC", "sha256": "169357c8460fb5cbd0c1dca0476cefbb7a26c7368ff2d249423c0eb0c287cdff"},
