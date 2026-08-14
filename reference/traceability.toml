@@ -3402,13 +3402,60 @@ canonical_identity = "earlier definitions, self references, completed forwards, 
 validation = "session ownership, module and aggregate scopes, AST association, declaration association, header association, member paths, source order, symbol kinds, and provenance"
 mutation = "none after validated inputs"
 compilation_modes = ["jit", "aot"]
-callback_parameter_resolution = "not implemented for member callbacks; top-level function and nested parameter callback signatures are implemented in HC-SEMA-FUNCTION-TYPES"
+callback_parameter_resolution = "complete recursive member callback signatures are implemented by HC-SEMA-AGGREGATE-MEMBER-CALLBACK-SIGNATURES"
 array_extent_evaluation = "not implemented in this type-reference pass; closed extents are evaluated by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "implemented for aggregate members by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout_storage_and_inherited_lookup = "closed byte layout and inherited name lookup are implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED and HC-SEMA-AGGREGATE-MEMBER-INDEX; runtime storage is not implemented"
 other_type_use_sites = "top-level function signatures, globals, and locals are implemented by their dedicated semantic type features; casts, sizeof, offset, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-MEMBER-CALLBACK-SIGNATURES"
+description = "Aggregate callback members retain complete recursive semantic signatures whose parameter types bind at the aggregate publication point."
+sources = [
+  "Compiler/PrsVar.HC:PrsType",
+  "Compiler/PrsVar.HC:PrsVarLst",
+  "Compiler/PrsStmt.HC:PrsFunJoin",
+  "Compiler/LexLib.HC:MemberLstDel",
+  "Compiler/LexLib.HC:MemberLstSize",
+  "Compiler/PrsExp.HC:local callback and selected-member callback paths",
+  "Kernel/KernelA.HH:CMemberLst",
+  "Kernel/KernelA.HH:CHashFun",
+  "Kernel/KernelA.HH:MLF_FUN",
+  "Kernel/KernelA.HH:CMathODE",
+  "Kernel/KernelA.HH:CDocEntry",
+  "Kernel/KernelA.HH:CKeyDevEntry and CKeyDevGlbls",
+  "Doc/HolyC.DD"
+]
+implementation = [
+  "src/sema/member_type_resolution.ml",
+  "src/driver/member_type_resolution.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_member_type_resolution.ml"
+]
+status = "implemented"
+issue = 216
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "callback members in named classes, named unions, and recursive anonymous unions from the checked member-type batch"
+shared_representation = "Sema.Function_type_resolution.function_pointer, including its recursive signature and parameter records"
+publication = "the current canonical aggregate identity is visible before callback parameters are resolved"
+parameter_type_bases = ["public primitive spelling", "intrinsic storage spelling", "canonical aggregate identity"]
+ordinary_parameter_pointer_depth = "zero through four, separate from callback indirection"
+callback_indirection_depth = "one through four at every recursive callback layer"
+retained_shape = ["declarator punctuation", "named and unnamed fixed slots", "expression default provenance", "lastclass default provenance", "terminal variadic marker", "nested callbacks"]
+parameter_symbols = "none for anonymous callback signatures"
+provenance = ["ordinary source", "included source", "generated invocation", "definition origin"]
+pinned_fixtures = ["Kernel/KernelA.HH:251-289", "Kernel/KernelA.HH:1191-1222 except runtime #assert line 1221", "Kernel/KernelA.HH:3754-3771"]
+validation = "session ownership, module parentage, recursive aggregate targets, consecutive parameter indexes, delimiters, pointer limits, source order, and AST association"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+member_flag_emission = "not implemented; the semantic result does not yet serialize MLF_FUN"
+default_binding_evaluation_and_substitution = "not implemented; only source form and provenance are retained"
+header_comparison_call_checking_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsType constructs the anonymous CHashFun, PrsVarLst stores it in CMemberLst.fun_ptr, and named consumers recover the complete record directly"
 
 [[feature]]
 id = "HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
