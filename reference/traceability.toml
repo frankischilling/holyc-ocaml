@@ -5507,7 +5507,7 @@ issue = 264
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed and variadic expressions on already resolved direct function-body calls"
 identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
-source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "distinct execution class when applicable", "resolved member lookup when applicable"]
+source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "distinct execution class when applicable", "resolved member lookup when applicable", "nested call resolution when applicable"]
 value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
 result_classes = ["integer", "F64", "unresolved"]
 conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; variadic results have no fixed target conversion; index subscripts and assignment right operands independently record their source-required conversion intent"
@@ -5517,8 +5517,8 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 35
-unimplemented = ["assignment execution", "module function value typing", "indirect calls", "default typing", "variadic promotion and ABI placement", "IR lowering"]
+focused_expression_result_tests = 38
+unimplemented = ["assignment execution", "module function value typing", "indirect-call signature checking", "default typing", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5763,3 +5763,42 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 default_evaluation_variadic_promotion_hidden_count_abi_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this checked traversal boundary; PrsFunCall directly separates the fixed comparison from the later variadic expression loop"
+
+[[feature]]
+id = "HC-SEMA-NESTED-DIRECT-CALL-RESULTS"
+description = "Nested resolved direct calls use their source-visible return type and retain the exact call-resolution identity."
+sources = [
+  "Compiler/PrsExp.HC:383-590 PrsFunCall selection, return_class propagation, call IC, cleanup ICs, and IC_CALL_END",
+  "Compiler/PrsExp.HC:862-866 direct function primary dispatch to PrsFunCall",
+  "Compiler/PrsStmt.HC:92-126 function return_class assignment and validation",
+  "Compiler/OptLib.HC:9-15 OptClassFwd"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 278
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "call expressions nested inside provided fixed or variadic arguments on resolved direct function-body calls"
+matching_rule = "match the nested expression origin to exactly one call-resolution record owned by the same function and policy traversal"
+direct_rule = "retain the direct call record and use the return type from its active source-visible header"
+category_rule = "a pointer return is an address value; a zero-depth return is an object value"
+class_rule = "forward the return type through aggregate backing headers published before the owning function item"
+replacement_rule = "a later same-name function header does not change an earlier nested call result"
+variadic_rule = "a nested direct call in a variadic position retains its actual class without a fixed target or conversion"
+deferred_rule = "retain a deferred callback-call record while leaving its type unavailable and class unresolved"
+uncollected_rule = "a call shape absent from the function call-resolution traversal remains unavailable and unresolved"
+diagnostic = "HCSEMA0046 rejects a missing or ambiguous owning function and duplicate nested-call matches"
+provenance = ["direct or deferred call identity", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+indirect_signature_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked result-class boundary; PrsFunCall assigns tmpf->return_class directly to the call and cleanup IC sequence"
