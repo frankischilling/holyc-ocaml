@@ -16,7 +16,11 @@ type value_category =
   | Unavailable
 
 type result_class = Integer_result | F64_result | Unresolved_actual_class
-type intrinsic_conversion = No_intrinsic_conversion | Result_to_int
+
+type intrinsic_conversion =
+  | No_intrinsic_conversion
+  | Result_to_f64
+  | Result_to_int
 
 type expression_result = {
   id : Id.t;
@@ -25,6 +29,7 @@ type expression_result = {
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
+  execution_class : result_class option;
   array_rank : int;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
@@ -91,6 +96,7 @@ let result_origin (result : expression_result) = result.origin
 let result_type (result : expression_result) = result.source_type
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
+let result_execution_class (result : expression_result) = result.execution_class
 let result_array_rank (result : expression_result) = result.array_rank
 
 let result_intrinsic_conversion (result : expression_result) =
@@ -114,6 +120,7 @@ let result_class_name = function
 
 let intrinsic_conversion_name = function
   | No_intrinsic_conversion -> "none"
+  | Result_to_f64 -> "ICF_RES_TO_F64"
   | Result_to_int -> "ICF_RES_TO_INT"
 
 let invalid_input ?origin message =
@@ -160,7 +167,7 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?(array_rank = 0) ?member_lookup
+let make_result ?(array_rank = 0) ?execution_class ?member_lookup
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -171,6 +178,7 @@ let make_result ?(array_rank = 0) ?member_lookup
       source_type;
       category;
       result_class;
+      execution_class;
       array_rank;
       intrinsic_conversion;
       member_lookup;
@@ -179,6 +187,28 @@ let make_result ?(array_rank = 0) ?member_lookup
 let known_type table type_ =
   if type_is_owned table type_ then Ok type_
   else Error (invalid_input "expression type belongs to another symbol table")
+
+let replace_result state replacement =
+  let replaced = ref false in
+  let results_rev =
+    List.map
+      (fun result ->
+        if Id.equal result.id replacement.id then (
+          replaced := true;
+          replacement)
+        else result)
+      state.results_rev
+  in
+  if !replaced then Ok { state with results_rev }
+  else Error (invalid_input "typed expression result is absent from its owner")
+
+let set_intrinsic_conversion state result intrinsic_conversion =
+  if result.intrinsic_conversion = intrinsic_conversion then Ok (result, state)
+  else
+    let replacement = { result with intrinsic_conversion } in
+    match replace_result state replacement with
+    | Error _ as error -> error
+    | Ok state -> Ok (replacement, state)
 
 let select_known_binary_type left right result_class =
   match result_class with
@@ -574,60 +604,175 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
            ~source_type:operand.source_type ~category:Object_value
            ~result_class:operand.result_class)
 
-and type_binary table members policies ~before_item_index ~intrinsic_conversion
-    state id source binary =
+and type_assignment table members policies ~before_item_index
+    ~intrinsic_conversion state id source binary assignment_kind =
+  let operator_origin =
+    Function_call_resolution.binary_operator_origin binary
+  in
+  let invalid_destination message =
+    Error (invalid_input ~origin:operator_origin message)
+  in
   match
     type_expression table members policies ~before_item_index
-      ~context:Value_context state
+      ~context:Lvalue_context state
       (Function_call_resolution.binary_left binary)
   with
   | Error _ as error -> error
   | Ok (left, state) -> (
+      let destination_type = left.source_type in
+      let valid_storage_type =
+        match destination_type with
+        | Some type_ when Type.pointer_depth type_ > 0 -> true
+        | Some type_ -> (
+            match Type.base type_ with
+            | Type.Primitive _ -> true
+            | Type.Aggregate _ -> false)
+        | None -> false
+      in
+      match (left.category, destination_type, valid_storage_type) with
+      | Lvalue, Some destination_type, true -> (
+          match
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state
+              (Function_call_resolution.binary_right binary)
+          with
+          | Error _ as error -> error
+          | Ok (right, state) -> (
+              let destination_class =
+                forwarded_class policies ~before_item_index destination_type
+              in
+              let right_conversion, execution_class =
+                match assignment_kind with
+                | `Simple ->
+                    let conversion =
+                      match (destination_class, right.result_class) with
+                      | F64_result, Integer_result -> Result_to_f64
+                      | Integer_result, F64_result -> Result_to_int
+                      | F64_result, (F64_result | Unresolved_actual_class)
+                      | ( Integer_result,
+                          (Integer_result | Unresolved_actual_class) )
+                      | Unresolved_actual_class, _ -> No_intrinsic_conversion
+                    in
+                    (conversion, destination_class)
+                | `Arithmetic ->
+                    let conversion =
+                      match (destination_class, right.result_class) with
+                      | F64_result, Integer_result -> Result_to_f64
+                      | _ -> No_intrinsic_conversion
+                    in
+                    let execution_class =
+                      match (destination_class, right.result_class) with
+                      | F64_result, _ | _, F64_result -> F64_result
+                      | Integer_result, Integer_result -> Integer_result
+                      | _ -> Unresolved_actual_class
+                    in
+                    (conversion, execution_class)
+                | `Integer ->
+                    let conversion =
+                      match right.result_class with
+                      | F64_result -> Result_to_int
+                      | Integer_result | Unresolved_actual_class ->
+                          No_intrinsic_conversion
+                    in
+                    (conversion, Integer_result)
+              in
+              match set_intrinsic_conversion state right right_conversion with
+              | Error _ as error -> error
+              | Ok (_, state) ->
+                  Ok
+                    (make_result ~execution_class ~intrinsic_conversion state
+                       ~id ~source ~source_type:(Some destination_type)
+                       ~category:Object_value ~result_class:destination_class)))
+      | Unavailable, _, _ ->
+          invalid_destination "assignment destination is unavailable"
+      | Lvalue, None, _ ->
+          invalid_destination "assignment destination has no checked type"
+      | Lvalue, Some _, false ->
+          invalid_destination
+            "assignment destination is not a pointer or internal storage value"
+      | ( ( Object_value
+          | Address_value
+          | Array_value
+          | Callback_value
+          | Function_value ),
+          _,
+          _ ) -> invalid_destination "assignment destination is not an lvalue")
+
+and type_binary table members policies ~before_item_index ~intrinsic_conversion
+    state id source binary =
+  match Function_call_resolution.binary_operator binary with
+  | Generated.Intermediate_codes.Ic_assign ->
+      type_assignment table members policies ~before_item_index
+        ~intrinsic_conversion state id source binary `Simple
+  | Generated.Intermediate_codes.Ic_mul_equ
+  | Generated.Intermediate_codes.Ic_div_equ
+  | Generated.Intermediate_codes.Ic_mod_equ
+  | Generated.Intermediate_codes.Ic_add_equ
+  | Generated.Intermediate_codes.Ic_sub_equ ->
+      type_assignment table members policies ~before_item_index
+        ~intrinsic_conversion state id source binary `Arithmetic
+  | Generated.Intermediate_codes.Ic_shl_equ
+  | Generated.Intermediate_codes.Ic_shr_equ
+  | Generated.Intermediate_codes.Ic_and_equ
+  | Generated.Intermediate_codes.Ic_or_equ
+  | Generated.Intermediate_codes.Ic_xor_equ ->
+      type_assignment table members policies ~before_item_index
+        ~intrinsic_conversion state id source binary `Integer
+  | _ -> (
       match
         type_expression table members policies ~before_item_index
           ~context:Value_context state
-          (Function_call_resolution.binary_right binary)
+          (Function_call_resolution.binary_left binary)
       with
       | Error _ as error -> error
-      | Ok (right, state) ->
-          let result_class, source_type =
-            match Function_call_resolution.binary_operator binary with
-            | Generated.Intermediate_codes.Ic_power -> (F64_result, float_type)
-            | Generated.Intermediate_codes.Ic_equ_equ
-            | Generated.Intermediate_codes.Ic_not_equ
-            | Generated.Intermediate_codes.Ic_less
-            | Generated.Intermediate_codes.Ic_greater_equ
-            | Generated.Intermediate_codes.Ic_greater
-            | Generated.Intermediate_codes.Ic_less_equ
-            | Generated.Intermediate_codes.Ic_and_and
-            | Generated.Intermediate_codes.Ic_or_or
-            | Generated.Intermediate_codes.Ic_xor_xor ->
-                (Integer_result, integer_type)
-            | Generated.Intermediate_codes.Ic_shl
-            | Generated.Intermediate_codes.Ic_shr
-            | Generated.Intermediate_codes.Ic_mul
-            | Generated.Intermediate_codes.Ic_div
-            | Generated.Intermediate_codes.Ic_mod
-            | Generated.Intermediate_codes.Ic_and
-            | Generated.Intermediate_codes.Ic_or
-            | Generated.Intermediate_codes.Ic_xor
-            | Generated.Intermediate_codes.Ic_add
-            | Generated.Intermediate_codes.Ic_sub ->
-                let result_class =
-                  match (left.result_class, right.result_class) with
-                  | F64_result, _ | _, F64_result -> F64_result
-                  | Integer_result, Integer_result -> Integer_result
-                  | Integer_result, Unresolved_actual_class
-                  | Unresolved_actual_class, Integer_result
-                  | Unresolved_actual_class, Unresolved_actual_class ->
-                      Unresolved_actual_class
-                in
-                (result_class, select_known_binary_type left right result_class)
-            | _ -> (Unresolved_actual_class, None)
-          in
-          Ok
-            (make_result ~intrinsic_conversion state ~id ~source ~source_type
-               ~category:Object_value ~result_class))
+      | Ok (left, state) -> (
+          match
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state
+              (Function_call_resolution.binary_right binary)
+          with
+          | Error _ as error -> error
+          | Ok (right, state) ->
+              let result_class, source_type =
+                match Function_call_resolution.binary_operator binary with
+                | Generated.Intermediate_codes.Ic_power ->
+                    (F64_result, float_type)
+                | Generated.Intermediate_codes.Ic_equ_equ
+                | Generated.Intermediate_codes.Ic_not_equ
+                | Generated.Intermediate_codes.Ic_less
+                | Generated.Intermediate_codes.Ic_greater_equ
+                | Generated.Intermediate_codes.Ic_greater
+                | Generated.Intermediate_codes.Ic_less_equ
+                | Generated.Intermediate_codes.Ic_and_and
+                | Generated.Intermediate_codes.Ic_or_or
+                | Generated.Intermediate_codes.Ic_xor_xor ->
+                    (Integer_result, integer_type)
+                | Generated.Intermediate_codes.Ic_shl
+                | Generated.Intermediate_codes.Ic_shr
+                | Generated.Intermediate_codes.Ic_mul
+                | Generated.Intermediate_codes.Ic_div
+                | Generated.Intermediate_codes.Ic_mod
+                | Generated.Intermediate_codes.Ic_and
+                | Generated.Intermediate_codes.Ic_or
+                | Generated.Intermediate_codes.Ic_xor
+                | Generated.Intermediate_codes.Ic_add
+                | Generated.Intermediate_codes.Ic_sub ->
+                    let result_class =
+                      match (left.result_class, right.result_class) with
+                      | F64_result, _ | _, F64_result -> F64_result
+                      | Integer_result, Integer_result -> Integer_result
+                      | Integer_result, Unresolved_actual_class
+                      | Unresolved_actual_class, Integer_result
+                      | Unresolved_actual_class, Unresolved_actual_class ->
+                          Unresolved_actual_class
+                    in
+                    ( result_class,
+                      select_known_binary_type left right result_class )
+                | _ -> (Unresolved_actual_class, None)
+              in
+              Ok
+                (make_result ~intrinsic_conversion state ~id ~source
+                   ~source_type ~category:Object_value ~result_class)))
 
 let map_state apply state values =
   let rec loop state rev = function

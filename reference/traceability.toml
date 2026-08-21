@@ -4783,8 +4783,8 @@ f64_result_operators = ["IC_POWER"]
 integer_result_operators = ["IC_EQU_EQU", "IC_NOT_EQU", "IC_LESS", "IC_GREATER_EQU", "IC_GREATER", "IC_LESS_EQU", "IC_AND_AND", "IC_OR_OR", "IC_XOR_XOR"]
 combined_result_operators = ["IC_SHL", "IC_SHR", "IC_MUL", "IC_DIV", "IC_MOD", "IC_AND", "IC_OR", "IC_XOR", "IC_ADD", "IC_SUB"]
 combined_result_rule = "an F64 operand forces the F64 path; two integer-side operands use the integer path; otherwise the result remains unresolved"
-unresolved_operators = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
-assignment_boundary = "assignment result classes depend on the typed lvalue and remain deferred"
+assignment_operators = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
+assignment_boundary = "typed destination results, right-operand conversions, and compound execution classes are implemented by HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
 parentheses = "preserve the recursively classified binary result"
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 validation = "the binary constructor accepts only generated checked-table identities and rejects an invalid operator origin"
@@ -4792,7 +4792,8 @@ provenance = ["operator", "left operand", "right operand", "nested prefix and ca
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 value_evaluation = "not implemented"
-lvalue_validation_and_assignment_effects = "not implemented"
+lvalue_validation = "implemented for assignment expressions by HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
+assignment_effects = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, OptFixupBinaryOp1, OptPass012, CInit, and PrsFunCall state the operator inventory, retained classes, and conversion condition directly"
@@ -5505,18 +5506,18 @@ issue = 264
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed expressions on already resolved direct function-body calls"
 identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
-source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "resolved member lookup when applicable"]
+source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "distinct execution class when applicable", "resolved member lookup when applicable"]
 value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
 result_classes = ["integer", "F64", "unresolved"]
-conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; an index subscript independently records the source-required ICF_RES_TO_INT intent"
+conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; index subscripts and assignment right operands independently record their source-required conversion intent"
 type_fallback = "none; an unknown source type remains absent"
 validation = ["symbol-table ownership", "aggregate type ownership", "aggregate member-index ownership", "policy traversal ownership", "fixed source-path agreement", "deterministic identity space"]
 provenance = ["source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 24
-unimplemented = ["assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
+focused_expression_result_tests = 29
+unimplemented = ["assignment execution", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5649,3 +5650,43 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 offset_addition_storage_use_counts_indirect_calls_and_lowering = "not implemented"
 native_oracle_status = "not required for this checked lookup and type transition; PrsUnaryModifier and MemberFind state the access, search, offset, dimension, callback, and class rules directly"
+
+[[feature]]
+id = "HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
+description = "Assignment expressions validate their destination, retain its result type, and record right-operand conversion and compound execution classes."
+sources = [
+  "Compiler/CInit.HC:319-329 assignment operator table",
+  "Compiler/PrsExp.HC:15-63 PrsAddOp pointer arithmetic preparation",
+  "Compiler/PrsExp.HC:201-209 assignment destination validation",
+  "Compiler/OptPass012.HC:824-897 assignment conversion and execution flags",
+  "Compiler/CompilerA.HH:101-114 assignment IC identities and values"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 272
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "assignment expressions nested inside provided fixed arguments on resolved direct function-body calls"
+operator_inventory = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
+destination_rule = "walk the left operand in lvalue context and require a checked primitive storage or pointer type"
+accepted_destinations = ["bound primitive or pointer object", "dereference", "final array or pointer index", "ordinary aggregate member"]
+rejected_destinations = ["object value", "address value", "array value", "callback value", "function value", "unavailable value", "by-value aggregate"]
+result_rule = "retain the destination semantic type and its source-visible forwarded integer or F64 class"
+simple_conversion_rule = "record ICF_RES_TO_F64 on an integer right operand for an F64 destination and ICF_RES_TO_INT on an F64 right operand for any non-F64 destination"
+arithmetic_compound_rule = "convert an integer right operand for an F64 destination; select F64 execution when either side is F64 while preserving the destination result class"
+integer_compound_rule = "record ICF_RES_TO_INT for an F64 right operand and select integer execution for shift and bitwise assignment"
+pointer_rule = "retain pointer depth for assignment, +=, and -=; pointee scaling remains a later lowering fact"
+nested_rule = "right-associative assignment results can serve as the right operand of the enclosing assignment without losing their own conversion facts"
+diagnostic = "HCSEMA0046 at the assignment operator for an invalid destination"
+provenance = ["operator", "left operand", "right operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_write_pointer_scaling_constant_folding_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, PrsAddOp, and OptPass012 directly state destination legality, result class, conversion intent, and compound execution selection"
