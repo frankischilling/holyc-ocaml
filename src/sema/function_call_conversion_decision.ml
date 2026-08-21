@@ -116,6 +116,9 @@ let rec source_actual_class policies ~before_item_index expression =
       | Function_call_resolution.Dereference
       | Function_call_resolution.Pre_increment
       | Function_call_resolution.Pre_decrement -> Unresolved_actual_class)
+  | Function_call_resolution.Postfix_expression postfix ->
+      source_actual_class policies ~before_item_index
+        (Function_call_resolution.postfix_operand postfix)
   | Function_call_resolution.Binary_expression binary -> (
       match Function_call_resolution.binary_operator binary with
       | Generated.Intermediate_codes.Ic_power -> F64_result
@@ -166,7 +169,6 @@ let rec source_actual_class policies ~before_item_index expression =
       | Function_call_resolution.Defined_expression ) -> Integer_result
   | Function_call_resolution.Unresolved_expression
       ( Function_call_resolution.Identifier_expression
-      | Function_call_resolution.Postfix_expression
       | Function_call_resolution.Postfix_cast_expression
       | Function_call_resolution.Call_expression
       | Function_call_resolution.Index_expression

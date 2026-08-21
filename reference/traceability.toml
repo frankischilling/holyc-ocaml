@@ -4513,7 +4513,7 @@ status = "implemented"
 issue = 242
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed literal arguments on already resolved direct function-body calls after target policy"
-semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix and binary operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
+semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix, postfix-update, and binary operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
 integer_actuals = ["integer literal", "character literal", "string literal"]
 f64_actuals = ["float literal"]
 parentheses = "preserve the nested literal class"
@@ -4521,12 +4521,13 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "postfix", "call", "index", "member"]
+unresolved_actuals = ["identifier", "call", "index", "member"]
 integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
 primitive_postfix_cast_extension = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
 named_aggregate_postfix_cast_extension = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
 prefix_expression_extension = "HC-SEMA-PREFIX-EXPRESSION-CALL-CONVERSION"
 binary_expression_extension = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
+postfix_expression_extension = "HC-SEMA-POSTFIX-EXPRESSION-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4753,6 +4754,48 @@ lvalue_validation_and_assignment_effects = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, OptFixupBinaryOp1, OptPass012, CInit, and PrsFunCall state the operator inventory, retained classes, and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-POSTFIX-EXPRESSION-CALL-CONVERSION"
+description = "Postfix increment and decrement fixed arguments retain their recursive source class and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:81-118 postfix IC construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:1101-1112 postfix token and precedence handling",
+  "Compiler/OptPass012.HC:292-298 postfix increment and decrement class handling",
+  "Compiler/CompilerA.HH:63-64 IC__PP and IC__MM",
+  "Compiler/CInit.HC:56-57 postfix IC metadata",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 255
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed postfix-update arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains post-increment or post-decrement, the operator origin, recursive operand view, and complete expression origin"
+operators = ["IC__PP", "IC__MM"]
+result_rule = "the result class follows the recursively audited operand class"
+unresolved_rule = "an unavailable operand class remains unresolved"
+parentheses = "preserve the recursively classified postfix result"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "the constructor accepts only a valid operator origin and validates the recursive operand view"
+provenance = ["operator", "operand", "nested prefix, binary, and cast", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation_and_update_effects = "not implemented"
+old_value_execution = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptPass012, CompilerA, CInit, and PrsFunCall state the retained class and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"

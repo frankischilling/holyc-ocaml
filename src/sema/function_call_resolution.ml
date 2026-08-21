@@ -7,7 +7,6 @@ type unresolved_expression_kind =
   | Sizeof_expression
   | Offset_expression
   | Defined_expression
-  | Postfix_expression
   | Postfix_cast_expression
   | Call_expression
   | Index_expression
@@ -23,6 +22,8 @@ type prefix_operator =
   | Pre_increment
   | Pre_decrement
 
+type postfix_operator = Post_increment | Post_decrement
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -30,6 +31,7 @@ type argument_expression_kind =
   | String_literal
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
+  | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
   | Unresolved_expression of unresolved_expression_kind
@@ -43,6 +45,12 @@ and prefix_expression = {
   prefix_operator : prefix_operator;
   prefix_operator_origin : Symbol.origin;
   prefix_operand : argument_expression;
+}
+
+and postfix_expression = {
+  postfix_operator : postfix_operator;
+  postfix_operator_origin : Symbol.origin;
+  postfix_operand : argument_expression;
 }
 
 and binary_expression = {
@@ -172,6 +180,12 @@ let prefix_operator_origin (prefix : prefix_expression) =
   prefix.prefix_operator_origin
 
 let prefix_operand (prefix : prefix_expression) = prefix.prefix_operand
+let postfix_operator (postfix : postfix_expression) = postfix.postfix_operator
+
+let postfix_operator_origin (postfix : postfix_expression) =
+  postfix.postfix_operator_origin
+
+let postfix_operand (postfix : postfix_expression) = postfix.postfix_operand
 let binary_operator (binary : binary_expression) = binary.binary_operator
 
 let binary_operator_origin (binary : binary_expression) =
@@ -210,6 +224,10 @@ let prefix_operator_name = function
   | Pre_increment -> "pre-increment"
   | Pre_decrement -> "pre-decrement"
 
+let postfix_operator_name = function
+  | Post_increment -> "post-increment"
+  | Post_decrement -> "post-decrement"
+
 let binary_operator_name = Generated.Intermediate_codes.to_source_name
 
 let unresolved_expression_kind_name = function
@@ -218,7 +236,6 @@ let unresolved_expression_kind_name = function
   | Sizeof_expression -> "sizeof"
   | Offset_expression -> "offset"
   | Defined_expression -> "defined"
-  | Postfix_expression -> "postfix"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
   | Index_expression -> "index"
@@ -231,6 +248,7 @@ let argument_expression_kind_name = function
   | String_literal -> "string-literal"
   | Parenthesized_expression _ -> "parenthesized"
   | Prefix_expression _ -> "prefix"
+  | Postfix_expression _ -> "postfix"
   | Postfix_cast_expression _ -> "postfix-cast"
   | Binary_expression _ -> "binary"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
@@ -320,6 +338,18 @@ let make_prefix_argument_expression ~operator ~operator_origin ~operand =
            prefix_operator = operator;
            prefix_operator_origin = operator_origin;
            prefix_operand = operand;
+         })
+
+let make_postfix_argument_expression ~operator ~operator_origin ~operand =
+  if not (valid_origin operator_origin) then
+    Error "call argument postfix operator has an invalid source origin"
+  else
+    Ok
+      (Postfix_expression
+         {
+           postfix_operator = operator;
+           postfix_operator_origin = operator_origin;
+           postfix_operand = operand;
          })
 
 let checked_binary_operator operator =
@@ -463,6 +493,8 @@ let rec validate_argument_expression table parent visible expression =
       validate_argument_expression table parent visible grouped
   | Prefix_expression prefix ->
       validate_argument_expression table parent visible prefix.prefix_operand
+  | Postfix_expression postfix ->
+      validate_argument_expression table parent visible postfix.postfix_operand
   | Binary_expression binary -> (
       match
         validate_argument_expression table parent visible binary.binary_left

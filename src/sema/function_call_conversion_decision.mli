@@ -28,10 +28,11 @@ val decide :
     Postfix casts use the source-visible class of their explicit target,
     including aggregate backing chains. Unary plus, unary minus, and logical not
     keep the recursively forwarded operand class. Address-of uses the integer
-    side. Power uses F64; logical and comparison operators use the integer side;
-    and ordinary arithmetic, shifts, and bitwise operators combine audited
-    operand classes. Parentheses preserve these classes. Assignment families and
-    other expression shapes remain explicit unresolved results. *)
+    side. Post-increment and post-decrement keep the recursively forwarded
+    operand class. Power uses F64; logical and comparison operators use the
+    integer side; and ordinary arithmetic, shifts, and bitwise operators combine
+    audited operand classes. Parentheses preserve these classes. Assignment
+    families and other expression shapes remain explicit unresolved results. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
