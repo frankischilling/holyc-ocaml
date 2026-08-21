@@ -5517,8 +5517,8 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 38
-unimplemented = ["assignment execution", "module function value typing", "indirect-call signature checking", "default typing", "variadic promotion and ABI placement", "IR lowering"]
+focused_expression_result_tests = 40
+unimplemented = ["assignment execution", "module function value typing", "member and computed callback-call checking", "default typing", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5800,5 +5800,51 @@ diagnostic = "HCSEMA0046 rejects a missing or ambiguous owning function and dupl
 provenance = ["direct or deferred call identity", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-indirect_signature_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
+member_and_computed_callback_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this checked result-class boundary; PrsFunCall assigns tmpf->return_class directly to the call and cleanup IC sequence"
+
+[[feature]]
+id = "HC-SEMA-TYPED-INDIRECT-CALLS"
+description = "Calls through typed function-pointer parameters, locals, and globals retain their callback signature, argument mapping, conversion policy, and return type."
+sources = [
+  "Compiler/PrsVar.HC:321-357 function-pointer header and stored pointer value construction",
+  "Compiler/PrsExp.HC:383-590 PrsFunCall argument checks, return class, indirect call, and cleanup",
+  "Compiler/PrsExp.HC:761-807 parameter, local, static-local, and callback expression handling",
+  "Compiler/PrsExp.HC:867-904 global callback expression handling",
+  "Compiler/PrsExp.HC:1016-1021 callable expression dispatch",
+  "Kernel/QSort.HC:1-103 callback-parameter call sites"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_conversion_policy.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 280
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "identifier and explicit-dereference calls through function-pointer parameters and scalar function-pointer automatic locals, static locals, and globals in checked function bodies"
+callee_identity = "retain the selected source occurrence, callback binding, identifier or dereference form, and a distinct indirect-call record"
+signature_rule = "use the recursive callback return and parameter types already resolved for the selected value binding"
+argument_rule = "reuse fixed provided, explicit hole, trailing absence, non-trailing default, and variadic-tail checks from PrsFunCall"
+conversion_rule = "reuse fixed target policy and expression-result decisions; variadic values retain only their actual class"
+return_rule = "nested indirect calls use the callback return type; pointer returns are addresses and by-value aggregate returns follow visible backing headers"
+validation = ["symbol-table ownership", "function and occurrence ownership", "callback aggregate ownership", "source-order visibility", "nested-call identity uniqueness"]
+provenance = ["callee occurrence", "call punctuation", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_call_resolution_tests = 10
+focused_conversion_policy_tests = 7
+focused_expression_result_tests = 40
+focused_conversion_decision_tests = 34
+unsupported_callees = ["function-pointer arrays without an index", "aggregate member callbacks", "arbitrary computed callback expressions", "untyped outer callback values"]
+callback_storage_reads_default_evaluation_member_and_computed_calls_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this structural semantic boundary; PrsVar and PrsExp directly retain the callback header and pass it to PrsFunCall"

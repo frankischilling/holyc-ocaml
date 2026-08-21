@@ -78,6 +78,8 @@ let function_named result name =
 
 let direct = function
   | Semantic_function_call_conversion_decision.Direct_call_decision call -> call
+  | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
       Alcotest.fail "expected a direct call conversion decision"
 
@@ -105,6 +107,8 @@ let direct_named result owner callee =
           |> Semantic_function_call_resolution.call_callee_name
         in
         if String.equal name callee then Some call else None
+    | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+        None
     | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
         None)
   |> function
@@ -1823,6 +1827,8 @@ let defaults_and_variadics_remain_separate () =
     | Semantic_function_call_expression_result.Direct_call_result call ->
         call |> Semantic_function_call_expression_result.direct_variadic_results
         |> List.hd
+    | Semantic_function_call_expression_result.Indirect_call_result _ ->
+        Alcotest.fail "expected a direct typed variadic call"
     | Semantic_function_call_expression_result.Deferred_call_result _ ->
         Alcotest.fail "expected a direct typed variadic call"
   in
@@ -1862,9 +1868,17 @@ let deferred_provenance_foreign_and_purity () =
     |> Semantic_function_call_conversion_decision.function_calls
   in
   (match deferred_calls with
-  | [ Semantic_function_call_conversion_decision.Deferred_call_decision _ ] ->
-      ()
-  | _ -> Alcotest.fail "expected one deferred callback call");
+  | [ Semantic_function_call_conversion_decision.Indirect_call_decision call ]
+    ->
+      Alcotest.(check (list string))
+        "the callback header supplies its fixed conversion"
+        [ "provided:integer-result:ICF_RES_TO_F64" ]
+        (call
+       |> Semantic_function_call_conversion_decision.indirect_fixed_decisions
+        |> List.map (fun fixed ->
+            fixed |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name))
+  | _ -> Alcotest.fail "expected one typed indirect callback call");
   let generated =
     prepare ~path:"call-decision-generated.HC"
       "#define VALUE 1.0\n\

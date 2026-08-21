@@ -1,4 +1,5 @@
 type call_syntax = Parenthesized | Parenthesis_free
+type callee_form = Identifier_callee | Dereferenced_identifier_callee of int
 type argument_kind = Provided | Omitted
 
 type unresolved_expression_kind =
@@ -54,7 +55,13 @@ and argument_expression
 
 type argument
 type call
+type callable
 type function_input
+
+val make_callable :
+  return_type:Type_reference.t ->
+  function_pointer:Function_type_resolution.function_pointer ->
+  callable
 
 val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
@@ -112,6 +119,8 @@ val make_call :
   callee_occurrence_index:int ->
   callee_name:string ->
   callee_origin:Symbol.origin ->
+  ?callee_form:callee_form ->
+  ?callable:callable ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
   argument list ->
@@ -132,6 +141,7 @@ type fixed_value =
 
 type fixed_argument
 type direct_call
+type indirect_call
 
 type deferred_reason =
   | Local_callee of Function_binding_index.binding
@@ -141,6 +151,7 @@ type deferred_reason =
 
 type call_resolution =
   | Direct_call of direct_call
+  | Indirect_call of indirect_call
   | Deferred_call of {
       call : call;
       occurrence : Module_expression_binding.occurrence;
@@ -192,6 +203,8 @@ val call_index : call -> int
 val call_callee_occurrence_index : call -> int
 val call_callee_name : call -> string
 val call_callee_origin : call -> Symbol.origin
+val call_callee_form : call -> callee_form
+val call_callable : call -> callable option
 val call_origin : call -> Symbol.origin
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
@@ -245,7 +258,17 @@ val direct_target_symbol : direct_call -> Symbol.t
 val direct_fixed_arguments : direct_call -> fixed_argument list
 val direct_variadic_arguments : direct_call -> argument list
 val direct_variadic_count : direct_call -> int64
+val callable_return_type : callable -> Type_reference.t
+val callable_pointer : callable -> Function_type_resolution.function_pointer
+val callable_signature : callable -> Function_type_resolution.signature
+val indirect_source : indirect_call -> call
+val indirect_occurrence : indirect_call -> Module_expression_binding.occurrence
+val indirect_callable : indirect_call -> callable
+val indirect_fixed_arguments : indirect_call -> fixed_argument list
+val indirect_variadic_arguments : indirect_call -> argument list
+val indirect_variadic_count : indirect_call -> int64
 val call_syntax_name : call_syntax -> string
+val callee_form_name : callee_form -> string
 val argument_kind_name : argument_kind -> string
 val prefix_operator_name : prefix_operator -> string
 val postfix_operator_name : postfix_operator -> string

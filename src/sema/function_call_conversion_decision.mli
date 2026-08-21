@@ -14,9 +14,11 @@ type fixed_path = Provided_path of provided_decision | Declared_default_path
 type fixed_decision
 type variadic_decision
 type direct_call
+type indirect_call
 
 type call_decision =
   | Direct_call_decision of direct_call
+  | Indirect_call_decision of indirect_call
   | Deferred_call_decision of Function_call_resolution.call_resolution
 
 type resolved_function
@@ -56,6 +58,12 @@ val function_calls : resolved_function -> call_decision list
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_fixed_decisions : direct_call -> fixed_decision list
 val direct_variadic_decisions : direct_call -> variadic_decision list
+
+val indirect_source :
+  indirect_call -> Function_call_conversion_policy.indirect_call
+
+val indirect_fixed_decisions : indirect_call -> fixed_decision list
+val indirect_variadic_decisions : indirect_call -> variadic_decision list
 
 val fixed_source :
   fixed_decision -> Function_call_conversion_policy.fixed_policy

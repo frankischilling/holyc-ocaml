@@ -117,6 +117,8 @@ let calls_named result name =
 
 let direct = function
   | Semantic_function_call_resolution.Direct_call call -> call
+  | Semantic_function_call_resolution.Indirect_call _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_resolution.Deferred_call _ ->
       Alcotest.fail "expected a resolved direct function call"
 
@@ -125,6 +127,13 @@ let only_direct result name =
   | [ call ] -> direct call
   | calls ->
       Alcotest.failf "expected one call in %s, got %d" name (List.length calls)
+
+let indirect = function
+  | Semantic_function_call_resolution.Indirect_call call -> call
+  | Semantic_function_call_resolution.Direct_call _ ->
+      Alcotest.fail "expected an indirect call, got a direct call"
+  | Semantic_function_call_resolution.Deferred_call _ ->
+      Alcotest.fail "expected a resolved indirect call"
 
 let symbol_id symbol = Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
 
@@ -309,14 +318,25 @@ let variadic_slots_and_shape_errors () =
   expect_error "HCSEMA0042"
     "call to \"Var\" omits variadic argument 2; variadic positions require an \
      expression"
-    "extern I64 Var(I64 fixed,...);I64 Caller(){return Var(1,,3);}"
+    "extern I64 Var(I64 fixed,...);I64 Caller(){return Var(1,,3);}";
+  expect_error "HCSEMA0040"
+    "call to \"callback\" is missing required argument 1 (value)"
+    "I64 Caller(I64 (*callback)(I64 value)){return callback();}";
+  expect_error "HCSEMA0041"
+    "call to \"callback\" provides argument 2, but its active header has 1 \
+     fixed parameter"
+    "I64 Caller(I64 (*callback)(I64 value)){return (*callback)(1,2);}";
+  expect_error "HCSEMA0042"
+    "call to \"callback\" omits variadic argument 2; variadic positions \
+     require an expression"
+    "I64 Caller(I64 (*callback)(I64 fixed,...)){return callback(1,,3);}"
 
-let indirect_categories_remain_deferred () =
+let typed_function_pointer_calls_resolve_indirectly () =
   let prepared =
     prepare ~path:"function-call-deferred.HC"
-      "I64 (*GlobalCallback)();\n\
+      "I64 (*GlobalCallback)();I64 (*CallbackArray)()[2];\n\
        I64 Caller(I64 (*local_callback)()){\n\
-       local_callback();return GlobalCallback();\n\
+       local_callback();GlobalCallback();CallbackArray();return OuterCallback();\n\
        }"
   in
   let result = resolve prepared |> checked in
@@ -324,13 +344,86 @@ let indirect_categories_remain_deferred () =
     calls_named result "Caller"
     |> List.map (function
       | Semantic_function_call_resolution.Direct_call _ -> "direct"
+      | Semantic_function_call_resolution.Indirect_call _ -> "indirect"
       | Semantic_function_call_resolution.Deferred_call { reason; _ } ->
           Semantic_function_call_resolution.deferred_reason_name reason)
   in
   Alcotest.(check (list string))
     "function pointers are not mislabeled as direct calls"
-    [ "local-callee"; "global-callee" ]
+    [ "indirect"; "indirect"; "global-callee"; "outer-callee" ]
     reasons
+
+let indirect_headers_bind_defaults_holes_and_varargs () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-call-indirect-headers.HC"
+          "F64 (*Global)(I64 first=1,I64 required,F64 last=3,...);\n\
+           I64 Caller(F64 (*parameter)(I64 first=1,I64 required,F64 \
+           last=3,...),F64 (**deep)(I64 first=1,I64 required,F64 last=3,...)){\n\
+           F64 (*automatic)(I64 first=1,I64 required,F64 last=3,...);\n\
+           static F64 (*stored)(I64 first=1,I64 required,F64 last=3,...);\n\
+           parameter(,2,,4);(**deep)(,2,,4);(*automatic)(,2,,4);stored(,2,,4);\n\
+           return Global(,2,,4);}"
+      in
+      let calls =
+        resolve prepared |> checked |> fun result ->
+        calls_named result "Caller" |> List.map indirect
+      in
+      Alcotest.(check (list string))
+        "all checked callback storage kinds resolve indirectly"
+        [ "parameter"; "deep"; "automatic"; "stored"; "Global" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_callee_name)
+           calls);
+      Alcotest.(check (list string))
+        "the explicit QSort-shaped dereference remains visible"
+        [
+          "identifier";
+          "dereferenced-identifier:2";
+          "dereferenced-identifier:1";
+          "identifier";
+          "identifier";
+        ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_callee_form
+             |> Semantic_function_call_resolution.callee_form_name)
+           calls);
+      Alcotest.(check (list string))
+        "every callback keeps its F64 return header"
+        [ "F64"; "F64"; "F64"; "F64"; "F64" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_callable
+             |> Semantic_function_call_resolution.callable_return_type
+             |> Semantic_type_reference.spelling)
+           calls);
+      let path call =
+        call |> Semantic_function_call_resolution.indirect_fixed_arguments
+        |> List.map (fun fixed ->
+            match Semantic_function_call_resolution.fixed_value fixed with
+            | Semantic_function_call_resolution.Declared_default _ -> "default"
+            | Semantic_function_call_resolution.Provided_argument _ ->
+                "provided")
+      in
+      List.iter
+        (fun call ->
+          Alcotest.(check (list string))
+            "callback holes select their declared defaults"
+            [ "default"; "provided"; "default" ]
+            (path call);
+          Alcotest.(check (pair int64 (list int)))
+            "callback varargs retain count and source slot" (1L, [ 3 ])
+            ( Semantic_function_call_resolution.indirect_variadic_count call,
+              call
+              |> Semantic_function_call_resolution.indirect_variadic_arguments
+              |> List.map Semantic_function_call_resolution.argument_index ))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let generated_and_included_call_provenance () =
   let generated =
@@ -539,6 +632,68 @@ let invalid_inputs_are_stable_and_pure () =
     only_direct first "Caller"
     |> Semantic_function_call_resolution.direct_source
   in
+  let foreign_callable_prepared =
+    prepare ~path:"function-call-foreign-callable.HC"
+      "class ForeignBox {};I64 Foreign(ForeignBox (*callback)()){return 0;}"
+  in
+  let callback_parameter =
+    foreign_callable_prepared.function_types
+    |> Semantic_function_type_resolution.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_function_type_resolution.function_symbol
+        |> Semantic_symbol.name |> String.equal "Foreign")
+    |> Semantic_function_type_resolution.function_signature
+    |> Semantic_function_type_resolution.signature_parameters |> List.hd
+  in
+  let callback_pointer =
+    match
+      Semantic_function_type_resolution.parameter_declarator_kind
+        callback_parameter
+    with
+    | Semantic_function_type_resolution.Function_pointer pointer -> pointer
+    | Semantic_function_type_resolution.Object ->
+        Alcotest.fail "expected a foreign callback parameter"
+  in
+  let foreign_callable =
+    Semantic_function_call_resolution.make_callable
+      ~return_type:
+        (Semantic_function_type_resolution.parameter_type_reference
+           callback_parameter)
+      ~function_pointer:callback_pointer
+  in
+  let call_with_foreign_callable =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index caller_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              caller_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name caller_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin caller_call)
+         ~callable:foreign_callable
+         ~origin:(Semantic_function_call_resolution.call_origin caller_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
+         [])
+  in
+  let foreign_callable_inputs =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ call_with_foreign_callable ]
+              else [])))
+  in
+  expect_invalid "foreign callback return type" foreign_callable_inputs;
   let foreign_call =
     checked
       (Semantic_function_call_resolution.make_call
@@ -741,6 +896,8 @@ let named_cast_targets_validate_source_identity () =
             |> List.map (function
               | Semantic_function_call_resolution.Direct_call direct ->
                   Semantic_function_call_resolution.direct_source direct
+              | Semantic_function_call_resolution.Indirect_call indirect ->
+                  Semantic_function_call_resolution.indirect_source indirect
               | Semantic_function_call_resolution.Deferred_call { call; _ } ->
                   call)
         in
@@ -864,8 +1021,10 @@ let tests =
       parenthesis_free_and_oracle_evidence;
     Alcotest.test_case "variadic slots and shape errors" `Quick
       variadic_slots_and_shape_errors;
-    Alcotest.test_case "indirect categories are deferred" `Quick
-      indirect_categories_remain_deferred;
+    Alcotest.test_case "typed function-pointer calls" `Quick
+      typed_function_pointer_calls_resolve_indirectly;
+    Alcotest.test_case "indirect defaults, holes, and varargs" `Quick
+      indirect_headers_bind_defaults_holes_and_varargs;
     Alcotest.test_case "generated and included provenance" `Quick
       generated_and_included_call_provenance;
     Alcotest.test_case "invalid inputs, determinism, and purity" `Quick

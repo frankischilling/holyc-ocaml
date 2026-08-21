@@ -30,9 +30,11 @@ type fixed_path =
 
 type fixed_result
 type direct_call
+type indirect_call
 
 type call_result =
   | Direct_call_result of direct_call
+  | Indirect_call_result of indirect_call
   | Deferred_call_result of Function_call_resolution.call_resolution
 
 type resolved_function
@@ -64,6 +66,12 @@ val function_calls : resolved_function -> call_result list
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_fixed_results : direct_call -> fixed_result list
 val direct_variadic_results : direct_call -> expression_result list
+
+val indirect_source :
+  indirect_call -> Function_call_conversion_policy.indirect_call
+
+val indirect_fixed_results : indirect_call -> fixed_result list
+val indirect_variadic_results : indirect_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
 val fixed_path : fixed_result -> fixed_path
 val result_id : expression_result -> Id.t

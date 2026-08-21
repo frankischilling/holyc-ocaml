@@ -90,6 +90,8 @@ let function_named results name =
 
 let direct = function
   | Semantic_function_call_expression_result.Direct_call_result call -> call
+  | Semantic_function_call_expression_result.Indirect_call_result _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_expression_result.Deferred_call_result _ ->
       Alcotest.fail "expected a direct typed call"
 
@@ -116,6 +118,7 @@ let direct_named results owner callee =
           |> Semantic_function_call_resolution.call_callee_name
         in
         if String.equal name callee then Some call else None
+    | Semantic_function_call_expression_result.Indirect_call_result _ -> None
     | Semantic_function_call_expression_result.Deferred_call_result _ -> None)
   |> function
   | [ call ] -> call
@@ -138,6 +141,8 @@ let decision_direct_named result owner callee =
           |> Semantic_function_call_resolution.call_callee_name
         in
         if String.equal name callee then Some call else None
+    | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+        None
     | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
         None)
   |> function
@@ -534,6 +539,8 @@ let aggregate_dereference_uses_source_visible_backing () =
             |> List.map (fun fixed ->
                 fixed |> Semantic_function_call_conversion_decision.fixed_path
                 |> Semantic_function_call_conversion_decision.fixed_path_name)
+        | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+            Alcotest.fail "expected a direct call conversion"
         | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
             Alcotest.fail "expected a direct call conversion"
       in
@@ -747,6 +754,8 @@ let aggregate_indexes_use_source_visible_backing () =
             |> Semantic_function_call_conversion_decision.direct_fixed_decisions
             |> List.hd |> Semantic_function_call_conversion_decision.fixed_path
             |> Semantic_function_call_conversion_decision.fixed_path_name
+        | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+            Alcotest.fail "expected a direct aggregate-index conversion"
         | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
             Alcotest.fail "expected a direct aggregate-index conversion"
       in
@@ -1129,6 +1138,8 @@ let member_result_uses_source_visible_backing () =
             |> Semantic_function_call_conversion_decision.direct_fixed_decisions
             |> List.hd |> Semantic_function_call_conversion_decision.fixed_path
             |> Semantic_function_call_conversion_decision.fixed_path_name
+        | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+            Alcotest.fail "expected a direct member conversion"
         | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
             Alcotest.fail "expected a direct member conversion"
       in
@@ -1390,6 +1401,8 @@ let assignment_conversions_separate_storage_and_execution () =
             |> List.map (fun fixed ->
                 fixed |> Semantic_function_call_conversion_decision.fixed_path
                 |> Semantic_function_call_conversion_decision.fixed_path_name)
+        | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+            Alcotest.fail "expected direct assignment call conversions"
         | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
             Alcotest.fail "expected direct assignment call conversions"
       in
@@ -2089,6 +2102,8 @@ let nested_direct_calls_retain_return_results () =
                   Semantic_function_call_resolution.call_index call )
             | Some (Semantic_function_call_resolution.Deferred_call _) ->
                 Alcotest.fail "expected a retained direct nested call"
+            | Some (Semantic_function_call_resolution.Indirect_call _) ->
+                Alcotest.fail "expected a retained direct nested call"
             | None -> Alcotest.fail "expected a retained nested call result")
       in
       Alcotest.(check (list (pair string int)))
@@ -2169,30 +2184,109 @@ let nested_calls_use_source_visible_headers_and_variadic_paths () =
         == variadic))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let deferred_and_generated_nested_calls_remain_explicit () =
+let nested_indirect_calls_use_callback_return_headers () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-nested-indirect.HC"
+          "F64 class FloatBox {};\n\
+           extern I64 Target(F64 integer,I64 floating,I64 pointer,F64 box);\n\
+           extern I64 Sink(I64 fixed=0,...);\n\
+           I64 Caller(I64 (*MakeInt)(),F64 (*MakeFloat)(),\n\
+           I64 *(*MakePtr)(),FloatBox (*MakeBox)()){\n\
+           Target((*MakeInt)(),MakeFloat(),MakePtr(),MakeBox());\n\
+           return Sink(,MakeFloat());}"
+      in
+      let policies, results = analyze prepared in
+      let roots = direct_named results "Caller" "Target" |> provided_results in
+      Alcotest.(check (list string))
+        "callback calls keep their declared return types"
+        [ "I64"; "F64"; "I64*"; "FloatBox" ]
+        (List.map type_name roots);
+      Alcotest.(check (list string))
+        "callback pointer and object returns remain distinct"
+        [ "object-value"; "object-value"; "address-value"; "object-value" ]
+        (category_names roots);
+      Alcotest.(check (list string))
+        "callback aggregate returns follow their backing class"
+        [ "integer-result"; "f64-result"; "integer-result"; "f64-result" ]
+        (class_names roots);
+      roots
+      |> List.iter (fun result ->
+          match
+            Semantic_function_call_expression_result.result_call_resolution
+              result
+          with
+          | Some (Semantic_function_call_resolution.Indirect_call _) -> ()
+          | Some (Semantic_function_call_resolution.Direct_call _)
+          | Some (Semantic_function_call_resolution.Deferred_call _)
+          | None -> Alcotest.fail "expected a retained indirect call identity");
+      let decisions =
+        Holyc_lib.decide_function_call_conversions prepared.session ~policies
+          ~expressions:results
+        |> checked_decision
+      in
+      let paths =
+        decision_direct_named decisions "Caller" "Target"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.map (fun fixed ->
+            fixed |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name)
+      in
+      Alcotest.(check (list string))
+        "outer fixed calls consume callback return classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+          "provided:f64-result:none";
+        ]
+        paths;
+      let sink_variadic =
+        direct_named results "Caller" "Sink"
+        |> Semantic_function_call_expression_result.direct_variadic_results
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "a variadic callback result keeps its actual class" "f64-result"
+        (sink_variadic |> Semantic_function_call_expression_result.result_class
+       |> Semantic_function_call_expression_result.result_class_name))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let indirect_included_and_generated_nested_calls_keep_identity () =
   let prepared =
     prepare ~path:"call-expression-deferred-call.HC"
       "extern I64 Target(F64 value);I64 Caller(I64 (*callback)()){return \
        Target(callback());}"
   in
   let _, results = analyze prepared in
-  let deferred =
+  let indirect_result =
     direct_named results "Caller" "Target" |> provided_results |> List.hd
   in
-  Alcotest.(check string)
-    "a deferred callback call remains unavailable" "unavailable"
-    (deferred |> Semantic_function_call_expression_result.result_category
-   |> Semantic_function_call_expression_result.value_category_name);
+  Alcotest.(check (pair string string))
+    "a callback call uses its header return type" ("I64", "object-value")
+    ( type_name indirect_result,
+      indirect_result
+      |> Semantic_function_call_expression_result.result_category
+      |> Semantic_function_call_expression_result.value_category_name );
   (match
-     Semantic_function_call_expression_result.result_call_resolution deferred
+     Semantic_function_call_expression_result.result_call_resolution
+       indirect_result
    with
-  | Some (Semantic_function_call_resolution.Deferred_call _) -> ()
+  | Some (Semantic_function_call_resolution.Indirect_call indirect) ->
+      let call = Semantic_function_call_resolution.indirect_source indirect in
+      Alcotest.(check string)
+        "the callback call keeps its callee form" "identifier"
+        (call |> Semantic_function_call_resolution.call_callee_form
+       |> Semantic_function_call_resolution.callee_form_name)
   | Some (Semantic_function_call_resolution.Direct_call _) ->
-      Alcotest.fail "expected the callback call to stay deferred"
-  | None -> Alcotest.fail "expected the deferred call identity to be retained");
+      Alcotest.fail "expected a retained indirect callback call"
+  | Some (Semantic_function_call_resolution.Deferred_call _) ->
+      Alcotest.fail "expected the typed callback call to resolve"
+  | None -> Alcotest.fail "expected the indirect call identity to be retained");
   with_included_source
-    "extern F64 Nested();extern I64 Target(I64 value);\n\
-     I64 Caller(){return Target(Nested());}" (fun included ->
+    "extern I64 Target(I64 value);\n\
+     I64 Caller(F64 (*callback)()){return Target(callback());}" (fun included ->
       let _, results = analyze included in
       let result =
         direct_named results "Caller" "Target" |> provided_results |> List.hd
@@ -2200,8 +2294,10 @@ let deferred_and_generated_nested_calls_remain_explicit () =
       match
         Semantic_function_call_expression_result.result_call_resolution result
       with
-      | Some (Semantic_function_call_resolution.Direct_call direct) ->
-          let call = Semantic_function_call_resolution.direct_source direct in
+      | Some (Semantic_function_call_resolution.Indirect_call indirect) ->
+          let call =
+            Semantic_function_call_resolution.indirect_source indirect
+          in
           let source =
             Source_manager.find
               (Session.sources included.session)
@@ -2218,16 +2314,17 @@ let deferred_and_generated_nested_calls_remain_explicit () =
             "included nested call keeps its source file" "calls.HC"
             (Source_file.path source |> Filename.basename);
           Alcotest.(check string)
-            "included nested call keeps its direct identity" "Nested"
+            "included nested call keeps its indirect identity" "callback"
             (Semantic_function_call_resolution.call_callee_name call)
+      | Some (Semantic_function_call_resolution.Direct_call _)
       | Some (Semantic_function_call_resolution.Deferred_call _) ->
-          Alcotest.fail "expected an included direct nested call"
+          Alcotest.fail "expected an included indirect nested call"
       | None -> Alcotest.fail "expected an included nested call identity");
   let generated =
     prepare ~path:"call-expression-generated-call.HC"
-      "#define CALL Nested()\n\
-       extern F64 Nested();extern I64 Target(I64 value);\n\
-       I64 Caller(){return Target(CALL);}"
+      "#define CALL callback()\n\
+       extern I64 Target(I64 value);\n\
+       I64 Caller(F64 (*callback)()){return Target(CALL);}"
   in
   let policies =
     Test_function_call_conversion_policy.analyze generated
@@ -2270,6 +2367,26 @@ let deferred_and_generated_nested_calls_remain_explicit () =
         (Option.is_some location.defined_at)
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated nested call provenance"
+
+let unsupported_member_callback_calls_remain_unresolved () =
+  let prepared =
+    prepare ~path:"call-expression-member-callee.HC"
+      "class Box {F64 (*callback)();};extern I64 Target(I64 value);\n\
+       I64 Caller(Box box){return Target(box.callback());}"
+  in
+  let _, results = analyze prepared in
+  let result =
+    direct_named results "Caller" "Target" |> provided_results |> List.hd
+  in
+  Alcotest.(check (triple string string bool))
+    "member callback calls are not assigned a guessed type"
+    ("unavailable", "unresolved", false)
+    ( result |> Semantic_function_call_expression_result.result_category
+      |> Semantic_function_call_expression_result.value_category_name,
+      result |> Semantic_function_call_expression_result.result_class
+      |> Semantic_function_call_expression_result.result_class_name,
+      result |> Semantic_function_call_expression_result.result_call_resolution
+      |> Option.is_some )
 
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
@@ -2390,8 +2507,12 @@ let tests =
       nested_direct_calls_retain_return_results;
     Alcotest.test_case "nested call headers and variadic paths" `Quick
       nested_calls_use_source_visible_headers_and_variadic_paths;
-    Alcotest.test_case "deferred and generated nested calls" `Quick
-      deferred_and_generated_nested_calls_remain_explicit;
+    Alcotest.test_case "nested indirect-call return results" `Quick
+      nested_indirect_calls_use_callback_return_headers;
+    Alcotest.test_case "indirect included generated nested calls" `Quick
+      indirect_included_and_generated_nested_calls_keep_identity;
+    Alcotest.test_case "unsupported member callback call" `Quick
+      unsupported_member_callback_calls_remain_unresolved;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]
