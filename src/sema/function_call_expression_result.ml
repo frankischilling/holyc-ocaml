@@ -100,7 +100,9 @@ let result_class_name = function
   | F64_result -> "f64-result"
   | Unresolved_actual_class -> "unresolved"
 
-let invalid_input message = { code = "HCSEMA0046"; kind = Invalid_input message }
+let invalid_input message =
+  let kind = Invalid_input message in
+  { code = "HCSEMA0046"; kind }
 
 let error_code error = error.code
 let error_kind error = error.kind
