@@ -280,7 +280,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
     ]
@@ -289,7 +289,7 @@ let source_expression_classes_stay_explicit () =
         fixed |> Semantic_function_call_conversion_decision.fixed_path
         |> Semantic_function_call_conversion_decision.fixed_path_name));
   Alcotest.(check (list string))
-    "every unresolved top-level source kind remains named"
+    "every retained top-level source kind remains named"
     [
       "bound-identifier";
       "current-position";

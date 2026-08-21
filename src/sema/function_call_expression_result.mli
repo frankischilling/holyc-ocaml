@@ -82,6 +82,9 @@ val result_intrinsic_conversion : expression_result -> intrinsic_conversion
 val result_member_lookup :
   expression_result -> Aggregate_member_index.lookup option
 
+val result_call_resolution :
+  expression_result -> Function_call_resolution.call_resolution option
+
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string
