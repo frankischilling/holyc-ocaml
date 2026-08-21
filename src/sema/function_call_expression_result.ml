@@ -33,6 +33,7 @@ type expression_result = {
   array_rank : int;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
+  call_resolution : Function_call_resolution.call_resolution option;
 }
 
 type fixed_path =
@@ -103,6 +104,7 @@ let result_intrinsic_conversion (result : expression_result) =
   result.intrinsic_conversion
 
 let result_member_lookup (result : expression_result) = result.member_lookup
+let result_call_resolution (result : expression_result) = result.call_resolution
 
 let value_category_name = function
   | Object_value -> "object-value"
@@ -168,8 +170,8 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
-    ~source_type ~category ~result_class =
+    ?call_resolution ?(intrinsic_conversion = No_intrinsic_conversion) state ~id
+    ~source ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -182,6 +184,7 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       array_rank;
       intrinsic_conversion;
       member_lookup;
+      call_resolution;
     }
 
 let known_type table type_ =
@@ -252,16 +255,55 @@ let validate_update_operand operand ~operator_origin ~operator_name =
       | Function_value ),
       _ ) -> invalid (operator_name ^ " operand is not an lvalue")
 
+let policy_call_resolution = function
+  | Function_call_conversion_policy.Direct_call_policy policy ->
+      Function_call_resolution.Direct_call
+        (Function_call_conversion_policy.direct_source policy)
+  | Function_call_conversion_policy.Deferred_call_policy resolution ->
+      resolution
+
+let source_call = function
+  | Function_call_resolution.Direct_call direct ->
+      Function_call_resolution.direct_source direct
+  | Function_call_resolution.Deferred_call { call; _ } -> call
+
+let nested_call_resolution policies ~before_item_index origin =
+  let owners =
+    policies |> Function_call_conversion_policy.functions
+    |> List.filter (fun function_ ->
+        Function_call_conversion_policy.function_item_index function_
+        = before_item_index)
+  in
+  match owners with
+  | [] -> Error (invalid_input ~origin "nested call has no owning function")
+  | _ :: _ :: _ ->
+      Error (invalid_input ~origin "nested call has multiple owning functions")
+  | [ owner ] -> (
+      let matches =
+        owner |> Function_call_conversion_policy.function_calls
+        |> List.map policy_call_resolution
+        |> List.filter (fun resolution ->
+            Function_call_resolution.call_origin (source_call resolution)
+            = origin)
+      in
+      match matches with
+      | [] -> Ok None
+      | [ resolution ] -> Ok (Some resolution)
+      | _ ->
+          Error
+            (invalid_input ~origin
+               "nested call matches multiple call-resolution records"))
+
 let rec type_expression table members policies ~before_item_index ~context
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) category result_class
-          state =
+      let finish ?(source_type = None) ?(array_rank = 0) ?call_resolution
+          category result_class state =
         Ok
-          (make_result ~array_rank ~intrinsic_conversion state ~id ~source
-             ~source_type ~category ~result_class)
+          (make_result ~array_rank ?call_resolution ~intrinsic_conversion state
+             ~id ~source ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -348,9 +390,36 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Defined_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression
-          | Function_call_resolution.Postfix_cast_expression
-          | Function_call_resolution.Call_expression ->
-              finish Unavailable Unresolved_actual_class state))
+          | Function_call_resolution.Postfix_cast_expression ->
+              finish Unavailable Unresolved_actual_class state
+          | Function_call_resolution.Call_expression -> (
+              match
+                nested_call_resolution policies ~before_item_index
+                  (Function_call_resolution.argument_expression_origin source)
+              with
+              | Error _ as error -> error
+              | Ok None -> finish Unavailable Unresolved_actual_class state
+              | Ok (Some (Function_call_resolution.Deferred_call _ as call)) ->
+                  finish ~call_resolution:call Unavailable
+                    Unresolved_actual_class state
+              | Ok (Some (Function_call_resolution.Direct_call direct as call))
+                -> (
+                  let source_type =
+                    direct |> Function_call_resolution.direct_active_header
+                    |> Function_type_resolution.function_return_type
+                    |> Type_reference.resolved_type
+                  in
+                  match known_type table source_type with
+                  | Error _ as error -> error
+                  | Ok source_type ->
+                      let category =
+                        if Type.pointer_depth source_type > 0 then Address_value
+                        else Object_value
+                      in
+                      finish ~source_type:(Some source_type)
+                        ~call_resolution:call category
+                        (forwarded_class policies ~before_item_index source_type)
+                        state))))
 
 and type_prefix table members policies ~before_item_index ~context
     ~intrinsic_conversion state id source prefix =
