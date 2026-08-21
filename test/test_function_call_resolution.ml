@@ -520,7 +520,7 @@ let invalid_inputs_are_stable_and_pure () =
       (Semantic_function_call_resolution
        .make_bound_identifier_argument_expression ~occurrence:foreign_occurrence
          ~resolved_type:integer_type
-         ~shape:Semantic_function_call_resolution.Object_value)
+         ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0)
     |> fun kind ->
     Semantic_function_call_resolution.make_argument_expression ~kind
       ~origin:
@@ -807,6 +807,54 @@ let named_cast_targets_validate_source_identity () =
   expect_invalid "foreign identity"
     "function call cast target belongs to another symbol table" foreign
 
+let index_expression_constructors_validate_bracket_origins () =
+  let base_origin = Semantic_symbol.Synthesized "index base" in
+  let index_origin = Semantic_symbol.Synthesized "index value" in
+  let opening_origin = Semantic_symbol.Synthesized "opening bracket" in
+  let closing_origin = Semantic_symbol.Synthesized "closing bracket" in
+  let base =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:base_origin
+  in
+  let index =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Float_literal ~origin:index_origin
+  in
+  let retained =
+    checked
+      (Semantic_function_call_resolution.make_index_argument_expression ~base
+         ~opening_origin ~index ~closing_origin)
+  in
+  (match retained with
+  | Semantic_function_call_resolution.Index_expression retained ->
+      Alcotest.(check bool)
+        "index constructor retains its base" true
+        (Semantic_function_call_resolution.index_base retained == base);
+      Alcotest.(check bool)
+        "index constructor retains its value" true
+        (Semantic_function_call_resolution.index_value retained == index);
+      Alcotest.(check bool)
+        "index constructor retains its opening bracket" true
+        (Semantic_function_call_resolution.index_opening_origin retained
+        = opening_origin);
+      Alcotest.(check bool)
+        "index constructor retains its closing bracket" true
+        (Semantic_function_call_resolution.index_closing_origin retained
+        = closing_origin)
+  | _ -> Alcotest.fail "expected a checked index expression");
+  Alcotest.(check (result reject string))
+    "an empty opening-bracket origin is rejected"
+    (Error "call argument index has an invalid opening-bracket origin")
+    (Semantic_function_call_resolution.make_index_argument_expression ~base
+       ~opening_origin:(Semantic_symbol.Synthesized "") ~index ~closing_origin);
+  Alcotest.(check (result reject string))
+    "an empty closing-bracket origin is rejected"
+    (Error "call argument index has an invalid closing-bracket origin")
+    (Semantic_function_call_resolution.make_index_argument_expression ~base
+       ~opening_origin ~index
+       ~closing_origin:(Semantic_symbol.Synthesized ""))
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -825,4 +873,6 @@ let tests =
       invalid_inputs_are_stable_and_pure;
     Alcotest.test_case "named cast target identity validation" `Quick
       named_cast_targets_validate_source_identity;
+    Alcotest.test_case "index expression constructor validation" `Quick
+      index_expression_constructors_validate_bracket_origins;
   ]

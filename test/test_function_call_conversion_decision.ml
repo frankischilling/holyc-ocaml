@@ -268,7 +268,7 @@ let source_expression_classes_stay_explicit () =
     |> Semantic_function_call_conversion_decision.direct_fixed_decisions
   in
   Alcotest.(check (list string))
-    "known primaries and unresolved actual classes remain explicit"
+    "known primaries and retained expression classes remain explicit"
     [
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
@@ -280,7 +280,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
     ]
     (fixed
