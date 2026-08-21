@@ -322,7 +322,7 @@ let prefix_directions_and_retention () =
       "provided:f64-result:ICF_RES_TO_INT";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:f64-result:ICF_RES_TO_INT";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
@@ -357,6 +357,95 @@ let prefix_directions_and_retention () =
     (List.nth prefixes 5 |> Semantic_function_call_resolution.prefix_operand
    |> Semantic_function_call_resolution.argument_expression_kind
    |> Semantic_function_call_resolution.argument_expression_kind_name)
+
+let bitwise_complement_is_an_integer_result () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-complement.HC"
+          "F64 class FloatBox {};\n\
+           extern I64 Target(F64 integer,I64 float,F64 backed,F64 binary,F64 \
+           outer,I64 nested);\n\
+           I64 Caller(I64 value){return \
+           Target(~1,~2.5,~value(FloatBox),~(1+2.5),~OuterValue,~(~2.5));}"
+      in
+      Alcotest.(check (list string))
+        "complement produces an integer result for every retained operand shape"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:none";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:none";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          only_direct result "Caller" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated =
+    prepare ~path:"call-decision-complement-generated.HC"
+      "#define COM ~\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(COM 2.5);}"
+  in
+  let table = Session.semantic_symbols generated.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "replaying complement classification is stable"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "replaying complement classification leaves symbols unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let prefix =
+    only_direct first "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> prefix_parts
+  in
+  (match Semantic_function_call_resolution.prefix_operator_origin prefix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated complement keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated complement keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated complement provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(){return Target(~2.5);}"
+    (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included complement keeps its integer result"
+        "provided:integer-result:none"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let location =
+        match
+          fixed |> provided_expression |> prefix_parts
+          |> Semantic_function_call_resolution.prefix_operator_origin
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included complement provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included complement keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
 
 let prefix_source_order_modes_and_provenance () =
   List.iter
@@ -1830,6 +1919,8 @@ let tests =
       source_expression_classes_stay_explicit;
     Alcotest.test_case "prefix directions and retention" `Quick
       prefix_directions_and_retention;
+    Alcotest.test_case "bitwise complement integer result" `Quick
+      bitwise_complement_is_an_integer_result;
     Alcotest.test_case "prefix source order and provenance" `Quick
       prefix_source_order_modes_and_provenance;
     Alcotest.test_case "prefix constructor validation" `Quick

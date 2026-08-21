@@ -114,7 +114,7 @@ let rec source_actual_class policies ~before_item_index expression =
           source_actual_class policies ~before_item_index
             (Function_call_resolution.prefix_operand prefix)
       | Function_call_resolution.Address_of -> Integer_result
-      | Function_call_resolution.Bitwise_not
+      | Function_call_resolution.Bitwise_not -> Integer_result
       | Function_call_resolution.Dereference -> Unresolved_actual_class)
   | Function_call_resolution.Postfix_expression postfix ->
       source_actual_class policies ~before_item_index
