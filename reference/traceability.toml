@@ -3672,7 +3672,7 @@ duplicate_validation = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX with the p
 base_class_lookup = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout = "implemented for closed definitions by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
-reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and inherited name lookup in HC-SEMA-AGGREGATE-MEMBER-INDEX; AST member access remains unresolved"
+reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES, inherited name lookup in HC-SEMA-AGGREGATE-MEMBER-INDEX, and typed AST member access in HC-SEMA-MEMBER-EXPRESSION-RESULTS"
 native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
 
 [[feature]]
@@ -5505,18 +5505,18 @@ issue = 264
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed expressions on already resolved direct function-body calls"
 identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
-source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class"]
+source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "resolved member lookup when applicable"]
 value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
 result_classes = ["integer", "F64", "unresolved"]
 conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; an index subscript independently records the source-required ICF_RES_TO_INT intent"
 type_fallback = "none; an unknown source type remains absent"
-validation = ["symbol-table ownership", "aggregate type ownership", "policy traversal ownership", "fixed source-path agreement", "deterministic identity space"]
+validation = ["symbol-table ownership", "aggregate type ownership", "aggregate member-index ownership", "policy traversal ownership", "fixed source-path agreement", "deterministic identity space"]
 provenance = ["source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 17
-unimplemented = ["member typing", "assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
+focused_expression_result_tests = 24
+unimplemented = ["assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5604,3 +5604,48 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 index_evaluation_bounds_stride_address_storage_and_lowering = "not implemented"
 native_oracle_status = "not required for this checked type transition; the pinned pointer check, array-dimension state, ICF_RES_TO_INT assignment, and class forwarding state the result directly"
+
+[[feature]]
+id = "HC-SEMA-MEMBER-EXPRESSION-RESULTS"
+description = "Direct and pointer member expressions use the completed aggregate index and retain the exact lookup result with their checked value shape."
+sources = [
+  "Compiler/PrsExp.HC:756-904 local and global address, array, and callback state",
+  "Compiler/PrsExp.HC:973-1014 direct and pointer access, member lookup, offset addition, dimensions, and callback handling",
+  "Compiler/LexLib.HC:67-84 MemberFind current-before-base search",
+  "Compiler/PrsExp.HC:300-382 sizeof and offset member lookup",
+  "Compiler/CompilerA.HH class and member records and flags",
+  "Compiler/CompilerB.HH MemberFind declaration"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml",
+  "test/test_aggregate_member_index.ml"
+]
+status = "implemented"
+issue = 270
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "member expressions nested inside provided fixed arguments on resolved direct function-body calls"
+semantic_source_view = ["base expression", "direct or pointer access kind", "operator origin", "member spelling", "member origin"]
+direct_rule = "require a checked by-value aggregate object"
+pointer_rule = "remove exactly one checked pointer layer, then require a by-value aggregate"
+lookup_rule = "search the queried aggregate before following its single base chain"
+lookup_facts = ["queried aggregate", "declaring aggregate", "inheritance depth", "member symbol", "resolved member type", "byte offset", "array dimensions", "callback flag"]
+visibility_rule = "the aggregate definition must precede the owning function item"
+array_rule = "retain every declaration-owned dimension and preserve array shape until indexing consumes it"
+callback_rule = "preserve MLF_FUN-derived callback shape instead of treating the field as an ordinary object"
+lvalue_rule = "retain a member lvalue beneath address-of or update and consume it as an object in a direct-call value context"
+forwarding_rule = "a by-value aggregate member follows only backing headers visible before the caller"
+unknown_rule = "an unavailable outer base stays unavailable and unresolved; no aggregate or member is guessed"
+invalid_access_diagnostic = "HCSEMA0046 at the operator for a proven invalid base shape and at the member name for an incomplete aggregate or missing field"
+provenance = ["base", "operator", "member name", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+offset_addition_storage_use_counts_indirect_calls_and_lowering = "not implemented"
+native_oracle_status = "not required for this checked lookup and type transition; PrsUnaryModifier and MemberFind state the access, search, offset, dimension, callback, and class rules directly"
