@@ -67,6 +67,9 @@ module Semantic_function_call_resolution = Sema.Function_call_resolution
 module Semantic_function_call_conversion_policy =
   Sema.Function_call_conversion_policy
 
+module Semantic_function_call_expression_result =
+  Sema.Function_call_expression_result
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -389,9 +392,20 @@ val analyze_function_call_conversions :
     visible before its caller. Defaults, variadic expressions, actual expression
     types, and deferred callees remain separate. *)
 
+val type_function_call_expressions :
+  Session.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  ( Semantic_function_call_expression_result.t,
+    Semantic_function_call_expression_result.error )
+  result
+(** Derive stable, session-owned results for every provided fixed direct-call
+    expression. Known source types and value categories stay separate from the
+    target-specific conversion intent selected by the next pass. *)
+
 val decide_function_call_conversions :
   Session.t ->
   policies:Semantic_function_call_conversion_policy.t ->
+  expressions:Semantic_function_call_expression_result.t ->
   ( Semantic_function_call_conversion_decision.t,
     Semantic_function_call_conversion_decision.error )
   result

@@ -1,4 +1,7 @@
-type actual_class = Integer_result | F64_result | Unresolved_actual_class
+type actual_class = Function_call_expression_result.result_class =
+  | Integer_result
+  | F64_result
+  | Unresolved_actual_class
 
 type conversion =
   | No_conversion
@@ -21,7 +24,10 @@ type error_kind = Invalid_input of string
 type error
 
 val decide :
-  table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
+  table:Symbol_table.t ->
+  policies:Function_call_conversion_policy.t ->
+  Function_call_expression_result.t ->
+  (t, error) result
 (** Select the pinned fixed-call conversion intent for audited source classes.
     Literals keep their exact result class. Current position, [sizeof],
     [offset], and [defined] use the pinned non-F64 side of the comparison.
@@ -58,6 +64,9 @@ val fixed_path : fixed_decision -> fixed_path
 
 val provided_target :
   provided_decision -> Function_call_conversion_policy.target_class
+
+val provided_actual_result :
+  provided_decision -> Function_call_expression_result.expression_result
 
 val provided_actual : provided_decision -> actual_class
 val provided_conversion : provided_decision -> conversion
