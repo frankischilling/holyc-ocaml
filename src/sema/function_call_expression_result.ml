@@ -27,6 +27,7 @@ type expression_result = {
   result_class : result_class;
   array_rank : int;
   intrinsic_conversion : intrinsic_conversion;
+  member_lookup : Aggregate_member_index.lookup option;
 }
 
 type fixed_path =
@@ -57,6 +58,7 @@ type resolved_function = {
 
 type t = {
   table : Symbol_table.t;
+  members : Aggregate_member_index.t;
   policies : Function_call_conversion_policy.t;
   compilation_mode : Function_resolution.compilation_mode;
   functions : resolved_function list;
@@ -69,6 +71,7 @@ type expression_context = Value_context | Lvalue_context
 type build_state = { next_id : int; results_rev : expression_result list }
 
 let owns_table result table = result.table == table
+let owns_members result members = result.members == members
 let owns_policies result policies = result.policies == policies
 let compilation_mode result = result.compilation_mode
 let functions result = result.functions
@@ -92,6 +95,8 @@ let result_array_rank (result : expression_result) = result.array_rank
 
 let result_intrinsic_conversion (result : expression_result) =
   result.intrinsic_conversion
+
+let result_member_lookup (result : expression_result) = result.member_lookup
 
 let value_category_name = function
   | Object_value -> "object-value"
@@ -155,7 +160,7 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?(array_rank = 0)
+let make_result ?(array_rank = 0) ?member_lookup
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -168,6 +173,7 @@ let make_result ?(array_rank = 0)
       result_class;
       array_rank;
       intrinsic_conversion;
+      member_lookup;
     }
 
 let known_type table type_ =
@@ -192,7 +198,7 @@ let select_known_binary_type left right result_class =
           | _ -> None)
       | None, _ | _, None -> None)
 
-let rec type_expression table policies ~before_item_index ~context
+let rec type_expression table members policies ~before_item_index ~context
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
   match allocate state with
   | Error _ as error -> error
@@ -213,8 +219,8 @@ let rec type_expression table policies ~before_item_index ~context
           finish ~source_type:string_type Address_value Integer_result state
       | Function_call_resolution.Parenthesized_expression grouped -> (
           match
-            type_expression table policies ~before_item_index ~context state
-              grouped
+            type_expression table members policies ~before_item_index ~context
+              state grouped
           with
           | Error _ as error -> error
           | Ok (grouped_result, state) ->
@@ -222,20 +228,23 @@ let rec type_expression table policies ~before_item_index ~context
                 ~array_rank:grouped_result.array_rank grouped_result.category
                 grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
-          type_prefix table policies ~before_item_index ~context
+          type_prefix table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source prefix
       | Function_call_resolution.Postfix_expression postfix ->
-          type_postfix table policies ~before_item_index ~intrinsic_conversion
-            state id source postfix
+          type_postfix table members policies ~before_item_index
+            ~intrinsic_conversion state id source postfix
       | Function_call_resolution.Binary_expression binary ->
-          type_binary table policies ~before_item_index ~intrinsic_conversion
-            state id source binary
+          type_binary table members policies ~before_item_index
+            ~intrinsic_conversion state id source binary
       | Function_call_resolution.Index_expression index ->
-          type_index table policies ~before_item_index ~context
+          type_index table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source index
+      | Function_call_resolution.Member_access_expression member ->
+          type_member table members policies ~before_item_index ~context
+            ~intrinsic_conversion state id source member
       | Function_call_resolution.Postfix_cast_expression (operand, target) -> (
           match
-            type_expression table policies ~before_item_index
+            type_expression table members policies ~before_item_index
               ~context:Value_context state operand
           with
           | Error _ as error -> error
@@ -286,12 +295,11 @@ let rec type_expression table policies ~before_item_index ~context
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression
           | Function_call_resolution.Postfix_cast_expression
-          | Function_call_resolution.Call_expression
-          | Function_call_resolution.Member_expression ->
+          | Function_call_resolution.Call_expression ->
               finish Unavailable Unresolved_actual_class state))
 
-and type_prefix table policies ~before_item_index ~context ~intrinsic_conversion
-    state id source prefix =
+and type_prefix table members policies ~before_item_index ~context
+    ~intrinsic_conversion state id source prefix =
   let operator = Function_call_resolution.prefix_operator prefix in
   let operand_context =
     match operator with
@@ -305,8 +313,8 @@ and type_prefix table policies ~before_item_index ~context ~intrinsic_conversion
     | Function_call_resolution.Dereference -> Value_context
   in
   match
-    type_expression table policies ~before_item_index ~context:operand_context
-      state
+    type_expression table members policies ~before_item_index
+      ~context:operand_context state
       (Function_call_resolution.prefix_operand prefix)
   with
   | Error _ as error -> error
@@ -369,11 +377,11 @@ and type_prefix table policies ~before_item_index ~context ~intrinsic_conversion
               finish ~source_type:(Some source_type) value_category
                 (forwarded_class policies ~before_item_index source_type)))
 
-and type_index table policies ~before_item_index ~context ~intrinsic_conversion
-    state id source index =
+and type_index table members policies ~before_item_index ~context
+    ~intrinsic_conversion state id source index =
   match
-    type_expression table policies ~before_item_index ~context:Value_context
-      state
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
       (Function_call_resolution.index_base index)
   with
   | Error _ as error -> error
@@ -386,7 +394,7 @@ and type_index table policies ~before_item_index ~context ~intrinsic_conversion
       let type_index_value state ~source_type ~array_rank ~category
           ~result_class =
         match
-          type_expression table policies ~before_item_index
+          type_expression table members policies ~before_item_index
             ~context:Value_context ~intrinsic_conversion:Result_to_int state
             (Function_call_resolution.index_value index)
         with
@@ -431,11 +439,132 @@ and type_index table policies ~before_item_index ~context ~intrinsic_conversion
                    ~origin:(Function_call_resolution.index_opening_origin index)
                    "index base is neither an array nor a pointer")))
 
-and type_postfix table policies ~before_item_index ~intrinsic_conversion state
-    id source postfix =
+and type_member table members policies ~before_item_index ~context
+    ~intrinsic_conversion state id source member =
+  let access_kind = Function_call_resolution.member_access_kind member in
+  let base_context =
+    match access_kind with
+    | Function_call_resolution.Direct_member -> Lvalue_context
+    | Function_call_resolution.Pointer_member -> Value_context
+  in
   match
-    type_expression table policies ~before_item_index ~context:Lvalue_context
-      state
+    type_expression table members policies ~before_item_index
+      ~context:base_context state
+      (Function_call_resolution.member_base member)
+  with
+  | Error _ as error -> error
+  | Ok (base, state) -> (
+      let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup category
+          result_class =
+        Ok
+          (make_result ~array_rank ~intrinsic_conversion ?member_lookup state
+             ~id ~source ~source_type ~category ~result_class)
+      in
+      let operator_origin =
+        Function_call_resolution.member_operator_origin member
+      in
+      let member_origin = Function_call_resolution.member_origin member in
+      let invalid_operator message =
+        Error (invalid_input ~origin:operator_origin message)
+      in
+      let resolve_aggregate source_type =
+        match access_kind with
+        | Function_call_resolution.Direct_member ->
+            if Type.pointer_depth source_type = 0 then Ok source_type
+            else
+              invalid_operator
+                "direct member access requires an aggregate object, not a \
+                 pointer"
+        | Function_call_resolution.Pointer_member -> (
+            match Type.dereference source_type with
+            | Error _ ->
+                invalid_operator
+                  "pointer member access requires a pointer to an aggregate"
+            | Ok pointee when Type.pointer_depth pointee = 0 -> Ok pointee
+            | Ok _ ->
+                invalid_operator
+                  "pointer member access leaves another pointer layer before \
+                   the aggregate")
+      in
+      match base.source_type with
+      | None -> finish Unavailable Unresolved_actual_class
+      | Some source_type -> (
+          match resolve_aggregate source_type with
+          | Error _ as error -> error
+          | Ok aggregate_type -> (
+              match Type.base aggregate_type with
+              | Type.Primitive _ ->
+                  invalid_operator "member access base is not an aggregate"
+              | Type.Aggregate aggregate_symbol -> (
+                  match
+                    Aggregate_member_index.find_aggregate members
+                      aggregate_symbol
+                  with
+                  | None ->
+                      Error
+                        (invalid_input ~origin:member_origin
+                           (Printf.sprintf
+                              "aggregate `%s` has no completed member index"
+                              (Symbol.name aggregate_symbol)))
+                  | Some aggregate
+                    when Aggregate_member_index.aggregate_item_index aggregate
+                         >= before_item_index ->
+                      Error
+                        (invalid_input ~origin:member_origin
+                           (Printf.sprintf
+                              "aggregate `%s` is not complete before this \
+                               member access"
+                              (Symbol.name aggregate_symbol)))
+                  | Some _ -> (
+                      match
+                        Aggregate_member_index.lookup members
+                          ~aggregate:aggregate_symbol
+                          ~name:(Function_call_resolution.member_name member)
+                      with
+                      | Error error ->
+                          Error
+                            (invalid_input ~origin:member_origin
+                               (Aggregate_member_index.error_message error))
+                      | Ok None ->
+                          Error
+                            (invalid_input ~origin:member_origin
+                               (Printf.sprintf
+                                  "aggregate `%s` has no member `%s`"
+                                  (Symbol.name aggregate_symbol)
+                                  (Function_call_resolution.member_name member)))
+                      | Ok (Some lookup) ->
+                          let indexed_member =
+                            Aggregate_member_index.lookup_member lookup
+                          in
+                          let member_type =
+                            Aggregate_member_index.member_type indexed_member
+                          in
+                          let layout =
+                            Aggregate_member_index.member_layout indexed_member
+                          in
+                          let array_rank = List.length layout.dimensions in
+                          let category, result_class =
+                            if
+                              Aggregate_member_index.member_is_function_pointer
+                                indexed_member
+                            then (Callback_value, Integer_result)
+                            else if array_rank > 0 then
+                              (Array_value, Integer_result)
+                            else
+                              ( (match context with
+                                | Value_context -> Object_value
+                                | Lvalue_context -> Lvalue),
+                                forwarded_class policies ~before_item_index
+                                  member_type )
+                          in
+                          finish ~source_type:(Some member_type) ~array_rank
+                            ~member_lookup:lookup category result_class)))))
+
+and type_postfix table members policies ~before_item_index ~intrinsic_conversion
+    state id source postfix =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Lvalue_context state
       (Function_call_resolution.postfix_operand postfix)
   with
   | Error _ as error -> error
@@ -445,18 +574,18 @@ and type_postfix table policies ~before_item_index ~intrinsic_conversion state
            ~source_type:operand.source_type ~category:Object_value
            ~result_class:operand.result_class)
 
-and type_binary table policies ~before_item_index ~intrinsic_conversion state id
-    source binary =
+and type_binary table members policies ~before_item_index ~intrinsic_conversion
+    state id source binary =
   match
-    type_expression table policies ~before_item_index ~context:Value_context
-      state
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
       (Function_call_resolution.binary_left binary)
   with
   | Error _ as error -> error
   | Ok (left, state) -> (
       match
-        type_expression table policies ~before_item_index ~context:Value_context
-          state
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state
           (Function_call_resolution.binary_right binary)
       with
       | Error _ as error -> error
@@ -510,7 +639,7 @@ let map_state apply state values =
   in
   loop state [] values
 
-let type_fixed table policies ~before_item_index state source =
+let type_fixed table members policies ~before_item_index state source =
   match
     ( Function_call_conversion_policy.fixed_path source,
       source |> Function_call_conversion_policy.fixed_source
@@ -526,7 +655,7 @@ let type_fixed table policies ~before_item_index state source =
           Error (invalid_input "provided fixed argument has no expression")
       | Some expression -> (
           match
-            type_expression table policies ~before_item_index
+            type_expression table members policies ~before_item_index
               ~context:Value_context state expression
           with
           | Error _ as error -> error
@@ -538,11 +667,13 @@ let type_fixed table policies ~before_item_index state source =
       Function_call_resolution.Declared_default _ ) ->
       Error (invalid_input "fixed call policy has an inconsistent source path")
 
-let type_call table policies ~before_item_index state = function
+let type_call table members policies ~before_item_index state = function
   | Function_call_conversion_policy.Direct_call_policy source -> (
       match
         source |> Function_call_conversion_policy.direct_fixed_policies
-        |> map_state (type_fixed table policies ~before_item_index) state
+        |> map_state
+             (type_fixed table members policies ~before_item_index)
+             state
       with
       | Error _ as error -> error
       | Ok (fixed_results, state) ->
@@ -559,11 +690,13 @@ let type_call table policies ~before_item_index state = function
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_result call, state)
 
-let type_function table policies state source =
+let type_function table members policies state source =
   let item_index = Function_call_conversion_policy.function_item_index source in
   match
     source |> Function_call_conversion_policy.function_calls
-    |> map_state (type_call table policies ~before_item_index:item_index) state
+    |> map_state
+         (type_call table members policies ~before_item_index:item_index)
+         state
   with
   | Error _ as error -> error
   | Ok (calls, state) ->
@@ -576,15 +709,18 @@ let type_function table policies state source =
           },
           state )
 
-let analyze ~table policies =
+let analyze ~table ~members policies =
   if not (Function_call_conversion_policy.owns_table policies table) then
     Error
       (invalid_input "call conversion policies belong to another symbol table")
+  else if not (Aggregate_member_index.owns_table members table) then
+    Error
+      (invalid_input "aggregate member index belongs to another symbol table")
   else
     match
       policies |> Function_call_conversion_policy.functions
       |> map_state
-           (type_function table policies)
+           (type_function table members policies)
            { next_id = 0; results_rev = [] }
     with
     | Error _ as error -> error
@@ -592,6 +728,7 @@ let analyze ~table policies =
         Ok
           {
             table;
+            members;
             policies;
             compilation_mode =
               Function_call_conversion_policy.compilation_mode policies;

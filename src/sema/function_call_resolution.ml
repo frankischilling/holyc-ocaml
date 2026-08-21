@@ -9,7 +9,6 @@ type unresolved_expression_kind =
   | Defined_expression
   | Postfix_cast_expression
   | Call_expression
-  | Member_expression
 
 type prefix_operator =
   | Unary_plus
@@ -22,6 +21,7 @@ type prefix_operator =
   | Pre_decrement
 
 type postfix_operator = Post_increment | Post_decrement
+type member_access_kind = Direct_member | Pointer_member
 
 type identifier_value_shape =
   | Object_value
@@ -39,6 +39,7 @@ type argument_expression_kind =
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
   | Index_expression of index_expression
+  | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
@@ -71,6 +72,14 @@ and index_expression = {
   index_opening_origin : Symbol.origin;
   index_value : argument_expression;
   index_closing_origin : Symbol.origin;
+}
+
+and member_expression = {
+  member_base : argument_expression;
+  member_access_kind : member_access_kind;
+  member_operator_origin : Symbol.origin;
+  member_name : string;
+  member_origin : Symbol.origin;
 }
 
 and bound_identifier = {
@@ -217,6 +226,14 @@ let index_base (index : index_expression) = index.index_base
 let index_opening_origin (index : index_expression) = index.index_opening_origin
 let index_value (index : index_expression) = index.index_value
 let index_closing_origin (index : index_expression) = index.index_closing_origin
+let member_base (member : member_expression) = member.member_base
+let member_access_kind (member : member_expression) = member.member_access_kind
+
+let member_operator_origin (member : member_expression) =
+  member.member_operator_origin
+
+let member_name (member : member_expression) = member.member_name
+let member_origin (member : member_expression) = member.member_origin
 
 let bound_identifier_occurrence identifier =
   identifier.bound_identifier_occurrence_
@@ -262,6 +279,10 @@ let postfix_operator_name = function
   | Post_increment -> "post-increment"
   | Post_decrement -> "post-decrement"
 
+let member_access_kind_name = function
+  | Direct_member -> "direct"
+  | Pointer_member -> "pointer"
+
 let binary_operator_name = Generated.Intermediate_codes.to_source_name
 
 let identifier_value_shape_name = function
@@ -277,7 +298,6 @@ let unresolved_expression_kind_name = function
   | Defined_expression -> "defined"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
-  | Member_expression -> "member"
 
 let argument_expression_kind_name = function
   | Integer_literal -> "integer-literal"
@@ -290,6 +310,7 @@ let argument_expression_kind_name = function
   | Postfix_cast_expression _ -> "postfix-cast"
   | Binary_expression _ -> "binary"
   | Index_expression _ -> "index"
+  | Member_access_expression _ -> "member"
   | Bound_identifier_expression _ -> "bound-identifier"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
@@ -430,6 +451,25 @@ let make_index_argument_expression ~base ~opening_origin ~index ~closing_origin
            index_opening_origin = opening_origin;
            index_value = index;
            index_closing_origin = closing_origin;
+         })
+
+let make_member_argument_expression ~base ~access_kind ~operator_origin
+    ~member_name ~member_origin =
+  if not (valid_origin operator_origin) then
+    Error "call argument member has an invalid operator origin"
+  else if String.equal member_name "" then
+    Error "call argument member name cannot be empty"
+  else if not (valid_origin member_origin) then
+    Error "call argument member has an invalid name origin"
+  else
+    Ok
+      (Member_access_expression
+         {
+           member_base = base;
+           member_access_kind = access_kind;
+           member_operator_origin = operator_origin;
+           member_name;
+           member_origin;
          })
 
 let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
@@ -594,6 +634,8 @@ let rec validate_argument_expression table parent visible expression =
       | Error _ as error -> error
       | Ok () ->
           validate_argument_expression table parent visible index.index_value)
+  | Member_access_expression member ->
+      validate_argument_expression table parent visible member.member_base
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
@@ -839,6 +881,8 @@ let rec validate_bound_occurrences occurrence_by_index expression =
       | Error _ as error -> error
       | Ok () ->
           validate_bound_occurrences occurrence_by_index index.index_value)
+  | Member_access_expression member ->
+      validate_bound_occurrences occurrence_by_index member.member_base
   | Postfix_cast_expression (operand, _) ->
       validate_bound_occurrences occurrence_by_index operand
   | Bound_identifier_expression identifier -> (

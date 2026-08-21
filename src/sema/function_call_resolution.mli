@@ -9,7 +9,6 @@ type unresolved_expression_kind =
   | Defined_expression
   | Postfix_cast_expression
   | Call_expression
-  | Member_expression
 
 type prefix_operator =
   | Unary_plus
@@ -26,6 +25,8 @@ type postfix_operator = Post_increment | Post_decrement
 type postfix_expression
 type binary_expression
 type index_expression
+type member_access_kind = Direct_member | Pointer_member
+type member_expression
 
 type identifier_value_shape =
   | Object_value
@@ -45,6 +46,7 @@ type argument_expression_kind =
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
   | Index_expression of index_expression
+  | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
@@ -81,6 +83,14 @@ val make_index_argument_expression :
   opening_origin:Symbol.origin ->
   index:argument_expression ->
   closing_origin:Symbol.origin ->
+  (argument_expression_kind, string) result
+
+val make_member_argument_expression :
+  base:argument_expression ->
+  access_kind:member_access_kind ->
+  operator_origin:Symbol.origin ->
+  member_name:string ->
+  member_origin:Symbol.origin ->
   (argument_expression_kind, string) result
 
 val make_bound_identifier_argument_expression :
@@ -205,6 +215,11 @@ val index_base : index_expression -> argument_expression
 val index_opening_origin : index_expression -> Symbol.origin
 val index_value : index_expression -> argument_expression
 val index_closing_origin : index_expression -> Symbol.origin
+val member_base : member_expression -> argument_expression
+val member_access_kind : member_expression -> member_access_kind
+val member_operator_origin : member_expression -> Symbol.origin
+val member_name : member_expression -> string
+val member_origin : member_expression -> Symbol.origin
 
 val bound_identifier_occurrence :
   bound_identifier -> Module_expression_binding.occurrence
@@ -234,6 +249,7 @@ val call_syntax_name : call_syntax -> string
 val argument_kind_name : argument_kind -> string
 val prefix_operator_name : prefix_operator -> string
 val postfix_operator_name : postfix_operator -> string
+val member_access_kind_name : member_access_kind -> string
 val binary_operator_name : Generated.Intermediate_codes.t -> string
 val unresolved_expression_kind_name : unresolved_expression_kind -> string
 val argument_expression_kind_name : argument_expression_kind -> string

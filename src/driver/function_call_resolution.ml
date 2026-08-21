@@ -542,12 +542,25 @@ let rec argument_expression visible locals globals occurrences cursor
                   ~opening_origin:(origin index.index_opening_bracket)
                   ~index:value
                   ~closing_origin:(origin index.index_closing_bracket)))
-    | Frontend.Ast.Member_expression _ ->
-        Result.map
-          (fun () ->
-            Sema.Function_call_resolution.Unresolved_expression
-              Sema.Function_call_resolution.Member_expression)
-          (advance_expression_occurrences occurrences cursor expression)
+    | Frontend.Ast.Member_expression member -> (
+        match
+          argument_expression visible locals globals occurrences cursor
+            member.member_base
+        with
+        | Error _ as error -> error
+        | Ok base ->
+            let access_kind =
+              match member.member_access_kind with
+              | Frontend.Ast.Direct_member ->
+                  Sema.Function_call_resolution.Direct_member
+              | Frontend.Ast.Pointer_member ->
+                  Sema.Function_call_resolution.Pointer_member
+            in
+            Sema.Function_call_resolution.make_member_argument_expression ~base
+              ~access_kind
+              ~operator_origin:(origin member.member_operator.operator_location)
+              ~member_name:member.member_name.spelling
+              ~member_origin:(origin member.member_name.location))
   in
   Result.map
     (fun kind ->

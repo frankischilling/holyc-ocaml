@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added immutable expression results for provided fixed direct-call arguments. Each result has a deterministic identity, source origin, known semantic type, explicit value category, and forwarded integer, `F64`, or unresolved class. Prefix dereference removes one checked pointer layer. Index expressions now preserve their base, subscript, bracket origins, remaining array rank, and integer-conversion requirement while deriving one element or partial-array result. Member, assignment, and indirect-call typing remain separate work.
+- Added immutable expression results for provided fixed direct-call arguments. Each result has a deterministic identity, source origin, known semantic type, explicit value category, and forwarded integer, `F64`, or unresolved class. Prefix dereference removes one checked pointer layer. Index expressions preserve their base, subscript, bracket origins, remaining array rank, and integer-conversion requirement. Member expressions now use the completed aggregate index and retain access spelling, member identity, declaring aggregate, inheritance depth, byte offset, array rank, and callback shape. Assignment and indirect-call typing remain separate work.
 - Established the `holyc-ocaml` Dune workspace and public `holyc_lib` library.
 - Pinned TempleOS reference commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 - Added byte-oriented source tracking, structured diagnostics, and the first streaming lexer slice.
