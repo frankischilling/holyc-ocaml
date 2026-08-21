@@ -334,7 +334,7 @@ let prefix_directions_and_retention () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:f64-result:ICF_RES_TO_INT";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
     ]
@@ -1932,6 +1932,45 @@ let deferred_provenance_foreign_and_purity () =
         "included literal keeps its source file" "calls.HC"
         (Source_file.path source_file |> Filename.basename))
 
+let included_dereference_keeps_its_source_origin () =
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(I64 *pointer){return \
+     Target(*pointer);}" (fun prepared ->
+      let fixed =
+        decide prepared |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included dereference drives the checked conversion"
+        "provided:integer-result:ICF_RES_TO_F64"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let actual =
+        match Semantic_function_call_conversion_decision.fixed_path fixed with
+        | Semantic_function_call_conversion_decision.Provided_path provided ->
+            Semantic_function_call_conversion_decision.provided_actual_result
+              provided
+        | Semantic_function_call_conversion_decision.Declared_default_path ->
+            Alcotest.fail "expected a provided dereference"
+      in
+      let location =
+        match Semantic_function_call_expression_result.result_origin actual with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included dereference provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources prepared.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included dereference keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
 let tests =
   [
     Alcotest.test_case "literal directions and expression retention" `Quick
@@ -1999,4 +2038,6 @@ let tests =
       source_visible_headers_choose_literal_flags;
     Alcotest.test_case "deferred, provenance, foreign, and purity" `Quick
       deferred_provenance_foreign_and_purity;
+    Alcotest.test_case "included dereference provenance" `Quick
+      included_dereference_keeps_its_source_origin;
   ]

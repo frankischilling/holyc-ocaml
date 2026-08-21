@@ -4693,7 +4693,8 @@ scope = "provided fixed prefix-expression arguments on already resolved direct f
 semantic_source_view = "retains the exact prefix operator, operator origin, recursive operand view, and nested cast type identity"
 forwarded_prefixes = ["unary plus", "unary minus", "logical not"]
 integer_prefixes = ["address-of", "bitwise complement"]
-unresolved_prefixes = ["dereference"]
+unresolved_prefixes = []
+dereference_extension = "HC-SEMA-POINTER-DEREFERENCE-RESULTS"
 prefix_update_extension = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
 bitwise_complement_extension = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
 unary_plus_rule = "the parser returns the operand result without adding an IC, so the recursive operand class is retained"
@@ -5428,7 +5429,7 @@ object_rule = "the resolved semantic type follows the aggregate backing relation
 pointer_side_rule = "arrays, function pointers, and synthetic argv use the integer result path regardless of their declared base or callback return type"
 synthetic_argc_rule = "argc is an internal I64 object and uses the integer result path"
 outer_rule = "an outer candidate remains unresolved because the current outer binding result has no joined checked value type"
-unsupported_expression_bindings = ["module function value", "aggregate type value", "index", "member", "dereference", "indirect call"]
+unsupported_expression_bindings = ["module function value", "aggregate type value", "index", "member", "indirect call"]
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 validation = "exact occurrence object and origin, source-ordered traversal, stable function owner and scope, AST item position, type-batch ownership, local or global value binding, aggregate type ownership, and module scope"
 provenance = ["identifier expression", "binding symbol", "included source", "generated invocation", "definition origin"]
@@ -5464,7 +5465,7 @@ result_class = "integer"
 result_rule = "IC_COM assigns internal I64 to the pushed result after optional immediate folding; the operand class does not determine the result class"
 operand_shapes = ["integer", "F64", "backed aggregate cast", "binary", "outer unresolved", "nested complement"]
 decisions = ["none", "ICF_RES_TO_F64"]
-dereference = "remains unresolved"
+dereference = "typed by HC-SEMA-POINTER-DEREFERENCE-RESULTS when the operand has a checked pointer, array, or callback shape"
 provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
@@ -5510,7 +5511,50 @@ validation = ["symbol-table ownership", "aggregate type ownership", "policy trav
 provenance = ["source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-existing_conversion_regression_cases = 33
-focused_expression_result_tests = 5
-unimplemented = ["dereference typing", "index typing", "member typing", "assignment typing", "function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
-native_oracle_status = "not required for this structural extraction; the existing source-backed conversion cases remain unchanged"
+existing_conversion_regression_cases = 34
+focused_expression_result_tests = 10
+unimplemented = ["index typing", "member typing", "assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
+native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
+
+[[feature]]
+id = "HC-SEMA-POINTER-DEREFERENCE-RESULTS"
+description = "Prefix dereference derives a checked pointee result while preserving HolyC pointer, array, callback, and lvalue distinctions."
+sources = [
+  "Compiler/CompilerA.HH:60-62 IC_DEREF, IC_DEREF_PP, and IC_DEREF_MM",
+  "Compiler/PrsLib.HC:21-29 PrsPopDeref",
+  "Compiler/PrsExp.HC:81-118 dereference and update construction",
+  "Compiler/PrsExp.HC:145-159 pointer-class adjustment and forwarding",
+  "Compiler/PrsExp.HC:593-676 prefix dispatch",
+  "Compiler/PrsExp.HC:761-904 local and global array or callback state",
+  "Compiler/PrsExp.HC:960-1015 postfix dereference and member preparation",
+  "Compiler/PrsExp.HC:1055-1114 index and final dereference state",
+  "Compiler/OptPass012.HC:275-289 dereference and update combination"
+]
+implementation = [
+  "src/sema/type.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 266
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "prefix dereference inside provided fixed expressions on resolved direct function-body calls"
+pointer_transition = "remove exactly one checked pointer layer while retaining primitive form or aggregate symbol identity; retain the source class when it has zero pointer layers"
+array_rule = "an array already denotes an address in the parser and dereferences to its declared element type without removing a stored pointer layer"
+callback_rule = "PrsPopDeref removes the pending data dereference and the semantic result remains a function value"
+lvalue_rule = "the dereference result stays an lvalue when its parent requests one and is consumed as an object value in an ordinary call argument"
+forwarding_rule = "the pointee follows only aggregate backing headers published before the caller"
+unknown_rule = "an operand without a checked type remains unavailable and unresolved; no pointer type is guessed"
+zero_depth_rule = "an integer or U0 address with no pointer stars retains its source type; the optimizer owns the later U0 warning"
+pointer_depths = [1, 2, 3, 4]
+type_forms = ["public spelling", "internal storage"]
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_reads_updates_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this type transition; PrsExpression2, PrsPopDeref, OptClassFwd, and the fixed call comparison state the result directly"

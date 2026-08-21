@@ -46,6 +46,17 @@ let make_aggregate ~symbol ~pointer_depth =
 let base type_ = type_.base
 let pointer_depth type_ = type_.pointer_depth
 
+let pointer_to type_ =
+  let pointer_depth = type_.pointer_depth + 1 in
+  Result.map
+    (fun () -> { type_ with pointer_depth })
+    (validate_pointer_depth pointer_depth)
+
+let dereference type_ =
+  if type_.pointer_depth = 0 then
+    Error "cannot dereference a type with no pointer layer"
+  else Ok { type_ with pointer_depth = type_.pointer_depth - 1 }
+
 let primitive_form_name = function
   | Public_spelling -> "public-spelling"
   | Internal_storage -> "internal-storage"

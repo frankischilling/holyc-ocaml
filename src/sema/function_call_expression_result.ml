@@ -101,7 +101,8 @@ let result_class_name = function
   | Unresolved_actual_class -> "unresolved"
 
 let invalid_input message =
-  { code = "HCSEMA0046"; kind = Invalid_input message }
+  let kind = Invalid_input message in
+  { code = "HCSEMA0046"; kind }
 
 let error_code error = error.code
 let error_kind error = error.kind
@@ -125,16 +126,6 @@ let type_is_owned table type_ =
   match Type.base type_ with
   | Type.Primitive _ -> true
   | Type.Aggregate symbol -> Symbol_table.owns_symbol table symbol
-
-let pointer_to type_ =
-  let pointer_depth = Type.pointer_depth type_ + 1 in
-  match Type.base type_ with
-  | Type.Primitive (form, primitive) ->
-      primitive_type ~form primitive pointer_depth
-  | Type.Aggregate symbol -> (
-      match Type.make_aggregate ~symbol ~pointer_depth with
-      | Ok type_ -> Some type_
-      | Error _ -> None)
 
 let forwarded_class policies ~before_item_index type_ =
   match
@@ -211,7 +202,8 @@ let rec type_expression table policies ~before_item_index ~context state source
               finish ~source_type:grouped_result.source_type
                 grouped_result.category grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
-          type_prefix table policies ~before_item_index state id source prefix
+          type_prefix table policies ~before_item_index ~context state id source
+            prefix
       | Function_call_resolution.Postfix_expression postfix ->
           type_postfix table policies ~before_item_index state id source postfix
       | Function_call_resolution.Binary_expression binary ->
@@ -271,7 +263,8 @@ let rec type_expression table policies ~before_item_index ~context state source
           | Function_call_resolution.Member_expression ->
               finish Unavailable Unresolved_actual_class state))
 
-and type_prefix table policies ~before_item_index state id source prefix =
+and type_prefix table policies ~before_item_index ~context state id source
+    prefix =
   let operator = Function_call_resolution.prefix_operator prefix in
   let operand_context =
     match operator with
@@ -290,26 +283,53 @@ and type_prefix table policies ~before_item_index state id source prefix =
       (Function_call_resolution.prefix_operand prefix)
   with
   | Error _ as error -> error
-  | Ok (operand, state) ->
-      let source_type, category, result_class =
-        match operator with
-        | Function_call_resolution.Unary_plus
-        | Function_call_resolution.Unary_minus
-        | Function_call_resolution.Logical_not ->
-            (operand.source_type, Object_value, operand.result_class)
-        | Function_call_resolution.Bitwise_not ->
-            (integer_type, Object_value, Integer_result)
-        | Function_call_resolution.Address_of ->
-            ( Option.bind operand.source_type pointer_to,
-              Address_value,
-              Integer_result )
-        | Function_call_resolution.Pre_increment
-        | Function_call_resolution.Pre_decrement ->
-            (operand.source_type, Object_value, operand.result_class)
-        | Function_call_resolution.Dereference ->
-            (None, Unavailable, Unresolved_actual_class)
+  | Ok (operand, state) -> (
+      let finish ?(source_type = None) category result_class =
+        Ok (make_result state ~id ~source ~source_type ~category ~result_class)
       in
-      Ok (make_result state ~id ~source ~source_type ~category ~result_class)
+      match operator with
+      | Function_call_resolution.Unary_plus
+      | Function_call_resolution.Unary_minus
+      | Function_call_resolution.Logical_not ->
+          finish ~source_type:operand.source_type Object_value
+            operand.result_class
+      | Function_call_resolution.Bitwise_not ->
+          finish ~source_type:integer_type Object_value Integer_result
+      | Function_call_resolution.Address_of -> (
+          match operand.source_type with
+          | None -> finish Address_value Integer_result
+          | Some source_type -> (
+              match Type.pointer_to source_type with
+              | Ok source_type ->
+                  finish ~source_type:(Some source_type) Address_value
+                    Integer_result
+              | Error _ -> finish Address_value Integer_result))
+      | Function_call_resolution.Pre_increment
+      | Function_call_resolution.Pre_decrement ->
+          finish ~source_type:operand.source_type Object_value
+            operand.result_class
+      | Function_call_resolution.Dereference -> (
+          let value_category =
+            match context with
+            | Value_context -> Object_value
+            | Lvalue_context -> Lvalue
+          in
+          match (operand.source_type, operand.category) with
+          | None, _ -> finish Unavailable Unresolved_actual_class
+          | Some source_type, Array_value ->
+              finish ~source_type:(Some source_type) value_category
+                (forwarded_class policies ~before_item_index source_type)
+          | Some source_type, (Callback_value | Function_value) ->
+              finish ~source_type:(Some source_type) Function_value
+                Integer_result
+          | Some source_type, _ ->
+              let source_type =
+                match Type.dereference source_type with
+                | Ok source_type -> source_type
+                | Error _ -> source_type
+              in
+              finish ~source_type:(Some source_type) value_category
+                (forwarded_class policies ~before_item_index source_type)))
 
 and type_postfix table policies ~before_item_index state id source postfix =
   match
