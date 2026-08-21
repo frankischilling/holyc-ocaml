@@ -13,6 +13,7 @@ module Int_map = Map.Make (Int)
 type typed_value = {
   resolved_type : Sema.Type.t;
   shape : Sema.Function_call_resolution.identifier_value_shape;
+  array_rank : int;
 }
 
 type typed_environment = typed_value Int_map.t
@@ -31,6 +32,7 @@ let object_value reference =
   {
     resolved_type = Sema.Type_reference.resolved_type reference;
     shape = Sema.Function_call_resolution.Object_value;
+    array_rank = 0;
   }
 
 let parameter_value parameter =
@@ -44,28 +46,31 @@ let parameter_value parameter =
           parameter |> Sema.Function_type_resolution.parameter_type_reference
           |> Sema.Type_reference.resolved_type;
         shape = Sema.Function_call_resolution.Function_pointer_value;
+        array_rank = 0;
       }
 
 let synthetic_value binding =
-  let shape =
+  let shape, array_rank =
     match Sema.Function_type_resolution.synthetic_binding_shape binding with
     | Sema.Function_type_resolution.Scalar ->
-        Sema.Function_call_resolution.Object_value
+        (Sema.Function_call_resolution.Object_value, 0)
     | Sema.Function_type_resolution.Array _ ->
-        Sema.Function_call_resolution.Array_value
+        (Sema.Function_call_resolution.Array_value, 1)
   in
   {
     resolved_type = Sema.Function_type_resolution.synthetic_binding_type binding;
     shape;
+    array_rank;
   }
 
 let local_value local =
+  let dimensions = Sema.Local_type_resolution.local_array_dimensions local in
   let shape =
     match Sema.Local_type_resolution.local_declarator_kind local with
     | Sema.Local_type_resolution.Function_pointer _ ->
         Sema.Function_call_resolution.Function_pointer_value
     | Sema.Local_type_resolution.Object ->
-        if Sema.Local_type_resolution.local_array_dimensions local = [] then
+        if dimensions = [] then
           Sema.Function_call_resolution.Object_value
         else Sema.Function_call_resolution.Array_value
   in
@@ -74,15 +79,17 @@ let local_value local =
       local |> Sema.Local_type_resolution.local_type_reference
       |> Sema.Type_reference.resolved_type;
     shape;
+    array_rank = List.length dimensions;
   }
 
 let global_value global =
+  let dimensions = Sema.Global_type_resolution.global_array_dimensions global in
   let shape =
     match Sema.Global_type_resolution.global_declarator_kind global with
     | Sema.Global_type_resolution.Function_pointer _ ->
         Sema.Function_call_resolution.Function_pointer_value
     | Sema.Global_type_resolution.Object ->
-        if Sema.Global_type_resolution.global_array_dimensions global = [] then
+        if dimensions = [] then
           Sema.Function_call_resolution.Object_value
         else Sema.Function_call_resolution.Array_value
   in
@@ -91,6 +98,7 @@ let global_value global =
       global |> Sema.Global_type_resolution.global_type_reference
       |> Sema.Type_reference.resolved_type;
     shape;
+    array_rank = List.length dimensions;
   }
 
 let add_typed_value symbol value values =
@@ -431,7 +439,8 @@ let rec argument_expression visible locals globals occurrences cursor
             | Some value ->
                 Sema.Function_call_resolution
                 .make_bound_identifier_argument_expression ~occurrence
-                  ~resolved_type:value.resolved_type ~shape:value.shape))
+                  ~resolved_type:value.resolved_type ~shape:value.shape
+                  ~array_rank:value.array_rank))
     | Frontend.Ast.Current_position_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
@@ -517,12 +526,24 @@ let rec argument_expression visible locals globals occurrences cursor
             Sema.Function_call_resolution.Unresolved_expression
               Sema.Function_call_resolution.Call_expression)
           (advance_expression_occurrences occurrences cursor expression)
-    | Frontend.Ast.Index_expression _ ->
-        Result.map
-          (fun () ->
-            Sema.Function_call_resolution.Unresolved_expression
-              Sema.Function_call_resolution.Index_expression)
-          (advance_expression_occurrences occurrences cursor expression)
+    | Frontend.Ast.Index_expression index -> (
+        match
+          argument_expression visible locals globals occurrences cursor
+            index.index_base
+        with
+        | Error _ as error -> error
+        | Ok base -> (
+            match
+              argument_expression visible locals globals occurrences cursor
+                index.index_value
+            with
+            | Error _ as error -> error
+            | Ok value ->
+                Sema.Function_call_resolution.make_index_argument_expression
+                  ~base
+                  ~opening_origin:(origin index.index_opening_bracket)
+                  ~index:value
+                  ~closing_origin:(origin index.index_closing_bracket)))
     | Frontend.Ast.Member_expression _ ->
         Result.map
           (fun () ->

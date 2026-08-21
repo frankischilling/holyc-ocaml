@@ -9,7 +9,6 @@ type unresolved_expression_kind =
   | Defined_expression
   | Postfix_cast_expression
   | Call_expression
-  | Index_expression
   | Member_expression
 
 type prefix_operator =
@@ -39,6 +38,7 @@ type argument_expression_kind =
   | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
+  | Index_expression of index_expression
   | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
@@ -66,10 +66,18 @@ and binary_expression = {
   binary_right : argument_expression;
 }
 
+and index_expression = {
+  index_base : argument_expression;
+  index_opening_origin : Symbol.origin;
+  index_value : argument_expression;
+  index_closing_origin : Symbol.origin;
+}
+
 and bound_identifier = {
   bound_identifier_occurrence_ : Module_expression_binding.occurrence;
   bound_identifier_type_ : Type.t;
   bound_identifier_shape_ : identifier_value_shape;
+  bound_identifier_array_rank_ : int;
 }
 
 type argument = {
@@ -205,12 +213,17 @@ let binary_operator_origin (binary : binary_expression) =
 
 let binary_left (binary : binary_expression) = binary.binary_left
 let binary_right (binary : binary_expression) = binary.binary_right
+let index_base (index : index_expression) = index.index_base
+let index_opening_origin (index : index_expression) = index.index_opening_origin
+let index_value (index : index_expression) = index.index_value
+let index_closing_origin (index : index_expression) = index.index_closing_origin
 
 let bound_identifier_occurrence identifier =
   identifier.bound_identifier_occurrence_
 
 let bound_identifier_type identifier = identifier.bound_identifier_type_
 let bound_identifier_shape identifier = identifier.bound_identifier_shape_
+let bound_identifier_array_rank identifier = identifier.bound_identifier_array_rank_
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -261,7 +274,6 @@ let unresolved_expression_kind_name = function
   | Defined_expression -> "defined"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
-  | Index_expression -> "index"
   | Member_expression -> "member"
 
 let argument_expression_kind_name = function
@@ -274,6 +286,7 @@ let argument_expression_kind_name = function
   | Postfix_expression _ -> "postfix"
   | Postfix_cast_expression _ -> "postfix-cast"
   | Binary_expression _ -> "binary"
+  | Index_expression _ -> "index"
   | Bound_identifier_expression _ -> "bound-identifier"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
@@ -400,8 +413,24 @@ let make_binary_argument_expression ~operator ~operator_origin ~left ~right =
            binary_right = right;
          })
 
+let make_index_argument_expression ~base ~opening_origin ~index
+    ~closing_origin =
+  if not (valid_origin opening_origin) then
+    Error "call argument index has an invalid opening-bracket origin"
+  else if not (valid_origin closing_origin) then
+    Error "call argument index has an invalid closing-bracket origin"
+  else
+    Ok
+      (Index_expression
+         {
+           index_base = base;
+           index_opening_origin = opening_origin;
+           index_value = index;
+           index_closing_origin = closing_origin;
+         })
+
 let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
-    =
+    ~array_rank =
   let name = Module_expression_binding.occurrence_name occurrence in
   if String.equal name "" then
     Error "bound call argument identifier cannot have an empty name"
@@ -413,6 +442,12 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
         <> Module_expression_binding.Global_variable
     | Module_expression_binding.Outer_candidate -> true
   then Error "bound call argument occurrence is not a typed value binding"
+  else if array_rank < 0 then
+    Error "bound call argument array rank cannot be negative"
+  else if shape = Array_value && array_rank = 0 then
+    Error "bound array call argument has no array dimensions"
+  else if shape <> Array_value && array_rank <> 0 then
+    Error "bound nonarray call argument has array dimensions"
   else
     Ok
       (Bound_identifier_expression
@@ -420,6 +455,7 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
            bound_identifier_occurrence_ = occurrence;
            bound_identifier_type_ = resolved_type;
            bound_identifier_shape_ = shape;
+           bound_identifier_array_rank_ = array_rank;
          })
 
 let argument_expression_kind expression = expression.expression_kind
@@ -548,6 +584,13 @@ let rec validate_argument_expression table parent visible expression =
       | Error _ as error -> error
       | Ok () ->
           validate_argument_expression table parent visible binary.binary_right)
+  | Index_expression index -> (
+      match
+        validate_argument_expression table parent visible index.index_base
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_argument_expression table parent visible index.index_value)
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
@@ -578,6 +621,15 @@ let rec validate_argument_expression table parent visible expression =
         Error
           (invalid_input
              "bound call argument occurrence is not a typed value binding")
+      else if
+        identifier.bound_identifier_shape_ = Array_value
+        && identifier.bound_identifier_array_rank_ = 0
+      then Error (invalid_input "bound array call argument has no dimensions")
+      else if
+        identifier.bound_identifier_shape_ <> Array_value
+        && identifier.bound_identifier_array_rank_ <> 0
+      then
+        Error (invalid_input "bound nonarray call argument has dimensions")
       else
         match Type.base resolved_type with
         | Type.Primitive _ -> Ok ()
@@ -780,6 +832,13 @@ let rec validate_bound_occurrences occurrence_by_index expression =
       | Error _ as error -> error
       | Ok () ->
           validate_bound_occurrences occurrence_by_index binary.binary_right)
+  | Index_expression index -> (
+      match
+        validate_bound_occurrences occurrence_by_index index.index_base
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_bound_occurrences occurrence_by_index index.index_value)
   | Postfix_cast_expression (operand, _) ->
       validate_bound_occurrences occurrence_by_index operand
   | Bound_identifier_expression identifier -> (

@@ -9,7 +9,6 @@ type unresolved_expression_kind =
   | Defined_expression
   | Postfix_cast_expression
   | Call_expression
-  | Index_expression
   | Member_expression
 
 type prefix_operator =
@@ -26,6 +25,7 @@ type prefix_expression
 type postfix_operator = Post_increment | Post_decrement
 type postfix_expression
 type binary_expression
+type index_expression
 
 type identifier_value_shape =
   | Object_value
@@ -44,6 +44,7 @@ type argument_expression_kind =
   | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
+  | Index_expression of index_expression
   | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
@@ -75,10 +76,18 @@ val make_binary_argument_expression :
   right:argument_expression ->
   (argument_expression_kind, string) result
 
+val make_index_argument_expression :
+  base:argument_expression ->
+  opening_origin:Symbol.origin ->
+  index:argument_expression ->
+  closing_origin:Symbol.origin ->
+  (argument_expression_kind, string) result
+
 val make_bound_identifier_argument_expression :
   occurrence:Module_expression_binding.occurrence ->
   resolved_type:Type.t ->
   shape:identifier_value_shape ->
+  array_rank:int ->
   (argument_expression_kind, string) result
 
 val make_argument :
@@ -192,12 +201,17 @@ val binary_operator : binary_expression -> Generated.Intermediate_codes.t
 val binary_operator_origin : binary_expression -> Symbol.origin
 val binary_left : binary_expression -> argument_expression
 val binary_right : binary_expression -> argument_expression
+val index_base : index_expression -> argument_expression
+val index_opening_origin : index_expression -> Symbol.origin
+val index_value : index_expression -> argument_expression
+val index_closing_origin : index_expression -> Symbol.origin
 
 val bound_identifier_occurrence :
   bound_identifier -> Module_expression_binding.occurrence
 
 val bound_identifier_type : bound_identifier -> Type.t
 val bound_identifier_shape : bound_identifier -> identifier_value_shape
+val bound_identifier_array_rank : bound_identifier -> int
 val identifier_value_shape_name : identifier_value_shape -> string
 
 val default_parameter_default :
