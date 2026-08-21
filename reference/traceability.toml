@@ -5479,10 +5479,11 @@ native_oracle_status = "not required for this result-class boundary; the IC_COM 
 
 [[feature]]
 id = "HC-SEMA-TYPED-DIRECT-CALL-EXPRESSIONS"
-description = "Provided fixed direct-call expressions receive immutable semantic results before target conversion selection."
+description = "Provided fixed and variadic direct-call expressions receive immutable semantic results before target conversion selection."
 sources = [
   "Compiler/CompilerA.HH:CIntermediateCode class and class2 fields",
   "Compiler/PrsExp.HC:438-486 fixed argument optimization and class comparison",
+  "Compiler/PrsExp.HC:494-502 variadic expression loop",
   "Compiler/PrsExp.HC:593-904 primary, prefix, local, and global expression construction",
   "Compiler/PrsExp.HC:936-1055 defined and postfix-cast result construction",
   "Compiler/OptLib.HC:9-15 OptClassFwd",
@@ -5504,20 +5505,20 @@ tests = [
 status = "implemented"
 issue = 264
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-scope = "provided fixed expressions on already resolved direct function-body calls"
+scope = "provided fixed and variadic expressions on already resolved direct function-body calls"
 identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
 source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "distinct execution class when applicable", "resolved member lookup when applicable"]
 value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
 result_classes = ["integer", "F64", "unresolved"]
-conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; index subscripts and assignment right operands independently record their source-required conversion intent"
+conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; variadic results have no fixed target conversion; index subscripts and assignment right operands independently record their source-required conversion intent"
 type_fallback = "none; an unknown source type remains absent"
-validation = ["symbol-table ownership", "aggregate type ownership", "aggregate member-index ownership", "policy traversal ownership", "fixed source-path agreement", "deterministic identity space"]
+validation = ["symbol-table ownership", "aggregate type ownership", "aggregate member-index ownership", "policy traversal ownership", "fixed source-path agreement", "provided variadic expression shape", "deterministic identity space"]
 provenance = ["source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 33
-unimplemented = ["assignment execution", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
+focused_expression_result_tests = 35
+unimplemented = ["assignment execution", "module function value typing", "indirect calls", "default typing", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5728,3 +5729,37 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 storage_write_pointer_scaling_old_value_semantics_ic_emission_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, CInit metadata, and OptPass012 directly state the writable dereference shape and retained result class"
+
+[[feature]]
+id = "HC-SEMA-VARIADIC-EXPRESSION-RESULTS"
+description = "Provided variadic call expressions receive checked semantic results in source order without a fixed-parameter conversion."
+sources = [
+  "Compiler/PrsExp.HC:420-535 complete PrsFunCall argument construction",
+  "Compiler/PrsExp.HC:477-484 fixed-member class comparison and conversion flags",
+  "Compiler/PrsExp.HC:494-502 variadic expression loop and argc count",
+  "Compiler/CompilerA.HH member-list and intermediate-code flags"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 276
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided variadic expressions on resolved direct function-body calls"
+ordering_rule = "walk fixed slots first, then type every provided variadic expression in source order"
+result_rule = "reuse the immutable expression result with deterministic identity, origin, semantic type, category, array rank, intrinsic conversion facts, result class, execution class, and member lookup"
+separation_rule = "keep fixed provided results, declared defaults, and provided variadic results in distinct direct-call paths"
+conversion_rule = "retain the variadic actual result and class without a target class or fixed-call conversion decision"
+source_reason = "the variadic loop follows the fixed-member comparison and has no member class to compare"
+expression_coverage = ["literal", "bound identifier", "address", "dereference", "index", "member", "binary", "postfix cast", "prefix update", "postfix update"]
+provenance = ["included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+default_evaluation_variadic_promotion_hidden_count_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked traversal boundary; PrsFunCall directly separates the fixed comparison from the later variadic expression loop"
