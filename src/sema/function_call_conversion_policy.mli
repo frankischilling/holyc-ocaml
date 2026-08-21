@@ -2,9 +2,11 @@ type target_class = Integer_result | F64_result
 type fixed_path = Provided_expression of target_class | Declared_default
 type fixed_policy
 type direct_call
+type indirect_call
 
 type call_policy =
   | Direct_call_policy of direct_call
+  | Indirect_call_policy of indirect_call
   | Deferred_call_policy of Function_call_resolution.call_resolution
 
 type resolved_function
@@ -40,6 +42,12 @@ val direct_fixed_policies : direct_call -> fixed_policy list
 
 val direct_variadic_arguments :
   direct_call -> Function_call_resolution.argument list
+
+val indirect_source : indirect_call -> Function_call_resolution.indirect_call
+val indirect_fixed_policies : indirect_call -> fixed_policy list
+
+val indirect_variadic_arguments :
+  indirect_call -> Function_call_resolution.argument list
 
 val fixed_source : fixed_policy -> Function_call_resolution.fixed_argument
 val fixed_path : fixed_policy -> fixed_path

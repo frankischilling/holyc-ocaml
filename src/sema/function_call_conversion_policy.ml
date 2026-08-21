@@ -12,8 +12,15 @@ type direct_call = {
   variadic_arguments : Function_call_resolution.argument list;
 }
 
+type indirect_call = {
+  source : Function_call_resolution.indirect_call;
+  fixed_policies : fixed_policy list;
+  variadic_arguments : Function_call_resolution.argument list;
+}
+
 type call_policy =
   | Direct_call_policy of direct_call
+  | Indirect_call_policy of indirect_call
   | Deferred_call_policy of Function_call_resolution.call_resolution
 
 type resolved_function = {
@@ -49,6 +56,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_policies (call : direct_call) = call.fixed_policies
 let direct_variadic_arguments (call : direct_call) = call.variadic_arguments
+let indirect_source (call : indirect_call) = call.source
+let indirect_fixed_policies (call : indirect_call) = call.fixed_policies
+let indirect_variadic_arguments (call : indirect_call) = call.variadic_arguments
 let fixed_source (fixed : fixed_policy) = fixed.source
 let fixed_path (fixed : fixed_policy) = fixed.path
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
@@ -256,7 +266,8 @@ let fixed_policy headers ~before_item_index source =
   in
   { source; path }
 
-let direct_call headers ~before_item_index source =
+let direct_call headers ~before_item_index
+    (source : Function_call_resolution.direct_call) : direct_call =
   {
     source;
     fixed_policies =
@@ -266,9 +277,22 @@ let direct_call headers ~before_item_index source =
       Function_call_resolution.direct_variadic_arguments source;
   }
 
+let indirect_call headers ~before_item_index
+    (source : Function_call_resolution.indirect_call) : indirect_call =
+  {
+    source;
+    fixed_policies =
+      source |> Function_call_resolution.indirect_fixed_arguments
+      |> List.map (fixed_policy headers ~before_item_index);
+    variadic_arguments =
+      Function_call_resolution.indirect_variadic_arguments source;
+  }
+
 let call_policy headers ~before_item_index = function
   | Function_call_resolution.Direct_call call ->
       Direct_call_policy (direct_call headers ~before_item_index call)
+  | Function_call_resolution.Indirect_call call ->
+      Indirect_call_policy (indirect_call headers ~before_item_index call)
   | Function_call_resolution.Deferred_call _ as call ->
       Deferred_call_policy call
 

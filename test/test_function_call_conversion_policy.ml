@@ -132,6 +132,8 @@ let function_named result name =
 
 let direct = function
   | Semantic_function_call_conversion_policy.Direct_call_policy call -> call
+  | Semantic_function_call_conversion_policy.Indirect_call_policy _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_conversion_policy.Deferred_call_policy _ ->
       Alcotest.fail "expected a direct call conversion policy"
 

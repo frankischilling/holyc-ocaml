@@ -14,6 +14,7 @@ type typed_value = {
   resolved_type : Sema.Type.t;
   shape : Sema.Function_call_resolution.identifier_value_shape;
   array_rank : int;
+  callable : Sema.Function_call_resolution.callable option;
 }
 
 type typed_environment = typed_value Int_map.t
@@ -33,6 +34,18 @@ let object_value reference =
     resolved_type = Sema.Type_reference.resolved_type reference;
     shape = Sema.Function_call_resolution.Object_value;
     array_rank = 0;
+    callable = None;
+  }
+
+let callback_value reference pointer =
+  {
+    resolved_type = Sema.Type_reference.resolved_type reference;
+    shape = Sema.Function_call_resolution.Function_pointer_value;
+    array_rank = 0;
+    callable =
+      Some
+        (Sema.Function_call_resolution.make_callable ~return_type:reference
+           ~function_pointer:pointer);
   }
 
 let parameter_value parameter =
@@ -40,14 +53,10 @@ let parameter_value parameter =
   | Sema.Function_type_resolution.Object ->
       object_value
         (Sema.Function_type_resolution.parameter_type_reference parameter)
-  | Sema.Function_type_resolution.Function_pointer _ ->
-      {
-        resolved_type =
-          parameter |> Sema.Function_type_resolution.parameter_type_reference
-          |> Sema.Type_reference.resolved_type;
-        shape = Sema.Function_call_resolution.Function_pointer_value;
-        array_rank = 0;
-      }
+  | Sema.Function_type_resolution.Function_pointer pointer ->
+      callback_value
+        (Sema.Function_type_resolution.parameter_type_reference parameter)
+        pointer
 
 let synthetic_value binding =
   let shape, array_rank =
@@ -61,42 +70,55 @@ let synthetic_value binding =
     resolved_type = Sema.Function_type_resolution.synthetic_binding_type binding;
     shape;
     array_rank;
+    callable = None;
   }
 
 let local_value local =
   let dimensions = Sema.Local_type_resolution.local_array_dimensions local in
-  let shape =
+  let reference = Sema.Local_type_resolution.local_type_reference local in
+  let shape, callable =
     match Sema.Local_type_resolution.local_declarator_kind local with
-    | Sema.Local_type_resolution.Function_pointer _ ->
-        Sema.Function_call_resolution.Function_pointer_value
+    | Sema.Local_type_resolution.Function_pointer pointer ->
+        ( Sema.Function_call_resolution.Function_pointer_value,
+          if dimensions = [] then
+            Some
+              (Sema.Function_call_resolution.make_callable
+                 ~return_type:reference ~function_pointer:pointer)
+          else None )
     | Sema.Local_type_resolution.Object ->
-        if dimensions = [] then Sema.Function_call_resolution.Object_value
-        else Sema.Function_call_resolution.Array_value
+        ( (if dimensions = [] then Sema.Function_call_resolution.Object_value
+           else Sema.Function_call_resolution.Array_value),
+          None )
   in
   {
-    resolved_type =
-      local |> Sema.Local_type_resolution.local_type_reference
-      |> Sema.Type_reference.resolved_type;
+    resolved_type = Sema.Type_reference.resolved_type reference;
     shape;
     array_rank = List.length dimensions;
+    callable;
   }
 
 let global_value global =
   let dimensions = Sema.Global_type_resolution.global_array_dimensions global in
-  let shape =
+  let reference = Sema.Global_type_resolution.global_type_reference global in
+  let shape, callable =
     match Sema.Global_type_resolution.global_declarator_kind global with
-    | Sema.Global_type_resolution.Function_pointer _ ->
-        Sema.Function_call_resolution.Function_pointer_value
+    | Sema.Global_type_resolution.Function_pointer pointer ->
+        ( Sema.Function_call_resolution.Function_pointer_value,
+          if dimensions = [] then
+            Some
+              (Sema.Function_call_resolution.make_callable
+                 ~return_type:reference ~function_pointer:pointer)
+          else None )
     | Sema.Global_type_resolution.Object ->
-        if dimensions = [] then Sema.Function_call_resolution.Object_value
-        else Sema.Function_call_resolution.Array_value
+        ( (if dimensions = [] then Sema.Function_call_resolution.Object_value
+           else Sema.Function_call_resolution.Array_value),
+          None )
   in
   {
-    resolved_type =
-      global |> Sema.Global_type_resolution.global_type_reference
-      |> Sema.Type_reference.resolved_type;
+    resolved_type = Sema.Type_reference.resolved_type reference;
     shape;
     array_rank = List.length dimensions;
+    callable;
   }
 
 let add_typed_value symbol value values =
@@ -603,10 +625,27 @@ let call_arguments visible locals globals occurrences first_occurrence call =
   in
   loop 0 [] call.Frontend.Ast.call_arguments
 
+let rec identifier_callee dereference_depth = function
+  | Frontend.Ast.Identifier_expression identifier ->
+      let form =
+        if dereference_depth = 0 then
+          Sema.Function_call_resolution.Identifier_callee
+        else
+          Sema.Function_call_resolution.Dereferenced_identifier_callee
+            dereference_depth
+      in
+      Some (identifier, form)
+  | Frontend.Ast.Parenthesized_expression grouped ->
+      identifier_callee dereference_depth grouped.grouped_expression
+  | Frontend.Ast.Prefix_expression prefix
+    when prefix.prefix_operator_kind = Frontend.Ast.Dereference ->
+      identifier_callee (dereference_depth + 1) prefix.prefix_operand
+  | _ -> None
+
 let collect_call visible locals globals occurrences state
     (call : Frontend.Ast.call_expression) =
-  match call.call_callee with
-  | Frontend.Ast.Identifier_expression callee -> (
+  match identifier_callee 0 call.call_callee with
+  | Some (callee, callee_form) -> (
       if state.next_occurrence = max_int then
         Error "function call occurrence space is exhausted"
       else
@@ -617,26 +656,35 @@ let collect_call visible locals globals occurrences state
         with
         | Error _ as error -> error
         | Ok arguments -> (
-            match
-              Sema.Function_call_resolution.make_call ~index:state.next_call
-                ~callee_occurrence_index:state.next_occurrence
-                ~callee_name:callee.spelling
-                ~callee_origin:(origin callee.location)
-                ~origin:(origin call.call_location)
-                ~syntax:(call_syntax call) arguments
-            with
+            match occurrence_at occurrences state.next_occurrence callee with
             | Error _ as error -> error
-            | Ok call ->
-                if state.next_call = max_int then
-                  Error "function call identity space is exhausted"
-                else
-                  Ok
-                    {
-                      state with
-                      next_call = state.next_call + 1;
-                      calls_rev = call :: state.calls_rev;
-                    }))
-  | _ -> Ok state
+            | Ok occurrence -> (
+                let callable =
+                  Option.bind
+                    (typed_value_for_occurrence locals globals occurrence)
+                    (fun value -> value.callable)
+                in
+                match
+                  Sema.Function_call_resolution.make_call ~index:state.next_call
+                    ~callee_occurrence_index:state.next_occurrence
+                    ~callee_name:callee.spelling
+                    ~callee_origin:(origin callee.location) ~callee_form
+                    ?callable
+                    ~origin:(origin call.call_location)
+                    ~syntax:(call_syntax call) arguments
+                with
+                | Error _ as error -> error
+                | Ok call ->
+                    if state.next_call = max_int then
+                      Error "function call identity space is exhausted"
+                    else
+                      Ok
+                        {
+                          state with
+                          next_call = state.next_call + 1;
+                          calls_rev = call :: state.calls_rev;
+                        })))
+  | None -> Ok state
 
 let rec expression state = function
   | Frontend.Ast.Identifier_expression _ -> add_identifier state

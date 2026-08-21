@@ -34,8 +34,15 @@ type direct_call = {
   variadic_decisions : variadic_decision list;
 }
 
+type indirect_call = {
+  source : Function_call_conversion_policy.indirect_call;
+  fixed_decisions : fixed_decision list;
+  variadic_decisions : variadic_decision list;
+}
+
 type call_decision =
   | Direct_call_decision of direct_call
+  | Indirect_call_decision of indirect_call
   | Deferred_call_decision of Function_call_resolution.call_resolution
 
 type resolved_function = {
@@ -67,6 +74,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_decisions (call : direct_call) = call.fixed_decisions
 let direct_variadic_decisions (call : direct_call) = call.variadic_decisions
+let indirect_source (call : indirect_call) = call.source
+let indirect_fixed_decisions (call : indirect_call) = call.fixed_decisions
+let indirect_variadic_decisions (call : indirect_call) = call.variadic_decisions
 let fixed_source (fixed : fixed_decision) = fixed.source
 let fixed_path (fixed : fixed_decision) = fixed.path
 let provided_target (provided : provided_decision) = provided.target
@@ -163,7 +173,8 @@ let map_result apply values =
   in
   loop [] values
 
-let direct_call source =
+let direct_call (source : Function_call_expression_result.direct_call) :
+    (direct_call, error) result =
   match
     source |> Function_call_expression_result.direct_fixed_results
     |> map_result fixed_decision
@@ -186,11 +197,39 @@ let direct_call source =
           variadic_decisions;
         }
 
+let indirect_call (source : Function_call_expression_result.indirect_call) :
+    (indirect_call, error) result =
+  match
+    source |> Function_call_expression_result.indirect_fixed_results
+    |> map_result fixed_decision
+  with
+  | Error _ as error -> error
+  | Ok fixed_decisions ->
+      let variadic_decisions =
+        source |> Function_call_expression_result.indirect_variadic_results
+        |> List.map (fun actual_result ->
+            {
+              actual_result;
+              actual =
+                Function_call_expression_result.result_class actual_result;
+            })
+      in
+      Ok
+        {
+          source = Function_call_expression_result.indirect_source source;
+          fixed_decisions;
+          variadic_decisions;
+        }
+
 let call_decision = function
   | Function_call_expression_result.Direct_call_result call -> (
       match direct_call call with
       | Error _ as error -> error
       | Ok call -> Ok (Direct_call_decision call))
+  | Function_call_expression_result.Indirect_call_result call -> (
+      match indirect_call call with
+      | Error _ as error -> error
+      | Ok call -> Ok (Indirect_call_decision call))
   | Function_call_expression_result.Deferred_call_result call ->
       Ok (Deferred_call_decision call)
 

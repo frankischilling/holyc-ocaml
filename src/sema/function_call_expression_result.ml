@@ -51,8 +51,15 @@ type direct_call = {
   variadic_results : expression_result list;
 }
 
+type indirect_call = {
+  source : Function_call_conversion_policy.indirect_call;
+  fixed_results : fixed_result list;
+  variadic_results : expression_result list;
+}
+
 type call_result =
   | Direct_call_result of direct_call
+  | Indirect_call_result of indirect_call
   | Deferred_call_result of Function_call_resolution.call_resolution
 
 type resolved_function = {
@@ -89,6 +96,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
+let indirect_source (call : indirect_call) = call.source
+let indirect_fixed_results (call : indirect_call) = call.fixed_results
+let indirect_variadic_results (call : indirect_call) = call.variadic_results
 let fixed_source (fixed : fixed_result) = fixed.source
 let fixed_path (fixed : fixed_result) = fixed.path
 let result_id (result : expression_result) = result.id
@@ -259,12 +269,17 @@ let policy_call_resolution = function
   | Function_call_conversion_policy.Direct_call_policy policy ->
       Function_call_resolution.Direct_call
         (Function_call_conversion_policy.direct_source policy)
+  | Function_call_conversion_policy.Indirect_call_policy policy ->
+      Function_call_resolution.Indirect_call
+        (Function_call_conversion_policy.indirect_source policy)
   | Function_call_conversion_policy.Deferred_call_policy resolution ->
       resolution
 
 let source_call = function
   | Function_call_resolution.Direct_call direct ->
       Function_call_resolution.direct_source direct
+  | Function_call_resolution.Indirect_call indirect ->
+      Function_call_resolution.indirect_source indirect
   | Function_call_resolution.Deferred_call { call; _ } -> call
 
 let nested_call_resolution policies ~before_item_index origin =
@@ -402,6 +417,26 @@ let rec type_expression table members policies ~before_item_index ~context
               | Ok (Some (Function_call_resolution.Deferred_call _ as call)) ->
                   finish ~call_resolution:call Unavailable
                     Unresolved_actual_class state
+              | Ok
+                  (Some
+                     (Function_call_resolution.Indirect_call indirect as call))
+                -> (
+                  let source_type =
+                    indirect |> Function_call_resolution.indirect_callable
+                    |> Function_call_resolution.callable_return_type
+                    |> Type_reference.resolved_type
+                  in
+                  match known_type table source_type with
+                  | Error _ as error -> error
+                  | Ok source_type ->
+                      let category =
+                        if Type.pointer_depth source_type > 0 then Address_value
+                        else Object_value
+                      in
+                      finish ~source_type:(Some source_type)
+                        ~call_resolution:call category
+                        (forwarded_class policies ~before_item_index source_type)
+                        state)
               | Ok (Some (Function_call_resolution.Direct_call direct as call))
                 -> (
                   let source_type =
@@ -947,6 +982,28 @@ let type_call table members policies ~before_item_index state = function
           | Ok (variadic_results, state) ->
               Ok
                 ( Direct_call_result { source; fixed_results; variadic_results },
+                  state )))
+  | Function_call_conversion_policy.Indirect_call_policy source -> (
+      match
+        source |> Function_call_conversion_policy.indirect_fixed_policies
+        |> map_state
+             (type_fixed table members policies ~before_item_index)
+             state
+      with
+      | Error _ as error -> error
+      | Ok (fixed_results, state) -> (
+          match
+            source
+            |> Function_call_conversion_policy.indirect_variadic_arguments
+            |> map_state
+                 (type_variadic table members policies ~before_item_index)
+                 state
+          with
+          | Error _ as error -> error
+          | Ok (variadic_results, state) ->
+              Ok
+                ( Indirect_call_result
+                    { source; fixed_results; variadic_results },
                   state )))
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_result call, state)

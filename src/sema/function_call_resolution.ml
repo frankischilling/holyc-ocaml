@@ -1,4 +1,5 @@
 type call_syntax = Parenthesized | Parenthesis_free
+type callee_form = Identifier_callee | Dereferenced_identifier_callee of int
 type argument_kind = Provided | Omitted
 
 type unresolved_expression_kind =
@@ -96,11 +97,18 @@ type argument = {
   origin : Symbol.origin;
 }
 
+type callable = {
+  callable_return_type_ : Type_reference.t;
+  callable_pointer_ : Function_type_resolution.function_pointer;
+}
+
 type call = {
   index : int;
   callee_occurrence_index : int;
   callee_name : string;
   callee_origin : Symbol.origin;
+  callee_form : callee_form;
+  callable : callable option;
   origin : Symbol.origin;
   syntax : call_syntax;
   arguments : argument list;
@@ -137,6 +145,15 @@ type direct_call = {
   variadic_count : int64;
 }
 
+type indirect_call = {
+  source : call;
+  occurrence : Module_expression_binding.occurrence;
+  callable : callable;
+  fixed_arguments : fixed_argument list;
+  variadic_arguments : argument list;
+  variadic_count : int64;
+}
+
 type deferred_reason =
   | Local_callee of Function_binding_index.binding
   | Global_callee of Module_expression_binding.publication
@@ -145,6 +162,7 @@ type deferred_reason =
 
 type call_resolution =
   | Direct_call of direct_call
+  | Indirect_call of indirect_call
   | Deferred_call of {
       call : call;
       occurrence : Module_expression_binding.occurrence;
@@ -196,6 +214,8 @@ let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
 let call_callee_origin (call : call) = call.callee_origin
+let call_callee_form (call : call) = call.callee_form
+let call_callable (call : call) = call.callable
 let call_origin (call : call) = call.origin
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
@@ -255,11 +275,33 @@ let direct_target_symbol (direct : direct_call) = direct.target_symbol
 let direct_fixed_arguments (direct : direct_call) = direct.fixed_arguments
 let direct_variadic_arguments (direct : direct_call) = direct.variadic_arguments
 let direct_variadic_count (direct : direct_call) = direct.variadic_count
+let callable_return_type callable = callable.callable_return_type_
+let callable_pointer callable = callable.callable_pointer_
+
+let callable_signature callable =
+  Function_type_resolution.function_pointer_signature callable.callable_pointer_
+
+let indirect_source (indirect : indirect_call) = indirect.source
+let indirect_occurrence (indirect : indirect_call) = indirect.occurrence
+let indirect_callable (indirect : indirect_call) = indirect.callable
+
+let indirect_fixed_arguments (indirect : indirect_call) =
+  indirect.fixed_arguments
+
+let indirect_variadic_arguments (indirect : indirect_call) =
+  indirect.variadic_arguments
+
+let indirect_variadic_count (indirect : indirect_call) = indirect.variadic_count
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let call_syntax_name = function
   | Parenthesized -> "parenthesized"
   | Parenthesis_free -> "parenthesis-free"
+
+let callee_form_name = function
+  | Identifier_callee -> "identifier"
+  | Dereferenced_identifier_callee depth ->
+      Printf.sprintf "dereferenced-identifier:%d" depth
 
 let argument_kind_name = function
   | Provided -> "provided"
@@ -512,6 +554,9 @@ let make_argument ~index ~kind ~expression ~origin =
     | Provided, None -> Error "provided call argument has no expression"
     | Omitted, Some _ -> Error "omitted call argument has an expression"
 
+let make_callable ~return_type ~function_pointer =
+  { callable_return_type_ = return_type; callable_pointer_ = function_pointer }
+
 let validate_argument_indexes (arguments : argument list) =
   let rec loop expected = function
     | [] -> Ok ()
@@ -523,12 +568,18 @@ let validate_argument_indexes (arguments : argument list) =
   loop 0 arguments
 
 let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
-    ~origin ~syntax (arguments : argument list) =
+    ?(callee_form = Identifier_callee) ?callable ~origin ~syntax
+    (arguments : argument list) =
   if index < 0 then Error "function call index cannot be negative"
   else if callee_occurrence_index < 0 then
     Error "function call callee occurrence index cannot be negative"
   else if String.equal callee_name "" then
     Error "function call callee name cannot be empty"
+  else if
+    match callee_form with
+    | Identifier_callee -> false
+    | Dereferenced_identifier_callee depth -> depth <= 0
+  then Error "function call callee dereference depth must be positive"
   else
     match validate_argument_indexes arguments with
     | Error _ as error -> error
@@ -539,6 +590,8 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
             callee_occurrence_index;
             callee_name;
             callee_origin;
+            callee_form;
+            callable;
             origin;
             syntax;
             arguments;
@@ -697,6 +750,53 @@ let rec validate_argument_expression table parent visible expression =
   | String_literal
   | Unresolved_expression _ -> Ok ()
 
+let validate_callable table parent callable =
+  let validate_type role type_ =
+    match Type.base type_ with
+    | Type.Primitive _ -> Ok ()
+    | Type.Aggregate symbol ->
+        if not (Symbol_table.owns_symbol table symbol) then
+          Error (invalid_input (role ^ " belongs to another symbol table"))
+        else if not (symbol_in_scope symbol parent) then
+          Error (invalid_input (role ^ " has the wrong module scope"))
+        else if
+          not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+        then Error (invalid_input (role ^ " is not an aggregate type"))
+        else Ok ()
+  in
+  let rec validate_signature signature_ =
+    let rec parameters = function
+      | [] -> Ok ()
+      | parameter :: rest -> (
+          match
+            parameter |> Function_type_resolution.parameter_type_reference
+            |> Type_reference.resolved_type
+            |> validate_type "callback parameter type"
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              match
+                Function_type_resolution.parameter_declarator_kind parameter
+              with
+              | Function_type_resolution.Object -> parameters rest
+              | Function_type_resolution.Function_pointer pointer -> (
+                  match
+                    pointer
+                    |> Function_type_resolution.function_pointer_signature
+                    |> validate_signature
+                  with
+                  | Error _ as error -> error
+                  | Ok () -> parameters rest)))
+    in
+    parameters (Function_type_resolution.signature_parameters signature_)
+  in
+  match
+    callable |> callable_return_type |> Type_reference.resolved_type
+    |> validate_type "callback return type"
+  with
+  | Error _ as error -> error
+  | Ok () -> validate_signature (callable_signature callable)
+
 let validate_argument_expressions table parent visible calls =
   let rec arguments = function
     | [] -> Ok ()
@@ -712,10 +812,17 @@ let validate_argument_expressions table parent visible calls =
   in
   let rec loop = function
     | [] -> Ok ()
-    | call :: rest -> (
-        match arguments call.arguments with
+    | (call : call) :: rest -> (
+        match
+          match call.callable with
+          | None -> Ok ()
+          | Some callable -> validate_callable table parent callable
+        with
         | Error _ as error -> error
-        | Ok () -> loop rest)
+        | Ok () -> (
+            match arguments call.arguments with
+            | Error _ as error -> error
+            | Ok () -> loop rest))
   in
   loop calls
 
@@ -1010,11 +1117,7 @@ let provided_or_default (call : call)
             { parameter; value = Declared_default { default; omission = None } }
       | None -> Error (missing_required_argument call parameter None))
 
-let bind_direct_arguments call header =
-  let parameters =
-    Function_type_resolution.function_signature header
-    |> Function_type_resolution.signature_parameters
-  in
+let bind_arguments call ~parameters ~is_variadic =
   let rec fixed fixed_rev parameters arguments =
     match parameters with
     | parameter :: parameter_rest -> (
@@ -1031,14 +1134,14 @@ let bind_direct_arguments call header =
   match fixed [] parameters call.arguments with
   | Error _ as error -> error
   | Ok (fixed_arguments, extras) -> (
-      match Function_type_resolution.function_variadic_bindings header with
-      | None -> (
+      match is_variadic with
+      | false -> (
           match extras with
           | [] -> Ok (fixed_arguments, [], 0L)
           | argument :: _ ->
               Error
                 (extra_fixed_argument call argument (List.length parameters)))
-      | Some _ ->
+      | true ->
           let rec variadic count (rev : argument list) = function
             | [] -> Ok (fixed_arguments, List.rev rev, count)
             | (argument : argument) :: rest -> (
@@ -1052,6 +1155,24 @@ let bind_direct_arguments call header =
           in
           variadic 0L [] extras)
 
+let bind_direct_arguments call header =
+  let parameters =
+    Function_type_resolution.function_signature header
+    |> Function_type_resolution.signature_parameters
+  in
+  bind_arguments call ~parameters
+    ~is_variadic:
+      (Option.is_some
+         (Function_type_resolution.function_variadic_bindings header))
+
+let bind_indirect_arguments call callable =
+  let signature = callable_signature callable in
+  bind_arguments call
+    ~parameters:(Function_type_resolution.signature_parameters signature)
+    ~is_variadic:
+      (Option.is_some
+         (Function_type_resolution.signature_variadic_origin signature))
+
 let same_publication_target publication declaration =
   let site = Function_resolution.resolved_declaration_site declaration in
   let function_ = Function_resolution.declaration_site_function site in
@@ -1062,57 +1183,83 @@ let same_publication_target publication declaration =
        (Module_expression_binding.publication_canonical_symbol publication)
        (Function_resolution.resolved_declaration_identity_symbol declaration)
 
-let resolve_call types declarations occurrence call =
+let resolve_call types declarations occurrence (call : call) =
+  let indirect_or_deferred reason =
+    match call.callable with
+    | None -> Ok (Deferred_call { call; occurrence; reason })
+    | Some callable -> (
+        match bind_indirect_arguments call callable with
+        | Error _ as error -> error
+        | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+            Ok
+              (Indirect_call
+                 {
+                   source = call;
+                   occurrence;
+                   callable;
+                   fixed_arguments;
+                   variadic_arguments;
+                   variadic_count;
+                 }))
+  in
   match Module_expression_binding.occurrence_resolution occurrence with
   | Module_expression_binding.Local_binding binding ->
-      Ok (Deferred_call { call; occurrence; reason = Local_callee binding })
+      indirect_or_deferred (Local_callee binding)
   | Module_expression_binding.Outer_candidate ->
       Ok (Deferred_call { call; occurrence; reason = Outer_callee })
   | Module_expression_binding.Module_binding publication -> (
       match Module_expression_binding.publication_kind publication with
       | Module_expression_binding.Global_variable ->
-          Ok
-            (Deferred_call
-               { call; occurrence; reason = Global_callee publication })
+          indirect_or_deferred (Global_callee publication)
       | Module_expression_binding.Aggregate ->
           Ok
             (Deferred_call
                { call; occurrence; reason = Aggregate_callee publication })
       | Module_expression_binding.Function -> (
-          let source =
-            Module_expression_binding.publication_source_symbol publication
-          in
-          let number = symbol_number source in
-          match
-            (Int_map.find_opt number types, Int_map.find_opt number declarations)
-          with
-          | Some active_header, Some declaration
-            when same_publication_target publication declaration -> (
-              match bind_direct_arguments call active_header with
-              | Error _ as error -> error
-              | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
-                  Ok
-                    (Direct_call
-                       {
-                         source = call;
-                         occurrence;
-                         active_header;
-                         target_symbol =
-                           Module_expression_binding
-                           .publication_canonical_symbol publication;
-                         fixed_arguments;
-                         variadic_arguments;
-                         variadic_count;
-                       }))
-          | Some _, Some _ ->
-              Error
-                (invalid_input
-                   "function call publication disagrees with function identity \
-                    resolution")
-          | None, _ | _, None ->
-              Error
-                (invalid_input
-                   "function call publication has no active typed header")))
+          if Option.is_some call.callable then
+            Error
+              (invalid_input
+                 "direct function call unexpectedly carries a callback header")
+          else if call.callee_form <> Identifier_callee then
+            Ok
+              (Deferred_call
+                 { call; occurrence; reason = Global_callee publication })
+          else
+            let source =
+              Module_expression_binding.publication_source_symbol publication
+            in
+            let number = symbol_number source in
+            match
+              ( Int_map.find_opt number types,
+                Int_map.find_opt number declarations )
+            with
+            | Some active_header, Some declaration
+              when same_publication_target publication declaration -> (
+                match bind_direct_arguments call active_header with
+                | Error _ as error -> error
+                | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                    Ok
+                      (Direct_call
+                         {
+                           source = call;
+                           occurrence;
+                           active_header;
+                           target_symbol =
+                             Module_expression_binding
+                             .publication_canonical_symbol publication;
+                           fixed_arguments;
+                           variadic_arguments;
+                           variadic_count;
+                         }))
+            | Some _, Some _ ->
+                Error
+                  (invalid_input
+                     "function call publication disagrees with function \
+                      identity resolution")
+            | None, _ | _, None ->
+                Error
+                  (invalid_input
+                     "function call publication has no active typed header")))
 
 let resolve_function types declarations expected (input : function_input) =
   let occurrences = Module_expression_binding.function_occurrences expected in
