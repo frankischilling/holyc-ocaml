@@ -39,3 +39,5 @@ These uses justify the current typed fields. Full operand shapes, side-effect cl
 ## Current boundary
 
 This table is the exhaustive opcode identity layer, not an executable IR. There are no instructions, blocks, functions, verifier, textual dump, lowerer, optimizer pipeline, or interpreter yet. No compatibility result on this page implies that HolyC programs can be lowered or run.
+
+The semantic frontend now assigns immutable typed results to provided fixed direct-call expressions. Those records keep source expression identity, type, value category, and the forwarded class used by call conversion, but they are not IR values. They have no operand graph, use list, block placement, side-effect model, relocation intent, or machine representation. IR lowering under M5 must consume the semantic result without treating its deterministic traversal ID as an instruction ID.

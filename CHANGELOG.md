@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added immutable expression results for provided fixed direct-call arguments. Each result has a deterministic identity, source origin, known semantic type, explicit value category, and forwarded integer, `F64`, or unresolved class. The conversion pass now consumes these results and rejects a foreign session or policy traversal without changing its existing decisions. Dereference, index, member, assignment, and indirect-call typing remain separate work.
 - Established the `holyc-ocaml` Dune workspace and public `holyc_lib` library.
 - Pinned TempleOS reference commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 - Added byte-oriented source tracking, structured diagnostics, and the first streaming lexer slice.
