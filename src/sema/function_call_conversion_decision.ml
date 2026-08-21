@@ -162,6 +162,18 @@ let rec source_actual_class policies ~before_item_index expression =
       with
       | Function_call_conversion_policy.Integer_result -> Integer_result
       | Function_call_conversion_policy.F64_result -> F64_result)
+  | Function_call_resolution.Bound_identifier_expression identifier -> (
+      match Function_call_resolution.bound_identifier_shape identifier with
+      | Function_call_resolution.Array_value
+      | Function_call_resolution.Function_pointer_value -> Integer_result
+      | Function_call_resolution.Object_value -> (
+          match
+            Function_call_conversion_policy.forwarded_type_class policies
+              ~before_item_index
+              (Function_call_resolution.bound_identifier_type identifier)
+          with
+          | Function_call_conversion_policy.Integer_result -> Integer_result
+          | Function_call_conversion_policy.F64_result -> F64_result))
   | Function_call_resolution.Unresolved_expression
       ( Function_call_resolution.Current_position_expression
       | Function_call_resolution.Sizeof_expression

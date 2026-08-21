@@ -24,6 +24,11 @@ type prefix_operator =
 
 type postfix_operator = Post_increment | Post_decrement
 
+type identifier_value_shape =
+  | Object_value
+  | Array_value
+  | Function_pointer_value
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -34,6 +39,7 @@ type argument_expression_kind =
   | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
+  | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
@@ -58,6 +64,12 @@ and binary_expression = {
   binary_operator_origin : Symbol.origin;
   binary_left : argument_expression;
   binary_right : argument_expression;
+}
+
+and bound_identifier = {
+  bound_identifier_occurrence_ : Module_expression_binding.occurrence;
+  bound_identifier_type_ : Type.t;
+  bound_identifier_shape_ : identifier_value_shape;
 }
 
 type argument = {
@@ -193,6 +205,12 @@ let binary_operator_origin (binary : binary_expression) =
 
 let binary_left (binary : binary_expression) = binary.binary_left
 let binary_right (binary : binary_expression) = binary.binary_right
+
+let bound_identifier_occurrence identifier =
+  identifier.bound_identifier_occurrence_
+
+let bound_identifier_type identifier = identifier.bound_identifier_type_
+let bound_identifier_shape identifier = identifier.bound_identifier_shape_
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -230,6 +248,11 @@ let postfix_operator_name = function
 
 let binary_operator_name = Generated.Intermediate_codes.to_source_name
 
+let identifier_value_shape_name = function
+  | Object_value -> "object"
+  | Array_value -> "array"
+  | Function_pointer_value -> "function-pointer"
+
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
@@ -251,6 +274,7 @@ let argument_expression_kind_name = function
   | Postfix_expression _ -> "postfix"
   | Postfix_cast_expression _ -> "postfix-cast"
   | Binary_expression _ -> "binary"
+  | Bound_identifier_expression _ -> "bound-identifier"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
@@ -374,6 +398,28 @@ let make_binary_argument_expression ~operator ~operator_origin ~left ~right =
            binary_operator_origin = operator_origin;
            binary_left = left;
            binary_right = right;
+         })
+
+let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
+    =
+  let name = Module_expression_binding.occurrence_name occurrence in
+  if String.equal name "" then
+    Error "bound call argument identifier cannot have an empty name"
+  else if
+    match Module_expression_binding.occurrence_resolution occurrence with
+    | Module_expression_binding.Local_binding _ -> false
+    | Module_expression_binding.Module_binding publication ->
+        Module_expression_binding.publication_kind publication
+        <> Module_expression_binding.Global_variable
+    | Module_expression_binding.Outer_candidate -> true
+  then Error "bound call argument occurrence is not a typed value binding"
+  else
+    Ok
+      (Bound_identifier_expression
+         {
+           bound_identifier_occurrence_ = occurrence;
+           bound_identifier_type_ = resolved_type;
+           bound_identifier_shape_ = shape;
          })
 
 let argument_expression_kind expression = expression.expression_kind
@@ -506,6 +552,49 @@ let rec validate_argument_expression table parent visible expression =
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
       | Ok () -> validate_argument_expression table parent visible operand)
+  | Bound_identifier_expression identifier -> (
+      let occurrence = bound_identifier_occurrence identifier in
+      let resolved_type = bound_identifier_type identifier in
+      if
+        not
+          (valid_origin
+             (Module_expression_binding.occurrence_origin occurrence))
+      then Error (invalid_input "bound call argument has an invalid origin")
+      else if
+        expression.expression_origin
+        <> Module_expression_binding.occurrence_origin occurrence
+      then
+        Error
+          (invalid_input
+             "bound call argument origin does not match its occurrence")
+      else if
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Local_binding _ -> false
+        | Module_expression_binding.Module_binding publication ->
+            Module_expression_binding.publication_kind publication
+            <> Module_expression_binding.Global_variable
+        | Module_expression_binding.Outer_candidate -> true
+      then
+        Error
+          (invalid_input
+             "bound call argument occurrence is not a typed value binding")
+      else
+        match Type.base resolved_type with
+        | Type.Primitive _ -> Ok ()
+        | Type.Aggregate symbol ->
+            if not (Symbol_table.owns_symbol table symbol) then
+              Error
+                (invalid_input
+                   "bound call argument type belongs to another symbol table")
+            else if not (symbol_in_scope symbol parent) then
+              Error
+                (invalid_input "bound call argument type has the wrong scope")
+            else if
+              not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+            then
+              Error
+                (invalid_input "bound call argument type is not an aggregate")
+            else Ok ())
   | Integer_literal
   | Float_literal
   | Character_literal
@@ -676,6 +765,71 @@ let validate_calls calls occurrences =
   in
   loop 0 (-1) calls
 
+let rec validate_bound_occurrences occurrence_by_index expression =
+  match argument_expression_kind expression with
+  | Parenthesized_expression grouped ->
+      validate_bound_occurrences occurrence_by_index grouped
+  | Prefix_expression prefix ->
+      validate_bound_occurrences occurrence_by_index prefix.prefix_operand
+  | Postfix_expression postfix ->
+      validate_bound_occurrences occurrence_by_index postfix.postfix_operand
+  | Binary_expression binary -> (
+      match
+        validate_bound_occurrences occurrence_by_index binary.binary_left
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_bound_occurrences occurrence_by_index binary.binary_right)
+  | Postfix_cast_expression (operand, _) ->
+      validate_bound_occurrences occurrence_by_index operand
+  | Bound_identifier_expression identifier -> (
+      let occurrence = bound_identifier_occurrence identifier in
+      let index = Module_expression_binding.occurrence_index occurrence in
+      match Int_map.find_opt index occurrence_by_index with
+      | Some expected when expected == occurrence -> Ok ()
+      | Some _ ->
+          Error
+            (invalid_input
+               "bound call argument uses a different expression occurrence")
+      | None ->
+          Error
+            (invalid_input
+               "bound call argument occurrence does not belong to its function")
+      )
+  | Integer_literal
+  | Float_literal
+  | Character_literal
+  | String_literal
+  | Unresolved_expression _ -> Ok ()
+
+let validate_call_bound_occurrences calls occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let rec arguments = function
+    | [] -> Ok ()
+    | argument :: rest -> (
+        match argument.expression with
+        | None -> arguments rest
+        | Some expression -> (
+            match validate_bound_occurrences occurrence_by_index expression with
+            | Error _ as error -> error
+            | Ok () -> arguments rest))
+  in
+  let rec loop = function
+    | [] -> Ok ()
+    | call :: rest -> (
+        match arguments call.arguments with
+        | Error _ as error -> error
+        | Ok () -> loop rest)
+  in
+  loop calls
+
 let validate_function_input table parent visible expected
     (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
@@ -701,9 +855,13 @@ let validate_function_input table parent visible expected
   else
     match validate_argument_expressions table parent visible input.calls with
     | Error _ as error -> error
-    | Ok () ->
-        validate_calls input.calls
-          (Module_expression_binding.function_occurrences expected)
+    | Ok () -> (
+        let occurrences =
+          Module_expression_binding.function_occurrences expected
+        in
+        match validate_call_bound_occurrences input.calls occurrences with
+        | Error _ as error -> error
+        | Ok () -> validate_calls input.calls occurrences)
 
 let validate_function_inputs table parent expressions inputs =
   let rec pair visible publications expected inputs =

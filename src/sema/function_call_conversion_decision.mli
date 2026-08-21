@@ -32,7 +32,9 @@ val decide :
     the recursively forwarded operand class. Power uses F64; logical and
     comparison operators use the integer side; and ordinary arithmetic, shifts,
     and bitwise operators combine audited operand classes. Parentheses preserve
-    these classes. Assignment families and other expression shapes remain
+    these classes. Bound parameters, locals, and source-visible globals use
+    their resolved scalar type; arrays, callbacks, and synthetic [argv] use the
+    integer side. Assignment families and other expression shapes remain
     explicit unresolved results. *)
 
 val functions : t -> resolved_function list
