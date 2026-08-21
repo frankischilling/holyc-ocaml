@@ -1,0 +1,75 @@
+module Id : sig
+  type t
+
+  val compare : t -> t -> int
+  val equal : t -> t -> bool
+  val to_int : t -> int
+end
+
+type value_category =
+  | Object_value
+  | Address_value
+  | Array_value
+  | Callback_value
+  | Function_value
+  | Lvalue
+  | Unavailable
+
+type result_class = Integer_result | F64_result | Unresolved_actual_class
+type expression_result
+
+type fixed_path =
+  | Provided_result of expression_result
+  | Declared_default_result
+
+type fixed_result
+type direct_call
+
+type call_result =
+  | Direct_call_result of direct_call
+  | Deferred_call_result of Function_call_resolution.call_resolution
+
+type resolved_function
+type t
+type error_kind = Invalid_input of string
+type error
+
+val analyze :
+  table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
+(** Derive immutable source-expression results for provided fixed direct-call
+    arguments. Each result has a deterministic identity, source origin, known
+    semantic type, value category, and the forwarded result class needed by the
+    fixed-call conversion comparison. *)
+
+val owns_table : t -> Symbol_table.t -> bool
+val owns_policies : t -> Function_call_conversion_policy.t -> bool
+val compilation_mode : t -> Function_resolution.compilation_mode
+val functions : t -> resolved_function list
+val all_results : t -> expression_result list
+val function_symbol : resolved_function -> Symbol.t
+val function_scope : resolved_function -> Symbol_table.scope
+val function_item_index : resolved_function -> int
+val function_calls : resolved_function -> call_result list
+val direct_source : direct_call -> Function_call_conversion_policy.direct_call
+val direct_fixed_results : direct_call -> fixed_result list
+
+val direct_variadic_arguments :
+  direct_call -> Function_call_resolution.argument list
+
+val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
+val fixed_path : fixed_result -> fixed_path
+val result_id : expression_result -> Id.t
+
+val result_source :
+  expression_result -> Function_call_resolution.argument_expression
+
+val result_origin : expression_result -> Symbol.origin
+val result_type : expression_result -> Type.t option
+val result_category : expression_result -> value_category
+val result_class : expression_result -> result_class
+val value_category_name : value_category -> string
+val result_class_name : result_class -> string
+val error_code : error -> string
+val error_kind : error -> error_kind
+val error_message : error -> string
+val error_to_string : error -> string
