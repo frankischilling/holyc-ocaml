@@ -37,11 +37,12 @@ val decide :
     side. Pre-increment, pre-decrement, post-increment, and post-decrement keep
     the recursively forwarded operand class. Power uses F64; logical and
     comparison operators use the integer side; and ordinary arithmetic, shifts,
-    and bitwise operators combine audited operand classes. Parentheses preserve
-    these classes. Bound parameters, locals, and source-visible globals use
-    their resolved scalar type; arrays, callbacks, and synthetic [argv] use the
-    integer side. Assignment families and other expression shapes remain
-    explicit unresolved results. *)
+    and bitwise operators combine audited operand classes. Assignment families
+    use the checked destination class while retaining right-operand conversions
+    and a distinct compound execution class. Parentheses preserve these classes.
+    Bound parameters, locals, and source-visible globals use their resolved
+    scalar type; arrays, callbacks, and synthetic [argv] use the integer side.
+    Other expression shapes remain explicit unresolved results. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option

@@ -760,17 +760,17 @@ let binary_operator_inventory_and_assignments () =
       ("1&&2", "IC_AND_AND", "provided:integer-result:ICF_RES_TO_F64");
       ("1^^2", "IC_XOR_XOR", "provided:integer-result:ICF_RES_TO_F64");
       ("1||2", "IC_OR_OR", "provided:integer-result:ICF_RES_TO_F64");
-      ("value=1", "IC_ASSIGN", "provided:unresolved:unresolved");
-      ("value<<=1", "IC_SHL_EQU", "provided:unresolved:unresolved");
-      ("value>>=1", "IC_SHR_EQU", "provided:unresolved:unresolved");
-      ("value*=1", "IC_MUL_EQU", "provided:unresolved:unresolved");
-      ("value/=1", "IC_DIV_EQU", "provided:unresolved:unresolved");
-      ("value%=1", "IC_MOD_EQU", "provided:unresolved:unresolved");
-      ("value&=1", "IC_AND_EQU", "provided:unresolved:unresolved");
-      ("value|=1", "IC_OR_EQU", "provided:unresolved:unresolved");
-      ("value^=1", "IC_XOR_EQU", "provided:unresolved:unresolved");
-      ("value+=1", "IC_ADD_EQU", "provided:unresolved:unresolved");
-      ("value-=1", "IC_SUB_EQU", "provided:unresolved:unresolved");
+      ("value=1", "IC_ASSIGN", "provided:integer-result:ICF_RES_TO_F64");
+      ("value<<=1", "IC_SHL_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value>>=1", "IC_SHR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value*=1", "IC_MUL_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value/=1", "IC_DIV_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value%=1", "IC_MOD_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value&=1", "IC_AND_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value|=1", "IC_OR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value^=1", "IC_XOR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value+=1", "IC_ADD_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value-=1", "IC_SUB_EQU", "provided:integer-result:ICF_RES_TO_F64");
     ]
   in
   let parameters =

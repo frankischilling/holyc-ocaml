@@ -165,6 +165,27 @@ let member_source result =
   | Semantic_function_call_resolution.Member_access_expression member -> member
   | _ -> Alcotest.fail "expected a retained member expression"
 
+let binary_source result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Binary_expression binary -> binary
+  | _ -> Alcotest.fail "expected a retained binary expression"
+
+let result_for_source results source =
+  results |> Semantic_function_call_expression_result.all_results
+  |> List.find (fun result ->
+      Semantic_function_call_expression_result.result_source result == source)
+
+let execution_class_name result =
+  match
+    Semantic_function_call_expression_result.result_execution_class result
+  with
+  | None -> "none"
+  | Some class_ ->
+      Semantic_function_call_expression_result.result_class_name class_
+
 let lookup_description result =
   let lookup = member_lookup result in
   let member = Semantic_aggregate_member_index.lookup_member lookup in
@@ -1177,6 +1198,314 @@ let included_and_generated_members_keep_their_origins () =
     | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
         Alcotest.fail "expected a generated member source origin")
 
+let assignment_operators_keep_destination_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-assignment-operators.HC"
+          "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h,I64 i,I64 j,I64 k);\n\
+           I64 Caller(I64 value){return \
+           Target(value=1,value<<=1,value>>=1,value*=1,value/=1,value%=1,value&=1,value|=1,value^=1,value+=1,value-=1);}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check int)
+        "the checked assignment inventory has eleven source operators" 11
+        (List.length roots);
+      Alcotest.(check (list string))
+        "every assignment keeps the destination type"
+        (List.init 11 (fun _ -> "I64"))
+        (List.map type_name roots);
+      Alcotest.(check (list string))
+        "every assignment keeps the destination result class"
+        (List.init 11 (fun _ -> "integer-result"))
+        (class_names roots);
+      Alcotest.(check (list string))
+        "integer assignment execution stays on the integer path"
+        (List.init 11 (fun _ -> "integer-result"))
+        (List.map execution_class_name roots);
+      Alcotest.(check (list string))
+        "the semantic roots preserve the generated assignment identities"
+        [
+          "IC_ASSIGN";
+          "IC_SHL_EQU";
+          "IC_SHR_EQU";
+          "IC_MUL_EQU";
+          "IC_DIV_EQU";
+          "IC_MOD_EQU";
+          "IC_AND_EQU";
+          "IC_OR_EQU";
+          "IC_XOR_EQU";
+          "IC_ADD_EQU";
+          "IC_SUB_EQU";
+        ]
+        (List.map
+           (fun root ->
+             root |> binary_source
+             |> Semantic_function_call_resolution.binary_operator
+             |> Semantic_function_call_resolution.binary_operator_name)
+           roots))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let assignment_conversions_separate_storage_and_execution () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-assignment-conversions.HC"
+          "extern I64 Target(F64 a,I64 b,F64 c,I64 d,I64 e,I64 f);\n\
+           I64 Caller(I64 integer,F64 floating){return \
+           Target(floating=integer,integer=floating,floating+=integer,integer+=floating,integer<<=floating,integer&=floating);}"
+      in
+      let policies, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "assignment roots follow destination storage classes"
+        [
+          "f64-result";
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+          "integer-result";
+        ]
+        (class_names roots);
+      Alcotest.(check (list string))
+        "compound execution retains its separate F64 or integer path"
+        [
+          "f64-result";
+          "integer-result";
+          "f64-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+        ]
+        (List.map execution_class_name roots);
+      let right_results =
+        roots
+        |> List.map (fun root ->
+            root |> binary_source
+            |> Semantic_function_call_resolution.binary_right
+            |> result_for_source results)
+      in
+      Alcotest.(check (list string))
+        "right operands retain the pinned assignment conversions"
+        [
+          "ICF_RES_TO_F64";
+          "ICF_RES_TO_INT";
+          "ICF_RES_TO_F64";
+          "none";
+          "ICF_RES_TO_INT";
+          "ICF_RES_TO_INT";
+        ]
+        (intrinsic_conversion_names right_results);
+      let decision =
+        Holyc_lib.decide_function_call_conversions prepared.session ~policies
+          ~expressions:results
+        |> checked_decision
+      in
+      let paths =
+        decision |> Semantic_function_call_conversion_decision.functions
+        |> List.find (fun function_ ->
+            function_
+            |> Semantic_function_call_conversion_decision.function_symbol
+            |> Semantic_symbol.name |> String.equal "Caller")
+        |> Semantic_function_call_conversion_decision.function_calls |> List.hd
+        |> function
+        | Semantic_function_call_conversion_decision.Direct_call_decision call
+          ->
+            call
+            |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+            |> List.map (fun fixed ->
+                fixed |> Semantic_function_call_conversion_decision.fixed_path
+                |> Semantic_function_call_conversion_decision.fixed_path_name)
+        | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
+            Alcotest.fail "expected direct assignment call conversions"
+      in
+      Alcotest.(check (list string))
+        "outer call conversion consumes each assignment destination class"
+        [
+          "provided:f64-result:none";
+          "provided:integer-result:none";
+          "provided:f64-result:none";
+          "provided:integer-result:none";
+          "provided:integer-result:none";
+          "provided:integer-result:none";
+        ]
+        paths)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let assignment_destinations_cover_identifiers_pointers_indexes_and_members () =
+  let prepared =
+    prepare ~path:"call-expression-assignment-destinations.HC"
+      "class Box {I64 value;};extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 \
+       *p,I64 q);\n\
+       I64 Caller(I64 scalar,I64 *pointer,Box box){I64 array[1];return \
+       Target(scalar=1,*pointer=2,array[0]=3,box.value=4,pointer=pointer,pointer+=1);}"
+  in
+  let _, results = analyze prepared in
+  let roots = root_results results "Caller" in
+  Alcotest.(check (list string))
+    "valid storage destinations retain scalar and pointer types"
+    [ "I64"; "I64"; "I64"; "I64"; "I64*"; "I64*" ]
+    (List.map type_name roots);
+  let left_results =
+    roots
+    |> List.map (fun root ->
+        root |> binary_source |> Semantic_function_call_resolution.binary_left
+        |> result_for_source results)
+  in
+  Alcotest.(check (list string))
+    "each destination is retained as an lvalue beneath the assignment"
+    (List.init 6 (fun _ -> "lvalue"))
+    (category_names left_results)
+
+let invalid_assignment_destinations_report_the_operator () =
+  [
+    ( "literal",
+      "extern I64 Target(I64 value);I64 Caller(){return Target(1=2);}",
+      "assignment destination is not an lvalue" );
+    ( "address",
+      "extern I64 Target(I64 value);I64 Caller(I64 value){return \
+       Target((&value)=2);}",
+      "assignment destination is not an lvalue" );
+    ( "array",
+      "extern I64 Target(I64 value);I64 Caller(){I64 array[1];return \
+       Target(array=0);}",
+      "assignment destination is not an lvalue" );
+    ( "callback",
+      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
+       Target(callback=0);}",
+      "assignment destination is not an lvalue" );
+    ( "aggregate",
+      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       left,Box right){return Target(left=right);}",
+      "assignment destination is not a pointer or internal storage value" );
+    ( "outer",
+      "extern I64 Target(I64 value);I64 Caller(){return Target(outer=1);}",
+      "assignment destination is unavailable" );
+  ]
+  |> List.iter (fun (label, source, expected_message) ->
+      let prepared =
+        prepare
+          ~path:("call-expression-invalid-assignment-" ^ label ^ ".HC")
+          source
+      in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+      with
+      | Ok _ -> Alcotest.failf "expected %s assignment to fail" label
+      | Error error -> (
+          Alcotest.(check string)
+            (label ^ " assignment uses the expression semantic code")
+            "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " assignment explains the invalid destination")
+            expected_message
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location location) ->
+              Alcotest.(check int)
+                (label ^ " assignment points at the operator")
+                (String.index source '=') location.span.start
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected an assignment operator origin"))
+
+let nested_and_generated_assignments_are_deterministic () =
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(I64 value){return \
+     Target(value=1);}" (fun prepared ->
+      let _, results = analyze prepared in
+      let binary = root_results results "Caller" |> List.hd |> binary_source in
+      match Semantic_function_call_resolution.binary_operator_origin binary with
+      | Semantic_symbol.Source_location location ->
+          let source_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included assignment operator keeps its source file" "calls.HC"
+            (Source_file.path source_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected an included assignment operator origin");
+  let prepared =
+    prepare ~path:"call-expression-generated-assignment.HC"
+      "#define ASSIGN left=right=1\n\
+       extern I64 Target(I64 value);I64 Caller(I64 left,I64 right){return \
+       Target(ASSIGN);}"
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let analyze_once () =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_results
+  in
+  let first = analyze_once () in
+  let second = analyze_once () in
+  let describe results =
+    results |> Semantic_function_call_expression_result.all_results
+    |> List.map (fun result ->
+        ( result |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int,
+          ( result |> type_name,
+            result |> Semantic_function_call_expression_result.result_class
+            |> Semantic_function_call_expression_result.result_class_name,
+            execution_class_name result ) ))
+  in
+  Alcotest.(check (list (pair int (triple string string string))))
+    "nested assignment typing replays identically" (describe first)
+    (describe second);
+  Alcotest.(check int)
+    "assignment typing leaves the symbol table unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let roots = root_results first "Caller" in
+  Alcotest.(check (list string))
+    "right-associative assignment keeps the outer destination result" [ "I64" ]
+    (List.map type_name roots);
+  let assignment_results =
+    first |> Semantic_function_call_expression_result.all_results
+    |> List.filter (fun result ->
+        match
+          result |> Semantic_function_call_expression_result.result_source
+          |> Semantic_function_call_resolution.argument_expression_kind
+        with
+        | Semantic_function_call_resolution.Binary_expression binary ->
+            binary |> Semantic_function_call_resolution.binary_operator
+            |> Semantic_function_call_resolution.binary_operator_name
+            |> String.equal "IC_ASSIGN"
+        | _ -> false)
+  in
+  Alcotest.(check int)
+    "the generated expression retains both assignment nodes" 2
+    (List.length assignment_results);
+  assignment_results
+  |> List.iter (fun result ->
+      let binary = binary_source result in
+      match Semantic_function_call_resolution.binary_operator_origin binary with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated assignment operator keeps its invocation" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated assignment operator keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected a generated assignment operator origin")
+
 let deterministic_generated_results_do_not_mutate_symbols () =
   let prepared =
     prepare ~path:"call-expression-generated.HC"
@@ -1343,6 +1672,16 @@ let tests =
       unresolved_member_bases_remain_unavailable;
     Alcotest.test_case "included and generated member origins" `Quick
       included_and_generated_members_keep_their_origins;
+    Alcotest.test_case "assignment operator inventory" `Quick
+      assignment_operators_keep_destination_results;
+    Alcotest.test_case "assignment storage and execution conversions" `Quick
+      assignment_conversions_separate_storage_and_execution;
+    Alcotest.test_case "assignment destination shapes" `Quick
+      assignment_destinations_cover_identifiers_pointers_indexes_and_members;
+    Alcotest.test_case "invalid assignment destination origins" `Quick
+      invalid_assignment_destinations_report_the_operator;
+    Alcotest.test_case "nested generated assignment determinism" `Quick
+      nested_and_generated_assignments_are_deterministic;
     Alcotest.test_case "determinism and generated provenance" `Quick
       deterministic_generated_results_do_not_mutate_symbols;
     Alcotest.test_case "ownership validation" `Quick
