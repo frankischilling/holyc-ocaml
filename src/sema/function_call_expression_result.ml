@@ -16,6 +16,7 @@ type value_category =
   | Unavailable
 
 type result_class = Integer_result | F64_result | Unresolved_actual_class
+type intrinsic_conversion = No_intrinsic_conversion | Result_to_int
 
 type expression_result = {
   id : Id.t;
@@ -24,6 +25,8 @@ type expression_result = {
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
+  array_rank : int;
+  intrinsic_conversion : intrinsic_conversion;
 }
 
 type fixed_path =
@@ -61,7 +64,7 @@ type t = {
 }
 
 type error_kind = Invalid_input of string
-type error = { code : string; kind : error_kind }
+type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 type expression_context = Value_context | Lvalue_context
 type build_state = { next_id : int; results_rev : expression_result list }
 
@@ -85,6 +88,10 @@ let result_origin (result : expression_result) = result.origin
 let result_type (result : expression_result) = result.source_type
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
+let result_array_rank (result : expression_result) = result.array_rank
+
+let result_intrinsic_conversion (result : expression_result) =
+  result.intrinsic_conversion
 
 let value_category_name = function
   | Object_value -> "object-value"
@@ -100,12 +107,17 @@ let result_class_name = function
   | F64_result -> "f64-result"
   | Unresolved_actual_class -> "unresolved"
 
-let invalid_input message =
+let intrinsic_conversion_name = function
+  | No_intrinsic_conversion -> "none"
+  | Result_to_int -> "ICF_RES_TO_INT"
+
+let invalid_input ?origin message =
   let kind = Invalid_input message in
-  { code = "HCSEMA0046"; kind }
+  { code = "HCSEMA0046"; kind; origin }
 
 let error_code error = error.code
 let error_kind error = error.kind
+let error_origin error = error.origin
 
 let error_message error =
   match error.kind with
@@ -143,7 +155,9 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result state ~id ~source ~source_type ~category ~result_class =
+let make_result ?(array_rank = 0)
+    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
+    ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -152,6 +166,8 @@ let make_result state ~id ~source ~source_type ~category ~result_class =
       source_type;
       category;
       result_class;
+      array_rank;
+      intrinsic_conversion;
     }
 
 let known_type table type_ =
@@ -176,13 +192,16 @@ let select_known_binary_type left right result_class =
           | _ -> None)
       | None, _ | _, None -> None)
 
-let rec type_expression table policies ~before_item_index ~context state source
-    =
+let rec type_expression table policies ~before_item_index ~context
+    ?(intrinsic_conversion = No_intrinsic_conversion) state source =
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
-      let finish ?(source_type = None) category result_class state =
-        Ok (make_result state ~id ~source ~source_type ~category ~result_class)
+      let finish ?(source_type = None) ?(array_rank = 0) category result_class
+          state =
+        Ok
+          (make_result ~array_rank ~intrinsic_conversion state ~id ~source
+             ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -200,14 +219,20 @@ let rec type_expression table policies ~before_item_index ~context state source
           | Error _ as error -> error
           | Ok (grouped_result, state) ->
               finish ~source_type:grouped_result.source_type
-                grouped_result.category grouped_result.result_class state)
+                ~array_rank:grouped_result.array_rank grouped_result.category
+                grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
-          type_prefix table policies ~before_item_index ~context state id source
-            prefix
+          type_prefix table policies ~before_item_index ~context
+            ~intrinsic_conversion state id source prefix
       | Function_call_resolution.Postfix_expression postfix ->
-          type_postfix table policies ~before_item_index state id source postfix
+          type_postfix table policies ~before_item_index ~intrinsic_conversion
+            state id source postfix
       | Function_call_resolution.Binary_expression binary ->
-          type_binary table policies ~before_item_index state id source binary
+          type_binary table policies ~before_item_index ~intrinsic_conversion
+            state id source binary
+      | Function_call_resolution.Index_expression index ->
+          type_index table policies ~before_item_index ~context
+            ~intrinsic_conversion state id source index
       | Function_call_resolution.Postfix_cast_expression (operand, target) -> (
           match
             type_expression table policies ~before_item_index
@@ -246,8 +271,11 @@ let rec type_expression table policies ~before_item_index ~context state source
                       | Lvalue_context -> Lvalue),
                       forwarded_class policies ~before_item_index source_type )
               in
-              finish ~source_type:(Some source_type) category result_class state
-          )
+              let array_rank =
+                Function_call_resolution.bound_identifier_array_rank identifier
+              in
+              finish ~source_type:(Some source_type) ~array_rank category
+                result_class state)
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
@@ -259,12 +287,11 @@ let rec type_expression table policies ~before_item_index ~context state source
           | Function_call_resolution.Identifier_expression
           | Function_call_resolution.Postfix_cast_expression
           | Function_call_resolution.Call_expression
-          | Function_call_resolution.Index_expression
           | Function_call_resolution.Member_expression ->
               finish Unavailable Unresolved_actual_class state))
 
-and type_prefix table policies ~before_item_index ~context state id source
-    prefix =
+and type_prefix table policies ~before_item_index ~context ~intrinsic_conversion
+    state id source prefix =
   let operator = Function_call_resolution.prefix_operator prefix in
   let operand_context =
     match operator with
@@ -284,8 +311,10 @@ and type_prefix table policies ~before_item_index ~context state id source
   with
   | Error _ as error -> error
   | Ok (operand, state) -> (
-      let finish ?(source_type = None) category result_class =
-        Ok (make_result state ~id ~source ~source_type ~category ~result_class)
+      let finish ?(source_type = None) ?(array_rank = 0) category result_class =
+        Ok
+          (make_result ~array_rank ~intrinsic_conversion state ~id ~source
+             ~source_type ~category ~result_class)
       in
       match operator with
       | Function_call_resolution.Unary_plus
@@ -317,8 +346,17 @@ and type_prefix table policies ~before_item_index ~context state id source
           match (operand.source_type, operand.category) with
           | None, _ -> finish Unavailable Unresolved_actual_class
           | Some source_type, Array_value ->
-              finish ~source_type:(Some source_type) value_category
-                (forwarded_class policies ~before_item_index source_type)
+              let array_rank = max 0 (operand.array_rank - 1) in
+              let category =
+                if array_rank = 0 then value_category else Array_value
+              in
+              let result_class =
+                if array_rank = 0 then
+                  forwarded_class policies ~before_item_index source_type
+                else Integer_result
+              in
+              finish ~source_type:(Some source_type) ~array_rank category
+                result_class
           | Some source_type, (Callback_value | Function_value) ->
               finish ~source_type:(Some source_type) Function_value
                 Integer_result
@@ -331,7 +369,70 @@ and type_prefix table policies ~before_item_index ~context state id source
               finish ~source_type:(Some source_type) value_category
                 (forwarded_class policies ~before_item_index source_type)))
 
-and type_postfix table policies ~before_item_index state id source postfix =
+and type_index table policies ~before_item_index ~context ~intrinsic_conversion
+    state id source index =
+  match
+    type_expression table policies ~before_item_index ~context:Value_context
+      state
+      (Function_call_resolution.index_base index)
+  with
+  | Error _ as error -> error
+  | Ok (base, state) -> (
+      let value_category =
+        match context with
+        | Value_context -> Object_value
+        | Lvalue_context -> Lvalue
+      in
+      let type_index_value state ~source_type ~array_rank ~category
+          ~result_class =
+        match
+          type_expression table policies ~before_item_index
+            ~context:Value_context ~intrinsic_conversion:Result_to_int state
+            (Function_call_resolution.index_value index)
+        with
+        | Error _ as error -> error
+        | Ok (_, state) ->
+            Ok
+              (make_result ~array_rank ~intrinsic_conversion state ~id ~source
+                 ~source_type ~category ~result_class)
+      in
+      match (base.source_type, base.category) with
+      | None, _ ->
+          type_index_value state ~source_type:None ~array_rank:0
+            ~category:Unavailable ~result_class:Unresolved_actual_class
+      | Some source_type, Array_value ->
+          if base.array_rank = 0 then
+            Error
+              (invalid_input
+                 ~origin:(Function_call_resolution.index_opening_origin index)
+                 "array index base has no remaining dimensions")
+          else
+            let array_rank = base.array_rank - 1 in
+            let category =
+              if array_rank = 0 then value_category else Array_value
+            in
+            let result_class =
+              if array_rank = 0 then
+                forwarded_class policies ~before_item_index source_type
+              else Integer_result
+            in
+            type_index_value state ~source_type:(Some source_type) ~array_rank
+              ~category ~result_class
+      | Some source_type, _ -> (
+          match Type.dereference source_type with
+          | Ok source_type ->
+              type_index_value state ~source_type:(Some source_type)
+                ~array_rank:0 ~category:value_category
+                ~result_class:
+                  (forwarded_class policies ~before_item_index source_type)
+          | Error _ ->
+              Error
+                (invalid_input
+                   ~origin:(Function_call_resolution.index_opening_origin index)
+                   "index base is neither an array nor a pointer")))
+
+and type_postfix table policies ~before_item_index ~intrinsic_conversion state
+    id source postfix =
   match
     type_expression table policies ~before_item_index ~context:Lvalue_context
       state
@@ -340,10 +441,12 @@ and type_postfix table policies ~before_item_index state id source postfix =
   | Error _ as error -> error
   | Ok (operand, state) ->
       Ok
-        (make_result state ~id ~source ~source_type:operand.source_type
-           ~category:Object_value ~result_class:operand.result_class)
+        (make_result ~intrinsic_conversion state ~id ~source
+           ~source_type:operand.source_type ~category:Object_value
+           ~result_class:operand.result_class)
 
-and type_binary table policies ~before_item_index state id source binary =
+and type_binary table policies ~before_item_index ~intrinsic_conversion state id
+    source binary =
   match
     type_expression table policies ~before_item_index ~context:Value_context
       state
@@ -394,8 +497,8 @@ and type_binary table policies ~before_item_index state id source binary =
             | _ -> (Unresolved_actual_class, None)
           in
           Ok
-            (make_result state ~id ~source ~source_type ~category:Object_value
-               ~result_class))
+            (make_result ~intrinsic_conversion state ~id ~source ~source_type
+               ~category:Object_value ~result_class))
 
 let map_state apply state values =
   let rec loop state rev = function

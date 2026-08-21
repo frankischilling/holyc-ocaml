@@ -16,6 +16,7 @@ type value_category =
   | Unavailable
 
 type result_class = Integer_result | F64_result | Unresolved_actual_class
+type intrinsic_conversion = No_intrinsic_conversion | Result_to_int
 type expression_result
 
 type fixed_path =
@@ -38,8 +39,9 @@ val analyze :
   table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
 (** Derive immutable source-expression results for provided fixed direct-call
     arguments. Each result has a deterministic identity, source origin, known
-    semantic type, value category, and the forwarded result class needed by the
-    fixed-call conversion comparison. *)
+    semantic type, value category, remaining array rank, intrinsic conversion
+    requirement, and the forwarded result class needed by the fixed-call
+    comparison. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_policies : t -> Function_call_conversion_policy.t -> bool
@@ -67,9 +69,13 @@ val result_origin : expression_result -> Symbol.origin
 val result_type : expression_result -> Type.t option
 val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class
+val result_array_rank : expression_result -> int
+val result_intrinsic_conversion : expression_result -> intrinsic_conversion
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
+val intrinsic_conversion_name : intrinsic_conversion -> string
 val error_code : error -> string
 val error_kind : error -> error_kind
+val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
