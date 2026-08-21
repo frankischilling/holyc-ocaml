@@ -4693,7 +4693,8 @@ scope = "provided fixed prefix-expression arguments on already resolved direct f
 semantic_source_view = "retains the exact prefix operator, operator origin, recursive operand view, and nested cast type identity"
 forwarded_prefixes = ["unary plus", "unary minus", "logical not"]
 integer_prefixes = ["address-of"]
-unresolved_prefixes = ["bitwise complement", "dereference", "pre-increment", "pre-decrement"]
+unresolved_prefixes = ["bitwise complement", "dereference"]
+prefix_update_extension = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
 unary_plus_rule = "the parser returns the operand result without adding an IC, so the recursive operand class is retained"
 unary_minus_rule = "OptPass012 forwards the operand class to the unary-minus result"
 logical_not_rule = "OptPass012 retains the operand class, including F64, while selecting the logical-not IC"
@@ -4709,6 +4710,44 @@ lvalue_validation_and_updates = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, OptClassFwd, OptPass012, and PrsFunCall state the retained classes and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
+description = "Pre-increment and pre-decrement fixed arguments retain their recursive source class and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:81-118 prefix and postfix update IC construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:750-759 CCF_PREINC and CCF_PREDEC handling",
+  "Compiler/OptPass012.HC:292-298 shared update class handling",
+  "Compiler/CompilerA.HH:65-66 IC_PP_ and IC_MM_",
+  "Compiler/CInit.HC:65-66 prefix update IC metadata",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 257
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed prefix-update arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "reuses the retained pre-increment or pre-decrement operator, operator origin, recursive operand view, and complete expression origin"
+operators = ["IC_PP_", "IC_MM_"]
+result_rule = "the result class follows the recursively audited operand class"
+unresolved_rule = "an unavailable operand class remains unresolved"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+provenance = ["operator", "operand", "nested cast and binary", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation_and_update_effects = "not implemented"
+new_value_execution = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptPass012, CompilerA, CInit, and PrsFunCall state the retained class and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
