@@ -24,6 +24,8 @@ type prepared = {
   ast : Ast.module_;
   declarations : Semantic_declaration_collection.t;
   function_types : Semantic_function_type_resolution.t;
+  local_types : Semantic_local_type_resolution.t;
+  global_types : Semantic_global_type_resolution.t;
   functions : Semantic_function_resolution.t;
   module_expressions : Semantic_module_expression_binding.t;
 }
@@ -81,6 +83,8 @@ let finish_prepare mode session ast =
     ast;
     declarations;
     function_types;
+    local_types;
+    global_types;
     functions;
     module_expressions;
   }
@@ -97,6 +101,7 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
 let resolve prepared =
   Holyc_lib.resolve_function_calls prepared.session
     ~declarations:prepared.declarations ~function_types:prepared.function_types
+    ~local_types:prepared.local_types ~global_types:prepared.global_types
     ~functions:prepared.functions ~expressions:prepared.module_expressions
     prepared.ast
 
@@ -480,17 +485,43 @@ let invalid_inputs_are_stable_and_pure () =
   expect_invalid "reordered batch" (List.rev inputs);
   expect_invalid "callee occurrence drift" inputs;
   let foreign = Session.create () in
-  match
-    Holyc_lib.resolve_function_calls foreign ~declarations:prepared.declarations
-      ~function_types:prepared.function_types ~functions:prepared.functions
-      ~expressions:prepared.module_expressions prepared.ast
-  with
+  (match
+     Holyc_lib.resolve_function_calls foreign
+       ~declarations:prepared.declarations
+       ~function_types:prepared.function_types ~functions:prepared.functions
+       ~local_types:prepared.local_types ~global_types:prepared.global_types
+       ~expressions:prepared.module_expressions prepared.ast
+   with
   | Ok _ -> Alcotest.fail "expected a foreign-session failure"
   | Error message ->
       Alcotest.(check string)
         "foreign session diagnostic"
         "HCSEMA0039: function call declarations belong to another symbol table"
-        message
+        message);
+  let other =
+    prepare ~path:"function-call-foreign-types.HC"
+      "I64 Global;extern I64 Other(I64 value);I64 Foreign(){I64 local;return \
+       Other(local+Global);}"
+  in
+  let expect_driver_invalid label ~local_types ~global_types =
+    match
+      Holyc_lib.resolve_function_calls prepared.session
+        ~declarations:prepared.declarations
+        ~function_types:prepared.function_types ~functions:prepared.functions
+        ~local_types ~global_types ~expressions:prepared.module_expressions
+        prepared.ast
+    with
+    | Ok _ -> Alcotest.failf "expected %s to fail" label
+    | Error message ->
+        Alcotest.(check bool)
+          (label ^ " diagnostic family")
+          true
+          (String.starts_with ~prefix:"HCSEMA0039:" message)
+  in
+  expect_driver_invalid "foreign local types" ~local_types:other.local_types
+    ~global_types:prepared.global_types;
+  expect_driver_invalid "foreign global types" ~local_types:prepared.local_types
+    ~global_types:other.global_types
 
 let named_cast_targets_validate_source_identity () =
   let prepared =

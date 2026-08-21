@@ -27,6 +27,13 @@ type postfix_operator = Post_increment | Post_decrement
 type postfix_expression
 type binary_expression
 
+type identifier_value_shape =
+  | Object_value
+  | Array_value
+  | Function_pointer_value
+
+type bound_identifier
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -37,6 +44,7 @@ type argument_expression_kind =
   | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
+  | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression
@@ -65,6 +73,12 @@ val make_binary_argument_expression :
   operator_origin:Symbol.origin ->
   left:argument_expression ->
   right:argument_expression ->
+  (argument_expression_kind, string) result
+
+val make_bound_identifier_argument_expression :
+  occurrence:Module_expression_binding.occurrence ->
+  resolved_type:Type.t ->
+  shape:identifier_value_shape ->
   (argument_expression_kind, string) result
 
 val make_argument :
@@ -178,6 +192,13 @@ val binary_operator : binary_expression -> Generated.Intermediate_codes.t
 val binary_operator_origin : binary_expression -> Symbol.origin
 val binary_left : binary_expression -> argument_expression
 val binary_right : binary_expression -> argument_expression
+
+val bound_identifier_occurrence :
+  bound_identifier -> Module_expression_binding.occurrence
+
+val bound_identifier_type : bound_identifier -> Type.t
+val bound_identifier_shape : bound_identifier -> identifier_value_shape
+val identifier_value_shape_name : identifier_value_shape -> string
 
 val default_parameter_default :
   default_use -> Function_type_resolution.parameter_default
