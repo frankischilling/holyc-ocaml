@@ -47,7 +47,7 @@ type fixed_result = {
 type direct_call = {
   source : Function_call_conversion_policy.direct_call;
   fixed_results : fixed_result list;
-  variadic_arguments : Function_call_resolution.argument list;
+  variadic_results : expression_result list;
 }
 
 type call_result =
@@ -87,7 +87,7 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_results (call : direct_call) = call.fixed_results
-let direct_variadic_arguments (call : direct_call) = call.variadic_arguments
+let direct_variadic_results (call : direct_call) = call.variadic_results
 let fixed_source (fixed : fixed_result) = fixed.source
 let fixed_path (fixed : fixed_result) = fixed.path
 let result_id (result : expression_result) = result.id
@@ -851,6 +851,13 @@ let type_fixed table members policies ~before_item_index state source =
       Function_call_resolution.Declared_default _ ) ->
       Error (invalid_input "fixed call policy has an inconsistent source path")
 
+let type_variadic table members policies ~before_item_index state argument =
+  match Function_call_resolution.argument_expression argument with
+  | None -> Error (invalid_input "provided variadic argument has no expression")
+  | Some expression ->
+      type_expression table members policies ~before_item_index
+        ~context:Value_context state expression
+
 let type_call table members policies ~before_item_index state = function
   | Function_call_conversion_policy.Direct_call_policy source -> (
       match
@@ -860,17 +867,18 @@ let type_call table members policies ~before_item_index state = function
              state
       with
       | Error _ as error -> error
-      | Ok (fixed_results, state) ->
-          Ok
-            ( Direct_call_result
-                {
-                  source;
-                  fixed_results;
-                  variadic_arguments =
-                    Function_call_conversion_policy.direct_variadic_arguments
-                      source;
-                },
-              state ))
+      | Ok (fixed_results, state) -> (
+          match
+            source |> Function_call_conversion_policy.direct_variadic_arguments
+            |> map_state
+                 (type_variadic table members policies ~before_item_index)
+                 state
+          with
+          | Error _ as error -> error
+          | Ok (variadic_results, state) ->
+              Ok
+                ( Direct_call_result { source; fixed_results; variadic_results },
+                  state )))
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_result call, state)
 
