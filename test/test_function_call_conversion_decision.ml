@@ -136,6 +136,13 @@ let prefix_parts expression =
   | Semantic_function_call_resolution.Prefix_expression prefix -> prefix
   | _ -> Alcotest.fail "expected a retained prefix expression"
 
+let postfix_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Postfix_expression postfix -> postfix
+  | _ -> Alcotest.fail "expected a retained postfix expression"
+
 let binary_parts expression =
   match
     Semantic_function_call_resolution.argument_expression_kind expression
@@ -414,6 +421,128 @@ let prefix_constructor_validation () =
       Alcotest.(check string)
         "invalid prefix origin"
         "call argument prefix operator has an invalid source origin" message
+
+let postfix_directions_and_retention () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-postfixes.HC"
+          "F64 class FloatBox {};\n\
+           extern I64 Target(F64 int_inc,I64 float_dec,I64 backed_inc,F64 \
+           binary_inc,F64 unresolved_dec);\n\
+           I64 Caller(I64 value){return \
+           Target((1)++,(2.5)--,(3(FloatBox))++,((1+2))++,value--);}"
+      in
+      let fixed =
+        decide prepared |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+      in
+      Alcotest.(check (list string))
+        "postfix expressions forward their audited operand classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:unresolved:unresolved";
+        ]
+        (fixed
+        |> List.map (fun decision ->
+            decision |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name));
+      let postfixes =
+        fixed
+        |> List.map (fun decision ->
+            decision |> provided_expression |> postfix_parts)
+      in
+      Alcotest.(check (list string))
+        "postfix operators stay explicit"
+        [
+          "post-increment";
+          "post-decrement";
+          "post-increment";
+          "post-increment";
+          "post-decrement";
+        ]
+        (postfixes
+        |> List.map (fun postfix ->
+            postfix |> Semantic_function_call_resolution.postfix_operator
+            |> Semantic_function_call_resolution.postfix_operator_name));
+      Alcotest.(check string)
+        "the backed postfix operand keeps its grouping" "parenthesized"
+        (List.nth postfixes 2
+       |> Semantic_function_call_resolution.postfix_operand
+       |> Semantic_function_call_resolution.argument_expression_kind
+       |> Semantic_function_call_resolution.argument_expression_kind_name))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let postfix_provenance () =
+  let generated =
+    prepare ~path:"call-decision-postfix-generated.HC"
+      "#define STEP ++\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target((1)STEP);}"
+  in
+  let postfix =
+    decide generated |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> postfix_parts
+  in
+  (match Semantic_function_call_resolution.postfix_operator_origin postfix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated postfix keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated postfix keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated postfix provenance");
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(){return Target((1)--);}"
+    (fun included ->
+      let postfix =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> postfix_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.postfix_operator_origin postfix
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included postfix provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included postfix keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
+let postfix_constructor_validation () =
+  let operand =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "postfix operand")
+  in
+  match
+    Semantic_function_call_resolution.make_postfix_argument_expression
+      ~operator:Semantic_function_call_resolution.Post_increment
+      ~operator_origin:(Semantic_symbol.Synthesized "") ~operand
+  with
+  | Ok _ -> Alcotest.fail "expected an invalid postfix origin to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "invalid postfix origin"
+        "call argument postfix operator has an invalid source origin" message
 
 let binary_operator_inventory_and_assignments () =
   let cases =
@@ -1376,6 +1505,11 @@ let tests =
       prefix_source_order_modes_and_provenance;
     Alcotest.test_case "prefix constructor validation" `Quick
       prefix_constructor_validation;
+    Alcotest.test_case "postfix directions and retention" `Quick
+      postfix_directions_and_retention;
+    Alcotest.test_case "postfix provenance" `Quick postfix_provenance;
+    Alcotest.test_case "postfix constructor validation" `Quick
+      postfix_constructor_validation;
     Alcotest.test_case "binary operator inventory and assignments" `Quick
       binary_operator_inventory_and_assignments;
     Alcotest.test_case "binary result joins and nesting" `Quick

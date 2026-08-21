@@ -51,6 +51,10 @@ let prefix_operator = function
   | Frontend.Ast.Pre_increment -> Sema.Function_call_resolution.Pre_increment
   | Frontend.Ast.Pre_decrement -> Sema.Function_call_resolution.Pre_decrement
 
+let postfix_operator = function
+  | Frontend.Ast.Post_increment -> Sema.Function_call_resolution.Post_increment
+  | Frontend.Ast.Post_decrement -> Sema.Function_call_resolution.Post_decrement
+
 let cast_type_reference visible (cast : Frontend.Ast.postfix_cast_expression) =
   let pointer_origins =
     List.map
@@ -130,10 +134,15 @@ let rec argument_expression visible (expression : Frontend.Ast.expression) =
               ~operator:(prefix_operator prefix.prefix_operator_kind)
               ~operator_origin:(origin prefix.prefix_operator.operator_location)
               ~operand)
-    | Frontend.Ast.Postfix_expression _ ->
-        Ok
-          (Sema.Function_call_resolution.Unresolved_expression
-             Sema.Function_call_resolution.Postfix_expression)
+    | Frontend.Ast.Postfix_expression postfix -> (
+        match argument_expression visible postfix.postfix_operand with
+        | Error _ as error -> error
+        | Ok operand ->
+            Sema.Function_call_resolution.make_postfix_argument_expression
+              ~operator:(postfix_operator postfix.postfix_operator_kind)
+              ~operator_origin:
+                (origin postfix.postfix_operator.operator_location)
+              ~operand)
     | Frontend.Ast.Postfix_cast_expression cast -> (
         match cast_type_reference visible cast with
         | Error _ as error -> error

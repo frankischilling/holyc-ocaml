@@ -7,7 +7,6 @@ type unresolved_expression_kind =
   | Sizeof_expression
   | Offset_expression
   | Defined_expression
-  | Postfix_expression
   | Postfix_cast_expression
   | Call_expression
   | Index_expression
@@ -24,6 +23,8 @@ type prefix_operator =
   | Pre_decrement
 
 type prefix_expression
+type postfix_operator = Post_increment | Post_decrement
+type postfix_expression
 type binary_expression
 
 type argument_expression_kind =
@@ -33,6 +34,7 @@ type argument_expression_kind =
   | String_literal
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
+  | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
   | Binary_expression of binary_expression
   | Unresolved_expression of unresolved_expression_kind
@@ -48,6 +50,12 @@ val make_argument_expression :
 
 val make_prefix_argument_expression :
   operator:prefix_operator ->
+  operator_origin:Symbol.origin ->
+  operand:argument_expression ->
+  (argument_expression_kind, string) result
+
+val make_postfix_argument_expression :
+  operator:postfix_operator ->
   operator_origin:Symbol.origin ->
   operand:argument_expression ->
   (argument_expression_kind, string) result
@@ -163,6 +171,9 @@ val argument_expression_origin : argument_expression -> Symbol.origin
 val prefix_operator : prefix_expression -> prefix_operator
 val prefix_operator_origin : prefix_expression -> Symbol.origin
 val prefix_operand : prefix_expression -> argument_expression
+val postfix_operator : postfix_expression -> postfix_operator
+val postfix_operator_origin : postfix_expression -> Symbol.origin
+val postfix_operand : postfix_expression -> argument_expression
 val binary_operator : binary_expression -> Generated.Intermediate_codes.t
 val binary_operator_origin : binary_expression -> Symbol.origin
 val binary_left : binary_expression -> argument_expression
@@ -187,6 +198,7 @@ val direct_variadic_count : direct_call -> int64
 val call_syntax_name : call_syntax -> string
 val argument_kind_name : argument_kind -> string
 val prefix_operator_name : prefix_operator -> string
+val postfix_operator_name : postfix_operator -> string
 val binary_operator_name : Generated.Intermediate_codes.t -> string
 val unresolved_expression_kind_name : unresolved_expression_kind -> string
 val argument_expression_kind_name : argument_expression_kind -> string
