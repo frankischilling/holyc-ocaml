@@ -852,8 +852,7 @@ let index_expression_constructors_validate_bracket_origins () =
     "an empty closing-bracket origin is rejected"
     (Error "call argument index has an invalid closing-bracket origin")
     (Semantic_function_call_resolution.make_index_argument_expression ~base
-       ~opening_origin ~index
-       ~closing_origin:(Semantic_symbol.Synthesized ""))
+       ~opening_origin ~index ~closing_origin:(Semantic_symbol.Synthesized ""))
 
 let tests =
   [

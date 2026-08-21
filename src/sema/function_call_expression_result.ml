@@ -275,8 +275,7 @@ let rec type_expression table policies ~before_item_index ~context
                 Function_call_resolution.bound_identifier_array_rank identifier
               in
               finish ~source_type:(Some source_type) ~array_rank category
-                result_class state
-          )
+                result_class state)
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
@@ -374,10 +373,11 @@ and type_index table policies ~before_item_index ~context ~intrinsic_conversion
     state id source index =
   match
     type_expression table policies ~before_item_index ~context:Value_context
-      state (Function_call_resolution.index_base index)
+      state
+      (Function_call_resolution.index_base index)
   with
   | Error _ as error -> error
-  | Ok (base, state) ->
+  | Ok (base, state) -> (
       let value_category =
         match context with
         | Value_context -> Object_value
@@ -396,7 +396,7 @@ and type_index table policies ~before_item_index ~context ~intrinsic_conversion
               (make_result ~array_rank ~intrinsic_conversion state ~id ~source
                  ~source_type ~category ~result_class)
       in
-      (match (base.source_type, base.category) with
+      match (base.source_type, base.category) with
       | None, _ ->
           type_index_value state ~source_type:None ~array_rank:0
             ~category:Unavailable ~result_class:Unresolved_actual_class
@@ -428,8 +428,7 @@ and type_index table policies ~before_item_index ~context ~intrinsic_conversion
           | Error _ ->
               Error
                 (invalid_input
-                   ~origin:
-                     (Function_call_resolution.index_opening_origin index)
+                   ~origin:(Function_call_resolution.index_opening_origin index)
                    "index base is neither an array nor a pointer")))
 
 and type_postfix table policies ~before_item_index ~intrinsic_conversion state

@@ -541,13 +541,15 @@ let indexes_retain_pointer_depths_and_primitive_forms () =
       let forms =
         roots
         |> List.map (fun result ->
-            match Semantic_function_call_expression_result.result_type result with
+            match
+              Semantic_function_call_expression_result.result_type result
+            with
             | Some type_ -> (
                 match Semantic_type.base type_ with
-                | Semantic_type.Primitive
-                    (Semantic_type.Public_spelling, _) -> "public"
-                | Semantic_type.Primitive
-                    (Semantic_type.Internal_storage, _) -> "internal"
+                | Semantic_type.Primitive (Semantic_type.Public_spelling, _) ->
+                    "public"
+                | Semantic_type.Primitive (Semantic_type.Internal_storage, _) ->
+                    "internal"
                 | Semantic_type.Aggregate _ -> "aggregate")
             | None -> "unavailable")
       in
@@ -589,11 +591,11 @@ let aggregate_indexes_use_source_visible_backing () =
         "only a source-visible aggregate backing changes the index class"
         [ "integer-result"; "f64-result" ]
         [
-          root_results results "Before" |> List.hd
-          |> Semantic_function_call_expression_result.result_class
+          root_results results "Before"
+          |> List.hd |> Semantic_function_call_expression_result.result_class
           |> Semantic_function_call_expression_result.result_class_name;
-          root_results results "After" |> List.hd
-          |> Semantic_function_call_expression_result.result_class
+          root_results results "After"
+          |> List.hd |> Semantic_function_call_expression_result.result_class
           |> Semantic_function_call_expression_result.result_class_name;
         ];
       let decision =
@@ -677,8 +679,7 @@ let invalid_index_base_reports_the_opening_bracket () =
   ]
   |> List.iter (fun (label, source, bracket_position) ->
       let prepared =
-        prepare ~path:("call-expression-invalid-index-" ^ label ^ ".HC")
-          source
+        prepare ~path:("call-expression-invalid-index-" ^ label ^ ".HC") source
       in
       let policies =
         Test_function_call_conversion_policy.analyze prepared
@@ -708,10 +709,12 @@ let invalid_index_base_reports_the_opening_bracket () =
           in
           Alcotest.(check int)
             (label ^ " primary origin starts at the rejected opening bracket")
-            (bracket_position source '[') location.span.start;
+            (bracket_position source '[')
+            location.span.start;
           Alcotest.(check int)
             (label ^ " opening-bracket origin is one byte")
-            1 (Span.length location.span))
+            1
+            (Span.length location.span))
 
 let unresolved_index_bases_remain_unavailable () =
   let prepared =
@@ -724,8 +727,8 @@ let unresolved_index_bases_remain_unavailable () =
     "an unresolved base does not acquire a guessed element type"
     [ "unavailable" ] (List.map type_name roots);
   Alcotest.(check (list string))
-    "an unresolved base keeps its unresolved result class"
-    [ "unresolved" ] (class_names roots);
+    "an unresolved base keeps its unresolved result class" [ "unresolved" ]
+    (class_names roots);
   let converted =
     results |> Semantic_function_call_expression_result.all_results
     |> List.filter (fun result ->
@@ -734,14 +737,13 @@ let unresolved_index_bases_remain_unavailable () =
         = Semantic_function_call_expression_result.Result_to_int)
   in
   Alcotest.(check (list string))
-    "the known subscript still carries integer conversion intent"
-    [ "F64" ] (List.map type_name converted)
+    "the known subscript still carries integer conversion intent" [ "F64" ]
+    (List.map type_name converted)
 
 let included_indexes_keep_their_bracket_origins () =
   with_included_source
     "extern I64 Target(I64 value);I64 Caller(){I64 array[1];return \
-     Target(array[0]);}"
-    (fun prepared ->
+     Target(array[0]);}" (fun prepared ->
       let _, results = analyze prepared in
       let result = root_results results "Caller" |> List.hd in
       let index =
@@ -758,18 +760,18 @@ let included_indexes_keep_their_bracket_origins () =
         Semantic_function_call_resolution.index_closing_origin index;
       ]
       |> List.iter (function
-           | Semantic_symbol.Source_location location ->
-               let source =
-                 Source_manager.find
-                   (Session.sources prepared.session)
-                   location.span.source
-                 |> Option.get
-               in
-               Alcotest.(check string)
-                 "included index location keeps its source file" "calls.HC"
-                 (Source_file.path source |> Filename.basename)
-           | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
-               Alcotest.fail "expected included index provenance"))
+        | Semantic_symbol.Source_location location ->
+            let source =
+              Source_manager.find
+                (Session.sources prepared.session)
+                location.span.source
+              |> Option.get
+            in
+            Alcotest.(check string)
+              "included index location keeps its source file" "calls.HC"
+              (Source_file.path source |> Filename.basename)
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included index provenance"))
 
 let conversion_uses_the_exact_typed_roots () =
   let prepared =
@@ -870,7 +872,7 @@ let deterministic_generated_results_do_not_mutate_symbols () =
     "expression typing leaves the symbol table unchanged" symbol_count
     (Semantic_symbol_table.all_symbols table |> List.length);
   match root_results first "Caller" with
-  | [ result ] -> (
+  | [ result ] ->
       (match Semantic_function_call_expression_result.result_origin result with
       | Semantic_symbol.Source_location location ->
           Alcotest.(check bool)
@@ -894,15 +896,15 @@ let deterministic_generated_results_do_not_mutate_symbols () =
         Semantic_function_call_resolution.index_closing_origin index;
       ]
       |> List.iter (function
-           | Semantic_symbol.Source_location location ->
-               Alcotest.(check bool)
-                 "generated bracket keeps its invocation" true
-                 (Option.is_some location.generated_from);
-               Alcotest.(check bool)
-                 "generated bracket keeps its definition" true
-                 (Option.is_some location.defined_at)
-           | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
-               Alcotest.fail "expected generated bracket provenance"))
+        | Semantic_symbol.Source_location location ->
+            Alcotest.(check bool)
+              "generated bracket keeps its invocation" true
+              (Option.is_some location.generated_from);
+            Alcotest.(check bool)
+              "generated bracket keeps its definition" true
+              (Option.is_some location.defined_at)
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected generated bracket provenance")
   | _ -> Alcotest.fail "expected one generated expression result"
 
 let foreign_session_and_traversal_are_rejected () =

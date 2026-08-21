@@ -223,7 +223,10 @@ let bound_identifier_occurrence identifier =
 
 let bound_identifier_type identifier = identifier.bound_identifier_type_
 let bound_identifier_shape identifier = identifier.bound_identifier_shape_
-let bound_identifier_array_rank identifier = identifier.bound_identifier_array_rank_
+
+let bound_identifier_array_rank identifier =
+  identifier.bound_identifier_array_rank_
+
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -413,8 +416,8 @@ let make_binary_argument_expression ~operator ~operator_origin ~left ~right =
            binary_right = right;
          })
 
-let make_index_argument_expression ~base ~opening_origin ~index
-    ~closing_origin =
+let make_index_argument_expression ~base ~opening_origin ~index ~closing_origin
+    =
   if not (valid_origin opening_origin) then
     Error "call argument index has an invalid opening-bracket origin"
   else if not (valid_origin closing_origin) then
@@ -628,8 +631,7 @@ let rec validate_argument_expression table parent visible expression =
       else if
         identifier.bound_identifier_shape_ <> Array_value
         && identifier.bound_identifier_array_rank_ <> 0
-      then
-        Error (invalid_input "bound nonarray call argument has dimensions")
+      then Error (invalid_input "bound nonarray call argument has dimensions")
       else
         match Type.base resolved_type with
         | Type.Primitive _ -> Ok ()
@@ -833,9 +835,7 @@ let rec validate_bound_occurrences occurrence_by_index expression =
       | Ok () ->
           validate_bound_occurrences occurrence_by_index binary.binary_right)
   | Index_expression index -> (
-      match
-        validate_bound_occurrences occurrence_by_index index.index_base
-      with
+      match validate_bound_occurrences occurrence_by_index index.index_base with
       | Error _ as error -> error
       | Ok () ->
           validate_bound_occurrences occurrence_by_index index.index_value)

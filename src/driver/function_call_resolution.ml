@@ -70,8 +70,7 @@ let local_value local =
     | Sema.Local_type_resolution.Function_pointer _ ->
         Sema.Function_call_resolution.Function_pointer_value
     | Sema.Local_type_resolution.Object ->
-        if dimensions = [] then
-          Sema.Function_call_resolution.Object_value
+        if dimensions = [] then Sema.Function_call_resolution.Object_value
         else Sema.Function_call_resolution.Array_value
   in
   {
@@ -89,8 +88,7 @@ let global_value global =
     | Sema.Global_type_resolution.Function_pointer _ ->
         Sema.Function_call_resolution.Function_pointer_value
     | Sema.Global_type_resolution.Object ->
-        if dimensions = [] then
-          Sema.Function_call_resolution.Object_value
+        if dimensions = [] then Sema.Function_call_resolution.Object_value
         else Sema.Function_call_resolution.Array_value
   in
   {
