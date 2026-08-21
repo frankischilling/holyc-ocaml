@@ -12,6 +12,7 @@ type conversion =
 type provided_decision
 type fixed_path = Provided_path of provided_decision | Declared_default_path
 type fixed_decision
+type variadic_decision
 type direct_call
 
 type call_decision =
@@ -54,9 +55,7 @@ val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_decision list
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_fixed_decisions : direct_call -> fixed_decision list
-
-val direct_variadic_arguments :
-  direct_call -> Function_call_resolution.argument list
+val direct_variadic_decisions : direct_call -> variadic_decision list
 
 val fixed_source :
   fixed_decision -> Function_call_conversion_policy.fixed_policy
@@ -71,6 +70,11 @@ val provided_actual_result :
 
 val provided_actual : provided_decision -> actual_class
 val provided_conversion : provided_decision -> conversion
+
+val variadic_actual_result :
+  variadic_decision -> Function_call_expression_result.expression_result
+
+val variadic_actual : variadic_decision -> actual_class
 val actual_class_name : actual_class -> string
 val conversion_name : conversion -> string
 val fixed_path_name : fixed_path -> string

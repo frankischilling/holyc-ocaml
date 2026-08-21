@@ -45,11 +45,11 @@ val analyze :
   members:Aggregate_member_index.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
-(** Derive immutable source-expression results for provided fixed direct-call
-    arguments. Each result has a deterministic identity, source origin, known
-    semantic type, value category, remaining array rank, intrinsic conversion
-    requirement, forwarded result class, and any distinct execution class needed
-    by the fixed-call comparison and later lowering. *)
+(** Derive immutable source-expression results for provided fixed and variadic
+    direct-call arguments. Each result has a deterministic identity, source
+    origin, known semantic type, value category, remaining array rank, intrinsic
+    conversion requirement, forwarded result class, and any distinct execution
+    class needed by later lowering. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -63,10 +63,7 @@ val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_fixed_results : direct_call -> fixed_result list
-
-val direct_variadic_arguments :
-  direct_call -> Function_call_resolution.argument list
-
+val direct_variadic_results : direct_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
 val fixed_path : fixed_result -> fixed_path
 val result_id : expression_result -> Id.t

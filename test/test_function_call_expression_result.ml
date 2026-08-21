@@ -113,6 +113,10 @@ let root_results results name =
           Some result
       | Semantic_function_call_expression_result.Declared_default_result -> None)
 
+let variadic_results results name =
+  only_direct results name
+  |> Semantic_function_call_expression_result.direct_variadic_results
+
 let category_names results =
   List.map
     (fun result ->
@@ -1828,6 +1832,179 @@ let deterministic_generated_results_do_not_mutate_symbols () =
             Alcotest.fail "expected generated bracket provenance")
   | _ -> Alcotest.fail "expected one generated expression result"
 
+let variadic_expressions_receive_typed_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-variadic.HC"
+          "class Box {F64 value;};\n\
+           extern I64 Mix(F64 fixed=1,...);\n\
+           I64 Caller(I64 value,F64 floating,I64 *pointer,Box box){I64 \
+           array[1];return \
+           Mix(,1,2.5,'A',\"x\",value,floating,&value,*pointer,array[0],box.value,value+1,value(F64),++value,value++);}"
+      in
+      let _, results = analyze prepared in
+      let variadic = variadic_results results "Caller" in
+      Alcotest.(check int)
+        "every provided variadic expression receives a result" 14
+        (List.length variadic);
+      Alcotest.(check (list string))
+        "variadic roots retain source types"
+        [
+          "I64";
+          "F64";
+          "I64";
+          "U8*";
+          "I64";
+          "F64";
+          "I64*";
+          "I64";
+          "I64";
+          "F64";
+          "I64";
+          "F64";
+          "I64";
+          "I64";
+        ]
+        (List.map type_name variadic);
+      Alcotest.(check (list string))
+        "variadic roots retain actual result classes"
+        [
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+        ]
+        (class_names variadic);
+      Alcotest.(check (list string))
+        "variadic roots retain value categories"
+        [
+          "object-value";
+          "object-value";
+          "object-value";
+          "address-value";
+          "object-value";
+          "object-value";
+          "address-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+        ]
+        (category_names variadic);
+      Alcotest.(check (list int))
+        "variadic roots retain their completed array ranks"
+        (List.init 14 (Fun.const 0))
+        (array_ranks variadic);
+      let ids =
+        variadic
+        |> List.map (fun result ->
+            result |> Semantic_function_call_expression_result.result_id
+            |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      Alcotest.(check (list int))
+        "variadic root identities remain in source order" ids
+        (List.sort Int.compare ids);
+      match
+        only_direct results "Caller"
+        |> Semantic_function_call_expression_result.direct_fixed_results
+      with
+      | [ fixed ] -> (
+          match Semantic_function_call_expression_result.fixed_path fixed with
+          | Semantic_function_call_expression_result.Declared_default_result ->
+              ()
+          | Semantic_function_call_expression_result.Provided_result _ ->
+              Alcotest.fail "expected the fixed default to remain separate")
+      | fixed ->
+          Alcotest.failf "expected one fixed default, got %d"
+            (List.length fixed))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let variadic_origins_and_replay_are_deterministic () =
+  with_included_source
+    "extern I64 Mix(I64 fixed=0,...);I64 Caller(){return Mix(,2.5);}"
+    (fun prepared ->
+      let _, results = analyze prepared in
+      match variadic_results results "Caller" with
+      | [ result ] -> (
+          match
+            Semantic_function_call_expression_result.result_origin result
+          with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find
+                  (Session.sources prepared.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "included variadic result keeps its source file" "calls.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected an included variadic result origin")
+      | results ->
+          Alcotest.failf "expected one included variadic result, got %d"
+            (List.length results));
+  let prepared =
+    prepare ~path:"call-expression-generated-variadic.HC"
+      "#define ARG 2.5\n\
+       extern I64 Mix(I64 fixed=0,...);I64 Caller(){return Mix(,ARG);}"
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let run () =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_results
+  in
+  let first = run () in
+  let second = run () in
+  let describe results =
+    variadic_results results "Caller"
+    |> List.map (fun result ->
+        ( result |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int,
+          result |> Semantic_function_call_expression_result.result_class
+          |> Semantic_function_call_expression_result.result_class_name ))
+  in
+  Alcotest.(check (list (pair int string)))
+    "variadic typing replays identically" (describe first) (describe second);
+  Alcotest.(check int)
+    "variadic typing leaves the symbol table unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  match variadic_results first "Caller" with
+  | [ result ] -> (
+      match Semantic_function_call_expression_result.result_origin result with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated variadic result keeps its invocation" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated variadic result keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated variadic result provenance")
+  | results ->
+      Alcotest.failf "expected one generated variadic result, got %d"
+        (List.length results)
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -1939,6 +2116,10 @@ let tests =
       included_and_generated_updates_are_deterministic;
     Alcotest.test_case "determinism and generated provenance" `Quick
       deterministic_generated_results_do_not_mutate_symbols;
+    Alcotest.test_case "typed variadic expression results" `Quick
+      variadic_expressions_receive_typed_results;
+    Alcotest.test_case "variadic provenance and determinism" `Quick
+      variadic_origins_and_replay_are_deterministic;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

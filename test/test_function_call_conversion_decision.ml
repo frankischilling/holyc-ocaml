@@ -1762,9 +1762,20 @@ let defaults_and_variadics_remain_separate () =
     prepare ~path:"call-decision-defaults.HC"
       "extern I64 Mix(F64 fixed=1,...);\nI64 Caller(){Mix;return Mix(,2.5);}"
   in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let expressions =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_expression_results
+  in
   let calls =
-    decide prepared |> checked_decision |> fun result ->
-    direct_calls result "Caller"
+    Holyc_lib.decide_function_call_conversions prepared.session ~policies
+      ~expressions
+    |> checked_decision
+    |> fun result -> direct_calls result "Caller"
   in
   Alcotest.(check int) "two direct calls" 2 (List.length calls);
   List.iter
@@ -1774,20 +1785,50 @@ let defaults_and_variadics_remain_separate () =
         [ "declared-default" ] (path_names call))
     calls;
   Alcotest.(check int)
-    "the second call retains one variadic expression" 1
+    "the second call retains one typed variadic expression" 1
     (List.nth calls 1
-   |> Semantic_function_call_conversion_decision.direct_variadic_arguments
+   |> Semantic_function_call_conversion_decision.direct_variadic_decisions
    |> List.length);
   let variadic =
     List.nth calls 1
-    |> Semantic_function_call_conversion_decision.direct_variadic_arguments
-    |> List.hd |> Semantic_function_call_resolution.argument_expression
-    |> Option.get
+    |> Semantic_function_call_conversion_decision.direct_variadic_decisions
+    |> List.hd
+  in
+  Alcotest.(check string)
+    "variadic actual class has no fixed target conversion" "f64-result"
+    (variadic |> Semantic_function_call_conversion_decision.variadic_actual
+   |> Semantic_function_call_conversion_decision.actual_class_name);
+  let actual =
+    Semantic_function_call_conversion_decision.variadic_actual_result variadic
   in
   Alcotest.(check string)
     "variadic float source kind" "float-literal"
-    (variadic |> Semantic_function_call_resolution.argument_expression_kind
-   |> Semantic_function_call_resolution.argument_expression_kind_name)
+    (actual |> Semantic_function_call_expression_result.result_source
+   |> Semantic_function_call_resolution.argument_expression_kind
+   |> Semantic_function_call_resolution.argument_expression_kind_name);
+  Alcotest.(check string)
+    "variadic source result receives no fixed-target conversion" "none"
+    (actual
+   |> Semantic_function_call_expression_result.result_intrinsic_conversion
+   |> Semantic_function_call_expression_result.intrinsic_conversion_name);
+  let typed_actual =
+    let calls =
+      expressions |> Semantic_function_call_expression_result.functions
+      |> List.find (fun function_ ->
+          function_ |> Semantic_function_call_expression_result.function_symbol
+          |> Semantic_symbol.name |> String.equal "Caller")
+      |> Semantic_function_call_expression_result.function_calls
+    in
+    match List.nth calls 1 with
+    | Semantic_function_call_expression_result.Direct_call_result call ->
+        call |> Semantic_function_call_expression_result.direct_variadic_results
+        |> List.hd
+    | Semantic_function_call_expression_result.Deferred_call_result _ ->
+        Alcotest.fail "expected a direct typed variadic call"
+  in
+  Alcotest.(check bool)
+    "the decision retains the exact typed variadic result" true
+    (actual == typed_actual)
 
 let source_visible_headers_choose_literal_flags () =
   List.iter

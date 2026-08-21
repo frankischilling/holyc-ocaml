@@ -23,10 +23,15 @@ type fixed_decision = {
   path : fixed_path;
 }
 
+type variadic_decision = {
+  actual_result : Function_call_expression_result.expression_result;
+  actual : actual_class;
+}
+
 type direct_call = {
   source : Function_call_conversion_policy.direct_call;
   fixed_decisions : fixed_decision list;
-  variadic_arguments : Function_call_resolution.argument list;
+  variadic_decisions : variadic_decision list;
 }
 
 type call_decision =
@@ -61,7 +66,7 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_decisions (call : direct_call) = call.fixed_decisions
-let direct_variadic_arguments (call : direct_call) = call.variadic_arguments
+let direct_variadic_decisions (call : direct_call) = call.variadic_decisions
 let fixed_source (fixed : fixed_decision) = fixed.source
 let fixed_path (fixed : fixed_decision) = fixed.path
 let provided_target (provided : provided_decision) = provided.target
@@ -71,6 +76,11 @@ let provided_actual_result (provided : provided_decision) =
 
 let provided_actual (provided : provided_decision) = provided.actual
 let provided_conversion (provided : provided_decision) = provided.conversion
+
+let variadic_actual_result (variadic : variadic_decision) =
+  variadic.actual_result
+
+let variadic_actual (variadic : variadic_decision) = variadic.actual
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let actual_class_name = function
@@ -160,12 +170,20 @@ let direct_call source =
   with
   | Error _ as error -> error
   | Ok fixed_decisions ->
+      let variadic_decisions =
+        source |> Function_call_expression_result.direct_variadic_results
+        |> List.map (fun actual_result ->
+            {
+              actual_result;
+              actual =
+                Function_call_expression_result.result_class actual_result;
+            })
+      in
       Ok
         {
           source = Function_call_expression_result.direct_source source;
           fixed_decisions;
-          variadic_arguments =
-            Function_call_expression_result.direct_variadic_arguments source;
+          variadic_decisions;
         }
 
 let call_decision = function
