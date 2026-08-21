@@ -5429,7 +5429,8 @@ object_rule = "the resolved semantic type follows the aggregate backing relation
 pointer_side_rule = "arrays, function pointers, and synthetic argv use the integer result path regardless of their declared base or callback return type"
 synthetic_argc_rule = "argc is an internal I64 object and uses the integer result path"
 outer_rule = "an outer candidate remains unresolved because the current outer binding result has no joined checked value type"
-unsupported_expression_bindings = ["module function value", "aggregate type value", "index", "member", "indirect call"]
+unsupported_expression_bindings = ["module function value", "aggregate type value", "member", "indirect call"]
+index_extension = "HC-SEMA-INDEX-EXPRESSION-RESULTS"
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 validation = "exact occurrence object and origin, source-ordered traversal, stable function owner and scope, AST item position, type-batch ownership, local or global value binding, aggregate type ownership, and module scope"
 provenance = ["identifier expression", "binding symbol", "included source", "generated invocation", "definition origin"]
@@ -5489,6 +5490,8 @@ sources = [
   "Compiler/OptPass012.HC:693-897 logical, comparison, and assignment results"
 ]
 implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
   "src/sema/function_call_expression_result.ml",
   "src/sema/function_call_conversion_decision.ml",
   "src/holyc_lib.ml"
@@ -5502,18 +5505,18 @@ issue = 264
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed expressions on already resolved direct function-body calls"
 identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
-source_facts = ["exact expression view", "origin", "known semantic type", "value category", "forwarded result class"]
+source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class"]
 value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
 result_classes = ["integer", "F64", "unresolved"]
-conversion_separation = "ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains target specific and is stored by Function_call_conversion_decision"
+conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; an index subscript independently records the source-required ICF_RES_TO_INT intent"
 type_fallback = "none; an unknown source type remains absent"
 validation = ["symbol-table ownership", "aggregate type ownership", "policy traversal ownership", "fixed source-path agreement", "deterministic identity space"]
 provenance = ["source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 10
-unimplemented = ["index typing", "member typing", "assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
+focused_expression_result_tests = 17
+unimplemented = ["member typing", "assignment typing", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5558,3 +5561,46 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 storage_reads_updates_ic_emission_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this type transition; PrsExpression2, PrsPopDeref, OptClassFwd, and the fixed call comparison state the result directly"
+
+[[feature]]
+id = "HC-SEMA-INDEX-EXPRESSION-RESULTS"
+description = "Index expressions derive one checked pointer element or remaining-array result while retaining bracket provenance and subscript conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:761-904 local and global pointer, array, callback, and class state",
+  "Compiler/PrsExp.HC:1055-1100 index pointer checks, array-dimension transition, ICF_RES_TO_INT, and address construction",
+  "Compiler/PrsExp.HC:1101-1114 postfix update and final dereference boundary",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/OptPass012.HC:275-305 dereference and update consumers",
+  "Compiler/PrsVar.HC retained local and global array dimensions and element classes"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 268
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "index expressions nested inside provided fixed arguments on resolved direct function-body calls"
+semantic_source_view = ["base expression", "opening bracket origin", "subscript expression", "closing bracket origin"]
+pointer_rule = "remove exactly one checked pointer layer and preserve the public primitive, intrinsic primitive, or aggregate base identity"
+array_rule = "retain declaration-owned rank separately from the element type and consume exactly one dimension per bracket"
+partial_array_rule = "a nonzero remaining rank stays an array value on the integer result path"
+element_rule = "the final element follows its source-visible aggregate backing and is an lvalue only when its parent requests one"
+subscript_rule = "retain the source result and record ICF_RES_TO_INT independently on the subscript root"
+unknown_rule = "an unavailable outer base stays unavailable and unresolved; no pointer or element type is guessed"
+invalid_base_diagnostic = "HCSEMA0046 at the rejected opening bracket for a proven scalar or exhausted array"
+pointer_depths = [1, 2, 3, 4]
+array_sources = ["local", "global"]
+type_forms = ["public spelling", "internal storage", "aggregate identity"]
+provenance = ["base", "subscript", "opening bracket", "closing bracket", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+index_evaluation_bounds_stride_address_storage_and_lowering = "not implemented"
+native_oracle_status = "not required for this checked type transition; the pinned pointer check, array-dimension state, ICF_RES_TO_INT assignment, and class forwarding state the result directly"
