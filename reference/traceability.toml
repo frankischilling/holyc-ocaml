@@ -4692,13 +4692,15 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed prefix-expression arguments on already resolved direct function-body calls after target policy"
 semantic_source_view = "retains the exact prefix operator, operator origin, recursive operand view, and nested cast type identity"
 forwarded_prefixes = ["unary plus", "unary minus", "logical not"]
-integer_prefixes = ["address-of"]
-unresolved_prefixes = ["bitwise complement", "dereference"]
+integer_prefixes = ["address-of", "bitwise complement"]
+unresolved_prefixes = ["dereference"]
 prefix_update_extension = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
+bitwise_complement_extension = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
 unary_plus_rule = "the parser returns the operand result without adding an IC, so the recursive operand class is retained"
 unary_minus_rule = "OptPass012 forwards the operand class to the unary-minus result"
 logical_not_rule = "OptPass012 retains the operand class, including F64, while selecting the logical-not IC"
 address_of_rule = "the accepted source path produces a pointer result and therefore uses the non-F64 side of the call comparison"
+bitwise_complement_rule = "the IC_COM optimizer branch assigns internal I64 to the pushed result after optional immediate folding, independently of the operand class"
 parentheses = "preserve the recursively classified prefix result"
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 validation = "the prefix constructor rejects an invalid operator origin before constructing a recursive source view"
@@ -5437,3 +5439,37 @@ value_evaluation = "not implemented"
 ic_construction_and_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, PrsVar, OptClassFwd, and the fixed call comparison state the retained value classes directly"
+
+[[feature]]
+id = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
+description = "Bitwise-complement fixed arguments use the internal I64 result class assigned by the pinned optimizer."
+sources = [
+  "Compiler/PrsExp.HC:593-676 prefix dispatch and IC_COM construction",
+  "Compiler/OptPass012.HC:153-160 IC_COM folding and internal I64 result assignment",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/OptLib.HC:9-15 OptClassFwd"
+]
+implementation = [
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 261
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed bitwise-complement arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains the exact bitwise-complement operator, operator origin, and recursive operand view"
+result_class = "integer"
+result_rule = "IC_COM assigns internal I64 to the pushed result after optional immediate folding; the operand class does not determine the result class"
+operand_shapes = ["integer", "F64", "backed aggregate cast", "binary", "outer unresolved", "nested complement"]
+decisions = ["none", "ICF_RES_TO_F64"]
+dereference = "remains unresolved"
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+operand_validation = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; the IC_COM branch and fixed-call comparison state the class and conversion directly"
