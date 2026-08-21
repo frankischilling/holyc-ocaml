@@ -394,12 +394,14 @@ val analyze_function_call_conversions :
 
 val type_function_call_expressions :
   Session.t ->
+  members:Semantic_aggregate_member_index.t ->
   policies:Semantic_function_call_conversion_policy.t ->
   ( Semantic_function_call_expression_result.t,
     Semantic_function_call_expression_result.error )
   result
 (** Derive stable, session-owned results for every provided fixed direct-call
-    expression. Known source types and value categories stay separate from the
+    expression. Member expressions use the completed, immutable aggregate index.
+    Known source types and value categories stay separate from the
     target-specific conversion intent selected by the next pass. *)
 
 val decide_function_call_conversions :

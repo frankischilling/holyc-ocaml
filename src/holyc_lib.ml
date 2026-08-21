@@ -268,10 +268,10 @@ let analyze_function_call_conversions session ~declarations ~headers ~calls =
     ~parent:(Sema.Declaration_collection.scope declarations)
     ~headers ~calls
 
-let type_function_call_expressions session ~policies =
+let type_function_call_expressions session ~members ~policies =
   Sema.Function_call_expression_result.analyze
     ~table:(Session.semantic_symbols session)
-    policies
+    ~members policies
 
 let decide_function_call_conversions session ~policies ~expressions =
   Sema.Function_call_conversion_decision.decide

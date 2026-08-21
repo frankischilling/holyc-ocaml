@@ -62,7 +62,8 @@ let decide prepared =
     |> Test_function_call_conversion_policy.checked_policy
   in
   let expressions =
-    Holyc_lib.type_function_call_expressions prepared.session ~policies
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
     |> checked_expression_results
   in
   Holyc_lib.decide_function_call_conversions prepared.session ~policies
@@ -281,7 +282,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
     ]
     (fixed
     |> List.map (fun fixed ->
@@ -1886,14 +1887,18 @@ let deferred_provenance_foreign_and_purity () =
     |> Test_function_call_conversion_policy.checked_policy
   in
   let foreign = Session.create () in
-  (match Holyc_lib.type_function_call_expressions foreign ~policies with
+  (match
+     Holyc_lib.type_function_call_expressions foreign ~members:generated.members
+       ~policies
+   with
   | Ok _ -> Alcotest.fail "expected foreign expression typing to fail"
   | Error error ->
       Alcotest.(check string)
         "foreign expression typing diagnostic" "HCSEMA0046"
         (Semantic_function_call_expression_result.error_code error));
   let expressions =
-    Holyc_lib.type_function_call_expressions generated.session ~policies
+    Holyc_lib.type_function_call_expressions generated.session
+      ~members:generated.members ~policies
     |> checked_expression_results
   in
   (match

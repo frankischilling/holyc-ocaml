@@ -36,7 +36,10 @@ type error_kind = Invalid_input of string
 type error
 
 val analyze :
-  table:Symbol_table.t -> Function_call_conversion_policy.t -> (t, error) result
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  Function_call_conversion_policy.t ->
+  (t, error) result
 (** Derive immutable source-expression results for provided fixed direct-call
     arguments. Each result has a deterministic identity, source origin, known
     semantic type, value category, remaining array rank, intrinsic conversion
@@ -44,6 +47,7 @@ val analyze :
     comparison. *)
 
 val owns_table : t -> Symbol_table.t -> bool
+val owns_members : t -> Aggregate_member_index.t -> bool
 val owns_policies : t -> Function_call_conversion_policy.t -> bool
 val compilation_mode : t -> Function_resolution.compilation_mode
 val functions : t -> resolved_function list
@@ -71,6 +75,10 @@ val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class
 val result_array_rank : expression_result -> int
 val result_intrinsic_conversion : expression_result -> intrinsic_conversion
+
+val result_member_lookup :
+  expression_result -> Aggregate_member_index.lookup option
+
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string

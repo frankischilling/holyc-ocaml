@@ -417,6 +417,17 @@ let build ~table ~parent inputs =
       loop Int_map.empty [] inputs)
 
 let aggregates result = result.aggregates
+let owns_table result table = result.table == table
+let aggregate_symbol (aggregate : aggregate) = aggregate.symbol
+let aggregate_item_index (aggregate : aggregate) = aggregate.item_index
+let lookup_queried_aggregate (lookup : lookup) = lookup.queried_aggregate
+let lookup_declaring_aggregate (lookup : lookup) = lookup.declaring_aggregate
+let lookup_inheritance_depth (lookup : lookup) = lookup.inheritance_depth
+let lookup_member (lookup : lookup) = lookup.member
+let member_symbol (member : member) = member.symbol
+let member_type (member : member) = member.member_type
+let member_is_function_pointer (member : member) = member.is_function_pointer
+let member_layout (member : member) = member.layout
 
 let find_indexed result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

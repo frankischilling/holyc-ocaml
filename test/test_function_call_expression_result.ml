@@ -16,6 +16,17 @@ let checked_type = function
   | Ok value -> value
   | Error message -> Alcotest.fail message
 
+let substring_start source needle =
+  let source_length = String.length source in
+  let needle_length = String.length needle in
+  let rec search index =
+    if index + needle_length > source_length then
+      Alcotest.failf "expected %S in test source" needle
+    else if String.sub source index needle_length = needle then index
+    else search (index + 1)
+  in
+  search 0
+
 let prepare = Test_function_call_conversion_policy.prepare
 
 let with_included_source contents apply =
@@ -65,7 +76,8 @@ let analyze prepared =
     |> Test_function_call_conversion_policy.checked_policy
   in
   let results =
-    Holyc_lib.type_function_call_expressions prepared.session ~policies
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
     |> checked_results
   in
   (policies, results)
@@ -137,6 +149,32 @@ let type_name result =
         | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
+
+let member_lookup result =
+  match
+    Semantic_function_call_expression_result.result_member_lookup result
+  with
+  | Some lookup -> lookup
+  | None -> Alcotest.fail "expected a resolved aggregate member lookup"
+
+let member_source result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Member_access_expression member -> member
+  | _ -> Alcotest.fail "expected a retained member expression"
+
+let lookup_description result =
+  let lookup = member_lookup result in
+  let member = Semantic_aggregate_member_index.lookup_member lookup in
+  let layout = Semantic_aggregate_member_index.member_layout member in
+  ( member |> Semantic_aggregate_member_index.member_symbol
+    |> Semantic_symbol.name,
+    lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+    |> Semantic_symbol.name,
+    Semantic_aggregate_member_index.lookup_inheritance_depth lookup,
+    layout.offset )
 
 let pointer_transitions_are_checked () =
   let scalar =
@@ -686,7 +724,8 @@ let invalid_index_base_reports_the_opening_bracket () =
         |> Test_function_call_conversion_policy.checked_policy
       in
       match
-        Holyc_lib.type_function_call_expressions prepared.session ~policies
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
       with
       | Ok _ -> Alcotest.failf "expected %s indexing to fail" label
       | Error error ->
@@ -834,6 +873,310 @@ let conversion_uses_the_exact_typed_roots () =
     ]
     paths
 
+let members_retain_lookup_identity_and_access_kind () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-member-lookup.HC"
+          "class Base {I8 inherited;};class Child : Base {I64 own;};\n\
+           extern I64 Target(I64 a,I64 b,I64 c);\n\
+           I64 Caller(Child object,Child *pointer){return \
+           Target(object.own,pointer->own,object.inherited);}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "direct and pointer member roots keep their declared types"
+        [ "I64"; "I64"; "I8" ] (List.map type_name roots);
+      Alcotest.(check (list string))
+        "member roots are values in direct-call arguments"
+        [ "object-value"; "object-value"; "object-value" ]
+        (category_names roots);
+      Alcotest.(check (list string))
+        "lookup retains member identity, declaration owner, depth, and offset"
+        [ "own:Child:0:1"; "own:Child:0:1"; "inherited:Base:1:0" ]
+        (List.map
+           (fun result ->
+             let member, owner, depth, offset = lookup_description result in
+             Printf.sprintf "%s:%s:%d:%Ld" member owner depth offset)
+           roots);
+      let access_kinds =
+        roots
+        |> List.map (fun result ->
+            match
+              result |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Member_access_expression member
+              ->
+                member |> Semantic_function_call_resolution.member_access_kind
+                |> Semantic_function_call_resolution.member_access_kind_name
+            | _ -> Alcotest.fail "expected a retained member expression")
+      in
+      Alcotest.(check (list string))
+        "direct and pointer spellings remain distinct"
+        [ "direct"; "pointer"; "direct" ]
+        access_kinds)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let member_constructor_validates_names_and_origins () =
+  let base =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "member base")
+  in
+  let make ?(operator_origin = Semantic_symbol.Synthesized "member operator")
+      ?(member_name = "value")
+      ?(member_origin = Semantic_symbol.Synthesized "member name") () =
+    Semantic_function_call_resolution.make_member_argument_expression ~base
+      ~access_kind:Semantic_function_call_resolution.Direct_member
+      ~operator_origin ~member_name ~member_origin
+  in
+  [
+    ( make ~operator_origin:(Semantic_symbol.Synthesized "") (),
+      "call argument member has an invalid operator origin" );
+    (make ~member_name:"" (), "call argument member name cannot be empty");
+    ( make ~member_origin:(Semantic_symbol.Synthesized "") (),
+      "call argument member has an invalid name origin" );
+  ]
+  |> List.iter (fun (result, expected) ->
+      match result with
+      | Ok _ -> Alcotest.fail "expected invalid member construction to fail"
+      | Error message ->
+          Alcotest.(check string)
+            "member constructor diagnostic" expected message);
+  match make () with
+  | Error message -> Alcotest.fail message
+  | Ok (Semantic_function_call_resolution.Member_access_expression member) ->
+      Alcotest.(check string)
+        "valid member construction retains its spelling" "value"
+        (Semantic_function_call_resolution.member_name member)
+  | Ok _ -> Alcotest.fail "expected a member expression constructor"
+
+let member_arrays_callbacks_and_lvalues_keep_their_shapes () =
+  let prepared =
+    prepare ~path:"call-expression-member-shapes.HC"
+      "class Box {I64 matrix[2][3];F64 (*callback)(I64);F64 value;};\n\
+       extern I64 Target(I64 a,I64 b,I64 c,F64 d,F64 *e,F64 f);\n\
+       I64 Caller(Box box){return \
+       Target(box.matrix,box.matrix[0],box.callback,box.value,&box.value,box.value++);}"
+  in
+  let _, results = analyze prepared in
+  let roots = root_results results "Caller" in
+  Alcotest.(check (list string))
+    "member arrays, callbacks, values, addresses, and updates stay distinct"
+    [
+      "array-value";
+      "array-value";
+      "callback-value";
+      "object-value";
+      "address-value";
+      "object-value";
+    ]
+    (category_names roots);
+  Alcotest.(check (list int))
+    "a partial member index consumes one retained dimension"
+    [ 2; 1; 0; 0; 0; 0 ] (array_ranks roots);
+  Alcotest.(check (list string))
+    "member types survive array, callback, address, and update contexts"
+    [ "I64"; "I64"; "F64"; "F64"; "F64*"; "F64" ]
+    (List.map type_name roots);
+  let lvalues =
+    results |> Semantic_function_call_expression_result.all_results
+    |> List.filter (fun result ->
+        result |> Semantic_function_call_expression_result.result_category
+        = Semantic_function_call_expression_result.Lvalue)
+    |> List.filter_map (fun result ->
+        match
+          Semantic_function_call_expression_result.result_member_lookup result
+        with
+        | None -> None
+        | Some lookup ->
+            lookup |> Semantic_aggregate_member_index.lookup_member
+            |> Semantic_aggregate_member_index.member_symbol
+            |> Semantic_symbol.name |> Option.some)
+  in
+  Alcotest.(check (list string))
+    "address and update parents retain member lvalues" [ "value"; "value" ]
+    lvalues
+
+let member_result_uses_source_visible_backing () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-member-backing.HC"
+          "F64 class FloatBox {};class Holder {FloatBox value;};\n\
+           extern I64 Target(F64 value);\n\
+           I64 Caller(Holder holder){return Target(holder.value);}"
+      in
+      let policies, results = analyze prepared in
+      let root = root_results results "Caller" |> List.hd in
+      Alcotest.(check string)
+        "aggregate member retains its canonical type" "FloatBox"
+        (type_name root);
+      Alcotest.(check string)
+        "the visible F64 backing supplies the member result class" "f64-result"
+        (root |> Semantic_function_call_expression_result.result_class
+       |> Semantic_function_call_expression_result.result_class_name);
+      let decision =
+        Holyc_lib.decide_function_call_conversions prepared.session ~policies
+          ~expressions:results
+        |> checked_decision
+      in
+      let path =
+        decision |> Semantic_function_call_conversion_decision.functions
+        |> List.find (fun function_ ->
+            function_
+            |> Semantic_function_call_conversion_decision.function_symbol
+            |> Semantic_symbol.name |> String.equal "Caller")
+        |> Semantic_function_call_conversion_decision.function_calls |> List.hd
+        |> function
+        | Semantic_function_call_conversion_decision.Direct_call_decision call
+          ->
+            call
+            |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+            |> List.hd |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name
+        | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
+            Alcotest.fail "expected a direct member conversion"
+      in
+      Alcotest.(check string)
+        "direct-call conversion consumes the typed member root"
+        "provided:f64-result:none" path)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_member_access_reports_the_operator_or_name () =
+  [
+    ( "scalar",
+      "extern I64 Target(I64 value);I64 Caller(I64 value){return \
+       Target(value.missing);}",
+      ".missing",
+      0,
+      "member access base is not an aggregate" );
+    ( "direct pointer",
+      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       *box){return Target(box.value);}",
+      ".value",
+      0,
+      "direct member access requires an aggregate object, not a pointer" );
+    ( "pointer object",
+      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       box){return Target(box->value);}",
+      "->value",
+      0,
+      "pointer member access requires a pointer to an aggregate" );
+    ( "missing member",
+      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       box){return Target(box.missing);}",
+      "box.missing",
+      4,
+      "aggregate `Box` has no member `missing`" );
+    ( "incomplete aggregate",
+      "extern class Later;extern I64 Target(I64 value);I64 Caller(Later \
+       *later){return Target(later->value);}class Later {I64 value;};",
+      "later->value",
+      7,
+      "aggregate `Later` is not complete before this member access" );
+  ]
+  |> List.iter (fun (label, source, marker, marker_offset, expected_message) ->
+      let prepared =
+        prepare ~path:("call-expression-invalid-member-" ^ label ^ ".HC") source
+      in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+      with
+      | Ok _ -> Alcotest.failf "expected %s member access to fail" label
+      | Error error -> (
+          Alcotest.(check string)
+            (label ^ " member access has a stable semantic code")
+            "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " member access explains the rejected shape")
+            expected_message
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location location) ->
+              Alcotest.(check int)
+                (label ^ " member diagnostic uses the operator or name")
+                (substring_start source marker + marker_offset)
+                location.span.start
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected a member source origin"))
+
+let unresolved_member_bases_remain_unavailable () =
+  let prepared =
+    prepare ~path:"call-expression-unresolved-member.HC"
+      "extern I64 Target(I64 value);I64 Caller(){return Target(outer.value);}"
+  in
+  let _, results = analyze prepared in
+  match root_results results "Caller" with
+  | [ result ] ->
+      Alcotest.(check string)
+        "an outer member base does not acquire a guessed type" "unavailable"
+        (type_name result);
+      Alcotest.(check string)
+        "an outer member base remains unresolved" "unresolved"
+        (result |> Semantic_function_call_expression_result.result_class
+       |> Semantic_function_call_expression_result.result_class_name);
+      Alcotest.(check bool)
+        "an unavailable member has no fabricated lookup" true
+        (Option.is_none
+           (Semantic_function_call_expression_result.result_member_lookup result))
+  | _ -> Alcotest.fail "expected one unresolved member result"
+
+let included_and_generated_members_keep_their_origins () =
+  with_included_source
+    "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+     box){return Target(box.value);}" (fun prepared ->
+      let _, results = analyze prepared in
+      let member = root_results results "Caller" |> List.hd |> member_source in
+      [
+        Semantic_function_call_resolution.member_operator_origin member;
+        Semantic_function_call_resolution.member_origin member;
+      ]
+      |> List.iter (function
+        | Semantic_symbol.Source_location location ->
+            let source_file =
+              Source_manager.find
+                (Session.sources prepared.session)
+                location.span.source
+              |> Option.get
+            in
+            Alcotest.(check string)
+              "included member origin keeps its source file" "calls.HC"
+              (Source_file.path source_file |> Filename.basename)
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected an included member source origin"));
+  let prepared =
+    prepare ~path:"call-expression-generated-member.HC"
+      "#define ACCESS box.value\n\
+       class Box {I64 value;};extern I64 Target(I64 value);\n\
+       I64 Caller(Box box){return Target(ACCESS);}"
+  in
+  let _, results = analyze prepared in
+  let member = root_results results "Caller" |> List.hd |> member_source in
+  [
+    Semantic_function_call_resolution.member_operator_origin member;
+    Semantic_function_call_resolution.member_origin member;
+  ]
+  |> List.iter (function
+    | Semantic_symbol.Source_location location ->
+        Alcotest.(check bool)
+          "generated member origin keeps its invocation" true
+          (Option.is_some location.generated_from);
+        Alcotest.(check bool)
+          "generated member origin keeps its definition" true
+          (Option.is_some location.defined_at)
+    | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+        Alcotest.fail "expected a generated member source origin")
+
 let deterministic_generated_results_do_not_mutate_symbols () =
   let prepared =
     prepare ~path:"call-expression-generated.HC"
@@ -848,11 +1191,13 @@ let deterministic_generated_results_do_not_mutate_symbols () =
   let table = Session.semantic_symbols prepared.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
   let first =
-    Holyc_lib.type_function_call_expressions prepared.session ~policies
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
     |> checked_results
   in
   let second =
-    Holyc_lib.type_function_call_expressions prepared.session ~policies
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
     |> checked_results
   in
   let describe results =
@@ -920,12 +1265,27 @@ let foreign_session_and_traversal_are_rejected () =
   in
   let foreign = Session.create () in
   (match
-     Holyc_lib.type_function_call_expressions foreign ~policies:first_policies
+     Holyc_lib.type_function_call_expressions foreign ~members:prepared.members
+       ~policies:first_policies
    with
   | Ok _ -> Alcotest.fail "expected foreign expression typing to fail"
   | Error error ->
       Alcotest.(check string)
         "foreign session has a stable expression diagnostic" "HCSEMA0046"
+        (Semantic_function_call_expression_result.error_code error));
+  let other =
+    prepare ~path:"call-expression-foreign-member-index.HC"
+      "class Other {I64 value;};extern I64 Target(I64 value);I64 Caller(Other \
+       other){return Target(other.value);}"
+  in
+  (match
+     Holyc_lib.type_function_call_expressions prepared.session
+       ~members:other.members ~policies:first_policies
+   with
+  | Ok _ -> Alcotest.fail "expected a foreign member index to fail"
+  | Error error ->
+      Alcotest.(check string)
+        "foreign member index has a stable expression diagnostic" "HCSEMA0046"
         (Semantic_function_call_expression_result.error_code error));
   match
     Holyc_lib.decide_function_call_conversions prepared.session
@@ -969,6 +1329,20 @@ let tests =
       included_indexes_keep_their_bracket_origins;
     Alcotest.test_case "conversion identity" `Quick
       conversion_uses_the_exact_typed_roots;
+    Alcotest.test_case "member lookup identity and access kind" `Quick
+      members_retain_lookup_identity_and_access_kind;
+    Alcotest.test_case "member constructor validation" `Quick
+      member_constructor_validates_names_and_origins;
+    Alcotest.test_case "member arrays, callbacks, and lvalues" `Quick
+      member_arrays_callbacks_and_lvalues_keep_their_shapes;
+    Alcotest.test_case "member aggregate backing" `Quick
+      member_result_uses_source_visible_backing;
+    Alcotest.test_case "invalid member access origins" `Quick
+      invalid_member_access_reports_the_operator_or_name;
+    Alcotest.test_case "unresolved member base" `Quick
+      unresolved_member_bases_remain_unavailable;
+    Alcotest.test_case "included and generated member origins" `Quick
+      included_and_generated_members_keep_their_origins;
     Alcotest.test_case "determinism and generated provenance" `Quick
       deterministic_generated_results_do_not_mutate_symbols;
     Alcotest.test_case "ownership validation" `Quick
