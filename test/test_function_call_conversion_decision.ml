@@ -136,6 +136,13 @@ let prefix_parts expression =
   | Semantic_function_call_resolution.Prefix_expression prefix -> prefix
   | _ -> Alcotest.fail "expected a retained prefix expression"
 
+let binary_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Binary_expression binary -> binary
+  | _ -> Alcotest.fail "expected a retained binary expression"
+
 let literal_directions_and_expression_retention () =
   let prepared =
     prepare ~path:"call-decision-literals.HC"
@@ -230,7 +237,7 @@ let source_expression_classes_stay_explicit () =
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
       "provided:unresolved:unresolved";
@@ -407,6 +414,246 @@ let prefix_constructor_validation () =
       Alcotest.(check string)
         "invalid prefix origin"
         "call argument prefix operator has an invalid source origin" message
+
+let binary_operator_inventory_and_assignments () =
+  let cases =
+    [
+      ("1`2", "IC_POWER", "provided:f64-result:none");
+      ("1<<2", "IC_SHL", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>>2", "IC_SHR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1*2", "IC_MUL", "provided:integer-result:ICF_RES_TO_F64");
+      ("1/2", "IC_DIV", "provided:integer-result:ICF_RES_TO_F64");
+      ("1%2", "IC_MOD", "provided:integer-result:ICF_RES_TO_F64");
+      ("1&2", "IC_AND", "provided:integer-result:ICF_RES_TO_F64");
+      ("1^2", "IC_XOR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1|2", "IC_OR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1+2", "IC_ADD", "provided:integer-result:ICF_RES_TO_F64");
+      ("1-2", "IC_SUB", "provided:integer-result:ICF_RES_TO_F64");
+      ("1<2", "IC_LESS", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>2", "IC_GREATER", "provided:integer-result:ICF_RES_TO_F64");
+      ("1<=2", "IC_LESS_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>=2", "IC_GREATER_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1==2", "IC_EQU_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1!=2", "IC_NOT_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1&&2", "IC_AND_AND", "provided:integer-result:ICF_RES_TO_F64");
+      ("1^^2", "IC_XOR_XOR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1||2", "IC_OR_OR", "provided:integer-result:ICF_RES_TO_F64");
+      ("value=1", "IC_ASSIGN", "provided:unresolved:unresolved");
+      ("value<<=1", "IC_SHL_EQU", "provided:unresolved:unresolved");
+      ("value>>=1", "IC_SHR_EQU", "provided:unresolved:unresolved");
+      ("value*=1", "IC_MUL_EQU", "provided:unresolved:unresolved");
+      ("value/=1", "IC_DIV_EQU", "provided:unresolved:unresolved");
+      ("value%=1", "IC_MOD_EQU", "provided:unresolved:unresolved");
+      ("value&=1", "IC_AND_EQU", "provided:unresolved:unresolved");
+      ("value|=1", "IC_OR_EQU", "provided:unresolved:unresolved");
+      ("value^=1", "IC_XOR_EQU", "provided:unresolved:unresolved");
+      ("value+=1", "IC_ADD_EQU", "provided:unresolved:unresolved");
+      ("value-=1", "IC_SUB_EQU", "provided:unresolved:unresolved");
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 p%d" index) cases
+    |> String.concat ","
+  in
+  let arguments =
+    cases |> List.map (fun (source, _, _) -> source) |> String.concat ","
+  in
+  let prepared =
+    prepare ~path:"call-decision-binary-inventory.HC"
+      (Printf.sprintf
+         "extern I64 Target(%s);I64 Caller(I64 value){return Target(%s);}"
+         parameters arguments)
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  let checked_names =
+    Operator.binary_operators
+    |> List.map (fun (operator : Operator.binary_operator) -> operator.ic_name)
+  in
+  Alcotest.(check int)
+    "the fixture covers the complete binary table"
+    (List.length checked_names)
+    (List.length cases);
+  Alcotest.(check (list string))
+    "binary operators retain the generated IC identity" checked_names
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> provided_expression |> binary_parts
+        |> Semantic_function_call_resolution.binary_operator
+        |> Semantic_function_call_resolution.binary_operator_name));
+  let first_binary = List.hd fixed |> provided_expression |> binary_parts in
+  Alcotest.(check (list string))
+    "binary operands remain independently recursive"
+    [ "integer-literal"; "integer-literal" ]
+    ([
+       Semantic_function_call_resolution.binary_left first_binary;
+       Semantic_function_call_resolution.binary_right first_binary;
+     ]
+    |> List.map (fun expression ->
+        expression |> Semantic_function_call_resolution.argument_expression_kind
+        |> Semantic_function_call_resolution.argument_expression_kind_name));
+  Alcotest.(check (list string))
+    "binary families select or defer their source result class"
+    (cases |> List.map (fun (_, _, path) -> path))
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name))
+
+let binary_result_joins_and_nesting () =
+  let prepared =
+    prepare ~path:"call-decision-binary-joins.HC"
+      "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+       i,I64 j);\n\
+       I64 Caller(I64 value,I64 other){return \
+       Target(1+2.5,2.5+1,2.5+3.5,1+2,value+2.5,value+1,value`other,value<other,value&&other,-(1+2.5));}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "binary result classes follow the pinned operator families"
+    [
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:none";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:unresolved:unresolved";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:none";
+      "provided:integer-result:none";
+      "provided:f64-result:ICF_RES_TO_INT";
+    ]
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  let nested = List.nth fixed 9 |> provided_expression |> prefix_parts in
+  let nested_kind =
+    nested |> Semantic_function_call_resolution.prefix_operand
+    |> Semantic_function_call_resolution.argument_expression_kind
+  in
+  let nested_binary =
+    match nested_kind with
+    | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+        grouped
+    | _ -> Alcotest.fail "expected parentheses inside the prefix expression"
+  in
+  Alcotest.(check string)
+    "a prefix retains its nested binary expression" "binary"
+    (nested_binary |> Semantic_function_call_resolution.argument_expression_kind
+   |> Semantic_function_call_resolution.argument_expression_kind_name)
+
+let binary_source_order_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-binary-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           extern class Later;\n\
+           I64 Before(I64 value){return Target(value(Later)+1);}\n\
+           F64 class Later {};\n\
+           I64 After(I64 value){return Target(value(Later)+1);}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "an earlier binary cast uses the unbacked class"
+        [ "provided:integer-result:none" ]
+        (only_direct result "Before" |> path_names);
+      Alcotest.(check (list string))
+        "a later binary cast sees the published F64 backing"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "After" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let binary_provenance_and_constructor_validation () =
+  let generated =
+    prepare ~path:"call-decision-binary-generated.HC"
+      "#define PLUS +\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(1 PLUS 2);}"
+  in
+  let table = Session.semantic_symbols generated.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "repeated binary decisions are deterministic"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "binary decisions do not mutate symbols" before
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let binary =
+    only_direct first "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> binary_parts
+  in
+  (match Semantic_function_call_resolution.binary_operator_origin binary with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated binary operator keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated binary operator keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated binary operator provenance");
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(){return Target(1+2);}"
+    (fun included ->
+      let binary =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> binary_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.binary_operator_origin binary
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included binary operator provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included binary operator keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename));
+  let operand =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "binary operand")
+  in
+  let make operator operator_origin =
+    Semantic_function_call_resolution.make_binary_argument_expression ~operator
+      ~operator_origin ~left:operand ~right:operand
+  in
+  (match
+     make Ir_opcode.Ic_addr (Semantic_symbol.Synthesized "binary operator")
+   with
+  | Ok _ -> Alcotest.fail "expected a nonbinary IC to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "nonbinary IC rejection" "IC_ADDR is not a checked binary operator"
+        message);
+  match make Ir_opcode.Ic_add (Semantic_symbol.Synthesized "") with
+  | Ok _ -> Alcotest.fail "expected an invalid binary origin to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "invalid binary origin"
+        "call argument binary operator has an invalid source origin" message
 
 let primitive_postfix_cast_directions_and_retention () =
   let prepared =
@@ -1129,6 +1376,14 @@ let tests =
       prefix_source_order_modes_and_provenance;
     Alcotest.test_case "prefix constructor validation" `Quick
       prefix_constructor_validation;
+    Alcotest.test_case "binary operator inventory and assignments" `Quick
+      binary_operator_inventory_and_assignments;
+    Alcotest.test_case "binary result joins and nesting" `Quick
+      binary_result_joins_and_nesting;
+    Alcotest.test_case "binary source order in both modes" `Quick
+      binary_source_order_in_both_modes;
+    Alcotest.test_case "binary provenance and constructor validation" `Quick
+      binary_provenance_and_constructor_validation;
     Alcotest.test_case "primitive postfix cast directions" `Quick
       primitive_postfix_cast_directions_and_retention;
     Alcotest.test_case "outer postfix cast and modes" `Quick

@@ -144,10 +144,27 @@ let rec argument_expression visible (expression : Frontend.Ast.expression) =
                 Ok
                   (Sema.Function_call_resolution.Postfix_cast_expression
                      (operand, target))))
-    | Frontend.Ast.Binary_expression _ ->
-        Ok
-          (Sema.Function_call_resolution.Unresolved_expression
-             Sema.Function_call_resolution.Binary_expression)
+    | Frontend.Ast.Binary_expression binary -> (
+        match
+          Generated.Intermediate_codes.of_source_name
+            binary.binary_operator_spec.ic_name
+        with
+        | None ->
+            Error
+              (Printf.sprintf "binary operator %S has no checked IC identity"
+                 binary.binary_operator_spec.ic_name)
+        | Some operator -> (
+            match argument_expression visible binary.binary_left with
+            | Error _ as error -> error
+            | Ok left -> (
+                match argument_expression visible binary.binary_right with
+                | Error _ as error -> error
+                | Ok right ->
+                    Sema.Function_call_resolution
+                    .make_binary_argument_expression ~operator
+                      ~operator_origin:
+                        (origin binary.binary_operator.operator_location)
+                      ~left ~right)))
     | Frontend.Ast.Call_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression

@@ -4513,7 +4513,7 @@ status = "implemented"
 issue = 242
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed literal arguments on already resolved direct function-body calls after target policy"
-semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
+semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix and binary operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
 integer_actuals = ["integer literal", "character literal", "string literal"]
 f64_actuals = ["float literal"]
 parentheses = "preserve the nested literal class"
@@ -4521,11 +4521,12 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "postfix", "binary", "call", "index", "member"]
+unresolved_actuals = ["identifier", "postfix", "call", "index", "member"]
 integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
 primitive_postfix_cast_extension = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
 named_aggregate_postfix_cast_extension = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
 prefix_expression_extension = "HC-SEMA-PREFIX-EXPRESSION-CALL-CONVERSION"
+binary_expression_extension = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4707,6 +4708,51 @@ lvalue_validation_and_updates = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, OptClassFwd, OptPass012, and PrsFunCall state the retained classes and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
+description = "Audited binary-expression fixed arguments retain the source-selected result class and the resulting direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:15-201 binary expression construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/OptLib.HC:92-180 binary result-class selection",
+  "Compiler/OptPass012.HC:229-897 binary operation classes",
+  "Compiler/CInit.HC:288-329 checked binary operator table",
+  "Kernel/KernelA.HH:1564-1578 raw type values",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 252
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed binary-expression arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains the generated IC identity, operator origin, recursive left and right operands, and nested prefix, parenthesis, and cast state"
+operator_inventory = "all 31 binary operators from the generated Compiler/CInit.HC table"
+f64_result_operators = ["IC_POWER"]
+integer_result_operators = ["IC_EQU_EQU", "IC_NOT_EQU", "IC_LESS", "IC_GREATER_EQU", "IC_GREATER", "IC_LESS_EQU", "IC_AND_AND", "IC_OR_OR", "IC_XOR_XOR"]
+combined_result_operators = ["IC_SHL", "IC_SHR", "IC_MUL", "IC_DIV", "IC_MOD", "IC_AND", "IC_OR", "IC_XOR", "IC_ADD", "IC_SUB"]
+combined_result_rule = "an F64 operand forces the F64 path; two integer-side operands use the integer path; otherwise the result remains unresolved"
+unresolved_operators = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
+assignment_boundary = "assignment result classes depend on the typed lvalue and remain deferred"
+parentheses = "preserve the recursively classified binary result"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "the binary constructor accepts only generated checked-table identities and rejects an invalid operator origin"
+provenance = ["operator", "left operand", "right operand", "nested prefix and cast", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation_and_assignment_effects = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptFixupBinaryOp1, OptPass012, CInit, and PrsFunCall state the operator inventory, retained classes, and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
