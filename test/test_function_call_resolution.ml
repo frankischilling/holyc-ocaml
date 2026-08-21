@@ -484,6 +484,93 @@ let invalid_inputs_are_stable_and_pure () =
   in
   expect_invalid "reordered batch" (List.rev inputs);
   expect_invalid "callee occurrence drift" inputs;
+  let other_source =
+    Session.add_source prepared.session ~path:"function-call-other-module.HC"
+      ~contents:
+        "extern I64 Other(I64 value);I64 Foreign(I64 value){return \
+         Other(value);}"
+  in
+  let other_ast =
+    Holyc_lib.parse_with_config prepared.session ~config:(config prepared.mode)
+      ~source:other_source
+    |> expect_ast
+  in
+  let other_same_session =
+    finish_prepare prepared.mode prepared.session other_ast
+  in
+  let foreign_occurrence =
+    other_same_session.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_module_expression_binding.function_symbol
+        |> Semantic_symbol.name |> String.equal "Foreign")
+    |> Semantic_module_expression_binding.function_occurrences
+    |> List.find (fun occurrence ->
+        String.equal
+          (Semantic_module_expression_binding.occurrence_name occurrence)
+          "value")
+  in
+  let integer_type =
+    checked
+      (Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+         ~primitive:Primitive_type.I64 ~pointer_depth:0)
+  in
+  let foreign_expression =
+    checked
+      (Semantic_function_call_resolution
+       .make_bound_identifier_argument_expression ~occurrence:foreign_occurrence
+         ~resolved_type:integer_type
+         ~shape:Semantic_function_call_resolution.Object_value)
+    |> fun kind ->
+    Semantic_function_call_resolution.make_argument_expression ~kind
+      ~origin:
+        (Semantic_module_expression_binding.occurrence_origin foreign_occurrence)
+  in
+  let foreign_argument =
+    checked
+      (Semantic_function_call_resolution.make_argument ~index:0
+         ~kind:Semantic_function_call_resolution.Provided
+         ~expression:(Some foreign_expression)
+         ~origin:
+           (Semantic_module_expression_binding.occurrence_origin
+              foreign_occurrence))
+  in
+  let caller_call =
+    only_direct first "Caller"
+    |> Semantic_function_call_resolution.direct_source
+  in
+  let foreign_call =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index caller_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              caller_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name caller_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin caller_call)
+         ~origin:(Semantic_function_call_resolution.call_origin caller_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
+         [ foreign_argument ])
+  in
+  let foreign_occurrence_inputs =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ foreign_call ]
+              else [])))
+  in
+  expect_invalid "foreign bound occurrence" foreign_occurrence_inputs;
   let foreign = Session.create () in
   (match
      Holyc_lib.resolve_function_calls foreign

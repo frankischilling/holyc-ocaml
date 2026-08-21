@@ -1543,9 +1543,20 @@ let bound_identifier_provenance_and_outer_boundary () =
        extern I64 Target(I64 value);\n\
        I64 Caller(F64 value){return Target(ARG);}"
   in
+  let table = Session.semantic_symbols generated.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "replaying a bound identifier decision is stable"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "replaying a bound identifier decision leaves symbols unchanged"
+    symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
   let identifier =
-    decide generated |> checked_decision |> fun result ->
-    only_direct result "Caller"
+    only_direct first "Caller"
     |> Semantic_function_call_conversion_decision.direct_fixed_decisions
     |> List.hd |> provided_expression |> bound_identifier
   in
@@ -1562,6 +1573,38 @@ let bound_identifier_provenance_and_outer_boundary () =
         (Option.is_some location.defined_at)
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated identifier provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(F64 value){return Target(value);}"
+    (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included bound value keeps its conversion path"
+        "provided:f64-result:ICF_RES_TO_INT"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let location =
+        fixed |> provided_expression |> bound_identifier
+        |> Semantic_function_call_resolution.bound_identifier_occurrence
+        |> Semantic_module_expression_binding.occurrence_origin
+        |> function
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included identifier provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included bound value keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename));
   let outer =
     prepare ~path:"call-decision-bound-outer.HC"
       "extern I64 Target(F64 value);I64 Caller(){return Target(OuterValue);}"
@@ -1571,6 +1614,46 @@ let bound_identifier_provenance_and_outer_boundary () =
     [ "provided:unresolved:unresolved" ]
     ( decide outer |> checked_decision |> fun result ->
       only_direct result "Caller" |> path_names )
+
+let bound_identifier_source_order () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-bound-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           extern F64 value;\n\
+           I64 Before(){return Target(value);}\n\
+           extern I64 first,second;\n\
+           I64 Grouped(){return Target(second);}\n\
+           I64 Shadowed(){F64 second;return Target(second);}\n\
+           extern I64 value;\n\
+           I64 After(){return Target(value);}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "the earlier global type remains visible to the earlier caller"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "Before" |> path_names);
+      Alcotest.(check (list string))
+        "a comma-published global keeps its checked integer type"
+        [ "provided:integer-result:none" ]
+        (only_direct result "Grouped" |> path_names);
+      let shadowed = only_direct result "Shadowed" in
+      Alcotest.(check (list string))
+        "a local shadows the same-name global"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (path_names shadowed);
+      Alcotest.(check string)
+        "the shadowed value keeps its local identity" "local:automatic-local"
+        (shadowed
+       |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+       |> List.hd |> provided_expression |> bound_identifier
+       |> bound_resolution_name);
+      Alcotest.(check (list string))
+        "the later global declaration replaces the visible type"
+        [ "provided:integer-result:none" ]
+        (only_direct result "After" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defaults_and_variadics_remain_separate () =
   let prepared =
@@ -1794,6 +1877,8 @@ let tests =
       bound_pointer_shapes_use_integer_results;
     Alcotest.test_case "bound identifier provenance and outer boundary" `Quick
       bound_identifier_provenance_and_outer_boundary;
+    Alcotest.test_case "bound identifier source order" `Quick
+      bound_identifier_source_order;
     Alcotest.test_case "default and variadic paths" `Quick
       defaults_and_variadics_remain_separate;
     Alcotest.test_case "source-visible replacement headers" `Quick
