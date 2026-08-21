@@ -108,14 +108,14 @@ let rec source_actual_class policies ~before_item_index expression =
       match Function_call_resolution.prefix_operator prefix with
       | Function_call_resolution.Unary_plus
       | Function_call_resolution.Unary_minus
-      | Function_call_resolution.Logical_not ->
+      | Function_call_resolution.Logical_not
+      | Function_call_resolution.Pre_increment
+      | Function_call_resolution.Pre_decrement ->
           source_actual_class policies ~before_item_index
             (Function_call_resolution.prefix_operand prefix)
       | Function_call_resolution.Address_of -> Integer_result
       | Function_call_resolution.Bitwise_not
-      | Function_call_resolution.Dereference
-      | Function_call_resolution.Pre_increment
-      | Function_call_resolution.Pre_decrement -> Unresolved_actual_class)
+      | Function_call_resolution.Dereference -> Unresolved_actual_class)
   | Function_call_resolution.Postfix_expression postfix ->
       source_actual_class policies ~before_item_index
         (Function_call_resolution.postfix_operand postfix)

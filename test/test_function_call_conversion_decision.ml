@@ -422,6 +422,75 @@ let prefix_constructor_validation () =
         "invalid prefix origin"
         "call argument prefix operator has an invalid source origin" message
 
+let prefix_update_directions_and_provenance () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-prefix-updates.HC"
+          "extern I64 Target(F64 int_inc,I64 float_dec,F64 float_inc,I64 \
+           unresolved_dec);\n\
+           I64 Caller(I64 value){return Target(++1,--2.5,++3.5,--value);}"
+      in
+      Alcotest.(check (list string))
+        "prefix updates forward audited operand classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:f64-result:none";
+          "provided:unresolved:unresolved";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          only_direct result "Caller" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated =
+    prepare ~path:"call-decision-prefix-update-generated.HC"
+      "#define STEP ++\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(STEP 1);}"
+  in
+  let prefix =
+    decide generated |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> prefix_parts
+  in
+  (match Semantic_function_call_resolution.prefix_operator_origin prefix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated prefix update keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated prefix update keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated prefix update provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(){return Target(--2.5);}"
+    (fun included ->
+      let prefix =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> prefix_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.prefix_operator_origin prefix
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included prefix update provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included prefix update keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
 let postfix_directions_and_retention () =
   List.iter
     (fun mode ->
@@ -1505,6 +1574,8 @@ let tests =
       prefix_source_order_modes_and_provenance;
     Alcotest.test_case "prefix constructor validation" `Quick
       prefix_constructor_validation;
+    Alcotest.test_case "prefix update directions and provenance" `Quick
+      prefix_update_directions_and_provenance;
     Alcotest.test_case "postfix directions and retention" `Quick
       postfix_directions_and_retention;
     Alcotest.test_case "postfix provenance" `Quick postfix_provenance;
