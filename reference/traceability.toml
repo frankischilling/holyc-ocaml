@@ -5516,7 +5516,7 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 29
+focused_expression_result_tests = 33
 unimplemented = ["assignment execution", "module function value typing", "indirect calls", "default typing", "variadic typing", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
@@ -5690,3 +5690,41 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 storage_write_pointer_scaling_constant_folding_ic_emission_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, PrsAddOp, and OptPass012 directly state destination legality, result class, conversion intent, and compound execution selection"
+
+[[feature]]
+id = "HC-SEMA-UPDATE-EXPRESSION-RESULTS"
+description = "Prefix and postfix update expressions require checked writable storage and preserve the operand type and result class."
+sources = [
+  "Compiler/PrsExp.HC:81-109 update IC selection and dereferenced class",
+  "Compiler/PrsExp.HC:752-753 prefix update flags",
+  "Compiler/PrsExp.HC:1100-1110 postfix update flags",
+  "Compiler/CInit.HC:55-60 update IC dereference metadata",
+  "Compiler/OptPass012.HC:292-297 update result class and U0 warning",
+  "Compiler/CompilerA.HH:63-66 update IC identities"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 274
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "prefix and postfix update expressions nested inside provided fixed arguments on resolved direct function-body calls"
+operator_inventory = ["IC_PP_", "IC_MM_", "IC__PP", "IC__MM"]
+operand_rule = "walk the operand in lvalue context and require a checked primitive storage or pointer type"
+accepted_operands = ["bound primitive or pointer object", "dereference", "final array or pointer index", "ordinary aggregate member"]
+rejected_operands = ["object value", "address value", "array value", "callback value", "function value", "unavailable value", "by-value aggregate"]
+result_rule = "the update node is an object value with the operand semantic type and source-visible forwarded integer or F64 class"
+operand_category_rule = "the child remains an lvalue below the update node"
+pointer_rule = "retain pointer depth; pointee-size scaling belongs to lowering"
+diagnostic = "HCSEMA0046 at the update operator for an invalid operand"
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_write_pointer_scaling_old_value_semantics_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, CInit metadata, and OptPass012 directly state the writable dereference shape and retained result class"

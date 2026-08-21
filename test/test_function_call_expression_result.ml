@@ -173,6 +173,30 @@ let binary_source result =
   | Semantic_function_call_resolution.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a retained binary expression"
 
+let update_operator_name result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      prefix |> Semantic_function_call_resolution.prefix_operator
+      |> Semantic_function_call_resolution.prefix_operator_name
+  | Semantic_function_call_resolution.Postfix_expression postfix ->
+      postfix |> Semantic_function_call_resolution.postfix_operator
+      |> Semantic_function_call_resolution.postfix_operator_name
+  | _ -> Alcotest.fail "expected a retained update expression"
+
+let update_operand result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      Semantic_function_call_resolution.prefix_operand prefix
+  | Semantic_function_call_resolution.Postfix_expression postfix ->
+      Semantic_function_call_resolution.postfix_operand postfix
+  | _ -> Alcotest.fail "expected a retained update expression"
+
 let result_for_source results source =
   results |> Semantic_function_call_expression_result.all_results
   |> List.find (fun result ->
@@ -1506,6 +1530,229 @@ let nested_and_generated_assignments_are_deterministic () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected a generated assignment operator origin")
 
+let update_operators_keep_storage_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-update-operators.HC"
+          "extern I64 Target(I64 a,I64 b,I64 c,I64 d,F64 e,F64 f,F64 g,F64 \
+           h,I64 *i,I64 *j,I64 *k,I64 *l);I64 Caller(I64 integer,F64 \
+           floating,I64 *pointer){return \
+           Target(++integer,--integer,integer++,integer--,++floating,--floating,floating++,floating--,++pointer,--pointer,pointer++,pointer--);}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "the four update identities remain distinct for each storage class"
+        [
+          "pre-increment";
+          "pre-decrement";
+          "post-increment";
+          "post-decrement";
+          "pre-increment";
+          "pre-decrement";
+          "post-increment";
+          "post-decrement";
+          "pre-increment";
+          "pre-decrement";
+          "post-increment";
+          "post-decrement";
+        ]
+        (List.map update_operator_name roots);
+      Alcotest.(check (list string))
+        "updates preserve integer, floating, and pointer storage types"
+        ([ "I64"; "I64"; "I64"; "I64" ]
+        @ [ "F64"; "F64"; "F64"; "F64" ]
+        @ [ "I64*"; "I64*"; "I64*"; "I64*" ])
+        (List.map type_name roots);
+      Alcotest.(check (list string))
+        "updates preserve each forwarded result class"
+        (List.init 4 (fun _ -> "integer-result")
+        @ List.init 4 (fun _ -> "f64-result")
+        @ List.init 4 (fun _ -> "integer-result"))
+        (class_names roots);
+      Alcotest.(check (list string))
+        "update roots are values"
+        (List.init 12 (fun _ -> "object-value"))
+        (category_names roots);
+      let operands =
+        List.map
+          (fun root -> update_operand root |> result_for_source results)
+          roots
+      in
+      Alcotest.(check (list string))
+        "every update retains a writable lvalue operand"
+        (List.init 12 (fun _ -> "lvalue"))
+        (category_names operands))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let update_destinations_cover_identifiers_dereferences_indexes_and_members () =
+  let prepared =
+    prepare ~path:"call-expression-update-destinations.HC"
+      "class Box {I64 value;};extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 \
+       *e);I64 Caller(I64 scalar,I64 *pointer,Box box){I64 array[1];return \
+       Target(++scalar,(*pointer)--,++array[0],box.value--,pointer++);}"
+  in
+  let _, results = analyze prepared in
+  let roots = root_results results "Caller" in
+  Alcotest.(check (list string))
+    "identifier, dereference, index, member, and pointer updates keep types"
+    [ "I64"; "I64"; "I64"; "I64"; "I64*" ]
+    (List.map type_name roots);
+  Alcotest.(check (list string))
+    "every supported update destination remains an lvalue below its root"
+    (List.init 5 (fun _ -> "lvalue"))
+    (roots
+    |> List.map (fun root -> update_operand root |> result_for_source results)
+    |> category_names)
+
+let invalid_update_operands_report_the_operator () =
+  [
+    ( "literal",
+      "extern I64 Target(I64 value);I64 Caller(){return Target(++1);}",
+      "++",
+      "pre-increment operand is not an lvalue" );
+    ( "address",
+      "extern I64 Target(I64 value);I64 Caller(I64 value){return \
+       Target((&value)++);}",
+      "++",
+      "post-increment operand is not an lvalue" );
+    ( "array",
+      "extern I64 Target(I64 value);I64 Caller(){I64 array[1];return \
+       Target(array--);}",
+      "--",
+      "post-decrement operand is not an lvalue" );
+    ( "callback",
+      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
+       Target(callback++);}",
+      "++",
+      "post-increment operand is not an lvalue" );
+    ( "function",
+      "extern I64 Target(I64 value);I64 Caller(I64 (*callback)(I64)){return \
+       Target((*callback)--);}",
+      "--",
+      "post-decrement operand is not an lvalue" );
+    ( "aggregate",
+      "class Box {I64 value;};extern I64 Target(I64 value);I64 Caller(Box \
+       box){return Target(++box);}",
+      "++",
+      "pre-increment operand is not a pointer or internal storage value" );
+    ( "outer",
+      "extern I64 Target(I64 value);I64 Caller(){return Target(--outer);}",
+      "--",
+      "pre-decrement operand is unavailable" );
+  ]
+  |> List.iter (fun (label, source, spelling, expected_message) ->
+      let prepared =
+        prepare ~path:("call-expression-invalid-update-" ^ label ^ ".HC") source
+      in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+      with
+      | Ok _ -> Alcotest.failf "expected %s update to fail" label
+      | Error error -> (
+          Alcotest.(check string)
+            (label ^ " update uses the expression semantic code")
+            "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " update explains the invalid operand")
+            expected_message
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location location) ->
+              Alcotest.(check int)
+                (label ^ " update points at the operator")
+                (substring_start source spelling)
+                location.span.start
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected an update operator origin"))
+
+let included_and_generated_updates_are_deterministic () =
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(I64 value){return \
+     Target(value++);}" (fun prepared ->
+      let _, results = analyze prepared in
+      let root = root_results results "Caller" |> List.hd in
+      match
+        root |> Semantic_function_call_expression_result.result_source
+        |> Semantic_function_call_resolution.argument_expression_kind
+      with
+      | Semantic_function_call_resolution.Postfix_expression postfix -> (
+          match
+            Semantic_function_call_resolution.postfix_operator_origin postfix
+          with
+          | Semantic_symbol.Source_location location ->
+              let source_file =
+                Source_manager.find
+                  (Session.sources prepared.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "included update operator keeps its source file" "calls.HC"
+                (Source_file.path source_file |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected an included update operator origin")
+      | _ -> Alcotest.fail "expected an included postfix update");
+  let prepared =
+    prepare ~path:"call-expression-generated-update.HC"
+      "#define UPDATE ++value\n\
+       extern I64 Target(I64 value);I64 Caller(I64 value){return \
+       Target(UPDATE);}"
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let analyze_once () =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_results
+  in
+  let first = analyze_once () in
+  let second = analyze_once () in
+  let describe results =
+    results |> Semantic_function_call_expression_result.all_results
+    |> List.map (fun result ->
+        ( result |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int,
+          result |> type_name,
+          result |> Semantic_function_call_expression_result.result_category
+          |> Semantic_function_call_expression_result.value_category_name ))
+  in
+  Alcotest.(check (list (triple int string string)))
+    "generated update typing replays identically" (describe first)
+    (describe second);
+  Alcotest.(check int)
+    "update typing leaves the symbol table unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let root = root_results first "Caller" |> List.hd in
+  match
+    root |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Prefix_expression prefix -> (
+      match Semantic_function_call_resolution.prefix_operator_origin prefix with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated update operator keeps its invocation" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated update operator keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected a generated update operator origin")
+  | _ -> Alcotest.fail "expected a generated prefix update"
+
 let deterministic_generated_results_do_not_mutate_symbols () =
   let prepared =
     prepare ~path:"call-expression-generated.HC"
@@ -1682,6 +1929,14 @@ let tests =
       invalid_assignment_destinations_report_the_operator;
     Alcotest.test_case "nested generated assignment determinism" `Quick
       nested_and_generated_assignments_are_deterministic;
+    Alcotest.test_case "update operator storage results" `Quick
+      update_operators_keep_storage_results;
+    Alcotest.test_case "update destination shapes" `Quick
+      update_destinations_cover_identifiers_dereferences_indexes_and_members;
+    Alcotest.test_case "invalid update operand origins" `Quick
+      invalid_update_operands_report_the_operator;
+    Alcotest.test_case "included generated update determinism" `Quick
+      included_and_generated_updates_are_deterministic;
     Alcotest.test_case "determinism and generated provenance" `Quick
       deterministic_generated_results_do_not_mutate_symbols;
     Alcotest.test_case "ownership validation" `Quick

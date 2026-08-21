@@ -553,7 +553,8 @@ let prefix_update_directions_and_provenance () =
         prepare ~mode ~path:"call-decision-prefix-updates.HC"
           "extern I64 Target(F64 int_inc,I64 float_dec,F64 float_inc,I64 \
            unresolved_dec);\n\
-           I64 Caller(I64 value){return Target(++1,--2.5,++3.5,--value);}"
+           I64 Caller(I64 int_inc,F64 float_dec,F64 float_inc,I64 \
+           value){return Target(++int_inc,--float_dec,++float_inc,--value);}"
       in
       Alcotest.(check (list string))
         "prefix updates forward audited operand classes"
@@ -570,7 +571,7 @@ let prefix_update_directions_and_provenance () =
     prepare ~path:"call-decision-prefix-update-generated.HC"
       "#define STEP ++\n\
        extern I64 Target(F64 value);\n\
-       I64 Caller(){return Target(STEP 1);}"
+       I64 Caller(I64 value){return Target(STEP value);}"
   in
   let prefix =
     decide generated |> checked_decision |> fun result ->
@@ -589,8 +590,8 @@ let prefix_update_directions_and_provenance () =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated prefix update provenance");
   with_included_source
-    "extern I64 Target(I64 value);I64 Caller(){return Target(--2.5);}"
-    (fun included ->
+    "extern I64 Target(I64 value);I64 Caller(F64 value){return \
+     Target(--value);}" (fun included ->
       let prefix =
         decide included |> checked_decision |> fun result ->
         only_direct result "Caller"
@@ -620,11 +621,11 @@ let postfix_directions_and_retention () =
     (fun mode ->
       let prepared =
         prepare ~mode ~path:"call-decision-postfixes.HC"
-          "F64 class FloatBox {};\n\
-           extern I64 Target(F64 int_inc,I64 float_dec,I64 backed_inc,F64 \
+          "extern I64 Target(F64 int_inc,I64 float_dec,I64 grouped_inc,F64 \
            binary_inc,F64 unresolved_dec);\n\
-           I64 Caller(I64 value){return \
-           Target((1)++,(2.5)--,(3(FloatBox))++,((1+2))++,value--);}"
+           I64 Caller(I64 int_inc,F64 float_dec,F64 grouped_inc,I64 \
+           binary_inc,I64 value){return \
+           Target(int_inc++,float_dec--,(grouped_inc)++,binary_inc++,value--);}"
       in
       let fixed =
         decide prepared |> checked_decision |> fun result ->
@@ -663,7 +664,7 @@ let postfix_directions_and_retention () =
             postfix |> Semantic_function_call_resolution.postfix_operator
             |> Semantic_function_call_resolution.postfix_operator_name));
       Alcotest.(check string)
-        "the backed postfix operand keeps its grouping" "parenthesized"
+        "the grouped postfix operand keeps its grouping" "parenthesized"
         (List.nth postfixes 2
        |> Semantic_function_call_resolution.postfix_operand
        |> Semantic_function_call_resolution.argument_expression_kind
@@ -675,7 +676,7 @@ let postfix_provenance () =
     prepare ~path:"call-decision-postfix-generated.HC"
       "#define STEP ++\n\
        extern I64 Target(F64 value);\n\
-       I64 Caller(){return Target((1)STEP);}"
+       I64 Caller(I64 value){return Target((value)STEP);}"
   in
   let postfix =
     decide generated |> checked_decision |> fun result ->
@@ -694,8 +695,8 @@ let postfix_provenance () =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated postfix provenance");
   with_included_source
-    "extern I64 Target(F64 value);I64 Caller(){return Target((1)--);}"
-    (fun included ->
+    "extern I64 Target(F64 value);I64 Caller(I64 value){return \
+     Target((value)--);}" (fun included ->
       let postfix =
         decide included |> checked_decision |> fun result ->
         only_direct result "Caller"

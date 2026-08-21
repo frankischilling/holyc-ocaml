@@ -228,6 +228,30 @@ let select_known_binary_type left right result_class =
           | _ -> None)
       | None, _ | _, None -> None)
 
+let is_writable_storage_type = function
+  | Some type_ when Type.pointer_depth type_ > 0 -> true
+  | Some type_ -> (
+      match Type.base type_ with
+      | Type.Primitive _ -> true
+      | Type.Aggregate _ -> false)
+  | None -> false
+
+let validate_update_operand operand ~operator_origin ~operator_name =
+  let invalid message = Error (invalid_input ~origin:operator_origin message) in
+  match (operand.category, operand.source_type) with
+  | Lvalue, Some _ when is_writable_storage_type operand.source_type -> Ok ()
+  | Unavailable, _ -> invalid (operator_name ^ " operand is unavailable")
+  | Lvalue, None -> invalid (operator_name ^ " operand has no checked type")
+  | Lvalue, Some _ ->
+      invalid
+        (operator_name ^ " operand is not a pointer or internal storage value")
+  | ( ( Object_value
+      | Address_value
+      | Array_value
+      | Callback_value
+      | Function_value ),
+      _ ) -> invalid (operator_name ^ " operand is not an lvalue")
+
 let rec type_expression table members policies ~before_item_index ~context
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
   match allocate state with
@@ -372,9 +396,20 @@ and type_prefix table members policies ~before_item_index ~context
                     Integer_result
               | Error _ -> finish Address_value Integer_result))
       | Function_call_resolution.Pre_increment
-      | Function_call_resolution.Pre_decrement ->
-          finish ~source_type:operand.source_type Object_value
-            operand.result_class
+      | Function_call_resolution.Pre_decrement -> (
+          let operator_name =
+            Function_call_resolution.prefix_operator_name operator
+          in
+          match
+            validate_update_operand operand
+              ~operator_origin:
+                (Function_call_resolution.prefix_operator_origin prefix)
+              ~operator_name
+          with
+          | Error _ as error -> error
+          | Ok () ->
+              finish ~source_type:operand.source_type Object_value
+                operand.result_class)
       | Function_call_resolution.Dereference -> (
           let value_category =
             match context with
@@ -598,11 +633,23 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
       (Function_call_resolution.postfix_operand postfix)
   with
   | Error _ as error -> error
-  | Ok (operand, state) ->
-      Ok
-        (make_result ~intrinsic_conversion state ~id ~source
-           ~source_type:operand.source_type ~category:Object_value
-           ~result_class:operand.result_class)
+  | Ok (operand, state) -> (
+      let operator = Function_call_resolution.postfix_operator postfix in
+      let operator_name =
+        Function_call_resolution.postfix_operator_name operator
+      in
+      match
+        validate_update_operand operand
+          ~operator_origin:
+            (Function_call_resolution.postfix_operator_origin postfix)
+          ~operator_name
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          Ok
+            (make_result ~intrinsic_conversion state ~id ~source
+               ~source_type:operand.source_type ~category:Object_value
+               ~result_class:operand.result_class))
 
 and type_assignment table members policies ~before_item_index
     ~intrinsic_conversion state id source binary assignment_kind =
@@ -620,15 +667,7 @@ and type_assignment table members policies ~before_item_index
   | Error _ as error -> error
   | Ok (left, state) -> (
       let destination_type = left.source_type in
-      let valid_storage_type =
-        match destination_type with
-        | Some type_ when Type.pointer_depth type_ > 0 -> true
-        | Some type_ -> (
-            match Type.base type_ with
-            | Type.Primitive _ -> true
-            | Type.Aggregate _ -> false)
-        | None -> false
-      in
+      let valid_storage_type = is_writable_storage_type destination_type in
       match (left.category, destination_type, valid_storage_type) with
       | Lvalue, Some destination_type, true -> (
           match
