@@ -5392,3 +5392,48 @@ implementation = []
 tests = []
 status = "planned"
 issue = 3
+
+[[feature]]
+id = "HC-SEMA-BOUND-IDENTIFIER-CALL-CONVERSION"
+description = "Bound identifier fixed arguments retain their checked value type, source binding, and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:761-807 parameter, local, array, static, and callback value construction",
+  "Compiler/PrsExp.HC:830-904 function and global lookup dispatch",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/PrsVar.HC retained parameter, local, and global type records",
+  "Compiler/CMain.HC JIT and AOT compiler table selection"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/sema/function_binding_index.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 259
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed identifier arguments on already resolved direct function-body calls after function and module expression binding"
+binding_kinds = ["named fixed parameter", "variadic argc", "variadic argv", "automatic local", "static local", "source-visible global variable"]
+binding_identity = "the argument retains the exact Module_expression_binding occurrence and follows its stable Function_binding_index binding or global publication source symbol"
+value_shapes = ["object", "array", "function pointer"]
+object_rule = "the resolved semantic type follows the aggregate backing relation visible before the caller"
+pointer_side_rule = "arrays, function pointers, and synthetic argv use the integer result path regardless of their declared base or callback return type"
+synthetic_argc_rule = "argc is an internal I64 object and uses the integer result path"
+outer_rule = "an outer candidate remains unresolved because the current outer binding result has no joined checked value type"
+unsupported_expression_bindings = ["module function value", "aggregate type value", "index", "member", "dereference", "indirect call"]
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "exact occurrence object and origin, source-ordered traversal, stable function owner and scope, AST item position, type-batch ownership, local or global value binding, aggregate type ownership, and module scope"
+provenance = ["identifier expression", "binding symbol", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_access_and_lvalue_conversion = "not implemented"
+value_evaluation = "not implemented"
+ic_construction_and_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, PrsVar, OptClassFwd, and the fixed call comparison state the retained value classes directly"
