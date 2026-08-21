@@ -37,6 +37,7 @@
   test_function_header_analysis
   test_function_call_resolution
   test_function_call_conversion_policy
+  test_function_call_expression_result
   test_function_call_conversion_decision
   test_externs_to_imports
   test_globals_on_data_heap
