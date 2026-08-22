@@ -61,6 +61,10 @@ module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
 module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
+
+module Semantic_top_level_identifier_resolution =
+  Sema.Top_level_identifier_resolution
+
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
@@ -318,6 +322,15 @@ val build_top_level_expression_trees :
   (Semantic_top_level_expression_tree.t, string) result
 (** Build immutable semantic expression trees for executable top-level
     statements while retaining their complete module and outer bindings. *)
+
+val classify_top_level_identifiers :
+  Session.t ->
+  globals:Semantic_global_type_resolution.t ->
+  functions:Semantic_function_resolution.t ->
+  expressions:Semantic_top_level_expression_tree.t ->
+  (Semantic_top_level_identifier_resolution.t, string) result
+(** Classify every bound top-level identifier as a source-typed module value,
+    aggregate offset base, or an outer record awaiting typed metadata. *)
 
 val create_outer_environment :
   Session.t ->
