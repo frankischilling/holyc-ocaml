@@ -132,6 +132,20 @@ type call = {
   arguments : argument list;
 }
 
+type condition_role =
+  | If_condition
+  | While_condition
+  | Do_while_condition
+  | For_condition
+
+type condition_input = {
+  index : int;
+  role : condition_role;
+  keyword_origin : Symbol.origin;
+  expression : argument_expression;
+  origin : Symbol.origin;
+}
+
 type return_input = {
   index : int;
   keyword_origin : Symbol.origin;
@@ -144,6 +158,7 @@ type function_input = {
   scope : Symbol_table.scope;
   item_index : int;
   calls : call list;
+  conditions : condition_input list;
   returns : return_input list;
 }
 
@@ -203,6 +218,7 @@ type resolved_function = {
   item_index : int;
   return_type : Type_reference.t;
   calls : call_resolution list;
+  conditions : condition_input list;
   returns : return_input list;
 }
 
@@ -241,6 +257,7 @@ let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_return_type (function_ : resolved_function) = function_.return_type
 let function_calls (function_ : resolved_function) = function_.calls
+let function_conditions (function_ : resolved_function) = function_.conditions
 let function_returns (function_ : resolved_function) = function_.returns
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
@@ -252,6 +269,14 @@ let call_computed_callee (call : call) = call.computed_callee
 let call_origin (call : call) = call.origin
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
+let condition_index (condition : condition_input) = condition.index
+let condition_role (condition : condition_input) = condition.role
+
+let condition_keyword_origin (condition : condition_input) =
+  condition.keyword_origin
+
+let condition_expression (condition : condition_input) = condition.expression
+let condition_origin (condition : condition_input) = condition.origin
 let return_index (return_ : return_input) = return_.index
 let return_keyword_origin (return_ : return_input) = return_.keyword_origin
 let return_expression (return_ : return_input) = return_.expression
@@ -734,6 +759,24 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
+let make_condition ~index ~role ~keyword_origin ~expression ~origin =
+  if index < 0 then Error "function condition index cannot be negative"
+  else if not (valid_origin keyword_origin) then
+    Error "function condition keyword has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "function condition statement has an invalid source origin"
+  else Ok { index; role; keyword_origin; expression; origin }
+
+let validate_condition_indexes conditions =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (condition : condition_input) :: rest ->
+        if condition.index <> expected then
+          Error "function condition indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 conditions
+
 let validate_return_indexes returns =
   let rec loop expected = function
     | [] -> Ok ()
@@ -744,8 +787,8 @@ let validate_return_indexes returns =
   in
   loop 0 returns
 
-let make_function ~symbol ~scope ~item_index ?(returns = []) (calls : call list)
-    : (function_input, string) result =
+let make_function ~symbol ~scope ~item_index ?(conditions = []) ?(returns = [])
+    (calls : call list) : (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -753,10 +796,15 @@ let make_function ~symbol ~scope ~item_index ?(returns = []) (calls : call list)
   else if item_index < 0 then
     Error "function call owner item index cannot be negative"
   else
-    match validate_return_indexes returns with
+    match validate_condition_indexes conditions with
     | Error _ as error -> error
-    | Ok () ->
-        Ok ({ symbol; scope; item_index; calls; returns } : function_input)
+    | Ok () -> (
+        match validate_return_indexes returns with
+        | Error _ as error -> error
+        | Ok () ->
+            Ok
+              ({ symbol; scope; item_index; calls; conditions; returns }
+                : function_input))
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -1306,6 +1354,37 @@ let validate_returns table parent visible declarations compilation_mode returns
   in
   loop 0 returns
 
+let validate_conditions table parent visible declarations compilation_mode
+    conditions occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (condition : condition_input) :: rest -> (
+        if condition.index <> expected then
+          Error (invalid_input "function condition indexes are not contiguous")
+        else
+          match
+            validate_argument_expression table parent visible declarations
+              compilation_mode condition.expression
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              match
+                validate_bound_occurrences occurrence_by_index
+                  condition.expression
+              with
+              | Error _ as error -> error
+              | Ok () -> loop (expected + 1) rest))
+  in
+  loop 0 conditions
+
 let validate_function_input table parent visible declarations compilation_mode
     expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
@@ -1343,9 +1422,15 @@ let validate_function_input table parent visible declarations compilation_mode
         | Ok () -> (
             match validate_calls input.calls occurrences with
             | Error _ as error -> error
-            | Ok () ->
-                validate_returns table parent visible declarations
-                  compilation_mode input.returns occurrences))
+            | Ok () -> (
+                match
+                  validate_conditions table parent visible declarations
+                    compilation_mode input.conditions occurrences
+                with
+                | Error _ as error -> error
+                | Ok () ->
+                    validate_returns table parent visible declarations
+                      compilation_mode input.returns occurrences)))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =
@@ -1766,6 +1851,7 @@ let resolve_function ?members types declarations expected
                 return_type =
                   Function_type_resolution.function_return_type typed;
                 calls = List.rev rev;
+                conditions = input.conditions;
                 returns = input.returns;
               })
     | call :: rest -> (

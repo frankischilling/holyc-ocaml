@@ -349,6 +349,8 @@ type state = {
   next_occurrence : int;
   next_call : int;
   calls_rev : Sema.Function_call_resolution.call list;
+  next_condition : int;
+  conditions_rev : Sema.Function_call_resolution.condition_input list;
   next_return : int;
   returns_rev : Sema.Function_call_resolution.return_input list;
   visible_aggregates : Sema.Symbol.t String_map.t;
@@ -362,6 +364,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     next_occurrence = 0;
     next_call = 0;
     calls_rev = [];
+    next_condition = 0;
+    conditions_rev = [];
     next_return = 0;
     returns_rev = [];
     visible_aggregates;
@@ -965,20 +969,62 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
                    ordinary expression binding"
             | Ok expression -> finish state (Some expression)))
 
+let record_condition role keyword location state value =
+  let first_occurrence = state.next_occurrence in
+  let visible = state.visible_aggregates in
+  let locals = state.typed_values in
+  let globals = state.global_values in
+  let occurrences = state.occurrences in
+  match expression state value with
+  | Error _ as error -> error
+  | Ok state -> (
+      let cursor = ref first_occurrence in
+      match
+        argument_expression visible locals globals occurrences cursor value
+      with
+      | Error _ as error -> error
+      | Ok _ when !cursor <> state.next_occurrence ->
+          Error
+            "function condition traversal disagrees with ordinary expression \
+             binding"
+      | Ok expression -> (
+          match
+            Sema.Function_call_resolution.make_condition
+              ~index:state.next_condition ~role ~keyword_origin:(origin keyword)
+              ~expression ~origin:(origin location)
+          with
+          | Error _ as error -> error
+          | Ok condition ->
+              if state.next_condition = max_int then
+                Error "function condition space is exhausted"
+              else
+                Ok
+                  {
+                    state with
+                    next_condition = state.next_condition + 1;
+                    conditions_rev = condition :: state.conditions_rev;
+                  }))
+
 let rec statement state = function
   | Frontend.Ast.Block_statement block ->
       statements state block.block_statements
   | Frontend.Ast.Do_while_statement do_while -> (
       match statement state do_while.do_body with
       | Error _ as error -> error
-      | Ok state -> expression state do_while.do_while_condition)
+      | Ok state ->
+          record_condition Sema.Function_call_resolution.Do_while_condition
+            do_while.do_while_keyword do_while.do_while_location state
+            do_while.do_while_condition)
   | Frontend.Ast.Expression_statement statement ->
       expression state statement.expression_statement_expression
   | Frontend.Ast.For_statement for_ -> (
       match statement state for_.for_initializer with
       | Error _ as error -> error
       | Ok state -> (
-          match expression state for_.for_condition with
+          match
+            record_condition Sema.Function_call_resolution.For_condition
+              for_.for_keyword for_.for_location state for_.for_condition
+          with
           | Error _ as error -> error
           | Ok state -> (
               match for_.for_update with
@@ -988,7 +1034,10 @@ let rec statement state = function
                   | Ok state -> statement state for_.for_body)
               | None -> statement state for_.for_body)))
   | Frontend.Ast.If_statement if_ -> (
-      match expression state if_.if_condition with
+      match
+        record_condition Sema.Function_call_resolution.If_condition
+          if_.if_keyword if_.if_location state if_.if_condition
+      with
       | Error _ as error -> error
       | Ok state -> (
           match statement state if_.if_then_branch with
@@ -1014,7 +1063,11 @@ let rec statement state = function
       | Error _ as error -> error
       | Ok state -> statement state try_catch.catch_body)
   | Frontend.Ast.While_statement while_ -> (
-      match expression state while_.while_condition with
+      match
+        record_condition Sema.Function_call_resolution.While_condition
+          while_.while_keyword while_.while_location state
+          while_.while_condition
+      with
       | Error _ as error -> error
       | Ok state -> statement state while_.while_body)
   | Frontend.Ast.Assembly_block_statement _
@@ -1106,6 +1159,7 @@ let function_input table visible_aggregates global_values expected typed locals
             else
               Sema.Function_call_resolution.make_function ~symbol ~scope
                 ~item_index
+                ~conditions:(List.rev state.conditions_rev)
                 ~returns:(List.rev state.returns_rev)
                 (List.rev state.calls_rev))
 
