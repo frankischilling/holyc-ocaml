@@ -56,6 +56,10 @@ module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_local_warning_analysis = Sema.Local_warning_analysis
 module Semantic_module_expression_binding = Sema.Module_expression_binding
 module Semantic_top_level_expression_binding = Sema.Top_level_expression_binding
+
+module Semantic_top_level_outer_expression_binding =
+  Sema.Top_level_outer_expression_binding
+
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
@@ -295,6 +299,14 @@ val resolve_top_level_expressions :
 (** Bind ordinary names under executable top-level statements through the
     source-visible module publication prefix. Names absent from that prefix
     remain explicit outer candidates. *)
+
+val resolve_top_level_outer_expressions :
+  Session.t ->
+  environment:Semantic_outer_environment.t ->
+  expressions:Semantic_top_level_expression_binding.t ->
+  (Semantic_top_level_outer_expression_binding.t, string) result
+(** Preserve source-visible top-level module bindings, then resolve every outer
+    candidate through the complete JIT or AOT table chain. *)
 
 val create_outer_environment :
   Session.t ->

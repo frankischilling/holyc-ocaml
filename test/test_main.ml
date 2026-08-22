@@ -34,6 +34,8 @@ let () =
         Test_module_expression_binding.tests );
       ( "semantic top-level expression binding",
         Test_top_level_expression_binding.tests );
+      ( "semantic top-level outer expression binding",
+        Test_top_level_outer_expression_binding.tests );
       ("semantic outer expression binding", Test_outer_expression_binding.tests);
       ( "semantic global initializer binding",
         Test_global_initializer_binding.tests );
