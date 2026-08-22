@@ -41,8 +41,7 @@ let unresolved_identifier occurrence compilation_mode =
           name = Top_level_expression_binding.occurrence_name occurrence;
           compilation_mode;
         };
-    origin =
-      Some (Top_level_expression_binding.occurrence_origin occurrence);
+    origin = Some (Top_level_expression_binding.occurrence_origin occurrence);
   }
 
 let owns_table result table = result.table == table
@@ -125,7 +124,8 @@ let resolve_statements environment statements =
         with
         | Error _ as error -> error
         | Ok occurrences ->
-            loop ({ source; occurrences } :: statements_rev)
+            loop
+              ({ source; occurrences } :: statements_rev)
               (List.rev_append occurrences occurrences_rev)
               rest)
   in

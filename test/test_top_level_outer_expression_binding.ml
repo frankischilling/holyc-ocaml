@@ -49,8 +49,8 @@ let finish_prepare mode session ast =
   let function_expressions =
     checked
       (Holyc_lib.resolve_function_expressions session ~declarations
-         ~functions:collected_functions ~local_types
-         ~bindings:function_bindings ast)
+         ~functions:collected_functions ~local_types ~bindings:function_bindings
+         ast)
   in
   let global_types =
     checked
@@ -100,7 +100,8 @@ let add_symbol prepared name record_kind =
   checked
     (Semantic_symbol_table.add table
        ~scope:(Semantic_symbol_table.root table)
-       ~name ~kind:(semantic_kind record_kind)
+       ~name
+       ~kind:(semantic_kind record_kind)
        ~origin:(Semantic_symbol.Synthesized ("outer fixture " ^ name)))
 
 let checked_environment = function
@@ -142,8 +143,7 @@ let outer_signature binding =
 
 let resolution_name occurrence =
   match
-    Semantic_top_level_outer_expression_binding.occurrence_resolution
-      occurrence
+    Semantic_top_level_outer_expression_binding.occurrence_resolution occurrence
   with
   | Semantic_top_level_outer_expression_binding.Module_binding publication ->
       Printf.sprintf "module:%s:%s"
@@ -168,16 +168,16 @@ let jit_chain_module_precedence_and_newest_record () =
   in
   let tables =
     [
-      make_table prepared
-        ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0
+      make_table prepared ~table_kind:(Semantic_outer_environment.Jit_task 0)
+        ~table_index:0
         [
           ("ModuleValue", Semantic_outer_environment.Function);
           ("Current", Semantic_outer_environment.Global_variable);
           ("Shared", Semantic_outer_environment.Function);
           ("Shared", Semantic_outer_environment.Global_variable);
         ];
-      make_table prepared
-        ~table_kind:(Semantic_outer_environment.Jit_task 1) ~table_index:1
+      make_table prepared ~table_kind:(Semantic_outer_environment.Jit_task 1)
+        ~table_index:1
         [
           ("Parent", Semantic_outer_environment.Function);
           ("Shared", Semantic_outer_environment.Aggregate);
@@ -187,7 +187,9 @@ let jit_chain_module_precedence_and_newest_record () =
         [ ("Asm", Semantic_outer_environment.Export_system_symbol) ];
     ]
   in
-  let result = environment prepared Preprocessor.Jit tables |> resolve prepared in
+  let result =
+    environment prepared Preprocessor.Jit tables |> resolve prepared
+  in
   Alcotest.(check (list (pair string string)))
     "module prefix and JIT outer order"
     [
@@ -206,18 +208,20 @@ let aot_chain_preserves_statement_and_occurrence_identity () =
   in
   let tables =
     [
-      make_table prepared
-        ~table_kind:(Semantic_outer_environment.Aot_parent 0) ~table_index:0
+      make_table prepared ~table_kind:(Semantic_outer_environment.Aot_parent 0)
+        ~table_index:0
         [ ("Near", Semantic_outer_environment.Global_variable) ];
-      make_table prepared
-        ~table_kind:(Semantic_outer_environment.Aot_parent 1) ~table_index:1
+      make_table prepared ~table_kind:(Semantic_outer_environment.Aot_parent 1)
+        ~table_index:1
         [ ("Far", Semantic_outer_environment.Function) ];
       make_table prepared ~table_kind:Semantic_outer_environment.Assembler
         ~table_index:2
         [ ("Asm", Semantic_outer_environment.Export_system_symbol) ];
     ]
   in
-  let result = environment prepared Preprocessor.Aot tables |> resolve prepared in
+  let result =
+    environment prepared Preprocessor.Aot tables |> resolve prepared
+  in
   Alcotest.(check (list (pair string string)))
     "AOT lookup order"
     [
@@ -233,8 +237,8 @@ let aot_chain_preserves_statement_and_occurrence_identity () =
   Alcotest.(check (list int))
     "source item indexes" [ 0; 1 ]
     (Semantic_top_level_outer_expression_binding.statements result
-    |> List.map
-         Semantic_top_level_outer_expression_binding.statement_item_index);
+    |> List.map Semantic_top_level_outer_expression_binding.statement_item_index
+    );
   Alcotest.(check (list int))
     "occurrence identities" [ 0; 1; 2 ]
     (Semantic_top_level_outer_expression_binding.all_occurrences result
@@ -280,12 +284,11 @@ let write_file path contents =
 
 let generated_failure_and_included_success_keep_provenance () =
   let generated =
-    prepare ~path:"top-level-outer-generated.HC"
-      "#define USE Missing\n0+USE;"
+    prepare ~path:"top-level-outer-generated.HC" "#define USE Missing\n0+USE;"
   in
   let task =
-    make_table generated
-      ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0 []
+    make_table generated ~table_kind:(Semantic_outer_environment.Jit_task 0)
+      ~table_index:0 []
   in
   let assembler =
     make_table generated ~table_kind:Semantic_outer_environment.Assembler
@@ -335,8 +338,8 @@ let generated_failure_and_included_success_keep_provenance () =
       in
       let included = finish_prepare Preprocessor.Jit session ast in
       let task =
-        make_table included
-          ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0
+        make_table included ~table_kind:(Semantic_outer_environment.Jit_task 0)
+          ~table_index:0
           [ ("IncludedOuter", Semantic_outer_environment.Global_variable) ]
       in
       let assembler =
@@ -372,8 +375,8 @@ let expect_error_code expected = function
 let determinism_purity_and_validation () =
   let prepared = prepare ~path:"top-level-outer-pure.HC" "0+Target;" in
   let task =
-    make_table prepared
-      ~table_kind:(Semantic_outer_environment.Jit_task 0) ~table_index:0
+    make_table prepared ~table_kind:(Semantic_outer_environment.Jit_task 0)
+      ~table_index:0
       [ ("Target", Semantic_outer_environment.Function) ]
   in
   let assembler =
@@ -404,8 +407,8 @@ let determinism_purity_and_validation () =
   in
   let aot = environment prepared Preprocessor.Aot [ aot_assembler ] in
   expect_error_code "HCSEMA0053"
-    (Semantic_top_level_outer_expression_binding.resolve ~table
-       ~environment:aot ~expressions:prepared.bindings);
+    (Semantic_top_level_outer_expression_binding.resolve ~table ~environment:aot
+       ~expressions:prepared.bindings);
   let foreign = prepare ~path:"top-level-outer-foreign.HC" "0+Target;" in
   expect_error_code "HCSEMA0053"
     (Semantic_top_level_outer_expression_binding.resolve ~table
