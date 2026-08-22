@@ -117,7 +117,8 @@ type top_level_indexed_global_callback_call = {
   top_level_indexed_global_callback_value :
     Function_call_resolution.identifier_value;
   top_level_indexed_global_callback_callee_result : expression_result;
-  top_level_indexed_global_callback_callable : Function_call_resolution.callable;
+  top_level_indexed_global_callback_callable :
+    Function_call_resolution.callable;
   top_level_indexed_global_callback_fixed_results : top_level_fixed_result list;
   top_level_indexed_global_callback_variadic_results : expression_result list;
   top_level_indexed_global_callback_variadic_count : int64;
@@ -879,10 +880,10 @@ let rec callback_array_index_depth ~callee expression =
       Option.map Int.succ
         (callback_array_index_depth ~callee
            (Function_call_resolution.index_base index))
-  | Function_call_resolution.Top_level_bound_identifier_expression identifier
-    ->
+  | Function_call_resolution.Top_level_bound_identifier_expression identifier ->
       let occurrence =
-        Function_call_resolution.top_level_bound_identifier_occurrence identifier
+        Function_call_resolution.top_level_bound_identifier_occurrence
+          identifier
       in
       if occurrence == callee then Some 0 else None
   | Function_call_resolution.Integer_literal
@@ -1942,14 +1943,15 @@ and type_top_level_indexed_global_callback_call table members policies
       | Some computed when computed == callee_expression -> (
           match Global_type_resolution.global_declarator_kind global with
           | Global_type_resolution.Object ->
-              invalid "indexed callback global has no function-pointer signature"
+              invalid
+                "indexed callback global has no function-pointer signature"
           | Global_type_resolution.Function_pointer function_pointer -> (
               match
                 type_expression table members policies ~before_item_index
                   ~context:Value_context state callee_expression
               with
               | Error _ as error -> error
-              | Ok (callee_result, state) ->
+              | Ok (callee_result, state) -> (
                   if callee_result.array_rank <> 0 then
                     invalid "indexed callback callee retains an array dimension"
                   else
@@ -1959,32 +1961,31 @@ and type_top_level_indexed_global_callback_call table members policies
                           (Global_type_resolution.global_type_reference global)
                         ~function_pointer
                     in
-                    (match
-                       Function_call_resolution.bind_indirect_arguments
-                         source_call callable
-                     with
+                    match
+                      Function_call_resolution.bind_indirect_arguments
+                        source_call callable
+                    with
                     | Error error ->
                         Error
                           (invalid_top_level_input
-                             ?origin:(Function_call_resolution.error_origin error)
+                             ?origin:
+                               (Function_call_resolution.error_origin error)
                              (Function_call_resolution.error_message error))
-                    | Ok
-                        ( fixed_arguments,
-                          variadic_arguments,
-                          variadic_count ) -> (
+                    | Ok (fixed_arguments, variadic_arguments, variadic_count)
+                      -> (
                         match
                           type_top_level_bound_arguments table members policies
                             ~before_item_index ~origin state fixed_arguments
                             variadic_arguments
                         with
                         | Error _ as error -> error
-                        | Ok (fixed_results, variadic_results, state) ->
+                        | Ok (fixed_results, variadic_results, state) -> (
                             let source_type =
                               callable
                               |> Function_call_resolution.callable_return_type
                               |> Type_reference.resolved_type
                             in
-                            (match known_type table source_type with
+                            match known_type table source_type with
                             | Error _ as error -> error
                             | Ok source_type ->
                                 let category =
@@ -2019,7 +2020,8 @@ and type_top_level_indexed_global_callback_call table members policies
                                     state with
                                     top_level_indexed_global_callback_calls_rev =
                                       indexed_call
-                                      :: state.top_level_indexed_global_callback_calls_rev;
+                                      :: state
+                                           .top_level_indexed_global_callback_calls_rev;
                                   }
                                 in
                                 Ok

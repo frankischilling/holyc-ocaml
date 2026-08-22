@@ -719,8 +719,8 @@ let included_top_level_calls () =
   let source =
     prepared ~path:"top-level-direct-call-use.HC"
       (Printf.sprintf
-         "#include \"%s\"\nIncludedCall(1);IncludedCallback(2);\
-          IncludedCallbacks[0](3);"
+         "#include \"%s\"\n\
+          IncludedCall(1);IncludedCallback(2);IncludedCallbacks[0](3);"
          include_path)
   in
   let _, _, _, result = analyze source in
@@ -1004,17 +1004,16 @@ let top_level_indexed_global_callback_calls () =
       Alcotest.(check string)
         "indexed callback keeps its array publication" "array"
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_indexed_global_callback_value
-        |> Semantic_function_call_resolution.identifier_value_shape
-        |> Semantic_function_call_resolution.identifier_value_shape_name);
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_value
+       |> Semantic_function_call_resolution.identifier_value_shape
+       |> Semantic_function_call_resolution.identifier_value_shape_name);
       Alcotest.(check string)
         "indexed callback keeps its completed callee result"
         "I64:object-value:integer-result:rank-0"
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_indexed_global_callback_callee_result
-        |> descriptor);
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_callee_result |> descriptor);
       Alcotest.(check (list string))
         "indexed callback defaults stay separate from provided arguments"
         [
@@ -1023,8 +1022,8 @@ let top_level_indexed_global_callback_calls () =
           "integer-result:provided:I64:object-value:integer-result:rank-0";
         ]
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_indexed_global_callback_fixed_results
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_fixed_results
         |> List.map top_level_fixed_description);
       let variadic = List.nth calls 4 in
       Alcotest.(check int64)
@@ -1077,7 +1076,8 @@ let invalid_top_level_indexed_global_callback_calls () =
   ]
   |> List.iter (fun (label, contents, expected_message) ->
       let source =
-        prepared ~path:("top-level-invalid-indexed-callback-" ^ label ^ ".HC")
+        prepared
+          ~path:("top-level-invalid-indexed-callback-" ^ label ^ ".HC")
           contents
       in
       let expressions, identifiers = build_inputs source in
@@ -1281,8 +1281,7 @@ let generated_provenance_and_purity () =
   Alcotest.(check (list string))
     "generated indexed callback calls retain deterministic identity"
     [ "Indexed" ]
-    (List.map top_level_indexed_global_callback_name
-       generated_indexed_callbacks);
+    (List.map top_level_indexed_global_callback_name generated_indexed_callbacks);
   let generated_indexed_callback_result =
     let id =
       generated_indexed_callbacks |> List.hd
@@ -1376,7 +1375,8 @@ let tests =
     Alcotest.test_case "top-level direct calls" `Quick top_level_direct_calls;
     Alcotest.test_case "top-level direct call replacement headers" `Quick
       top_level_direct_call_replacement_headers;
-    Alcotest.test_case "included top-level calls" `Quick included_top_level_calls;
+    Alcotest.test_case "included top-level calls" `Quick
+      included_top_level_calls;
     Alcotest.test_case "invalid top-level direct calls" `Quick
       invalid_top_level_direct_calls;
     Alcotest.test_case "top-level global callback calls" `Quick
