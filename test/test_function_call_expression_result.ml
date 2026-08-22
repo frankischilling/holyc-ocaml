@@ -122,6 +122,10 @@ let expression_statements_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_expression_statements
 
+let outer_callback_calls_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_outer_callback_calls
+
 let implicit_outputs_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_implicit_outputs
@@ -306,6 +310,18 @@ let type_name result =
         | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
+
+let result_descriptor result =
+  String.concat ":"
+    [
+      type_name result;
+      result |> Semantic_function_call_expression_result.result_category
+      |> Semantic_function_call_expression_result.value_category_name;
+      result |> Semantic_function_call_expression_result.result_class
+      |> Semantic_function_call_expression_result.result_class_name;
+      Printf.sprintf "rank-%d"
+        (Semantic_function_call_expression_result.result_array_rank result);
+    ]
 
 let function_address_path_name result =
   match
@@ -4789,6 +4805,241 @@ let outer_globals_retain_checked_expression_shapes () =
         retained_names)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let outer_callback_calls_use_checked_recursive_headers () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-outer-callbacks.HC"
+          "F64 class CallbackBacked {};\n\
+           I64 (*TemplateInt)(I64 first,I64 second=2,I64 third);\n\
+           F64 (*TemplateFloat)();I64 *(*TemplatePointer)();\n\
+           CallbackBacked (*TemplateMake)();\n\
+           I64 (*TemplateVariadic)(I64 first,...);\n\
+           I64 DefaultValue(I64 value=9);\n\
+           I64 Caller(){\n\
+           (OuterInt)(1,,3);(OuterFloat)();(OuterPointer)();(OuterMake)();\n\
+           (OuterVariadic)(1,2,3);(OuterInt)(OuterFloat(),,3);\n\
+           (OuterInt)(DefaultValue,,3);return 0;\n\
+           }"
+      in
+      let specifications =
+        [
+          ("OuterInt", "TemplateInt");
+          ("OuterFloat", "TemplateFloat");
+          ("OuterPointer", "TemplatePointer");
+          ("OuterMake", "TemplateMake");
+          ("OuterVariadic", "TemplateVariadic");
+        ]
+      in
+      let entries =
+        specifications
+        |> List.mapi (fun entry_index (name, template_name) ->
+            make_outer_global_entry prepared ~entry_index ~name
+              ~metadata:(outer_global_metadata prepared template_name)
+              ())
+      in
+      let outer = resolve_outer_batch prepared entries in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions_with_outer prepared.session
+          ~members:prepared.members ~outer ~policies
+        |> checked_results
+      in
+      let results = run () in
+      let statement_values =
+        expression_statements_named results "Caller"
+        |> List.map
+             Semantic_function_call_expression_result.expression_statement_value
+      in
+      Alcotest.(check (list string))
+        "outer callback returns use the selected recursive headers"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "I64*:address-value:integer-result:rank-0";
+          "CallbackBacked:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (List.map result_descriptor statement_values);
+      let calls = outer_callback_calls_named results "Caller" in
+      let call_name call =
+        call |> Semantic_function_call_expression_result.outer_callback_source
+        |> Semantic_function_call_resolution.call_callee_name
+      in
+      Alcotest.(check (list string))
+        "outer callback records keep recursive source order"
+        [
+          "OuterInt";
+          "OuterFloat";
+          "OuterPointer";
+          "OuterMake";
+          "OuterVariadic";
+          "OuterInt";
+          "OuterFloat";
+          "OuterInt";
+        ]
+        (List.map call_name calls);
+      let first = List.hd calls in
+      let first_signature =
+        first
+        |> Semantic_function_call_expression_result.outer_callback_callable
+        |> Semantic_function_call_resolution.callable_signature
+      in
+      Alcotest.(check int)
+        "the selected callback retains all fixed parameters" 3
+        (first_signature
+       |> Semantic_function_type_resolution.signature_parameters |> List.length
+        );
+      let first_fixed =
+        first
+        |> Semantic_function_call_expression_result.outer_callback_fixed_results
+      in
+      let fixed_kind fixed =
+        match
+          Semantic_function_call_expression_result.outer_callback_fixed_path
+            fixed
+        with
+        | Semantic_function_call_expression_result.Provided_result value ->
+            "provided:" ^ result_descriptor value
+        | Semantic_function_call_expression_result.Declared_default_result value
+          ->
+            "default:"
+            ^ (value
+             |> Semantic_function_call_expression_result.declared_default_type
+             |> semantic_type_name)
+      in
+      Alcotest.(check (list string))
+        "an omitted middle slot remains a declared default"
+        [
+          "provided:I64:object-value:integer-result:rank-0";
+          "default:I64";
+          "provided:I64:object-value:integer-result:rank-0";
+        ]
+        (List.map fixed_kind first_fixed);
+      let variadic = List.nth calls 4 in
+      Alcotest.(check int64)
+        "the variadic tail count uses target I64" 2L
+        (Semantic_function_call_expression_result.outer_callback_variadic_count
+           variadic);
+      List.iter
+        (fun call ->
+          let occurrence =
+            Semantic_function_call_expression_result.outer_callback_occurrence
+              call
+          in
+          let binding =
+            Semantic_function_call_expression_result.outer_callback_binding call
+          in
+          let selected_name =
+            binding |> Semantic_outer_environment.binding_entry
+            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name
+          in
+          Alcotest.(check string)
+            "the callback keeps the selected outer record"
+            (Semantic_outer_expression_binding.occurrence_name occurrence)
+            selected_name;
+          let id =
+            Semantic_function_call_expression_result.outer_callback_result_id
+              call
+          in
+          let value =
+            results |> Semantic_function_call_expression_result.all_results
+            |> List.find (fun value ->
+                Semantic_function_call_expression_result.Id.equal id
+                  (Semantic_function_call_expression_result.result_id value))
+          in
+          let exact_occurrence =
+            match
+              Semantic_function_call_expression_result.result_outer_occurrence
+                value
+            with
+            | Some selected -> selected == occurrence
+            | None -> false
+          in
+          Alcotest.(check bool)
+            "the callback result keeps its exact outer occurrence" true
+            exact_occurrence;
+          let exact_binding =
+            match
+              Semantic_function_call_expression_result.result_outer_binding
+                value
+            with
+            | Some selected -> selected == binding
+            | None -> false
+          in
+          Alcotest.(check bool)
+            "the callback result keeps its exact outer binding" true
+            exact_binding)
+        calls;
+      let replay = run () in
+      let call_ids result =
+        outer_callback_calls_named result "Caller"
+        |> List.map (fun call ->
+            call
+            |> Semantic_function_call_expression_result.outer_callback_result_id
+            |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      Alcotest.(check (list int))
+        "outer callback typing replays deterministically" (call_ids results)
+        (call_ids replay);
+      Alcotest.(check int)
+        "outer callback typing leaves the symbol table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let unsupported_outer_callback_shapes_stay_unavailable () =
+  let prepared =
+    prepare ~path:"function-unavailable-outer-calls.HC"
+      "I64 TemplateObject;I64 (*TemplateArray)(I64 value)[2];\n\
+       I64 Caller(){(OuterUntyped)(1);(OuterObject)(2);(OuterArray)(3);return \
+       0;}"
+  in
+  let entries =
+    [
+      make_outer_global_entry prepared ~entry_index:0 ~name:"OuterUntyped" ();
+      make_outer_global_entry prepared ~entry_index:1 ~name:"OuterObject"
+        ~metadata:(outer_global_metadata prepared "TemplateObject")
+        ();
+      make_outer_global_entry prepared ~entry_index:2 ~name:"OuterArray"
+        ~metadata:(outer_global_metadata prepared "TemplateArray")
+        ();
+    ]
+  in
+  let _, results = type_with_outer prepared entries in
+  let values =
+    expression_statements_named results "Caller"
+    |> List.map
+         Semantic_function_call_expression_result.expression_statement_value
+  in
+  Alcotest.(check (list string))
+    "unsupported outer call shapes remain unavailable"
+    [ "unavailable"; "unavailable"; "unavailable" ]
+    (List.map type_name values);
+  Alcotest.(check int)
+    "unsupported outer calls do not create callback records" 0
+    (outer_callback_calls_named results "Caller" |> List.length);
+  List.iter
+    (fun value ->
+      Alcotest.(check bool)
+        "an unavailable call retains its source occurrence" true
+        (Option.is_some
+           (Semantic_function_call_expression_result.result_outer_occurrence
+              value));
+      Alcotest.(check bool)
+        "an unavailable call retains its selected binding" true
+        (Option.is_some
+           (Semantic_function_call_expression_result.result_outer_binding value)))
+    values
+
 let missing_outer_global_metadata_stays_unavailable () =
   let prepared =
     prepare ~path:"untyped-outer-global.HC"
@@ -5109,6 +5360,10 @@ let tests =
       included_implicit_outputs_replay_without_mutation;
     Alcotest.test_case "typed outer global expression shapes" `Quick
       outer_globals_retain_checked_expression_shapes;
+    Alcotest.test_case "typed outer callback calls" `Quick
+      outer_callback_calls_use_checked_recursive_headers;
+    Alcotest.test_case "unsupported outer callback shapes" `Quick
+      unsupported_outer_callback_shapes_stay_unavailable;
     Alcotest.test_case "missing outer global metadata" `Quick
       missing_outer_global_metadata_stays_unavailable;
     Alcotest.test_case "outer global metadata validation" `Quick

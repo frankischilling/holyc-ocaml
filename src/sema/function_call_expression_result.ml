@@ -95,6 +95,19 @@ type top_level_fixed_result = {
   top_level_fixed_lastclass_substitution : lastclass_substitution option;
 }
 
+type outer_callback_fixed_result = top_level_fixed_result
+
+type outer_callback_call = {
+  outer_callback_source : Function_call_resolution.call;
+  outer_callback_occurrence : Outer_expression_binding.occurrence;
+  outer_callback_binding : Outer_environment.binding;
+  outer_callback_callable : Function_call_resolution.callable;
+  outer_callback_fixed_results : outer_callback_fixed_result list;
+  outer_callback_variadic_results : expression_result list;
+  outer_callback_variadic_count : int64;
+  outer_callback_result_id : Id.t;
+}
+
 type top_level_direct_call = {
   top_level_direct_source : Top_level_expression_tree.call;
   top_level_direct_declaration : Function_resolution.resolved_declaration;
@@ -241,6 +254,7 @@ type resolved_function = {
   scope : Symbol_table.scope;
   item_index : int;
   calls : call_result list;
+  outer_callback_calls : outer_callback_call list;
   expression_statements : expression_statement_result list;
   implicit_outputs : implicit_output_result list;
   conditions : condition_result list;
@@ -295,6 +309,7 @@ type build_state = {
   next_id : int;
   results_rev : expression_result list;
   outer_function : Outer_expression_binding.resolved_function option;
+  outer_callback_calls_rev : outer_callback_call list;
   top_level_identifier_batch : Top_level_identifier_resolution.t option;
   top_level_direct_calls_rev : top_level_direct_call list;
   top_level_global_callback_calls_rev : top_level_global_callback_call list;
@@ -352,6 +367,9 @@ let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
+
+let function_outer_callback_calls (function_ : resolved_function) =
+  function_.outer_callback_calls
 
 let function_expression_statements (function_ : resolved_function) =
   function_.expression_statements
@@ -426,6 +444,43 @@ let top_level_fixed_path (fixed : top_level_fixed_result) =
 
 let top_level_fixed_lastclass_substitution (fixed : top_level_fixed_result) =
   fixed.top_level_fixed_lastclass_substitution
+
+let outer_callback_fixed_source (fixed : outer_callback_fixed_result) =
+  fixed.top_level_fixed_source
+
+let outer_callback_fixed_target_class (fixed : outer_callback_fixed_result) =
+  fixed.top_level_fixed_target_class
+
+let outer_callback_fixed_path (fixed : outer_callback_fixed_result) =
+  fixed.top_level_fixed_path
+
+let outer_callback_fixed_lastclass_substitution
+    (fixed : outer_callback_fixed_result) =
+  fixed.top_level_fixed_lastclass_substitution
+
+let outer_callback_source (call : outer_callback_call) =
+  call.outer_callback_source
+
+let outer_callback_occurrence (call : outer_callback_call) =
+  call.outer_callback_occurrence
+
+let outer_callback_binding (call : outer_callback_call) =
+  call.outer_callback_binding
+
+let outer_callback_callable (call : outer_callback_call) =
+  call.outer_callback_callable
+
+let outer_callback_fixed_results (call : outer_callback_call) =
+  call.outer_callback_fixed_results
+
+let outer_callback_variadic_results (call : outer_callback_call) =
+  call.outer_callback_variadic_results
+
+let outer_callback_variadic_count (call : outer_callback_call) =
+  call.outer_callback_variadic_count
+
+let outer_callback_result_id (call : outer_callback_call) =
+  call.outer_callback_result_id
 
 let top_level_direct_source (call : top_level_direct_call) =
   call.top_level_direct_source
@@ -1052,6 +1107,33 @@ let outer_binding_for_expression state source =
             (invalid_input ~origin:source_origin
                "outer expression binding repeats one source occurrence"))
 
+let outer_binding_for_occurrence state source =
+  match state.outer_function with
+  | None -> Ok None
+  | Some function_ -> (
+      let matches =
+        function_ |> Outer_expression_binding.function_occurrences
+        |> List.filter_map (fun occurrence ->
+            if Outer_expression_binding.occurrence_source occurrence != source
+            then None
+            else
+              match
+                Outer_expression_binding.occurrence_resolution occurrence
+              with
+              | Outer_expression_binding.Outer_binding binding ->
+                  Some (occurrence, binding)
+              | Outer_expression_binding.Local_binding _
+              | Outer_expression_binding.Module_binding _ -> None)
+      in
+      match matches with
+      | [] -> Ok None
+      | [ match_ ] -> Ok (Some match_)
+      | _ ->
+          Error
+            (invalid_input
+               ~origin:(Module_expression_binding.occurrence_origin source)
+               "outer expression binding repeats one source occurrence"))
+
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
@@ -1371,6 +1453,20 @@ let rec type_expression table members policies ~before_item_index ~context
               with
               | Error _ as error -> error
               | Ok None -> finish Unavailable Unresolved_actual_class state
+              | Ok
+                  (Some
+                     (Function_call_resolution.Deferred_call
+                        { call; occurrence; reason = Outer_callee } as
+                      resolution)) -> (
+                  match outer_binding_for_occurrence state occurrence with
+                  | Error _ as error -> error
+                  | Ok None ->
+                      finish ~call_resolution:resolution Unavailable
+                        Unresolved_actual_class state
+                  | Ok (Some (outer_occurrence, outer_binding)) ->
+                      type_outer_callback_call table members policies
+                        ~before_item_index ~intrinsic_conversion state id source
+                        resolution call outer_occurrence outer_binding)
               | Ok (Some (Function_call_resolution.Deferred_call _ as call)) ->
                   finish ~call_resolution:call Unavailable
                     Unresolved_actual_class state
@@ -1961,6 +2057,103 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
               Ok
                 (make_result ~intrinsic_conversion state ~id ~source
                    ~source_type ~category:Object_value ~result_class)))
+
+and type_outer_callback_call table members policies ~before_item_index
+    ~intrinsic_conversion state id source resolution call occurrence binding =
+  let unavailable state =
+    Ok
+      (make_result ~intrinsic_conversion state ~id ~source ~source_type:None
+         ~category:Unavailable ~outer_occurrence:occurrence
+         ~outer_binding:binding ~call_resolution:resolution
+         ~result_class:Unresolved_actual_class)
+  in
+  let entry = Outer_environment.binding_entry binding in
+  if
+    Outer_environment.entry_record_kind entry
+    <> Outer_environment.Global_variable
+  then unavailable state
+  else
+    match Outer_environment.entry_global_metadata entry with
+    | None -> unavailable state
+    | Some metadata -> (
+        match
+          ( Outer_environment.global_array_rank metadata,
+            Outer_environment.global_declarator_kind metadata )
+        with
+        | 0, Outer_environment.Function_pointer_global function_pointer ->
+            let callable =
+              Function_call_resolution.make_callable
+                ~return_type:(Outer_environment.global_type_reference metadata)
+                ~function_pointer
+            in
+            type_outer_callback_arguments table members policies
+              ~before_item_index ~intrinsic_conversion state id source
+              resolution call occurrence binding callable
+        | _, _ -> unavailable state)
+
+and type_outer_callback_arguments table members policies ~before_item_index
+    ~intrinsic_conversion state id source resolution call occurrence binding
+    callable =
+  match Function_call_resolution.bind_indirect_arguments call callable with
+  | Error error ->
+      Error
+        (invalid_input
+           ?origin:(Function_call_resolution.error_origin error)
+           (Function_call_resolution.error_message error))
+  | Ok (fixed_arguments, variadic_arguments, variadic_count) -> (
+      let origin = Function_call_resolution.call_origin call in
+      match
+        type_top_level_bound_arguments table members policies ~before_item_index
+          ~origin state fixed_arguments variadic_arguments
+      with
+      | Error error ->
+          Error
+            (invalid_input ?origin:(error_origin error) (error_message error))
+      | Ok (fixed_results, variadic_results, state) ->
+          type_outer_callback_result table policies ~before_item_index
+            ~intrinsic_conversion state id source resolution call occurrence
+            binding callable fixed_results variadic_results variadic_count)
+
+and type_outer_callback_result table policies ~before_item_index
+    ~intrinsic_conversion state id source resolution call occurrence binding
+    callable fixed_results variadic_results variadic_count =
+  let unresolved_source_type =
+    callable |> Function_call_resolution.callable_return_type
+    |> Type_reference.resolved_type
+  in
+  match known_type table unresolved_source_type with
+  | Error _ as error -> error
+  | Ok source_type ->
+      let category =
+        if Type.pointer_depth source_type > 0 then Address_value
+        else Object_value
+      in
+      let callback_call =
+        {
+          outer_callback_source = call;
+          outer_callback_occurrence = occurrence;
+          outer_callback_binding = binding;
+          outer_callback_callable = callable;
+          outer_callback_fixed_results = fixed_results;
+          outer_callback_variadic_results = variadic_results;
+          outer_callback_variadic_count = variadic_count;
+          outer_callback_result_id = id;
+        }
+      in
+      let state =
+        {
+          state with
+          outer_callback_calls_rev =
+            callback_call :: state.outer_callback_calls_rev;
+        }
+      in
+      Ok
+        (make_result ~intrinsic_conversion state ~id ~source
+           ~source_type:(Some source_type) ~category
+           ~outer_occurrence:occurrence ~outer_binding:binding
+           ~call_resolution:resolution
+           ~result_class:
+             (forwarded_class policies ~before_item_index source_type))
 
 and type_top_level_call table members policies ~before_item_index
     ~intrinsic_conversion state id source call =
@@ -2990,7 +3183,7 @@ let type_function table members policies outer state source =
         Outer_expression_binding.find_function outer
           (Function_call_conversion_policy.function_symbol source))
   in
-  let state = { state with outer_function } in
+  let state = { state with outer_function; outer_callback_calls_rev = [] } in
   let item_index = Function_call_conversion_policy.function_item_index source in
   match
     source |> Function_call_conversion_policy.function_calls
@@ -3073,6 +3266,17 @@ let type_function table members policies outer state source =
                                       .function_scope source;
                                     item_index;
                                     calls;
+                                    outer_callback_calls =
+                                      List.sort
+                                        (fun left right ->
+                                          Int.compare
+                                            (left.outer_callback_source
+                                           |> Function_call_resolution
+                                              .call_index)
+                                            (right.outer_callback_source
+                                           |> Function_call_resolution
+                                              .call_index))
+                                        state.outer_callback_calls_rev;
                                     expression_statements;
                                     implicit_outputs;
                                     conditions;
@@ -3161,6 +3365,7 @@ let analyze ~table ~members ?outer policies =
                  next_id = 0;
                  results_rev = [];
                  outer_function = None;
+                 outer_callback_calls_rev = [];
                  top_level_identifier_batch = None;
                  top_level_direct_calls_rev = [];
                  top_level_global_callback_calls_rev = [];
@@ -3303,6 +3508,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
              next_id = 0;
              results_rev = [];
              outer_function = None;
+             outer_callback_calls_rev = [];
              top_level_identifier_batch = Some identifiers;
              top_level_direct_calls_rev = [];
              top_level_global_callback_calls_rev = [];
