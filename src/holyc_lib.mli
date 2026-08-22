@@ -73,6 +73,9 @@ module Semantic_function_call_expression_result =
 module Semantic_implicit_output_target_resolution =
   Sema.Implicit_output_target_resolution
 
+module Semantic_implicit_output_argument_binding =
+  Sema.Implicit_output_argument_binding
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -422,6 +425,17 @@ val resolve_implicit_output_targets :
   result
 (** Resolve implicit [Print] and [PutChars] statements through visible module
     function headers and the supplied outer hash-table snapshot. *)
+
+val bind_implicit_output_arguments :
+  Session.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  ?outer_headers:Semantic_function_type_resolution.resolved_function list ->
+  Semantic_implicit_output_target_resolution.t ->
+  ( Semantic_implicit_output_argument_binding.t,
+    Semantic_implicit_output_argument_binding.error )
+  result
+(** Bind implicit output expressions to the fixed slots and variadic tail of
+    each selected checked header. Untyped outer targets remain deferred. *)
 
 val decide_function_call_conversions :
   Session.t ->

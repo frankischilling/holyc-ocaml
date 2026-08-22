@@ -277,7 +277,7 @@ let forwarded_target_class headers ~before_item_index type_ =
     | Type.Primitive (_, Primitive_type.F64) -> F64_result
     | Type.Primitive _ | Type.Aggregate _ -> Integer_result
 
-let parameter_target_class headers ~before_item_index parameter =
+let parameter_target_class_in_headers headers ~before_item_index parameter =
   match Function_type_resolution.parameter_declarator_kind parameter with
   | Function_type_resolution.Function_pointer _ -> Integer_result
   | Function_type_resolution.Object ->
@@ -292,7 +292,7 @@ let fixed_policy headers ~before_item_index source =
     | Function_call_resolution.Provided_argument _ ->
         Provided_expression
           (source |> Function_call_resolution.fixed_parameter
-          |> parameter_target_class headers ~before_item_index)
+          |> parameter_target_class_in_headers headers ~before_item_index)
   in
   { source; path }
 
@@ -388,6 +388,9 @@ let forwarded_type_class result ~before_item_index type_ =
 
 let forwarded_type result ~before_item_index type_ =
   source_visible_type result.headers ~before_item_index type_
+
+let parameter_target_class result ~before_item_index parameter =
+  parameter_target_class_in_headers result.headers ~before_item_index parameter
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

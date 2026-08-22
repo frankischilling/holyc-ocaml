@@ -6326,3 +6326,40 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 4
 fixed_slot_conversion_format_validation_vararg_promotion_call_lowering_output_and_top_level_execution = "not implemented"
 native_oracle_status = "not required for this structural lookup boundary; PrsFunCall and the SYS_HASH_FIND implementation directly state target name, type mask, entry order, and table-chain behavior"
+
+[[feature]]
+id = "HC-SEMA-IMPLICIT-OUTPUT-ARGUMENTS"
+description = "Implicit Print and PutChars values bind to the fixed and variadic slots of the selected checked header."
+sources = [
+  "Compiler/PrsExp.HC:430-454 fixed parameter loop",
+  "Compiler/PrsExp.HC:455-468 declared default selection and AOT string handling",
+  "Compiler/PrsExp.HC:473-484 backing forwarding and ICF_RES_TO_F64 or ICF_RES_TO_INT selection",
+  "Compiler/PrsExp.HC:491-511 Print variadic tail",
+  "Kernel/KExts.HC:83-84 Print and PutChars prototypes"
+]
+implementation = [
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_conversion_policy.mli",
+  "src/sema/implicit_output_argument_binding.ml",
+  "src/sema/implicit_output_argument_binding.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_implicit_output_argument_binding.ml"]
+status = "implemented"
+issue = 306
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "implicit Print and PutChars statements in checked function definitions with a selected module header or an exact caller-supplied outer header"
+fixed_slots = ["provided value", "declared default with explicit omission"]
+provided_value_facts = ["source expression", "fixed position", "actual class", "target class", "conversion intent"]
+default_facts = ["parameter", "declared default", "omission position", "target class", "JIT immediate or AOT string-constant materialization"]
+variadic_rule = "retain only values after the selected header's fixed parameter count and reject that tail for a nonvariadic header"
+backing_rule = "reuse the checked source-visible parameter target class from Function_call_conversion_policy"
+outer_header_rule = "bind only a checked header for the exact resolved outer symbol; otherwise return Deferred_outer_output"
+diagnostics = ["HCSEMA0049 invalid or mismatched semantic inputs", "HCSEMA0050 missing required fixed parameter", "HCSEMA0051 extra value for a nonvariadic header"]
+provenance = ["owning function", "implicit output record", "literal marker", "provided expression", "definition origin", "selected parameter", "declared default", "module header or exact outer entry"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 9
+format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_and_top_level_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"

@@ -83,6 +83,14 @@ val forwarded_type : t -> before_item_index:int -> Type.t -> Type.t
 (** Return the source-visible result of the same checked backing traversal.
     Pointer types are not forwarded. *)
 
+val parameter_target_class :
+  t ->
+  before_item_index:int ->
+  Function_type_resolution.parameter ->
+  target_class
+(** Classify one fixed parameter after source-visible aggregate forwarding.
+    Callback parameters use the integer result path. *)
+
 val target_class_name : target_class -> string
 val fixed_path_name : fixed_path -> string
 val error_code : error -> string
