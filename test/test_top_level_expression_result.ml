@@ -711,8 +711,8 @@ let included_top_level_direct_call () =
   in
   let source =
     prepared ~path:"top-level-direct-call-use.HC"
-      (Printf.sprintf
-         "#include \"%s\"\nIncludedCall(1);IncludedCallback(2);" include_path)
+      (Printf.sprintf "#include \"%s\"\nIncludedCall(1);IncludedCallback(2);"
+         include_path)
   in
   let _, _, _, result = analyze source in
   let calls =
@@ -732,7 +732,7 @@ let included_top_level_direct_call () =
       | Semantic_symbol.Source_location location ->
           Alcotest.(check bool)
             "included call header keeps an include backtrace" true
-             (location.source_segments <> [])
+            (location.source_segments <> [])
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected an included call header source location"));
   let callback_calls =
@@ -740,14 +740,16 @@ let included_top_level_direct_call () =
       result
   in
   Alcotest.(check (list string))
-    "an included callback keeps its source-visible global" [ "IncludedCallback" ]
+    "an included callback keeps its source-visible global"
+    [ "IncludedCallback" ]
     (List.map top_level_global_callback_name callback_calls);
   let callback_global =
     callback_calls |> List.hd
-    |> Semantic_function_call_expression_result
-       .top_level_global_callback_global
+    |> Semantic_function_call_expression_result.top_level_global_callback_global
   in
-  match Semantic_global_type_resolution.global_declarator_origin callback_global with
+  match
+    Semantic_global_type_resolution.global_declarator_origin callback_global
+  with
   | Semantic_symbol.Source_location location ->
       Alcotest.(check bool)
         "included callback keeps an include backtrace" true
@@ -833,20 +835,20 @@ let top_level_global_callback_calls () =
         (List.map top_level_global_callback_name calls);
       let first = List.hd calls in
       Alcotest.(check string)
-        "callback call keeps its scalar global value shape"
-        "function-pointer"
+        "callback call keeps its scalar global value shape" "function-pointer"
         (first
-        |> Semantic_function_call_expression_result.top_level_global_callback_value
-        |> Semantic_function_call_resolution.identifier_value_shape
-        |> Semantic_function_call_resolution.identifier_value_shape_name);
+       |> Semantic_function_call_expression_result
+          .top_level_global_callback_value
+       |> Semantic_function_call_resolution.identifier_value_shape
+       |> Semantic_function_call_resolution.identifier_value_shape_name);
       Alcotest.(check int)
         "callback call keeps its stored fixed signature" 3
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_global_callback_callable
-        |> Semantic_function_call_resolution.callable_signature
-        |> Semantic_function_type_resolution.signature_parameters
-        |> List.length);
+       |> Semantic_function_call_expression_result
+          .top_level_global_callback_callable
+       |> Semantic_function_call_resolution.callable_signature
+       |> Semantic_function_type_resolution.signature_parameters |> List.length
+        );
       Alcotest.(check (list string))
         "callback defaults stay separate from provided arguments"
         [
@@ -855,8 +857,8 @@ let top_level_global_callback_calls () =
           "integer-result:provided:I64:object-value:integer-result:rank-0";
         ]
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_global_callback_fixed_results
+       |> Semantic_function_call_expression_result
+          .top_level_global_callback_fixed_results
         |> List.map top_level_fixed_description);
       let variadic = List.nth calls 4 in
       Alcotest.(check int64)
@@ -866,10 +868,10 @@ let top_level_global_callback_calls () =
       Alcotest.(check string)
         "callback publication and result keep one global identity" "CbInt"
         (first
-        |> Semantic_function_call_expression_result
-           .top_level_global_callback_global
-        |> Semantic_global_type_resolution.global_symbol
-        |> Semantic_symbol.name);
+       |> Semantic_function_call_expression_result
+          .top_level_global_callback_global
+       |> Semantic_global_type_resolution.global_symbol |> Semantic_symbol.name
+        );
       let all =
         Semantic_function_call_expression_result.top_level_all_results result
       in
@@ -1074,7 +1076,8 @@ let generated_provenance_and_purity () =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a generated call source location");
   let generated_callbacks =
-    Semantic_function_call_expression_result.top_level_global_callback_calls first
+    Semantic_function_call_expression_result.top_level_global_callback_calls
+      first
   in
   Alcotest.(check (list string))
     "generated callback calls retain deterministic identity" [ "Callback" ]

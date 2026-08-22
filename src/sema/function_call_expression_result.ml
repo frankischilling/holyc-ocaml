@@ -405,7 +405,8 @@ let top_level_global_callback_variadic_count
     (call : top_level_global_callback_call) =
   call.top_level_global_callback_variadic_count
 
-let top_level_global_callback_result_id (call : top_level_global_callback_call) =
+let top_level_global_callback_result_id (call : top_level_global_callback_call)
+    =
   call.top_level_global_callback_result_id
 
 let lastclass_previous_result substitution = substitution.previous_result_
@@ -1696,12 +1697,12 @@ and type_top_level_direct_call table members policies ~before_item_index
             ~before_item_index ~origin state fixed_arguments variadic_arguments
         with
         | Error _ as error -> error
-        | Ok (fixed_results, variadic_results, state) ->
+        | Ok (fixed_results, variadic_results, state) -> (
             let source_type =
               header |> Function_type_resolution.function_return_type
               |> Type_reference.resolved_type
             in
-            (match known_type table source_type with
+            match known_type table source_type with
             | Error _ as error -> error
             | Ok source_type ->
                 let category =
@@ -1733,7 +1734,8 @@ and type_top_level_direct_call table members policies ~before_item_index
                   (make_result ~intrinsic_conversion state ~id ~source
                      ~source_type:(Some source_type) ~category
                      ~result_class:
-                       (forwarded_class policies ~before_item_index source_type))))
+                       (forwarded_class policies ~before_item_index source_type))
+            ))
 
 and type_top_level_global_callback_call table members policies
     ~before_item_index ~intrinsic_conversion state id source call global value =
@@ -1746,15 +1748,15 @@ and type_top_level_global_callback_call table members policies
     match Global_type_resolution.global_declarator_kind global with
     | Global_type_resolution.Object ->
         invalid "top-level callback global has no function-pointer signature"
-    | Global_type_resolution.Function_pointer function_pointer ->
+    | Global_type_resolution.Function_pointer function_pointer -> (
         let callable =
           Function_call_resolution.make_callable
             ~return_type:(Global_type_resolution.global_type_reference global)
             ~function_pointer
         in
-        (match
-           Function_call_resolution.bind_indirect_arguments source_call callable
-         with
+        match
+          Function_call_resolution.bind_indirect_arguments source_call callable
+        with
         | Error error ->
             Error
               (invalid_top_level_input
@@ -1767,12 +1769,12 @@ and type_top_level_global_callback_call table members policies
                 variadic_arguments
             with
             | Error _ as error -> error
-            | Ok (fixed_results, variadic_results, state) ->
+            | Ok (fixed_results, variadic_results, state) -> (
                 let source_type =
                   callable |> Function_call_resolution.callable_return_type
                   |> Type_reference.resolved_type
                 in
-                (match known_type table source_type with
+                match known_type table source_type with
                 | Error _ as error -> error
                 | Ok source_type ->
                     let category =
@@ -1788,7 +1790,8 @@ and type_top_level_global_callback_call table members policies
                         top_level_global_callback_fixed_results = fixed_results;
                         top_level_global_callback_variadic_results =
                           variadic_results;
-                        top_level_global_callback_variadic_count = variadic_count;
+                        top_level_global_callback_variadic_count =
+                          variadic_count;
                         top_level_global_callback_result_id = id;
                       }
                     in
@@ -1804,22 +1807,22 @@ and type_top_level_global_callback_call table members policies
                       (make_result ~intrinsic_conversion state ~id ~source
                          ~source_type:(Some source_type) ~category
                          ~result_class:
-                            (forwarded_class policies ~before_item_index
-                               source_type)))))
+                           (forwarded_class policies ~before_item_index
+                              source_type)))))
 
 and type_top_level_bound_arguments table members policies ~before_item_index
     ~origin state fixed_arguments variadic_arguments =
   let invalid message = Error (invalid_top_level_input ~origin message) in
   let rec type_fixed previous state rev = function
     | [] -> Ok (List.rev rev, state)
-    | fixed :: rest ->
+    | fixed :: rest -> (
         let parameter = Function_call_resolution.fixed_parameter fixed in
         let target_class =
           Function_call_conversion_policy.parameter_target_class policies
             ~before_item_index parameter
           |> result_class_of_target
         in
-        (match Function_call_resolution.fixed_value fixed with
+        match Function_call_resolution.fixed_value fixed with
         | Function_call_resolution.Declared_default default ->
             let result =
               {
@@ -2500,11 +2503,11 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
                 (fun left right ->
                   Int.compare
                     (left.top_level_global_callback_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index)
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index)
                     (right.top_level_global_callback_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index))
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index))
                 state.top_level_global_callback_calls_rev;
             top_level_all_results =
               List.sort

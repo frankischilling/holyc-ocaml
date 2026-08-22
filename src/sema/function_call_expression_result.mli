@@ -276,8 +276,7 @@ val top_level_global_callback_variadic_results :
 val top_level_global_callback_variadic_count :
   top_level_global_callback_call -> int64
 
-val top_level_global_callback_result_id :
-  top_level_global_callback_call -> Id.t
+val top_level_global_callback_result_id : top_level_global_callback_call -> Id.t
 
 val declared_default_source :
   declared_default_result -> Function_call_resolution.default_use
