@@ -366,6 +366,7 @@ val analyze_function_headers :
 val resolve_function_calls :
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
+  ?members:Semantic_aggregate_member_index.t ->
   function_types:Semantic_function_type_resolution.t ->
   local_types:Semantic_local_type_resolution.t ->
   global_types:Semantic_global_type_resolution.t ->
@@ -373,12 +374,14 @@ val resolve_function_calls :
   expressions:Semantic_module_expression_binding.t ->
   Ast.module_ ->
   (Semantic_function_call_resolution.t, string) result
-(** Bind syntactically direct calls in function bodies to the source-visible
-    function header. Fixed slots retain provided or declared-default origins;
-    prefix and binary operands retain their recursive source views; bound
-    identifier arguments retain their checked type and declarator shape; named
-    aggregate cast targets retain the identity visible before the caller;
-    indirect and outer targets remain explicit deferred results. *)
+(** Bind calls in function bodies to the source-visible function or callback
+    header. Supplying [members] also resolves direct and pointer member
+    callbacks against the completed aggregate index. Fixed slots retain provided
+    or declared-default origins; prefix and binary operands retain their
+    recursive source views; bound identifier arguments retain their checked type
+    and declarator shape; named aggregate cast targets retain the identity
+    visible before the caller; indirect and outer targets remain explicit
+    deferred results. *)
 
 val analyze_function_call_conversions :
   Session.t ->

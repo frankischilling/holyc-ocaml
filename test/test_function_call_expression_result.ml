@@ -27,6 +27,16 @@ let substring_start source needle =
   in
   search 0
 
+let contains source needle =
+  let source_length = String.length source in
+  let needle_length = String.length needle in
+  let rec search index =
+    index + needle_length <= source_length
+    && (String.equal (String.sub source index needle_length) needle
+       || search (index + 1))
+  in
+  search 0
+
 let prepare = Test_function_call_conversion_policy.prepare
 
 let with_included_source contents apply =
@@ -3131,25 +3141,332 @@ let lastclass_provenance_and_replay_are_deterministic () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected generated lastclass provenance")
 
-let unsupported_member_callback_calls_remain_unresolved () =
-  let prepared =
-    prepare ~path:"call-expression-member-callee.HC"
-      "class Box {F64 (*callback)();};extern I64 Target(I64 value);\n\
-       I64 Caller(Box box){return Target(box.callback());}"
+let member_callback_calls_use_exact_headers () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-member-callee.HC"
+          "class Box {F64 (*callback)();};extern I64 Target(I64 value);\n\
+           I64 Caller(Box box){return Target(box.callback());}"
+      in
+      let policies, results = analyze prepared in
+      let result =
+        direct_named results "Caller" "Target" |> provided_results |> List.hd
+      in
+      Alcotest.(check (triple string string bool))
+        "member callback return feeds its enclosing call"
+        ("object-value", "f64-result", true)
+        ( result |> Semantic_function_call_expression_result.result_category
+          |> Semantic_function_call_expression_result.value_category_name,
+          result |> Semantic_function_call_expression_result.result_class
+          |> Semantic_function_call_expression_result.result_class_name,
+          result
+          |> Semantic_function_call_expression_result.result_call_resolution
+          |> Option.is_some );
+      let indirect = indirect_named results "Caller" "box" in
+      let resolved =
+        indirect |> Semantic_function_call_expression_result.indirect_source
+        |> Semantic_function_call_conversion_policy.indirect_source
+      in
+      let lookup =
+        resolved |> Semantic_function_call_resolution.indirect_member_lookup
+        |> Option.get
+      in
+      Alcotest.(check (pair string int))
+        "direct member call keeps the exact indexed member" ("callback", 0)
+        ( lookup |> Semantic_aggregate_member_index.lookup_member
+          |> Semantic_aggregate_member_index.member_symbol
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth lookup );
+      let computed =
+        resolved |> Semantic_function_call_resolution.indirect_source
+        |> Semantic_function_call_resolution.call_computed_callee |> Option.get
+      in
+      (match
+         Semantic_function_call_resolution.argument_expression_kind computed
+       with
+      | Semantic_function_call_resolution.Member_access_expression member ->
+          Alcotest.(check string)
+            "direct call keeps the member access spelling" "direct"
+            (member |> Semantic_function_call_resolution.member_access_kind
+           |> Semantic_function_call_resolution.member_access_kind_name)
+      | _ -> Alcotest.fail "expected a retained member callee");
+      let decisions =
+        Holyc_lib.decide_function_call_conversions prepared.session ~policies
+          ~expressions:results
+        |> checked_decision
+      in
+      let path =
+        decision_direct_named decisions "Caller" "Target"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name
+      in
+      Alcotest.(check string)
+        "member callback return uses the ordinary result conversion"
+        "provided:f64-result:ICF_RES_TO_INT" path)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inherited_pointer_callbacks_bind_defaults_and_varargs () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-inherited-member-callee.HC"
+          "class Base {F64 (*callback)(I64 first=1,I64 required,F64 \
+           last=3,...);};\n\
+           class Box:Base {};\n\
+           class Own {I64 (*other)();};\n\
+           F64 Caller(Box *box){return box->callback(,2,,4.0);}\n\
+           I64 Separate(Own own){return own.other();}"
+      in
+      let _, results = analyze prepared in
+      let indirect = indirect_named results "Caller" "box" in
+      let fixed =
+        Semantic_function_call_expression_result.indirect_fixed_results indirect
+      in
+      Alcotest.(check (list string))
+        "inherited callback keeps sparse fixed slots"
+        [ "default"; "I64"; "default" ]
+        (List.map
+           (fun fixed ->
+             match
+               Semantic_function_call_expression_result.fixed_path fixed
+             with
+             | Semantic_function_call_expression_result.Provided_result result
+               -> type_name result
+             | Semantic_function_call_expression_result.Declared_default_result
+                 _ -> "default")
+           fixed);
+      Alcotest.(check (list string))
+        "variadic member arguments keep their actual type" [ "F64" ]
+        (indirect
+       |> Semantic_function_call_expression_result.indirect_variadic_results
+       |> List.map type_name);
+      let resolved =
+        indirect |> Semantic_function_call_expression_result.indirect_source
+        |> Semantic_function_call_conversion_policy.indirect_source
+      in
+      let lookup =
+        resolved |> Semantic_function_call_resolution.indirect_member_lookup
+        |> Option.get
+      in
+      Alcotest.(check (triple string string int))
+        "pointer access follows the base member" ("Box", "Base", 1)
+        ( lookup |> Semantic_aggregate_member_index.lookup_queried_aggregate
+          |> Semantic_symbol.name,
+          lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth lookup );
+      let computed =
+        resolved |> Semantic_function_call_resolution.indirect_source
+        |> Semantic_function_call_resolution.call_computed_callee |> Option.get
+      in
+      (match
+         Semantic_function_call_resolution.argument_expression_kind computed
+       with
+      | Semantic_function_call_resolution.Member_access_expression member ->
+          Alcotest.(check string)
+            "pointer call keeps the member access spelling" "pointer"
+            (member |> Semantic_function_call_resolution.member_access_kind
+           |> Semantic_function_call_resolution.member_access_kind_name)
+      | _ -> Alcotest.fail "expected a retained pointer-member callee");
+      let own = indirect_named results "Separate" "own" in
+      let own =
+        own |> Semantic_function_call_expression_result.indirect_source
+        |> Semantic_function_call_conversion_policy.indirect_source
+      in
+      let own_lookup =
+        own |> Semantic_function_call_resolution.indirect_member_lookup
+        |> Option.get
+      in
+      Alcotest.(check (pair string int))
+        "an unrelated direct callback stays at depth zero" ("Own", 0)
+        ( own_lookup
+          |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth own_lookup );
+      Alcotest.(check string)
+        "direct callback keeps its own return header" "I64"
+        (own |> Semantic_function_call_resolution.indirect_callable
+       |> Semantic_function_call_resolution.callable_return_type
+       |> Semantic_type_reference.spelling))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let parenthesized_member_calls_keep_pointer_and_aggregate_returns () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-member-return-shapes.HC"
+          "class Product {};\n\
+           class Factory {I64 *(*pointer)();Product (*object)();};\n\
+           extern I64 Target(I64 *pointer,Product object);\n\
+           I64 Caller(Factory factory){return \
+           Target((factory.pointer)(),(factory.object)());}"
+      in
+      let _, results = analyze prepared in
+      let roots = direct_named results "Caller" "Target" |> provided_results in
+      Alcotest.(check (list string))
+        "parenthesized member calls keep return types" [ "I64*"; "Product" ]
+        (List.map type_name roots);
+      Alcotest.(check (list string))
+        "pointer and aggregate callback returns stay distinct"
+        [ "address-value"; "object-value" ]
+        (category_names roots);
+      let member_names =
+        List.map
+          (fun result ->
+            match
+              Semantic_function_call_expression_result.result_call_resolution
+                result
+            with
+            | Some (Semantic_function_call_resolution.Indirect_call call) ->
+                call |> Semantic_function_call_resolution.indirect_member_lookup
+                |> Option.get |> Semantic_aggregate_member_index.lookup_member
+                |> Semantic_aggregate_member_index.member_symbol
+                |> Semantic_symbol.name
+            | Some (Semantic_function_call_resolution.Direct_call _)
+            | Some (Semantic_function_call_resolution.Deferred_call _)
+            | None -> Alcotest.fail "expected a resolved member callback")
+          roots
+      in
+      Alcotest.(check (list string))
+        "each parenthesized call keeps its terminal member"
+        [ "pointer"; "object" ] member_names)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_definition_member_calls_replay_without_mutation () =
+  with_included_source
+    "#define RUN box.callback()\n\
+     class Box {F64 (*callback)();};extern I64 Target(I64 value);\n\
+     I64 Caller(Box box){return Target(RUN);}" (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let first = run () in
+      let second = run () in
+      let describe results =
+        let result =
+          direct_named results "Caller" "Target" |> provided_results |> List.hd
+        in
+        ( type_name result,
+          result |> Semantic_function_call_expression_result.result_class
+          |> Semantic_function_call_expression_result.result_class_name,
+          result |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int )
+      in
+      Alcotest.(check (triple string string int))
+        "definition-backed member calls replay identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "member call typing leaves symbols unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let result =
+        direct_named first "Caller" "Target" |> provided_results |> List.hd
+      in
+      match Semantic_function_call_expression_result.result_origin result with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "member call return keeps its definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included definition provenance")
+
+let call_member_index (prepared : Test_function_call_resolution.prepared) =
+  let aggregates =
+    Holyc_lib.resolve_aggregates prepared.session
+      ~declarations:prepared.declarations prepared.ast
+    |> checked_type
   in
-  let _, results = analyze prepared in
-  let result =
-    direct_named results "Caller" "Target" |> provided_results |> List.hd
+  let headers =
+    Holyc_lib.resolve_aggregate_headers prepared.session
+      ~declarations:prepared.declarations ~aggregates prepared.ast
+    |> checked_type
   in
-  Alcotest.(check (triple string string bool))
-    "member callback calls are not assigned a guessed type"
-    ("unavailable", "unresolved", false)
-    ( result |> Semantic_function_call_expression_result.result_category
-      |> Semantic_function_call_expression_result.value_category_name,
-      result |> Semantic_function_call_expression_result.result_class
-      |> Semantic_function_call_expression_result.result_class_name,
-      result |> Semantic_function_call_expression_result.result_call_resolution
-      |> Option.is_some )
+  let collected =
+    Holyc_lib.collect_members prepared.session
+      ~declarations:prepared.declarations prepared.ast
+    |> checked_type
+  in
+  let typed =
+    Holyc_lib.resolve_member_types prepared.session
+      ~declarations:prepared.declarations ~aggregates ~headers
+      ~members:collected prepared.ast
+    |> checked_type
+  in
+  let layouts =
+    Holyc_lib.layout_aggregates prepared.session
+      ~declarations:prepared.declarations ~aggregates ~headers ~members:typed
+      prepared.ast
+    |> checked_type
+  in
+  Holyc_lib.index_aggregate_members prepared.session
+    ~declarations:prepared.declarations ~headers ~members:typed ~layouts
+
+let resolve_prepared_member_calls
+    (prepared : Test_function_call_resolution.prepared) members =
+  Holyc_lib.resolve_function_calls prepared.session
+    ~declarations:prepared.declarations ~members
+    ~function_types:prepared.function_types ~local_types:prepared.local_types
+    ~global_types:prepared.global_types ~functions:prepared.functions
+    ~expressions:prepared.module_expressions prepared.ast
+
+let invalid_member_callees_report_the_access_site () =
+  let invalid source expected =
+    let prepared =
+      Test_function_call_resolution.prepare ~path:"invalid-member-callee.HC"
+        source
+    in
+    let members = call_member_index prepared |> checked_type in
+    match resolve_prepared_member_calls prepared members with
+    | Ok _ -> Alcotest.fail "expected an invalid member callback call"
+    | Error message ->
+        Alcotest.(check bool)
+          "member call uses the stable semantic diagnostic" true
+          (String.starts_with ~prefix:"HCSEMA0039: " message);
+        Alcotest.(check bool)
+          "member call explains the invalid access" true
+          (contains message expected)
+  in
+  invalid "class Box {I64 value;};I64 Caller(Box box){return box.value();}"
+    "is not callable";
+  invalid
+    "class Box {I64 (*callback)();};I64 Caller(Box *box){return \
+     box.callback();}"
+    "direct member access requires an aggregate object";
+  invalid
+    "class Box {I64 (*callback)();};I64 Caller(Box box){return \
+     box->callback();}"
+    "pointer member access requires a pointer to an aggregate";
+  invalid "I64 Caller(){return unknown.callback();}"
+    "does not have a statically resolved source type";
+  let first =
+    Test_function_call_resolution.prepare ~path:"member-callee-owner.HC"
+      "class Box {I64 (*callback)();};I64 Caller(Box box){return \
+       box.callback();}"
+  in
+  let second =
+    Test_function_call_resolution.prepare ~path:"foreign-member-callee.HC"
+      "class Other {I64 (*callback)();};I64 Caller(Other other){return \
+       other.callback();}"
+  in
+  let foreign_members = call_member_index second |> checked_type in
+  match resolve_prepared_member_calls first foreign_members with
+  | Ok _ -> Alcotest.fail "expected a foreign member index to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "foreign member indexes are rejected before lookup"
+        "HCSEMA0039: aggregate member index belongs to another symbol table"
+        message
 
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
@@ -3290,8 +3607,16 @@ let tests =
       lastclass_defaults_follow_previous_provided_results;
     Alcotest.test_case "lastclass provenance and replay" `Quick
       lastclass_provenance_and_replay_are_deterministic;
-    Alcotest.test_case "unsupported member callback call" `Quick
-      unsupported_member_callback_calls_remain_unresolved;
+    Alcotest.test_case "member callback call headers" `Quick
+      member_callback_calls_use_exact_headers;
+    Alcotest.test_case "inherited member callback slots" `Quick
+      inherited_pointer_callbacks_bind_defaults_and_varargs;
+    Alcotest.test_case "member callback return shapes" `Quick
+      parenthesized_member_calls_keep_pointer_and_aggregate_returns;
+    Alcotest.test_case "member callback provenance and replay" `Quick
+      included_definition_member_calls_replay_without_mutation;
+    Alcotest.test_case "invalid member callback callees" `Quick
+      invalid_member_callees_report_the_access_site;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

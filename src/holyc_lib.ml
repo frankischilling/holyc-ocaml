@@ -255,11 +255,11 @@ let analyze_function_headers session ~functions inputs =
     ~table:(Session.semantic_symbols session)
     ~functions inputs
 
-let resolve_function_calls session ~declarations ~function_types ~local_types
-    ~global_types ~functions ~expressions module_ =
+let resolve_function_calls session ~declarations ?members ~function_types
+    ~local_types ~global_types ~functions ~expressions module_ =
   Driver.Function_call_resolution.resolve
     ~table:(Session.semantic_symbols session)
-    ~declarations ~function_types ~local_types ~global_types ~functions
+    ~declarations ?members ~function_types ~local_types ~global_types ~functions
     ~expressions module_
 
 let analyze_function_call_conversions session ~declarations ~headers ~calls =

@@ -100,6 +100,10 @@ let direct_and_missing_lookup () =
         (Primitive_type.to_string primitive)
   | Semantic_type.Aggregate _ -> Alcotest.fail "expected a primitive member");
   Alcotest.(check bool) "ordinary member" false first.member.is_function_pointer;
+  Alcotest.(check bool)
+    "ordinary member has no callback signature" true
+    (Semantic_aggregate_member_index.member_function_pointer first.member
+    |> Option.is_none);
   let values = expect_lookup results direct "values" in
   Alcotest.(check (list int64))
     "array dimensions" [ 2L ] values.member.layout.dimensions;
@@ -108,6 +112,15 @@ let direct_and_missing_lookup () =
   Alcotest.(check bool)
     "callback marker" true callback.member.is_function_pointer;
   Alcotest.(check int64) "callback storage" 8L callback.member.layout.size;
+  let callback_signature =
+    callback.member |> Semantic_aggregate_member_index.member_function_pointer
+    |> Option.get
+    |> Semantic_function_type_resolution.function_pointer_signature
+  in
+  Alcotest.(check int)
+    "callback signature keeps its fixed slot" 1
+    (callback_signature
+   |> Semantic_function_type_resolution.signature_parameters |> List.length);
   Alcotest.(check (option int))
     "missing member" None
     (lookup results direct "missing"
@@ -206,6 +219,13 @@ let ordinary_duplicates_are_rejected () =
       "class Base { I8 value; }; class Bad : Base { I16 value; };"
   in
   check_prefix "HCSEMA0012:" (index_error inherited_session inherited);
+  let callback_session = Session.create () in
+  let callback =
+    parse callback_session ~path:"inherited-callback-duplicate.HC"
+      "class Base { I64 (*callback)(); }; class Bad : Base { F64 \
+       (*callback)(); };"
+  in
+  check_prefix "HCSEMA0012:" (index_error callback_session callback);
   let case_session = Session.create () in
   let case_sensitive =
     parse case_session ~path:"padding-case-duplicate.HC"
@@ -251,15 +271,17 @@ let low_level_input aggregate layout =
         let reference =
           Semantic_member_type_resolution.member_type_reference fact
         in
-        let member_is_function_pointer =
+        let member_function_pointer =
           match Semantic_member_type_resolution.member_declarator_kind fact with
-          | Semantic_member_type_resolution.Object -> false
-          | Semantic_member_type_resolution.Function_pointer _ -> true
+          | Semantic_member_type_resolution.Object -> None
+          | Semantic_member_type_resolution.Function_pointer pointer ->
+              Some pointer
         in
         {
           member_type =
             Semantic_member_type_resolution.type_reference_type reference;
-          member_is_function_pointer;
+          member_type_reference = reference;
+          member_function_pointer;
           member_layout;
         })
       facts members
@@ -306,7 +328,7 @@ let low_level_failures_are_typed_and_pure () =
   let foreign_session = Session.create () in
   let foreign_ast =
     parse foreign_session ~path:"member-index-foreign.HC"
-      "class Foreign { I8 member; };"
+      "class Foreign { I8 member; I64 (*callback)(Foreign value); };"
   in
   let foreign = resolve foreign_session foreign_ast in
   let foreign_symbol = (aggregate_named foreign "Foreign").symbol in
@@ -326,6 +348,26 @@ let low_level_failures_are_typed_and_pure () =
   check_error "HCSEMA0010"
     (Semantic_aggregate_member_index.build ~table ~parent
        [ foreign_member_type ]);
+  let foreign_pointer =
+    let foreign_aggregate = aggregate_named foreign "Foreign" in
+    expect_lookup foreign foreign_aggregate "callback" |> fun lookup ->
+    Semantic_aggregate_member_index.member_function_pointer lookup.member
+    |> Option.get
+  in
+  let foreign_callback_type =
+    match base.aggregate_members with
+    | [] -> Alcotest.fail "expected a base member"
+    | member :: rest ->
+        {
+          base with
+          aggregate_members =
+            { member with member_function_pointer = Some foreign_pointer }
+            :: rest;
+        }
+  in
+  check_error "HCSEMA0010"
+    (Semantic_aggregate_member_index.build ~table ~parent
+       [ foreign_callback_type ]);
   Alcotest.(check int)
     "failed indexes do not add symbols" symbol_count
     (Semantic_symbol_table.all_symbols table |> List.length);

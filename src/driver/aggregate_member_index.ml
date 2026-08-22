@@ -99,15 +99,16 @@ let member_input table fact layout =
   Result.map
     (fun () ->
       let reference = Sema.Member_type_resolution.member_type_reference fact in
-      let member_is_function_pointer =
+      let member_function_pointer =
         match Sema.Member_type_resolution.member_declarator_kind fact with
-        | Sema.Member_type_resolution.Object -> false
-        | Sema.Member_type_resolution.Function_pointer _ -> true
+        | Sema.Member_type_resolution.Object -> None
+        | Sema.Member_type_resolution.Function_pointer pointer -> Some pointer
       in
       {
         Sema.Aggregate_member_index.member_type =
           Sema.Member_type_resolution.type_reference_type reference;
-        member_is_function_pointer;
+        member_type_reference = reference;
+        member_function_pointer;
         member_layout = layout;
       })
     (validate_member table fact layout)

@@ -33,7 +33,7 @@ This state is input to later compiler work, not an allocation result. `OPTf_NO_R
 
 `Compiler/PrsVar.HC:PrsType` parses a parenthesized function-pointer declarator and calls `PrsFunJoin` with a null name for its signature metadata. One through four stars inside the declarator determine the function-pointer type, while any stars between the primitive type and the declarator belong to the callback return type. `PrsVarLst` stores the returned function metadata in `CMemberLst.fun_ptr` and sets `MLF_FUN`. The parser keeps these parts separate in a recursive AST and accepts empty, fixed, variadic, and nested callback signatures. Semantic aggregate members retain the complete recursive signature and the checked `MLF_FUN` mask `0x8`; ordinary aggregate members carry zero.
 
-This is syntax and metadata capture, not ABI implementation. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
+This is syntax and metadata capture, not ABI implementation. Checked direct and pointer member calls now recover the exact stored callback header through `MLF_FUN` and use it for semantic slots and return typing. They do not read the field or decide its machine address. Function type compatibility, indirect-call lowering, calling flags inside callback types, register assignment, and native invocation remain unavailable.
 
 ## Resolved signature facts
 

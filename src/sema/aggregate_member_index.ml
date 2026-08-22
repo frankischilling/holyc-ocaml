@@ -1,6 +1,7 @@
 type member_input = {
   member_type : Type.t;
-  member_is_function_pointer : bool;
+  member_type_reference : Type_reference.t;
+  member_function_pointer : Function_type_resolution.function_pointer option;
   member_layout : Aggregate_layout.member_layout;
 }
 
@@ -14,7 +15,9 @@ type member = {
   symbol : Symbol.t;
   declaring_aggregate : Symbol.t;
   member_type : Type.t;
+  member_type_reference : Type_reference.t;
   is_function_pointer : bool;
+  function_pointer : Function_type_resolution.function_pointer option;
   layout : Aggregate_layout.member_layout;
 }
 
@@ -67,6 +70,17 @@ type error = {
 
 let symbol_key symbol = Symbol.id symbol |> Symbol.Id.to_int
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
+
+let same_type left right =
+  Type.pointer_depth left = Type.pointer_depth right
+  &&
+  match (Type.base left, Type.base right) with
+  | Type.Primitive (left_form, left), Type.Primitive (right_form, right) ->
+      left_form = right_form && Primitive_type.equal left right
+  | Type.Aggregate left, Type.Aggregate right -> same_symbol left right
+  | Type.Primitive _, Type.Aggregate _ | Type.Aggregate _, Type.Primitive _ ->
+      false
+
 let make_error ?origin code kind message = { code; kind; origin; message }
 
 let invalid_input ?origin message =
@@ -182,6 +196,30 @@ let validate_type table origin type_ =
           (invalid_input ~origin
              "aggregate member type belongs to a different symbol table")
 
+let rec validate_function_pointer table origin pointer =
+  let rec parameters = function
+    | [] -> Ok ()
+    | parameter :: rest -> (
+        let reference =
+          Function_type_resolution.parameter_type_reference parameter
+        in
+        match
+          validate_type table origin (Type_reference.resolved_type reference)
+        with
+        | Error _ as error -> error
+        | Ok () -> (
+            match
+              Function_type_resolution.parameter_declarator_kind parameter
+            with
+            | Function_type_resolution.Object -> parameters rest
+            | Function_type_resolution.Function_pointer nested -> (
+                match validate_function_pointer table origin nested with
+                | Error _ as error -> error
+                | Ok () -> parameters rest)))
+  in
+  pointer |> Function_type_resolution.function_pointer_signature
+  |> Function_type_resolution.signature_parameters |> parameters
+
 let validate_member table scope seen_symbols aggregate_symbol input =
   let layout = input.member_layout in
   let symbol = layout.symbol in
@@ -218,18 +256,36 @@ let validate_member table scope seen_symbols aggregate_symbol input =
     Error
       (invalid_input ~origin:layout.origin
          "aggregate member declarator index cannot be negative")
+  else if
+    not
+      (same_type input.member_type
+         (Type_reference.resolved_type input.member_type_reference))
+  then
+    Error
+      (invalid_input ~origin:layout.origin
+         "aggregate member type reference disagrees with its resolved type")
   else
-    Result.map
-      (fun () ->
-        ( Int_set.add key seen_symbols,
-          {
-            symbol;
-            declaring_aggregate = aggregate_symbol;
-            member_type = input.member_type;
-            is_function_pointer = input.member_is_function_pointer;
-            layout;
-          } ))
-      (validate_type table layout.origin input.member_type)
+    Result.bind (validate_type table layout.origin input.member_type) (fun () ->
+        let pointer_validation =
+          match input.member_function_pointer with
+          | None -> Ok ()
+          | Some pointer ->
+              validate_function_pointer table layout.origin pointer
+        in
+        Result.map
+          (fun () ->
+            ( Int_set.add key seen_symbols,
+              {
+                symbol;
+                declaring_aggregate = aggregate_symbol;
+                member_type = input.member_type;
+                member_type_reference = input.member_type_reference;
+                is_function_pointer =
+                  Option.is_some input.member_function_pointer;
+                function_pointer = input.member_function_pointer;
+                layout;
+              } ))
+          pointer_validation)
 
 let validate_scope table parent layout scope =
   if not (Symbol_table.owns_scope table scope) then
@@ -426,7 +482,9 @@ let lookup_inheritance_depth (lookup : lookup) = lookup.inheritance_depth
 let lookup_member (lookup : lookup) = lookup.member
 let member_symbol (member : member) = member.symbol
 let member_type (member : member) = member.member_type
+let member_type_reference (member : member) = member.member_type_reference
 let member_is_function_pointer (member : member) = member.is_function_pointer
+let member_function_pointer (member : member) = member.function_pointer
 let member_layout (member : member) = member.layout
 
 let find_indexed result symbol =

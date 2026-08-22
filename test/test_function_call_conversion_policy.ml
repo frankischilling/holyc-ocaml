@@ -104,8 +104,8 @@ let finish_prepare mode session ast =
   let calls =
     checked
       (Holyc_lib.resolve_function_calls session ~declarations ~function_types
-         ~local_types ~global_types ~functions ~expressions:module_expressions
-         ast)
+         ~members ~local_types ~global_types ~functions
+         ~expressions:module_expressions ast)
   in
   { session; declarations; headers; members; calls }
 
