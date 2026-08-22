@@ -6,6 +6,12 @@ let checked_decision = function
       error |> Semantic_function_call_conversion_decision.error_to_string
       |> Alcotest.fail
 
+let checked_expression_results = function
+  | Ok value -> value
+  | Error error ->
+      error |> Semantic_function_call_expression_result.error_to_string
+      |> Alcotest.fail
+
 let prepare = Test_function_call_conversion_policy.prepare
 
 let with_included_source contents apply =
@@ -55,7 +61,13 @@ let decide prepared =
     Test_function_call_conversion_policy.analyze prepared
     |> Test_function_call_conversion_policy.checked_policy
   in
+  let expressions =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_expression_results
+  in
   Holyc_lib.decide_function_call_conversions prepared.session ~policies
+    ~expressions
 
 let function_named result name =
   Semantic_function_call_conversion_decision.functions result
@@ -66,6 +78,8 @@ let function_named result name =
 
 let direct = function
   | Semantic_function_call_conversion_decision.Direct_call_decision call -> call
+  | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
       Alcotest.fail "expected a direct call conversion decision"
 
@@ -93,6 +107,8 @@ let direct_named result owner callee =
           |> Semantic_function_call_resolution.call_callee_name
         in
         if String.equal name callee then Some call else None
+    | Semantic_function_call_conversion_decision.Indirect_call_decision _ ->
+        None
     | Semantic_function_call_conversion_decision.Deferred_call_decision _ ->
         None)
   |> function
@@ -135,6 +151,43 @@ let prefix_parts expression =
   with
   | Semantic_function_call_resolution.Prefix_expression prefix -> prefix
   | _ -> Alcotest.fail "expected a retained prefix expression"
+
+let postfix_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Postfix_expression postfix -> postfix
+  | _ -> Alcotest.fail "expected a retained postfix expression"
+
+let binary_parts expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Binary_expression binary -> binary
+  | _ -> Alcotest.fail "expected a retained binary expression"
+
+let bound_identifier expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Bound_identifier_expression identifier ->
+      identifier
+  | _ -> Alcotest.fail "expected a retained bound identifier"
+
+let bound_resolution_name identifier =
+  let occurrence =
+    Semantic_function_call_resolution.bound_identifier_occurrence identifier
+  in
+  match Semantic_module_expression_binding.occurrence_resolution occurrence with
+  | Semantic_module_expression_binding.Local_binding binding ->
+      "local:"
+      ^ (binding |> Semantic_function_binding_index.binding_kind
+       |> Semantic_function_binding_index.binding_kind_name)
+  | Semantic_module_expression_binding.Module_binding publication ->
+      "module:"
+      ^ (publication |> Semantic_module_expression_binding.publication_kind
+       |> Semantic_module_expression_binding.publication_kind_name)
+  | Semantic_module_expression_binding.Outer_candidate -> "outer"
 
 let literal_directions_and_expression_retention () =
   let prepared =
@@ -220,29 +273,29 @@ let source_expression_classes_stay_explicit () =
     |> Semantic_function_call_conversion_decision.direct_fixed_decisions
   in
   Alcotest.(check (list string))
-    "known primaries and unresolved actual classes remain explicit"
+    "known primaries and retained expression classes remain explicit"
     [
-      "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
       "provided:integer-result:ICF_RES_TO_F64";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
     ]
     (fixed
     |> List.map (fun fixed ->
         fixed |> Semantic_function_call_conversion_decision.fixed_path
         |> Semantic_function_call_conversion_decision.fixed_path_name));
   Alcotest.(check (list string))
-    "every unresolved top-level source kind remains named"
+    "every retained top-level source kind remains named"
     [
-      "identifier";
+      "bound-identifier";
       "current-position";
       "sizeof";
       "offset";
@@ -285,10 +338,10 @@ let prefix_directions_and_retention () =
       "provided:f64-result:ICF_RES_TO_INT";
       "provided:integer-result:ICF_RES_TO_F64";
       "provided:f64-result:ICF_RES_TO_INT";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
-      "provided:unresolved:unresolved";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
+      "provided:integer-result:ICF_RES_TO_F64";
     ]
     (fixed
     |> List.map (fun fixed ->
@@ -320,6 +373,95 @@ let prefix_directions_and_retention () =
     (List.nth prefixes 5 |> Semantic_function_call_resolution.prefix_operand
    |> Semantic_function_call_resolution.argument_expression_kind
    |> Semantic_function_call_resolution.argument_expression_kind_name)
+
+let bitwise_complement_is_an_integer_result () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-complement.HC"
+          "F64 class FloatBox {};\n\
+           extern I64 Target(F64 integer,I64 float,F64 backed,F64 binary,F64 \
+           outer,I64 nested);\n\
+           I64 Caller(I64 value){return \
+           Target(~1,~2.5,~value(FloatBox),~(1+2.5),~OuterValue,~(~2.5));}"
+      in
+      Alcotest.(check (list string))
+        "complement produces an integer result for every retained operand shape"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:none";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:none";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          only_direct result "Caller" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated =
+    prepare ~path:"call-decision-complement-generated.HC"
+      "#define COM ~\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(COM 2.5);}"
+  in
+  let table = Session.semantic_symbols generated.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "replaying complement classification is stable"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "replaying complement classification leaves symbols unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let prefix =
+    only_direct first "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> prefix_parts
+  in
+  (match Semantic_function_call_resolution.prefix_operator_origin prefix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated complement keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated complement keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated complement provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(){return Target(~2.5);}"
+    (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included complement keeps its integer result"
+        "provided:integer-result:none"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let location =
+        match
+          fixed |> provided_expression |> prefix_parts
+          |> Semantic_function_call_resolution.prefix_operator_origin
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included complement provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included complement keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
 
 let prefix_source_order_modes_and_provenance () =
   List.iter
@@ -407,6 +549,438 @@ let prefix_constructor_validation () =
       Alcotest.(check string)
         "invalid prefix origin"
         "call argument prefix operator has an invalid source origin" message
+
+let prefix_update_directions_and_provenance () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-prefix-updates.HC"
+          "extern I64 Target(F64 int_inc,I64 float_dec,F64 float_inc,I64 \
+           unresolved_dec);\n\
+           I64 Caller(I64 int_inc,F64 float_dec,F64 float_inc,I64 \
+           value){return Target(++int_inc,--float_dec,++float_inc,--value);}"
+      in
+      Alcotest.(check (list string))
+        "prefix updates forward audited operand classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:f64-result:none";
+          "provided:integer-result:none";
+        ]
+        ( decide prepared |> checked_decision |> fun result ->
+          only_direct result "Caller" |> path_names ))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated =
+    prepare ~path:"call-decision-prefix-update-generated.HC"
+      "#define STEP ++\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(I64 value){return Target(STEP value);}"
+  in
+  let prefix =
+    decide generated |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> prefix_parts
+  in
+  (match Semantic_function_call_resolution.prefix_operator_origin prefix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated prefix update keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated prefix update keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated prefix update provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(F64 value){return \
+     Target(--value);}" (fun included ->
+      let prefix =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> prefix_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.prefix_operator_origin prefix
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included prefix update provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included prefix update keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
+let postfix_directions_and_retention () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-postfixes.HC"
+          "extern I64 Target(F64 int_inc,I64 float_dec,I64 grouped_inc,F64 \
+           binary_inc,F64 unresolved_dec);\n\
+           I64 Caller(I64 int_inc,F64 float_dec,F64 grouped_inc,I64 \
+           binary_inc,I64 value){return \
+           Target(int_inc++,float_dec--,(grouped_inc)++,binary_inc++,value--);}"
+      in
+      let fixed =
+        decide prepared |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+      in
+      Alcotest.(check (list string))
+        "postfix expressions forward their audited operand classes"
+        [
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:ICF_RES_TO_F64";
+          "provided:integer-result:ICF_RES_TO_F64";
+        ]
+        (fixed
+        |> List.map (fun decision ->
+            decision |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name));
+      let postfixes =
+        fixed
+        |> List.map (fun decision ->
+            decision |> provided_expression |> postfix_parts)
+      in
+      Alcotest.(check (list string))
+        "postfix operators stay explicit"
+        [
+          "post-increment";
+          "post-decrement";
+          "post-increment";
+          "post-increment";
+          "post-decrement";
+        ]
+        (postfixes
+        |> List.map (fun postfix ->
+            postfix |> Semantic_function_call_resolution.postfix_operator
+            |> Semantic_function_call_resolution.postfix_operator_name));
+      Alcotest.(check string)
+        "the grouped postfix operand keeps its grouping" "parenthesized"
+        (List.nth postfixes 2
+       |> Semantic_function_call_resolution.postfix_operand
+       |> Semantic_function_call_resolution.argument_expression_kind
+       |> Semantic_function_call_resolution.argument_expression_kind_name))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let postfix_provenance () =
+  let generated =
+    prepare ~path:"call-decision-postfix-generated.HC"
+      "#define STEP ++\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(I64 value){return Target((value)STEP);}"
+  in
+  let postfix =
+    decide generated |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> postfix_parts
+  in
+  (match Semantic_function_call_resolution.postfix_operator_origin postfix with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated postfix keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated postfix keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated postfix provenance");
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(I64 value){return \
+     Target((value)--);}" (fun included ->
+      let postfix =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> postfix_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.postfix_operator_origin postfix
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included postfix provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included postfix keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
+let postfix_constructor_validation () =
+  let operand =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "postfix operand")
+  in
+  match
+    Semantic_function_call_resolution.make_postfix_argument_expression
+      ~operator:Semantic_function_call_resolution.Post_increment
+      ~operator_origin:(Semantic_symbol.Synthesized "") ~operand
+  with
+  | Ok _ -> Alcotest.fail "expected an invalid postfix origin to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "invalid postfix origin"
+        "call argument postfix operator has an invalid source origin" message
+
+let binary_operator_inventory_and_assignments () =
+  let cases =
+    [
+      ("1`2", "IC_POWER", "provided:f64-result:none");
+      ("1<<2", "IC_SHL", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>>2", "IC_SHR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1*2", "IC_MUL", "provided:integer-result:ICF_RES_TO_F64");
+      ("1/2", "IC_DIV", "provided:integer-result:ICF_RES_TO_F64");
+      ("1%2", "IC_MOD", "provided:integer-result:ICF_RES_TO_F64");
+      ("1&2", "IC_AND", "provided:integer-result:ICF_RES_TO_F64");
+      ("1^2", "IC_XOR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1|2", "IC_OR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1+2", "IC_ADD", "provided:integer-result:ICF_RES_TO_F64");
+      ("1-2", "IC_SUB", "provided:integer-result:ICF_RES_TO_F64");
+      ("1<2", "IC_LESS", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>2", "IC_GREATER", "provided:integer-result:ICF_RES_TO_F64");
+      ("1<=2", "IC_LESS_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1>=2", "IC_GREATER_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1==2", "IC_EQU_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1!=2", "IC_NOT_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("1&&2", "IC_AND_AND", "provided:integer-result:ICF_RES_TO_F64");
+      ("1^^2", "IC_XOR_XOR", "provided:integer-result:ICF_RES_TO_F64");
+      ("1||2", "IC_OR_OR", "provided:integer-result:ICF_RES_TO_F64");
+      ("value=1", "IC_ASSIGN", "provided:integer-result:ICF_RES_TO_F64");
+      ("value<<=1", "IC_SHL_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value>>=1", "IC_SHR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value*=1", "IC_MUL_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value/=1", "IC_DIV_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value%=1", "IC_MOD_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value&=1", "IC_AND_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value|=1", "IC_OR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value^=1", "IC_XOR_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value+=1", "IC_ADD_EQU", "provided:integer-result:ICF_RES_TO_F64");
+      ("value-=1", "IC_SUB_EQU", "provided:integer-result:ICF_RES_TO_F64");
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 p%d" index) cases
+    |> String.concat ","
+  in
+  let arguments =
+    cases |> List.map (fun (source, _, _) -> source) |> String.concat ","
+  in
+  let prepared =
+    prepare ~path:"call-decision-binary-inventory.HC"
+      (Printf.sprintf
+         "extern I64 Target(%s);I64 Caller(I64 value){return Target(%s);}"
+         parameters arguments)
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  let checked_names =
+    Operator.binary_operators
+    |> List.map (fun (operator : Operator.binary_operator) -> operator.ic_name)
+  in
+  Alcotest.(check int)
+    "the fixture covers the complete binary table"
+    (List.length checked_names)
+    (List.length cases);
+  Alcotest.(check (list string))
+    "binary operators retain the generated IC identity" checked_names
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> provided_expression |> binary_parts
+        |> Semantic_function_call_resolution.binary_operator
+        |> Semantic_function_call_resolution.binary_operator_name));
+  let first_binary = List.hd fixed |> provided_expression |> binary_parts in
+  Alcotest.(check (list string))
+    "binary operands remain independently recursive"
+    [ "integer-literal"; "integer-literal" ]
+    ([
+       Semantic_function_call_resolution.binary_left first_binary;
+       Semantic_function_call_resolution.binary_right first_binary;
+     ]
+    |> List.map (fun expression ->
+        expression |> Semantic_function_call_resolution.argument_expression_kind
+        |> Semantic_function_call_resolution.argument_expression_kind_name));
+  Alcotest.(check (list string))
+    "binary families select or defer their source result class"
+    (cases |> List.map (fun (_, _, path) -> path))
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name))
+
+let binary_result_joins_and_nesting () =
+  let prepared =
+    prepare ~path:"call-decision-binary-joins.HC"
+      "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+       i,I64 j);\n\
+       I64 Caller(I64 value,I64 other){return \
+       Target(1+2.5,2.5+1,2.5+3.5,1+2,value+2.5,value+1,value`other,value<other,value&&other,-(1+2.5));}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "binary result classes follow the pinned operator families"
+    [
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:none";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:none";
+      "provided:f64-result:ICF_RES_TO_INT";
+      "provided:integer-result:none";
+      "provided:integer-result:none";
+      "provided:f64-result:ICF_RES_TO_INT";
+    ]
+    (fixed
+    |> List.map (fun fixed ->
+        fixed |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  let nested = List.nth fixed 9 |> provided_expression |> prefix_parts in
+  let nested_kind =
+    nested |> Semantic_function_call_resolution.prefix_operand
+    |> Semantic_function_call_resolution.argument_expression_kind
+  in
+  let nested_binary =
+    match nested_kind with
+    | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+        grouped
+    | _ -> Alcotest.fail "expected parentheses inside the prefix expression"
+  in
+  Alcotest.(check string)
+    "a prefix retains its nested binary expression" "binary"
+    (nested_binary |> Semantic_function_call_resolution.argument_expression_kind
+   |> Semantic_function_call_resolution.argument_expression_kind_name)
+
+let binary_source_order_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-binary-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           extern class Later;\n\
+           I64 Before(I64 value){return Target(value(Later)+1);}\n\
+           F64 class Later {};\n\
+           I64 After(I64 value){return Target(value(Later)+1);}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "an earlier binary cast uses the unbacked class"
+        [ "provided:integer-result:none" ]
+        (only_direct result "Before" |> path_names);
+      Alcotest.(check (list string))
+        "a later binary cast sees the published F64 backing"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "After" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let binary_provenance_and_constructor_validation () =
+  let generated =
+    prepare ~path:"call-decision-binary-generated.HC"
+      "#define PLUS +\n\
+       extern I64 Target(F64 value);\n\
+       I64 Caller(){return Target(1 PLUS 2);}"
+  in
+  let table = Session.semantic_symbols generated.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "repeated binary decisions are deterministic"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "binary decisions do not mutate symbols" before
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let binary =
+    only_direct first "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> binary_parts
+  in
+  (match Semantic_function_call_resolution.binary_operator_origin binary with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated binary operator keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated binary operator keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated binary operator provenance");
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(){return Target(1+2);}"
+    (fun included ->
+      let binary =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd |> provided_expression |> binary_parts
+      in
+      let location =
+        match
+          Semantic_function_call_resolution.binary_operator_origin binary
+        with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included binary operator provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included binary operator keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename));
+  let operand =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:(Semantic_symbol.Synthesized "binary operand")
+  in
+  let make operator operator_origin =
+    Semantic_function_call_resolution.make_binary_argument_expression ~operator
+      ~operator_origin ~left:operand ~right:operand
+  in
+  (match
+     make Ir_opcode.Ic_addr (Semantic_symbol.Synthesized "binary operator")
+   with
+  | Ok _ -> Alcotest.fail "expected a nonbinary IC to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "nonbinary IC rejection" "IC_ADDR is not a checked binary operator"
+        message);
+  match make Ir_opcode.Ic_add (Semantic_symbol.Synthesized "") with
+  | Ok _ -> Alcotest.fail "expected an invalid binary origin to fail"
+  | Error message ->
+      Alcotest.(check string)
+        "invalid binary origin"
+        "call argument binary operator has an invalid source origin" message
 
 let primitive_postfix_cast_directions_and_retention () =
   let prepared =
@@ -950,14 +1524,262 @@ let integer_primary_provenance_and_purity () =
         "included primary keeps its source file" "calls.HC"
         (Source_file.path source_file |> Filename.basename))
 
+let bound_scalar_identifiers_use_resolved_types () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-bound-scalars.HC"
+          "F64 class FloatBox {};class Plain {};\n\
+           I64 global_i;F64 global_f;FloatBox global_box;Plain global_plain;\n\
+           extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 \
+           h,I64 i,I64 j,I64 k,I64 l);\n\
+           I64 Caller(I64 param_i,F64 param_f){I64 local_i;F64 local_f;static \
+           I64 static_i;static F64 static_f;FloatBox box;Plain plain;return \
+           Target(param_i,param_f,local_i,local_f,static_i,static_f,global_i,global_f,box,plain,global_box,global_plain);}"
+      in
+      let fixed =
+        decide prepared |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+      in
+      Alcotest.(check (list string))
+        "parameters, locals, statics, globals, and aggregates use checked types"
+        [
+          "provided:integer-result:none";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+          "provided:f64-result:ICF_RES_TO_INT";
+          "provided:integer-result:none";
+        ]
+        (fixed
+        |> List.map (fun decision ->
+            decision |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name));
+      Alcotest.(check (list string))
+        "scalar identifier nodes keep object value shapes"
+        (List.init 12 (fun _ -> "object"))
+        (fixed
+        |> List.map (fun decision ->
+            decision |> provided_expression |> bound_identifier
+            |> Semantic_function_call_resolution.bound_identifier_shape
+            |> Semantic_function_call_resolution.identifier_value_shape_name));
+      Alcotest.(check (list string))
+        "identifier nodes retain their stable binding categories"
+        [
+          "local:named-parameter";
+          "local:named-parameter";
+          "local:automatic-local";
+          "local:automatic-local";
+          "local:static-local";
+          "local:static-local";
+          "module:global-variable";
+          "module:global-variable";
+          "local:automatic-local";
+          "local:automatic-local";
+          "module:global-variable";
+          "module:global-variable";
+        ]
+        (fixed
+        |> List.map (fun decision ->
+            decision |> provided_expression |> bound_identifier
+            |> bound_resolution_name)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let bound_pointer_shapes_use_integer_results () =
+  let prepared =
+    prepare ~path:"call-decision-bound-shapes.HC"
+      "I64 (*GlobalCallback)(I64);I64 GlobalArray[1];\n\
+       extern I64 Target(F64 a,F64 b,F64 c,F64 d,F64 e,F64 f);\n\
+       I64 Caller(I64 (*callback)(I64),...){I64 local_array[1];return \
+       Target(callback,local_array,argc,argv,GlobalCallback,GlobalArray);}"
+  in
+  let fixed =
+    decide prepared |> checked_decision |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+  in
+  Alcotest.(check (list string))
+    "arrays, callbacks, argc, and argv take the integer result path"
+    (List.init 6 (fun _ -> "provided:integer-result:ICF_RES_TO_F64"))
+    (fixed
+    |> List.map (fun decision ->
+        decision |> Semantic_function_call_conversion_decision.fixed_path
+        |> Semantic_function_call_conversion_decision.fixed_path_name));
+  Alcotest.(check (list string))
+    "declarator and synthetic shapes remain explicit"
+    [
+      "function-pointer";
+      "array";
+      "object";
+      "array";
+      "function-pointer";
+      "array";
+    ]
+    (fixed
+    |> List.map (fun decision ->
+        decision |> provided_expression |> bound_identifier
+        |> Semantic_function_call_resolution.bound_identifier_shape
+        |> Semantic_function_call_resolution.identifier_value_shape_name));
+  Alcotest.(check (list string))
+    "synthetic and declared bindings retain their exact categories"
+    [
+      "local:named-parameter";
+      "local:automatic-local";
+      "local:variadic-argc";
+      "local:variadic-argv";
+      "module:global-variable";
+      "module:global-variable";
+    ]
+    (fixed
+    |> List.map (fun decision ->
+        decision |> provided_expression |> bound_identifier
+        |> bound_resolution_name))
+
+let bound_identifier_provenance_and_outer_boundary () =
+  let generated =
+    prepare ~path:"call-decision-bound-generated.HC"
+      "#define ARG value\n\
+       extern I64 Target(I64 value);\n\
+       I64 Caller(F64 value){return Target(ARG);}"
+  in
+  let table = Session.semantic_symbols generated.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let first = decide generated |> checked_decision in
+  let second = decide generated |> checked_decision in
+  Alcotest.(check (list string))
+    "replaying a bound identifier decision is stable"
+    (only_direct first "Caller" |> path_names)
+    (only_direct second "Caller" |> path_names);
+  Alcotest.(check int)
+    "replaying a bound identifier decision leaves symbols unchanged"
+    symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let identifier =
+    only_direct first "Caller"
+    |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+    |> List.hd |> provided_expression |> bound_identifier
+  in
+  let occurrence =
+    Semantic_function_call_resolution.bound_identifier_occurrence identifier
+  in
+  (match Semantic_module_expression_binding.occurrence_origin occurrence with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated identifier keeps its invocation" true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        "generated identifier keeps its definition" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected generated identifier provenance");
+  with_included_source
+    "extern I64 Target(I64 value);I64 Caller(F64 value){return Target(value);}"
+    (fun included ->
+      let fixed =
+        decide included |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included bound value keeps its conversion path"
+        "provided:f64-result:ICF_RES_TO_INT"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let location =
+        fixed |> provided_expression |> bound_identifier
+        |> Semantic_function_call_resolution.bound_identifier_occurrence
+        |> Semantic_module_expression_binding.occurrence_origin
+        |> function
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included identifier provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources included.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included bound value keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename));
+  let outer =
+    prepare ~path:"call-decision-bound-outer.HC"
+      "extern I64 Target(F64 value);I64 Caller(){return Target(OuterValue);}"
+  in
+  Alcotest.(check (list string))
+    "an outer candidate remains unresolved"
+    [ "provided:unresolved:unresolved" ]
+    ( decide outer |> checked_decision |> fun result ->
+      only_direct result "Caller" |> path_names )
+
+let bound_identifier_source_order () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-decision-bound-source-order.HC"
+          "extern I64 Target(I64 value);\n\
+           extern F64 value;\n\
+           I64 Before(){return Target(value);}\n\
+           extern I64 first,second;\n\
+           I64 Grouped(){return Target(second);}\n\
+           I64 Shadowed(){F64 second;return Target(second);}\n\
+           extern I64 value;\n\
+           I64 After(){return Target(value);}"
+      in
+      let result = decide prepared |> checked_decision in
+      Alcotest.(check (list string))
+        "the earlier global type remains visible to the earlier caller"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (only_direct result "Before" |> path_names);
+      Alcotest.(check (list string))
+        "a comma-published global keeps its checked integer type"
+        [ "provided:integer-result:none" ]
+        (only_direct result "Grouped" |> path_names);
+      let shadowed = only_direct result "Shadowed" in
+      Alcotest.(check (list string))
+        "a local shadows the same-name global"
+        [ "provided:f64-result:ICF_RES_TO_INT" ]
+        (path_names shadowed);
+      Alcotest.(check string)
+        "the shadowed value keeps its local identity" "local:automatic-local"
+        (shadowed
+       |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+       |> List.hd |> provided_expression |> bound_identifier
+       |> bound_resolution_name);
+      Alcotest.(check (list string))
+        "the later global declaration replaces the visible type"
+        [ "provided:integer-result:none" ]
+        (only_direct result "After" |> path_names))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let defaults_and_variadics_remain_separate () =
   let prepared =
     prepare ~path:"call-decision-defaults.HC"
       "extern I64 Mix(F64 fixed=1,...);\nI64 Caller(){Mix;return Mix(,2.5);}"
   in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let expressions =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_expression_results
+  in
   let calls =
-    decide prepared |> checked_decision |> fun result ->
-    direct_calls result "Caller"
+    Holyc_lib.decide_function_call_conversions prepared.session ~policies
+      ~expressions
+    |> checked_decision
+    |> fun result -> direct_calls result "Caller"
   in
   Alcotest.(check int) "two direct calls" 2 (List.length calls);
   List.iter
@@ -967,20 +1789,52 @@ let defaults_and_variadics_remain_separate () =
         [ "declared-default" ] (path_names call))
     calls;
   Alcotest.(check int)
-    "the second call retains one variadic expression" 1
+    "the second call retains one typed variadic expression" 1
     (List.nth calls 1
-   |> Semantic_function_call_conversion_decision.direct_variadic_arguments
+   |> Semantic_function_call_conversion_decision.direct_variadic_decisions
    |> List.length);
   let variadic =
     List.nth calls 1
-    |> Semantic_function_call_conversion_decision.direct_variadic_arguments
-    |> List.hd |> Semantic_function_call_resolution.argument_expression
-    |> Option.get
+    |> Semantic_function_call_conversion_decision.direct_variadic_decisions
+    |> List.hd
+  in
+  Alcotest.(check string)
+    "variadic actual class has no fixed target conversion" "f64-result"
+    (variadic |> Semantic_function_call_conversion_decision.variadic_actual
+   |> Semantic_function_call_conversion_decision.actual_class_name);
+  let actual =
+    Semantic_function_call_conversion_decision.variadic_actual_result variadic
   in
   Alcotest.(check string)
     "variadic float source kind" "float-literal"
-    (variadic |> Semantic_function_call_resolution.argument_expression_kind
-   |> Semantic_function_call_resolution.argument_expression_kind_name)
+    (actual |> Semantic_function_call_expression_result.result_source
+   |> Semantic_function_call_resolution.argument_expression_kind
+   |> Semantic_function_call_resolution.argument_expression_kind_name);
+  Alcotest.(check string)
+    "variadic source result receives no fixed-target conversion" "none"
+    (actual
+   |> Semantic_function_call_expression_result.result_intrinsic_conversion
+   |> Semantic_function_call_expression_result.intrinsic_conversion_name);
+  let typed_actual =
+    let calls =
+      expressions |> Semantic_function_call_expression_result.functions
+      |> List.find (fun function_ ->
+          function_ |> Semantic_function_call_expression_result.function_symbol
+          |> Semantic_symbol.name |> String.equal "Caller")
+      |> Semantic_function_call_expression_result.function_calls
+    in
+    match List.nth calls 1 with
+    | Semantic_function_call_expression_result.Direct_call_result call ->
+        call |> Semantic_function_call_expression_result.direct_variadic_results
+        |> List.hd
+    | Semantic_function_call_expression_result.Indirect_call_result _ ->
+        Alcotest.fail "expected a direct typed variadic call"
+    | Semantic_function_call_expression_result.Deferred_call_result _ ->
+        Alcotest.fail "expected a direct typed variadic call"
+  in
+  Alcotest.(check bool)
+    "the decision retains the exact typed variadic result" true
+    (actual == typed_actual)
 
 let source_visible_headers_choose_literal_flags () =
   List.iter
@@ -1014,9 +1868,17 @@ let deferred_provenance_foreign_and_purity () =
     |> Semantic_function_call_conversion_decision.function_calls
   in
   (match deferred_calls with
-  | [ Semantic_function_call_conversion_decision.Deferred_call_decision _ ] ->
-      ()
-  | _ -> Alcotest.fail "expected one deferred callback call");
+  | [ Semantic_function_call_conversion_decision.Indirect_call_decision call ]
+    ->
+      Alcotest.(check (list string))
+        "the callback header supplies its fixed conversion"
+        [ "provided:integer-result:ICF_RES_TO_F64" ]
+        (call
+       |> Semantic_function_call_conversion_decision.indirect_fixed_decisions
+        |> List.map (fun fixed ->
+            fixed |> Semantic_function_call_conversion_decision.fixed_path
+            |> Semantic_function_call_conversion_decision.fixed_path_name))
+  | _ -> Alcotest.fail "expected one typed indirect callback call");
   let generated =
     prepare ~path:"call-decision-generated.HC"
       "#define VALUE 1.0\n\
@@ -1081,7 +1943,23 @@ let deferred_provenance_foreign_and_purity () =
     |> Test_function_call_conversion_policy.checked_policy
   in
   let foreign = Session.create () in
-  (match Holyc_lib.decide_function_call_conversions foreign ~policies with
+  (match
+     Holyc_lib.type_function_call_expressions foreign ~members:generated.members
+       ~policies
+   with
+  | Ok _ -> Alcotest.fail "expected foreign expression typing to fail"
+  | Error error ->
+      Alcotest.(check string)
+        "foreign expression typing diagnostic" "HCSEMA0046"
+        (Semantic_function_call_expression_result.error_code error));
+  let expressions =
+    Holyc_lib.type_function_call_expressions generated.session
+      ~members:generated.members ~policies
+    |> checked_expression_results
+  in
+  (match
+     Holyc_lib.decide_function_call_conversions foreign ~policies ~expressions
+   with
   | Ok _ -> Alcotest.fail "expected a foreign-session failure"
   | Error error ->
       Alcotest.(check string)
@@ -1115,6 +1993,45 @@ let deferred_provenance_foreign_and_purity () =
         "included literal keeps its source file" "calls.HC"
         (Source_file.path source_file |> Filename.basename))
 
+let included_dereference_keeps_its_source_origin () =
+  with_included_source
+    "extern I64 Target(F64 value);I64 Caller(I64 *pointer){return \
+     Target(*pointer);}" (fun prepared ->
+      let fixed =
+        decide prepared |> checked_decision |> fun result ->
+        only_direct result "Caller"
+        |> Semantic_function_call_conversion_decision.direct_fixed_decisions
+        |> List.hd
+      in
+      Alcotest.(check string)
+        "included dereference drives the checked conversion"
+        "provided:integer-result:ICF_RES_TO_F64"
+        (fixed |> Semantic_function_call_conversion_decision.fixed_path
+       |> Semantic_function_call_conversion_decision.fixed_path_name);
+      let actual =
+        match Semantic_function_call_conversion_decision.fixed_path fixed with
+        | Semantic_function_call_conversion_decision.Provided_path provided ->
+            Semantic_function_call_conversion_decision.provided_actual_result
+              provided
+        | Semantic_function_call_conversion_decision.Declared_default_path ->
+            Alcotest.fail "expected a provided dereference"
+      in
+      let location =
+        match Semantic_function_call_expression_result.result_origin actual with
+        | Semantic_symbol.Source_location location -> location
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected included dereference provenance"
+      in
+      let source_file =
+        Source_manager.find
+          (Session.sources prepared.session)
+          location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included dereference keeps its source file" "calls.HC"
+        (Source_file.path source_file |> Filename.basename))
+
 let tests =
   [
     Alcotest.test_case "literal directions and expression retention" `Quick
@@ -1125,10 +2042,27 @@ let tests =
       source_expression_classes_stay_explicit;
     Alcotest.test_case "prefix directions and retention" `Quick
       prefix_directions_and_retention;
+    Alcotest.test_case "bitwise complement integer result" `Quick
+      bitwise_complement_is_an_integer_result;
     Alcotest.test_case "prefix source order and provenance" `Quick
       prefix_source_order_modes_and_provenance;
     Alcotest.test_case "prefix constructor validation" `Quick
       prefix_constructor_validation;
+    Alcotest.test_case "prefix update directions and provenance" `Quick
+      prefix_update_directions_and_provenance;
+    Alcotest.test_case "postfix directions and retention" `Quick
+      postfix_directions_and_retention;
+    Alcotest.test_case "postfix provenance" `Quick postfix_provenance;
+    Alcotest.test_case "postfix constructor validation" `Quick
+      postfix_constructor_validation;
+    Alcotest.test_case "binary operator inventory and assignments" `Quick
+      binary_operator_inventory_and_assignments;
+    Alcotest.test_case "binary result joins and nesting" `Quick
+      binary_result_joins_and_nesting;
+    Alcotest.test_case "binary source order in both modes" `Quick
+      binary_source_order_in_both_modes;
+    Alcotest.test_case "binary provenance and constructor validation" `Quick
+      binary_provenance_and_constructor_validation;
     Alcotest.test_case "primitive postfix cast directions" `Quick
       primitive_postfix_cast_directions_and_retention;
     Alcotest.test_case "outer postfix cast and modes" `Quick
@@ -1151,10 +2085,20 @@ let tests =
       integer_primary_parentheses_and_modes;
     Alcotest.test_case "integer primary provenance and purity" `Quick
       integer_primary_provenance_and_purity;
+    Alcotest.test_case "bound scalar identifier types" `Quick
+      bound_scalar_identifiers_use_resolved_types;
+    Alcotest.test_case "bound identifier pointer shapes" `Quick
+      bound_pointer_shapes_use_integer_results;
+    Alcotest.test_case "bound identifier provenance and outer boundary" `Quick
+      bound_identifier_provenance_and_outer_boundary;
+    Alcotest.test_case "bound identifier source order" `Quick
+      bound_identifier_source_order;
     Alcotest.test_case "default and variadic paths" `Quick
       defaults_and_variadics_remain_separate;
     Alcotest.test_case "source-visible replacement headers" `Quick
       source_visible_headers_choose_literal_flags;
     Alcotest.test_case "deferred, provenance, foreign, and purity" `Quick
       deferred_provenance_foreign_and_purity;
+    Alcotest.test_case "included dereference provenance" `Quick
+      included_dereference_keeps_its_source_origin;
   ]

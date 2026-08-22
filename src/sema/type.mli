@@ -17,4 +17,11 @@ val make_primitive :
 val make_aggregate : symbol:Symbol.t -> pointer_depth:int -> (t, string) result
 val base : t -> base
 val pointer_depth : t -> int
+
+val pointer_to : t -> (t, string) result
+(** Add one pointer layer without changing the source-visible base identity. *)
+
+val dereference : t -> (t, string) result
+(** Remove one pointer layer. A nonpointer type is rejected. *)
+
 val primitive_form_name : primitive_form -> string

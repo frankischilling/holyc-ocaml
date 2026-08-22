@@ -59,6 +59,12 @@ val function_symbol : indexed_function -> Symbol.t
 val function_scope : indexed_function -> Symbol_table.scope
 val function_item_index : indexed_function -> int
 val function_bindings : indexed_function -> binding list
+val binding_symbol : binding -> Symbol.t
+val binding_kind : binding -> binding_kind
+val binding_ordinal : binding -> int
+val binding_parameter_index : binding -> int option
+val binding_local_declaration_index : binding -> int option
+val binding_local_declarator_index : binding -> int option
 
 val lookup :
   t -> function_:Symbol.t -> name:string -> (binding option, error) result

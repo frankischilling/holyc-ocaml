@@ -64,6 +64,16 @@ let function_symbol function_ = function_.symbol
 let function_scope function_ = function_.scope
 let function_item_index function_ = function_.item_index
 let function_bindings function_ = function_.bindings
+let binding_symbol (binding : binding) = binding.symbol
+let binding_kind (binding : binding) = binding.kind
+let binding_ordinal (binding : binding) = binding.ordinal
+let binding_parameter_index (binding : binding) = binding.parameter_index
+
+let binding_local_declaration_index (binding : binding) =
+  binding.local_declaration_index
+
+let binding_local_declarator_index (binding : binding) =
+  binding.local_declarator_index
 
 let binding_kind_name = function
   | Named_parameter -> "named-parameter"

@@ -67,6 +67,9 @@ module Semantic_function_call_resolution = Sema.Function_call_resolution
 module Semantic_function_call_conversion_policy =
   Sema.Function_call_conversion_policy
 
+module Semantic_function_call_expression_result =
+  Sema.Function_call_expression_result
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -364,15 +367,18 @@ val resolve_function_calls :
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
   function_types:Semantic_function_type_resolution.t ->
+  local_types:Semantic_local_type_resolution.t ->
+  global_types:Semantic_global_type_resolution.t ->
   functions:Semantic_function_resolution.t ->
   expressions:Semantic_module_expression_binding.t ->
   Ast.module_ ->
   (Semantic_function_call_resolution.t, string) result
 (** Bind syntactically direct calls in function bodies to the source-visible
     function header. Fixed slots retain provided or declared-default origins;
-    prefix operands retain their recursive source view; named aggregate cast
-    targets retain the identity visible before the caller; indirect and outer
-    targets remain explicit deferred results. *)
+    prefix and binary operands retain their recursive source views; bound
+    identifier arguments retain their checked type and declarator shape; named
+    aggregate cast targets retain the identity visible before the caller;
+    indirect and outer targets remain explicit deferred results. *)
 
 val analyze_function_call_conversions :
   Session.t ->
@@ -386,15 +392,29 @@ val analyze_function_call_conversions :
     visible before its caller. Defaults, variadic expressions, actual expression
     types, and deferred callees remain separate. *)
 
+val type_function_call_expressions :
+  Session.t ->
+  members:Semantic_aggregate_member_index.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  ( Semantic_function_call_expression_result.t,
+    Semantic_function_call_expression_result.error )
+  result
+(** Derive stable, session-owned results for every provided fixed direct-call
+    expression. Member expressions use the completed, immutable aggregate index.
+    Known source types and value categories stay separate from the
+    target-specific conversion intent selected by the next pass. *)
+
 val decide_function_call_conversions :
   Session.t ->
   policies:Semantic_function_call_conversion_policy.t ->
+  expressions:Semantic_function_call_expression_result.t ->
   ( Semantic_function_call_conversion_decision.t,
     Semantic_function_call_conversion_decision.error )
   result
 (** Select fixed-call conversion intent for audited argument classes, including
     source-visible named aggregate postfix casts and the checked prefix operator
-    paths. Unsupported expression classes remain explicit unresolved results. *)
+    and binary operator paths. Unsupported expression classes remain explicit
+    unresolved results. *)
 
 val classify_function_records :
   ?compiler_option_mask:int64 ->

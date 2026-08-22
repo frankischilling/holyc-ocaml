@@ -28,6 +28,7 @@ type prepared = {
   session : Session.t;
   declarations : Semantic_declaration_collection.t;
   headers : Semantic_aggregate_header_resolution.t;
+  members : Semantic_aggregate_member_index.t;
   calls : Semantic_function_call_resolution.t;
 }
 
@@ -39,6 +40,24 @@ let finish_prepare mode session ast =
   let headers =
     checked
       (Holyc_lib.resolve_aggregate_headers session ~declarations ~aggregates ast)
+  in
+  let collected_members =
+    checked (Holyc_lib.collect_members session ~declarations ast)
+  in
+  let typed_members =
+    checked
+      (Holyc_lib.resolve_member_types session ~declarations ~aggregates ~headers
+         ~members:collected_members ast)
+  in
+  let layouts =
+    checked
+      (Holyc_lib.layout_aggregates session ~declarations ~aggregates ~headers
+         ~members:typed_members ast)
+  in
+  let members =
+    checked
+      (Holyc_lib.index_aggregate_members session ~declarations ~headers
+         ~members:typed_members ~layouts)
   in
   let collected_functions =
     checked (Holyc_lib.collect_functions session ~declarations ast)
@@ -85,9 +104,10 @@ let finish_prepare mode session ast =
   let calls =
     checked
       (Holyc_lib.resolve_function_calls session ~declarations ~function_types
-         ~functions ~expressions:module_expressions ast)
+         ~local_types ~global_types ~functions ~expressions:module_expressions
+         ast)
   in
-  { session; declarations; headers; calls }
+  { session; declarations; headers; members; calls }
 
 let prepare ?(mode = Preprocessor.Jit) ~path contents =
   let session = Session.create () in
@@ -112,6 +132,8 @@ let function_named result name =
 
 let direct = function
   | Semantic_function_call_conversion_policy.Direct_call_policy call -> call
+  | Semantic_function_call_conversion_policy.Indirect_call_policy _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_conversion_policy.Deferred_call_policy _ ->
       Alcotest.fail "expected a direct call conversion policy"
 

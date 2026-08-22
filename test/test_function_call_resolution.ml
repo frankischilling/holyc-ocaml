@@ -24,6 +24,8 @@ type prepared = {
   ast : Ast.module_;
   declarations : Semantic_declaration_collection.t;
   function_types : Semantic_function_type_resolution.t;
+  local_types : Semantic_local_type_resolution.t;
+  global_types : Semantic_global_type_resolution.t;
   functions : Semantic_function_resolution.t;
   module_expressions : Semantic_module_expression_binding.t;
 }
@@ -81,6 +83,8 @@ let finish_prepare mode session ast =
     ast;
     declarations;
     function_types;
+    local_types;
+    global_types;
     functions;
     module_expressions;
   }
@@ -97,6 +101,7 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
 let resolve prepared =
   Holyc_lib.resolve_function_calls prepared.session
     ~declarations:prepared.declarations ~function_types:prepared.function_types
+    ~local_types:prepared.local_types ~global_types:prepared.global_types
     ~functions:prepared.functions ~expressions:prepared.module_expressions
     prepared.ast
 
@@ -112,6 +117,8 @@ let calls_named result name =
 
 let direct = function
   | Semantic_function_call_resolution.Direct_call call -> call
+  | Semantic_function_call_resolution.Indirect_call _ ->
+      Alcotest.fail "expected a direct call, got an indirect call"
   | Semantic_function_call_resolution.Deferred_call _ ->
       Alcotest.fail "expected a resolved direct function call"
 
@@ -120,6 +127,13 @@ let only_direct result name =
   | [ call ] -> direct call
   | calls ->
       Alcotest.failf "expected one call in %s, got %d" name (List.length calls)
+
+let indirect = function
+  | Semantic_function_call_resolution.Indirect_call call -> call
+  | Semantic_function_call_resolution.Direct_call _ ->
+      Alcotest.fail "expected an indirect call, got a direct call"
+  | Semantic_function_call_resolution.Deferred_call _ ->
+      Alcotest.fail "expected a resolved indirect call"
 
 let symbol_id symbol = Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int
 
@@ -304,14 +318,25 @@ let variadic_slots_and_shape_errors () =
   expect_error "HCSEMA0042"
     "call to \"Var\" omits variadic argument 2; variadic positions require an \
      expression"
-    "extern I64 Var(I64 fixed,...);I64 Caller(){return Var(1,,3);}"
+    "extern I64 Var(I64 fixed,...);I64 Caller(){return Var(1,,3);}";
+  expect_error "HCSEMA0040"
+    "call to \"callback\" is missing required argument 1 (value)"
+    "I64 Caller(I64 (*callback)(I64 value)){return callback();}";
+  expect_error "HCSEMA0041"
+    "call to \"callback\" provides argument 2, but its active header has 1 \
+     fixed parameter"
+    "I64 Caller(I64 (*callback)(I64 value)){return (*callback)(1,2);}";
+  expect_error "HCSEMA0042"
+    "call to \"callback\" omits variadic argument 2; variadic positions \
+     require an expression"
+    "I64 Caller(I64 (*callback)(I64 fixed,...)){return callback(1,,3);}"
 
-let indirect_categories_remain_deferred () =
+let typed_function_pointer_calls_resolve_indirectly () =
   let prepared =
     prepare ~path:"function-call-deferred.HC"
-      "I64 (*GlobalCallback)();\n\
+      "I64 (*GlobalCallback)();I64 (*CallbackArray)()[2];\n\
        I64 Caller(I64 (*local_callback)()){\n\
-       local_callback();return GlobalCallback();\n\
+       local_callback();GlobalCallback();CallbackArray();return OuterCallback();\n\
        }"
   in
   let result = resolve prepared |> checked in
@@ -319,13 +344,86 @@ let indirect_categories_remain_deferred () =
     calls_named result "Caller"
     |> List.map (function
       | Semantic_function_call_resolution.Direct_call _ -> "direct"
+      | Semantic_function_call_resolution.Indirect_call _ -> "indirect"
       | Semantic_function_call_resolution.Deferred_call { reason; _ } ->
           Semantic_function_call_resolution.deferred_reason_name reason)
   in
   Alcotest.(check (list string))
     "function pointers are not mislabeled as direct calls"
-    [ "local-callee"; "global-callee" ]
+    [ "indirect"; "indirect"; "global-callee"; "outer-callee" ]
     reasons
+
+let indirect_headers_bind_defaults_holes_and_varargs () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-call-indirect-headers.HC"
+          "F64 (*Global)(I64 first=1,I64 required,F64 last=3,...);\n\
+           I64 Caller(F64 (*parameter)(I64 first=1,I64 required,F64 \
+           last=3,...),F64 (**deep)(I64 first=1,I64 required,F64 last=3,...)){\n\
+           F64 (*automatic)(I64 first=1,I64 required,F64 last=3,...);\n\
+           static F64 (*stored)(I64 first=1,I64 required,F64 last=3,...);\n\
+           parameter(,2,,4);(**deep)(,2,,4);(*automatic)(,2,,4);stored(,2,,4);\n\
+           return Global(,2,,4);}"
+      in
+      let calls =
+        resolve prepared |> checked |> fun result ->
+        calls_named result "Caller" |> List.map indirect
+      in
+      Alcotest.(check (list string))
+        "all checked callback storage kinds resolve indirectly"
+        [ "parameter"; "deep"; "automatic"; "stored"; "Global" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_callee_name)
+           calls);
+      Alcotest.(check (list string))
+        "the explicit QSort-shaped dereference remains visible"
+        [
+          "identifier";
+          "dereferenced-identifier:2";
+          "dereferenced-identifier:1";
+          "identifier";
+          "identifier";
+        ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_callee_form
+             |> Semantic_function_call_resolution.callee_form_name)
+           calls);
+      Alcotest.(check (list string))
+        "every callback keeps its F64 return header"
+        [ "F64"; "F64"; "F64"; "F64"; "F64" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_callable
+             |> Semantic_function_call_resolution.callable_return_type
+             |> Semantic_type_reference.spelling)
+           calls);
+      let path call =
+        call |> Semantic_function_call_resolution.indirect_fixed_arguments
+        |> List.map (fun fixed ->
+            match Semantic_function_call_resolution.fixed_value fixed with
+            | Semantic_function_call_resolution.Declared_default _ -> "default"
+            | Semantic_function_call_resolution.Provided_argument _ ->
+                "provided")
+      in
+      List.iter
+        (fun call ->
+          Alcotest.(check (list string))
+            "callback holes select their declared defaults"
+            [ "default"; "provided"; "default" ]
+            (path call);
+          Alcotest.(check (pair int64 (list int)))
+            "callback varargs retain count and source slot" (1L, [ 3 ])
+            ( Semantic_function_call_resolution.indirect_variadic_count call,
+              call
+              |> Semantic_function_call_resolution.indirect_variadic_arguments
+              |> List.map Semantic_function_call_resolution.argument_index ))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let generated_and_included_call_provenance () =
   let generated =
@@ -479,18 +577,308 @@ let invalid_inputs_are_stable_and_pure () =
   in
   expect_invalid "reordered batch" (List.rev inputs);
   expect_invalid "callee occurrence drift" inputs;
+  let other_source =
+    Session.add_source prepared.session ~path:"function-call-other-module.HC"
+      ~contents:
+        "extern I64 Other(I64 value);I64 Foreign(I64 value){return \
+         Other(value);}"
+  in
+  let other_ast =
+    Holyc_lib.parse_with_config prepared.session ~config:(config prepared.mode)
+      ~source:other_source
+    |> expect_ast
+  in
+  let other_same_session =
+    finish_prepare prepared.mode prepared.session other_ast
+  in
+  let foreign_occurrence =
+    other_same_session.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_module_expression_binding.function_symbol
+        |> Semantic_symbol.name |> String.equal "Foreign")
+    |> Semantic_module_expression_binding.function_occurrences
+    |> List.find (fun occurrence ->
+        String.equal
+          (Semantic_module_expression_binding.occurrence_name occurrence)
+          "value")
+  in
+  let integer_type =
+    checked
+      (Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+         ~primitive:Primitive_type.I64 ~pointer_depth:0)
+  in
+  let foreign_expression =
+    checked
+      (Semantic_function_call_resolution
+       .make_bound_identifier_argument_expression ~occurrence:foreign_occurrence
+         ~resolved_type:integer_type
+         ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0 ())
+    |> fun kind ->
+    Semantic_function_call_resolution.make_argument_expression ~kind
+      ~origin:
+        (Semantic_module_expression_binding.occurrence_origin foreign_occurrence)
+  in
+  let foreign_argument =
+    checked
+      (Semantic_function_call_resolution.make_argument ~index:0
+         ~kind:Semantic_function_call_resolution.Provided
+         ~expression:(Some foreign_expression)
+         ~origin:
+           (Semantic_module_expression_binding.occurrence_origin
+              foreign_occurrence))
+  in
+  let caller_call =
+    only_direct first "Caller"
+    |> Semantic_function_call_resolution.direct_source
+  in
+  let foreign_callable_prepared =
+    prepare ~path:"function-call-foreign-callable.HC"
+      "class ForeignBox {};I64 Foreign(ForeignBox (*callback)()){return 0;}"
+  in
+  let callback_parameter =
+    foreign_callable_prepared.function_types
+    |> Semantic_function_type_resolution.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_function_type_resolution.function_symbol
+        |> Semantic_symbol.name |> String.equal "Foreign")
+    |> Semantic_function_type_resolution.function_signature
+    |> Semantic_function_type_resolution.signature_parameters |> List.hd
+  in
+  let callback_pointer =
+    match
+      Semantic_function_type_resolution.parameter_declarator_kind
+        callback_parameter
+    with
+    | Semantic_function_type_resolution.Function_pointer pointer -> pointer
+    | Semantic_function_type_resolution.Object ->
+        Alcotest.fail "expected a foreign callback parameter"
+  in
+  let foreign_callable =
+    Semantic_function_call_resolution.make_callable
+      ~return_type:
+        (Semantic_function_type_resolution.parameter_type_reference
+           callback_parameter)
+      ~function_pointer:callback_pointer
+  in
+  let call_with_foreign_callable =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index caller_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              caller_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name caller_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin caller_call)
+         ~callable:foreign_callable
+         ~origin:(Semantic_function_call_resolution.call_origin caller_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
+         [])
+  in
+  let foreign_callable_inputs =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ call_with_foreign_callable ]
+              else [])))
+  in
+  expect_invalid "foreign callback return type" foreign_callable_inputs;
+  let foreign_call =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index caller_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              caller_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name caller_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin caller_call)
+         ~origin:(Semantic_function_call_resolution.call_origin caller_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
+         [ foreign_argument ])
+  in
+  let foreign_occurrence_inputs =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ foreign_call ]
+              else [])))
+  in
+  expect_invalid "foreign bound occurrence" foreign_occurrence_inputs;
+  let address_prepared =
+    prepare ~path:"function-call-address-metadata.HC"
+      "extern I64 Target(I64 address);I64 Handler(){return 1;}\n\
+       I64 Caller(){return Target(&Handler);}"
+  in
+  let address_call =
+    resolve address_prepared |> checked |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_resolution.direct_source
+  in
+  let handler_occurrence =
+    address_prepared.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_module_expression_binding.function_symbol
+        |> Semantic_symbol.name |> String.equal "Caller")
+    |> Semantic_module_expression_binding.function_occurrences
+    |> List.find (fun occurrence ->
+        occurrence |> Semantic_module_expression_binding.occurrence_name
+        |> String.equal "Handler")
+  in
+  let declaration_named name =
+    address_prepared.functions |> Semantic_function_resolution.declarations
+    |> List.find (fun declaration ->
+        declaration |> Semantic_function_resolution.resolved_declaration_site
+        |> Semantic_function_resolution.declaration_site_function
+        |> Semantic_function_type_resolution.function_symbol
+        |> Semantic_symbol.name |> String.equal name)
+  in
+  let handler_declaration = declaration_named "Handler" in
+  let target_declaration = declaration_named "Target" in
+  let address_type =
+    checked
+      (Semantic_type.make_primitive ~form:Semantic_type.Internal_storage
+         ~primitive:Primitive_type.I64 ~pointer_depth:0)
+  in
+  Alcotest.(check (result reject string))
+    "a declaration for another publication is rejected at construction"
+    (Error "bound direct function declaration does not match its publication")
+    (Semantic_function_call_resolution.make_bound_identifier_argument_expression
+       ~occurrence:handler_occurrence ~resolved_type:address_type
+       ~shape:Semantic_function_call_resolution.Direct_function_value
+       ~array_rank:0 ~function_declaration:target_declaration
+       ~function_address_path:Semantic_function_call_resolution.Jit_extern_slot
+       ());
+  let wrong_path_expression =
+    checked
+      (Semantic_function_call_resolution
+       .make_bound_identifier_argument_expression ~occurrence:handler_occurrence
+         ~resolved_type:address_type
+         ~shape:Semantic_function_call_resolution.Direct_function_value
+         ~array_rank:0 ~function_declaration:handler_declaration
+         ~function_address_path:Semantic_function_call_resolution.Aot_absolute
+         ())
+    |> fun kind ->
+    Semantic_function_call_resolution.make_argument_expression ~kind
+      ~origin:
+        (Semantic_module_expression_binding.occurrence_origin handler_occurrence)
+  in
+  let wrong_path_argument =
+    checked
+      (Semantic_function_call_resolution.make_argument ~index:0
+         ~kind:Semantic_function_call_resolution.Provided
+         ~expression:(Some wrong_path_expression)
+         ~origin:
+           (Semantic_module_expression_binding.occurrence_origin
+              handler_occurrence))
+  in
+  let wrong_path_call =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index address_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              address_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name address_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin address_call)
+         ~origin:(Semantic_function_call_resolution.call_origin address_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax address_call)
+         [ wrong_path_argument ])
+  in
+  let wrong_path_inputs =
+    address_prepared.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ wrong_path_call ]
+              else [])))
+  in
+  (match
+     Semantic_function_call_resolution.resolve
+       ~table:(Session.semantic_symbols address_prepared.session)
+       ~parent:
+         (Semantic_declaration_collection.scope address_prepared.declarations)
+       ~function_types:address_prepared.function_types
+       ~functions:address_prepared.functions
+       ~expressions:address_prepared.module_expressions wrong_path_inputs
+   with
+  | Ok _ -> Alcotest.fail "expected a forged function address path to fail"
+  | Error error ->
+      Alcotest.(check string)
+        "a forged function address path has a stable diagnostic"
+        "bound direct function has the wrong address path"
+        (Semantic_function_call_resolution.error_message error));
   let foreign = Session.create () in
-  match
-    Holyc_lib.resolve_function_calls foreign ~declarations:prepared.declarations
-      ~function_types:prepared.function_types ~functions:prepared.functions
-      ~expressions:prepared.module_expressions prepared.ast
-  with
+  (match
+     Holyc_lib.resolve_function_calls foreign
+       ~declarations:prepared.declarations
+       ~function_types:prepared.function_types ~functions:prepared.functions
+       ~local_types:prepared.local_types ~global_types:prepared.global_types
+       ~expressions:prepared.module_expressions prepared.ast
+   with
   | Ok _ -> Alcotest.fail "expected a foreign-session failure"
   | Error message ->
       Alcotest.(check string)
         "foreign session diagnostic"
         "HCSEMA0039: function call declarations belong to another symbol table"
-        message
+        message);
+  let other =
+    prepare ~path:"function-call-foreign-types.HC"
+      "I64 Global;extern I64 Other(I64 value);I64 Foreign(){I64 local;return \
+       Other(local+Global);}"
+  in
+  let expect_driver_invalid label ~local_types ~global_types =
+    match
+      Holyc_lib.resolve_function_calls prepared.session
+        ~declarations:prepared.declarations
+        ~function_types:prepared.function_types ~functions:prepared.functions
+        ~local_types ~global_types ~expressions:prepared.module_expressions
+        prepared.ast
+    with
+    | Ok _ -> Alcotest.failf "expected %s to fail" label
+    | Error message ->
+        Alcotest.(check bool)
+          (label ^ " diagnostic family")
+          true
+          (String.starts_with ~prefix:"HCSEMA0039:" message)
+  in
+  expect_driver_invalid "foreign local types" ~local_types:other.local_types
+    ~global_types:prepared.global_types;
+  expect_driver_invalid "foreign global types" ~local_types:prepared.local_types
+    ~global_types:other.global_types
 
 let named_cast_targets_validate_source_identity () =
   let prepared =
@@ -623,6 +1011,8 @@ let named_cast_targets_validate_source_identity () =
             |> List.map (function
               | Semantic_function_call_resolution.Direct_call direct ->
                   Semantic_function_call_resolution.direct_source direct
+              | Semantic_function_call_resolution.Indirect_call indirect ->
+                  Semantic_function_call_resolution.indirect_source indirect
               | Semantic_function_call_resolution.Deferred_call { call; _ } ->
                   call)
         in
@@ -689,6 +1079,53 @@ let named_cast_targets_validate_source_identity () =
   expect_invalid "foreign identity"
     "function call cast target belongs to another symbol table" foreign
 
+let index_expression_constructors_validate_bracket_origins () =
+  let base_origin = Semantic_symbol.Synthesized "index base" in
+  let index_origin = Semantic_symbol.Synthesized "index value" in
+  let opening_origin = Semantic_symbol.Synthesized "opening bracket" in
+  let closing_origin = Semantic_symbol.Synthesized "closing bracket" in
+  let base =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:base_origin
+  in
+  let index =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Float_literal ~origin:index_origin
+  in
+  let retained =
+    checked
+      (Semantic_function_call_resolution.make_index_argument_expression ~base
+         ~opening_origin ~index ~closing_origin)
+  in
+  (match retained with
+  | Semantic_function_call_resolution.Index_expression retained ->
+      Alcotest.(check bool)
+        "index constructor retains its base" true
+        (Semantic_function_call_resolution.index_base retained == base);
+      Alcotest.(check bool)
+        "index constructor retains its value" true
+        (Semantic_function_call_resolution.index_value retained == index);
+      Alcotest.(check bool)
+        "index constructor retains its opening bracket" true
+        (Semantic_function_call_resolution.index_opening_origin retained
+        = opening_origin);
+      Alcotest.(check bool)
+        "index constructor retains its closing bracket" true
+        (Semantic_function_call_resolution.index_closing_origin retained
+        = closing_origin)
+  | _ -> Alcotest.fail "expected a checked index expression");
+  Alcotest.(check (result reject string))
+    "an empty opening-bracket origin is rejected"
+    (Error "call argument index has an invalid opening-bracket origin")
+    (Semantic_function_call_resolution.make_index_argument_expression ~base
+       ~opening_origin:(Semantic_symbol.Synthesized "") ~index ~closing_origin);
+  Alcotest.(check (result reject string))
+    "an empty closing-bracket origin is rejected"
+    (Error "call argument index has an invalid closing-bracket origin")
+    (Semantic_function_call_resolution.make_index_argument_expression ~base
+       ~opening_origin ~index ~closing_origin:(Semantic_symbol.Synthesized ""))
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -699,12 +1136,16 @@ let tests =
       parenthesis_free_and_oracle_evidence;
     Alcotest.test_case "variadic slots and shape errors" `Quick
       variadic_slots_and_shape_errors;
-    Alcotest.test_case "indirect categories are deferred" `Quick
-      indirect_categories_remain_deferred;
+    Alcotest.test_case "typed function-pointer calls" `Quick
+      typed_function_pointer_calls_resolve_indirectly;
+    Alcotest.test_case "indirect defaults, holes, and varargs" `Quick
+      indirect_headers_bind_defaults_holes_and_varargs;
     Alcotest.test_case "generated and included provenance" `Quick
       generated_and_included_call_provenance;
     Alcotest.test_case "invalid inputs, determinism, and purity" `Quick
       invalid_inputs_are_stable_and_pure;
     Alcotest.test_case "named cast target identity validation" `Quick
       named_cast_targets_validate_source_identity;
+    Alcotest.test_case "index expression constructor validation" `Quick
+      index_expression_constructors_validate_bracket_origins;
   ]

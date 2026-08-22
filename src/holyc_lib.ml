@@ -67,6 +67,9 @@ module Semantic_function_call_resolution = Sema.Function_call_resolution
 module Semantic_function_call_conversion_policy =
   Sema.Function_call_conversion_policy
 
+module Semantic_function_call_expression_result =
+  Sema.Function_call_expression_result
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -252,11 +255,12 @@ let analyze_function_headers session ~functions inputs =
     ~table:(Session.semantic_symbols session)
     ~functions inputs
 
-let resolve_function_calls session ~declarations ~function_types ~functions
-    ~expressions module_ =
+let resolve_function_calls session ~declarations ~function_types ~local_types
+    ~global_types ~functions ~expressions module_ =
   Driver.Function_call_resolution.resolve
     ~table:(Session.semantic_symbols session)
-    ~declarations ~function_types ~functions ~expressions module_
+    ~declarations ~function_types ~local_types ~global_types ~functions
+    ~expressions module_
 
 let analyze_function_call_conversions session ~declarations ~headers ~calls =
   Sema.Function_call_conversion_policy.analyze
@@ -264,10 +268,15 @@ let analyze_function_call_conversions session ~declarations ~headers ~calls =
     ~parent:(Sema.Declaration_collection.scope declarations)
     ~headers ~calls
 
-let decide_function_call_conversions session ~policies =
+let type_function_call_expressions session ~members ~policies =
+  Sema.Function_call_expression_result.analyze
+    ~table:(Session.semantic_symbols session)
+    ~members policies
+
+let decide_function_call_conversions session ~policies ~expressions =
   Sema.Function_call_conversion_decision.decide
     ~table:(Session.semantic_symbols session)
-    policies
+    ~policies expressions
 
 let classify_function_records ?compiler_option_mask _session ~resolution module_
     =

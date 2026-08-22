@@ -1,4 +1,5 @@
 type call_syntax = Parenthesized | Parenthesis_free
+type callee_form = Identifier_callee | Dereferenced_identifier_callee of int
 type argument_kind = Provided | Omitted
 
 type unresolved_expression_kind =
@@ -7,12 +8,8 @@ type unresolved_expression_kind =
   | Sizeof_expression
   | Offset_expression
   | Defined_expression
-  | Postfix_expression
   | Postfix_cast_expression
-  | Binary_expression
   | Call_expression
-  | Index_expression
-  | Member_expression
 
 type prefix_operator =
   | Unary_plus
@@ -24,6 +21,23 @@ type prefix_operator =
   | Pre_increment
   | Pre_decrement
 
+type postfix_operator = Post_increment | Post_decrement
+type member_access_kind = Direct_member | Pointer_member
+
+type identifier_value_shape =
+  | Object_value
+  | Array_value
+  | Function_pointer_value
+  | Direct_function_value
+
+type direct_function_address_path =
+  | Jit_extern_slot
+  | Jit_immediate
+  | Aot_absolute
+  | Reject_aot_extern
+  | Reject_aot_import
+  | Reject_internal
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -31,7 +45,12 @@ type argument_expression_kind =
   | String_literal
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
+  | Postfix_expression of postfix_expression
   | Postfix_cast_expression of argument_expression * Type_reference.t
+  | Binary_expression of binary_expression
+  | Index_expression of index_expression
+  | Member_access_expression of member_expression
+  | Bound_identifier_expression of bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
@@ -45,6 +64,44 @@ and prefix_expression = {
   prefix_operand : argument_expression;
 }
 
+and postfix_expression = {
+  postfix_operator : postfix_operator;
+  postfix_operator_origin : Symbol.origin;
+  postfix_operand : argument_expression;
+}
+
+and binary_expression = {
+  binary_operator : Generated.Intermediate_codes.t;
+  binary_operator_origin : Symbol.origin;
+  binary_left : argument_expression;
+  binary_right : argument_expression;
+}
+
+and index_expression = {
+  index_base : argument_expression;
+  index_opening_origin : Symbol.origin;
+  index_value : argument_expression;
+  index_closing_origin : Symbol.origin;
+}
+
+and member_expression = {
+  member_base : argument_expression;
+  member_access_kind : member_access_kind;
+  member_operator_origin : Symbol.origin;
+  member_name : string;
+  member_origin : Symbol.origin;
+}
+
+and bound_identifier = {
+  bound_identifier_occurrence_ : Module_expression_binding.occurrence;
+  bound_identifier_type_ : Type.t;
+  bound_identifier_shape_ : identifier_value_shape;
+  bound_identifier_array_rank_ : int;
+  bound_identifier_function_declaration_ :
+    Function_resolution.resolved_declaration option;
+  bound_identifier_function_address_path_ : direct_function_address_path option;
+}
+
 type argument = {
   index : int;
   kind : argument_kind;
@@ -52,11 +109,18 @@ type argument = {
   origin : Symbol.origin;
 }
 
+type callable = {
+  callable_return_type_ : Type_reference.t;
+  callable_pointer_ : Function_type_resolution.function_pointer;
+}
+
 type call = {
   index : int;
   callee_occurrence_index : int;
   callee_name : string;
   callee_origin : Symbol.origin;
+  callee_form : callee_form;
+  callable : callable option;
   origin : Symbol.origin;
   syntax : call_syntax;
   arguments : argument list;
@@ -93,6 +157,15 @@ type direct_call = {
   variadic_count : int64;
 }
 
+type indirect_call = {
+  source : call;
+  occurrence : Module_expression_binding.occurrence;
+  callable : callable;
+  fixed_arguments : fixed_argument list;
+  variadic_arguments : argument list;
+  variadic_count : int64;
+}
+
 type deferred_reason =
   | Local_callee of Function_binding_index.binding
   | Global_callee of Module_expression_binding.publication
@@ -101,6 +174,7 @@ type deferred_reason =
 
 type call_resolution =
   | Direct_call of direct_call
+  | Indirect_call of indirect_call
   | Deferred_call of {
       call : call;
       occurrence : Module_expression_binding.occurrence;
@@ -152,6 +226,8 @@ let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
 let call_callee_origin (call : call) = call.callee_origin
+let call_callee_form (call : call) = call.callee_form
+let call_callable (call : call) = call.callable
 let call_origin (call : call) = call.origin
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
@@ -165,6 +241,47 @@ let prefix_operator_origin (prefix : prefix_expression) =
   prefix.prefix_operator_origin
 
 let prefix_operand (prefix : prefix_expression) = prefix.prefix_operand
+let postfix_operator (postfix : postfix_expression) = postfix.postfix_operator
+
+let postfix_operator_origin (postfix : postfix_expression) =
+  postfix.postfix_operator_origin
+
+let postfix_operand (postfix : postfix_expression) = postfix.postfix_operand
+let binary_operator (binary : binary_expression) = binary.binary_operator
+
+let binary_operator_origin (binary : binary_expression) =
+  binary.binary_operator_origin
+
+let binary_left (binary : binary_expression) = binary.binary_left
+let binary_right (binary : binary_expression) = binary.binary_right
+let index_base (index : index_expression) = index.index_base
+let index_opening_origin (index : index_expression) = index.index_opening_origin
+let index_value (index : index_expression) = index.index_value
+let index_closing_origin (index : index_expression) = index.index_closing_origin
+let member_base (member : member_expression) = member.member_base
+let member_access_kind (member : member_expression) = member.member_access_kind
+
+let member_operator_origin (member : member_expression) =
+  member.member_operator_origin
+
+let member_name (member : member_expression) = member.member_name
+let member_origin (member : member_expression) = member.member_origin
+
+let bound_identifier_occurrence identifier =
+  identifier.bound_identifier_occurrence_
+
+let bound_identifier_type identifier = identifier.bound_identifier_type_
+let bound_identifier_shape identifier = identifier.bound_identifier_shape_
+
+let bound_identifier_array_rank identifier =
+  identifier.bound_identifier_array_rank_
+
+let bound_identifier_function_declaration identifier =
+  identifier.bound_identifier_function_declaration_
+
+let bound_identifier_function_address_path identifier =
+  identifier.bound_identifier_function_address_path_
+
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -176,11 +293,33 @@ let direct_target_symbol (direct : direct_call) = direct.target_symbol
 let direct_fixed_arguments (direct : direct_call) = direct.fixed_arguments
 let direct_variadic_arguments (direct : direct_call) = direct.variadic_arguments
 let direct_variadic_count (direct : direct_call) = direct.variadic_count
+let callable_return_type callable = callable.callable_return_type_
+let callable_pointer callable = callable.callable_pointer_
+
+let callable_signature callable =
+  Function_type_resolution.function_pointer_signature callable.callable_pointer_
+
+let indirect_source (indirect : indirect_call) = indirect.source
+let indirect_occurrence (indirect : indirect_call) = indirect.occurrence
+let indirect_callable (indirect : indirect_call) = indirect.callable
+
+let indirect_fixed_arguments (indirect : indirect_call) =
+  indirect.fixed_arguments
+
+let indirect_variadic_arguments (indirect : indirect_call) =
+  indirect.variadic_arguments
+
+let indirect_variadic_count (indirect : indirect_call) = indirect.variadic_count
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let call_syntax_name = function
   | Parenthesized -> "parenthesized"
   | Parenthesis_free -> "parenthesis-free"
+
+let callee_form_name = function
+  | Identifier_callee -> "identifier"
+  | Dereferenced_identifier_callee depth ->
+      Printf.sprintf "dereferenced-identifier:%d" depth
 
 let argument_kind_name = function
   | Provided -> "provided"
@@ -196,18 +335,59 @@ let prefix_operator_name = function
   | Pre_increment -> "pre-increment"
   | Pre_decrement -> "pre-decrement"
 
+let postfix_operator_name = function
+  | Post_increment -> "post-increment"
+  | Post_decrement -> "post-decrement"
+
+let member_access_kind_name = function
+  | Direct_member -> "direct"
+  | Pointer_member -> "pointer"
+
+let binary_operator_name = Generated.Intermediate_codes.to_source_name
+
+let identifier_value_shape_name = function
+  | Object_value -> "object"
+  | Array_value -> "array"
+  | Function_pointer_value -> "function-pointer"
+  | Direct_function_value -> "direct-function"
+
+let direct_function_address_path_name = function
+  | Jit_extern_slot -> "jit-extern-slot"
+  | Jit_immediate -> "jit-immediate"
+  | Aot_absolute -> "aot-absolute"
+  | Reject_aot_extern -> "reject-aot-extern"
+  | Reject_aot_import -> "reject-aot-import"
+  | Reject_internal -> "reject-internal"
+
+let direct_function_address_path compilation_mode declaration =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  if
+    Function_resolution.declaration_site_source_kind site
+    = Function_resolution.Intern
+  then Ok Reject_internal
+  else
+    match
+      (compilation_mode, Function_resolution.declaration_site_state site)
+    with
+    | Function_resolution.Jit, Function_resolution.Unresolved_extern ->
+        Ok Jit_extern_slot
+    | Function_resolution.Jit, Function_resolution.Resolved -> Ok Jit_immediate
+    | Function_resolution.Aot, Function_resolution.Resolved -> Ok Aot_absolute
+    | Function_resolution.Aot, Function_resolution.Unresolved_extern ->
+        Ok Reject_aot_extern
+    | Function_resolution.Aot, Function_resolution.Imported ->
+        Ok Reject_aot_import
+    | Function_resolution.Jit, Function_resolution.Imported ->
+        Error "JIT function resolution contains an imported declaration"
+
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
   | Sizeof_expression -> "sizeof"
   | Offset_expression -> "offset"
   | Defined_expression -> "defined"
-  | Postfix_expression -> "postfix"
   | Postfix_cast_expression -> "postfix-cast"
-  | Binary_expression -> "binary"
   | Call_expression -> "call"
-  | Index_expression -> "index"
-  | Member_expression -> "member"
 
 let argument_expression_kind_name = function
   | Integer_literal -> "integer-literal"
@@ -216,7 +396,12 @@ let argument_expression_kind_name = function
   | String_literal -> "string-literal"
   | Parenthesized_expression _ -> "parenthesized"
   | Prefix_expression _ -> "prefix"
+  | Postfix_expression _ -> "postfix"
   | Postfix_cast_expression _ -> "postfix-cast"
+  | Binary_expression _ -> "binary"
+  | Index_expression _ -> "index"
+  | Member_access_expression _ -> "member"
+  | Bound_identifier_expression _ -> "bound-identifier"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
@@ -306,6 +491,147 @@ let make_prefix_argument_expression ~operator ~operator_origin ~operand =
            prefix_operand = operand;
          })
 
+let make_postfix_argument_expression ~operator ~operator_origin ~operand =
+  if not (valid_origin operator_origin) then
+    Error "call argument postfix operator has an invalid source origin"
+  else
+    Ok
+      (Postfix_expression
+         {
+           postfix_operator = operator;
+           postfix_operator_origin = operator_origin;
+           postfix_operand = operand;
+         })
+
+let checked_binary_operator operator =
+  let source_name = binary_operator_name operator in
+  List.exists
+    (fun (candidate : Generated.Operator_tables.binary_operator) ->
+      String.equal candidate.ic_name source_name)
+    Generated.Operator_tables.binary_operators
+
+let make_binary_argument_expression ~operator ~operator_origin ~left ~right =
+  if not (checked_binary_operator operator) then
+    Error
+      (Printf.sprintf "%s is not a checked binary operator"
+         (binary_operator_name operator))
+  else if not (valid_origin operator_origin) then
+    Error "call argument binary operator has an invalid source origin"
+  else
+    Ok
+      (Binary_expression
+         {
+           binary_operator = operator;
+           binary_operator_origin = operator_origin;
+           binary_left = left;
+           binary_right = right;
+         })
+
+let make_index_argument_expression ~base ~opening_origin ~index ~closing_origin
+    =
+  if not (valid_origin opening_origin) then
+    Error "call argument index has an invalid opening-bracket origin"
+  else if not (valid_origin closing_origin) then
+    Error "call argument index has an invalid closing-bracket origin"
+  else
+    Ok
+      (Index_expression
+         {
+           index_base = base;
+           index_opening_origin = opening_origin;
+           index_value = index;
+           index_closing_origin = closing_origin;
+         })
+
+let make_member_argument_expression ~base ~access_kind ~operator_origin
+    ~member_name ~member_origin =
+  if not (valid_origin operator_origin) then
+    Error "call argument member has an invalid operator origin"
+  else if String.equal member_name "" then
+    Error "call argument member name cannot be empty"
+  else if not (valid_origin member_origin) then
+    Error "call argument member has an invalid name origin"
+  else
+    Ok
+      (Member_access_expression
+         {
+           member_base = base;
+           member_access_kind = access_kind;
+           member_operator_origin = operator_origin;
+           member_name;
+           member_origin;
+         })
+
+let function_declaration_matches_publication declaration publication =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  let function_ = Function_resolution.declaration_site_function site in
+  Symbol.Id.equal
+    (function_ |> Function_type_resolution.function_symbol |> Symbol.id)
+    (publication |> Module_expression_binding.publication_source_symbol
+   |> Symbol.id)
+  && Symbol.Id.equal
+       (declaration |> Function_resolution.resolved_declaration_identity_symbol
+      |> Symbol.id)
+       (publication |> Module_expression_binding.publication_canonical_symbol
+      |> Symbol.id)
+
+let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
+    ~array_rank ?function_declaration ?function_address_path () =
+  let name = Module_expression_binding.occurrence_name occurrence in
+  if String.equal name "" then
+    Error "bound call argument identifier cannot have an empty name"
+  else if
+    match
+      (Module_expression_binding.occurrence_resolution occurrence, shape)
+    with
+    | Module_expression_binding.Local_binding _, Direct_function_value -> true
+    | Module_expression_binding.Local_binding _, _ -> false
+    | ( Module_expression_binding.Module_binding publication,
+        Direct_function_value ) ->
+        Module_expression_binding.publication_kind publication
+        <> Module_expression_binding.Function
+    | Module_expression_binding.Module_binding publication, _ ->
+        Module_expression_binding.publication_kind publication
+        <> Module_expression_binding.Global_variable
+    | Module_expression_binding.Outer_candidate, _ -> true
+  then Error "bound call argument occurrence is not a typed value binding"
+  else if array_rank < 0 then
+    Error "bound call argument array rank cannot be negative"
+  else if shape = Array_value && array_rank = 0 then
+    Error "bound array call argument has no array dimensions"
+  else if shape <> Array_value && array_rank <> 0 then
+    Error "bound nonarray call argument has array dimensions"
+  else if
+    shape = Direct_function_value
+    && (Option.is_none function_declaration
+       || Option.is_none function_address_path)
+  then Error "bound direct function has no checked address path"
+  else if
+    shape <> Direct_function_value
+    && (Option.is_some function_declaration
+       || Option.is_some function_address_path)
+  then Error "bound nonfunction call argument has a function address path"
+  else if
+    match
+      ( Module_expression_binding.occurrence_resolution occurrence,
+        function_declaration )
+    with
+    | Module_expression_binding.Module_binding publication, Some declaration ->
+        not (function_declaration_matches_publication declaration publication)
+    | _, _ -> false
+  then Error "bound direct function declaration does not match its publication"
+  else
+    Ok
+      (Bound_identifier_expression
+         {
+           bound_identifier_occurrence_ = occurrence;
+           bound_identifier_type_ = resolved_type;
+           bound_identifier_shape_ = shape;
+           bound_identifier_array_rank_ = array_rank;
+           bound_identifier_function_declaration_ = function_declaration;
+           bound_identifier_function_address_path_ = function_address_path;
+         })
+
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
 
@@ -316,6 +642,9 @@ let make_argument ~index ~kind ~expression ~origin =
     | Provided, Some _ | Omitted, None -> Ok { index; kind; expression; origin }
     | Provided, None -> Error "provided call argument has no expression"
     | Omitted, Some _ -> Error "omitted call argument has an expression"
+
+let make_callable ~return_type ~function_pointer =
+  { callable_return_type_ = return_type; callable_pointer_ = function_pointer }
 
 let validate_argument_indexes (arguments : argument list) =
   let rec loop expected = function
@@ -328,12 +657,18 @@ let validate_argument_indexes (arguments : argument list) =
   loop 0 arguments
 
 let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
-    ~origin ~syntax (arguments : argument list) =
+    ?(callee_form = Identifier_callee) ?callable ~origin ~syntax
+    (arguments : argument list) =
   if index < 0 then Error "function call index cannot be negative"
   else if callee_occurrence_index < 0 then
     Error "function call callee occurrence index cannot be negative"
   else if String.equal callee_name "" then
     Error "function call callee name cannot be empty"
+  else if
+    match callee_form with
+    | Identifier_callee -> false
+    | Dereferenced_identifier_callee depth -> depth <= 0
+  then Error "function call callee dereference depth must be positive"
   else
     match validate_argument_indexes arguments with
     | Error _ as error -> error
@@ -344,6 +679,8 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
             callee_occurrence_index;
             callee_name;
             callee_origin;
+            callee_form;
+            callable;
             origin;
             syntax;
             arguments;
@@ -417,23 +754,201 @@ let validate_cast_target table parent visible target =
                  "function call cast target does not match the source-visible \
                   aggregate identity"))
 
-let rec validate_argument_expression table parent visible expression =
+let rec validate_argument_expression table parent visible declarations
+    compilation_mode expression =
   match argument_expression_kind expression with
   | Parenthesized_expression grouped ->
-      validate_argument_expression table parent visible grouped
+      validate_argument_expression table parent visible declarations
+        compilation_mode grouped
   | Prefix_expression prefix ->
-      validate_argument_expression table parent visible prefix.prefix_operand
+      validate_argument_expression table parent visible declarations
+        compilation_mode prefix.prefix_operand
+  | Postfix_expression postfix ->
+      validate_argument_expression table parent visible declarations
+        compilation_mode postfix.postfix_operand
+  | Binary_expression binary -> (
+      match
+        validate_argument_expression table parent visible declarations
+          compilation_mode binary.binary_left
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_argument_expression table parent visible declarations
+            compilation_mode binary.binary_right)
+  | Index_expression index -> (
+      match
+        validate_argument_expression table parent visible declarations
+          compilation_mode index.index_base
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_argument_expression table parent visible declarations
+            compilation_mode index.index_value)
+  | Member_access_expression member ->
+      validate_argument_expression table parent visible declarations
+        compilation_mode member.member_base
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
-      | Ok () -> validate_argument_expression table parent visible operand)
+      | Ok () ->
+          validate_argument_expression table parent visible declarations
+            compilation_mode operand)
+  | Bound_identifier_expression identifier -> (
+      let occurrence = bound_identifier_occurrence identifier in
+      let resolved_type = bound_identifier_type identifier in
+      if
+        not
+          (valid_origin
+             (Module_expression_binding.occurrence_origin occurrence))
+      then Error (invalid_input "bound call argument has an invalid origin")
+      else if
+        expression.expression_origin
+        <> Module_expression_binding.occurrence_origin occurrence
+      then
+        Error
+          (invalid_input
+             "bound call argument origin does not match its occurrence")
+      else if
+        match
+          ( Module_expression_binding.occurrence_resolution occurrence,
+            identifier.bound_identifier_shape_ )
+        with
+        | Module_expression_binding.Local_binding _, Direct_function_value ->
+            true
+        | Module_expression_binding.Local_binding _, _ -> false
+        | ( Module_expression_binding.Module_binding publication,
+            Direct_function_value ) ->
+            Module_expression_binding.publication_kind publication
+            <> Module_expression_binding.Function
+        | Module_expression_binding.Module_binding publication, _ ->
+            Module_expression_binding.publication_kind publication
+            <> Module_expression_binding.Global_variable
+        | Module_expression_binding.Outer_candidate, _ -> true
+      then
+        Error
+          (invalid_input
+             "bound call argument occurrence is not a typed value binding")
+      else if
+        identifier.bound_identifier_shape_ = Array_value
+        && identifier.bound_identifier_array_rank_ = 0
+      then Error (invalid_input "bound array call argument has no dimensions")
+      else if
+        identifier.bound_identifier_shape_ <> Array_value
+        && identifier.bound_identifier_array_rank_ <> 0
+      then Error (invalid_input "bound nonarray call argument has dimensions")
+      else if identifier.bound_identifier_shape_ = Direct_function_value then
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Module_binding publication -> (
+            let source =
+              Module_expression_binding.publication_source_symbol publication
+            in
+            let expected =
+              Int_map.find_opt (symbol_number source) declarations
+            in
+            match
+              ( expected,
+                identifier.bound_identifier_function_declaration_,
+                identifier.bound_identifier_function_address_path_ )
+            with
+            | Some expected, Some declaration, Some path
+              when expected == declaration -> (
+                match
+                  direct_function_address_path compilation_mode declaration
+                with
+                | Ok expected_path when expected_path = path -> Ok ()
+                | Ok _ ->
+                    Error
+                      (invalid_input
+                         "bound direct function has the wrong address path")
+                | Error message -> Error (invalid_input message))
+            | Some _, Some _, Some _ ->
+                Error
+                  (invalid_input
+                     "bound direct function uses a foreign resolved declaration")
+            | None, _, _ ->
+                Error
+                  (invalid_input
+                     "bound direct function has no resolved declaration")
+            | _, _, _ ->
+                Error
+                  (invalid_input
+                     "bound direct function has incomplete address metadata"))
+        | Module_expression_binding.Local_binding _
+        | Module_expression_binding.Outer_candidate ->
+            Error
+              (invalid_input "bound direct function has no module publication")
+      else
+        match Type.base resolved_type with
+        | Type.Primitive _ -> Ok ()
+        | Type.Aggregate symbol ->
+            if not (Symbol_table.owns_symbol table symbol) then
+              Error
+                (invalid_input
+                   "bound call argument type belongs to another symbol table")
+            else if not (symbol_in_scope symbol parent) then
+              Error
+                (invalid_input "bound call argument type has the wrong scope")
+            else if
+              not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+            then
+              Error
+                (invalid_input "bound call argument type is not an aggregate")
+            else Ok ())
   | Integer_literal
   | Float_literal
   | Character_literal
   | String_literal
   | Unresolved_expression _ -> Ok ()
 
-let validate_argument_expressions table parent visible calls =
+let validate_callable table parent callable =
+  let validate_type role type_ =
+    match Type.base type_ with
+    | Type.Primitive _ -> Ok ()
+    | Type.Aggregate symbol ->
+        if not (Symbol_table.owns_symbol table symbol) then
+          Error (invalid_input (role ^ " belongs to another symbol table"))
+        else if not (symbol_in_scope symbol parent) then
+          Error (invalid_input (role ^ " has the wrong module scope"))
+        else if
+          not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+        then Error (invalid_input (role ^ " is not an aggregate type"))
+        else Ok ()
+  in
+  let rec validate_signature signature_ =
+    let rec parameters = function
+      | [] -> Ok ()
+      | parameter :: rest -> (
+          match
+            parameter |> Function_type_resolution.parameter_type_reference
+            |> Type_reference.resolved_type
+            |> validate_type "callback parameter type"
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              match
+                Function_type_resolution.parameter_declarator_kind parameter
+              with
+              | Function_type_resolution.Object -> parameters rest
+              | Function_type_resolution.Function_pointer pointer -> (
+                  match
+                    pointer
+                    |> Function_type_resolution.function_pointer_signature
+                    |> validate_signature
+                  with
+                  | Error _ as error -> error
+                  | Ok () -> parameters rest)))
+    in
+    parameters (Function_type_resolution.signature_parameters signature_)
+  in
+  match
+    callable |> callable_return_type |> Type_reference.resolved_type
+    |> validate_type "callback return type"
+  with
+  | Error _ as error -> error
+  | Ok () -> validate_signature (callable_signature callable)
+
+let validate_argument_expressions table parent visible declarations
+    compilation_mode calls =
   let rec arguments = function
     | [] -> Ok ()
     | argument :: rest -> (
@@ -441,17 +956,25 @@ let validate_argument_expressions table parent visible calls =
         | None -> arguments rest
         | Some expression -> (
             match
-              validate_argument_expression table parent visible expression
+              validate_argument_expression table parent visible declarations
+                compilation_mode expression
             with
             | Error _ as error -> error
             | Ok () -> arguments rest))
   in
   let rec loop = function
     | [] -> Ok ()
-    | call :: rest -> (
-        match arguments call.arguments with
+    | (call : call) :: rest -> (
+        match
+          match call.callable with
+          | None -> Ok ()
+          | Some callable -> validate_callable table parent callable
+        with
         | Error _ as error -> error
-        | Ok () -> loop rest)
+        | Ok () -> (
+            match arguments call.arguments with
+            | Error _ as error -> error
+            | Ok () -> loop rest))
   in
   loop calls
 
@@ -597,8 +1120,80 @@ let validate_calls calls occurrences =
   in
   loop 0 (-1) calls
 
-let validate_function_input table parent visible expected
-    (input : function_input) =
+let rec validate_bound_occurrences occurrence_by_index expression =
+  match argument_expression_kind expression with
+  | Parenthesized_expression grouped ->
+      validate_bound_occurrences occurrence_by_index grouped
+  | Prefix_expression prefix ->
+      validate_bound_occurrences occurrence_by_index prefix.prefix_operand
+  | Postfix_expression postfix ->
+      validate_bound_occurrences occurrence_by_index postfix.postfix_operand
+  | Binary_expression binary -> (
+      match
+        validate_bound_occurrences occurrence_by_index binary.binary_left
+      with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_bound_occurrences occurrence_by_index binary.binary_right)
+  | Index_expression index -> (
+      match validate_bound_occurrences occurrence_by_index index.index_base with
+      | Error _ as error -> error
+      | Ok () ->
+          validate_bound_occurrences occurrence_by_index index.index_value)
+  | Member_access_expression member ->
+      validate_bound_occurrences occurrence_by_index member.member_base
+  | Postfix_cast_expression (operand, _) ->
+      validate_bound_occurrences occurrence_by_index operand
+  | Bound_identifier_expression identifier -> (
+      let occurrence = bound_identifier_occurrence identifier in
+      let index = Module_expression_binding.occurrence_index occurrence in
+      match Int_map.find_opt index occurrence_by_index with
+      | Some expected when expected == occurrence -> Ok ()
+      | Some _ ->
+          Error
+            (invalid_input
+               "bound call argument uses a different expression occurrence")
+      | None ->
+          Error
+            (invalid_input
+               "bound call argument occurrence does not belong to its function")
+      )
+  | Integer_literal
+  | Float_literal
+  | Character_literal
+  | String_literal
+  | Unresolved_expression _ -> Ok ()
+
+let validate_call_bound_occurrences calls occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let rec arguments = function
+    | [] -> Ok ()
+    | argument :: rest -> (
+        match argument.expression with
+        | None -> arguments rest
+        | Some expression -> (
+            match validate_bound_occurrences occurrence_by_index expression with
+            | Error _ as error -> error
+            | Ok () -> arguments rest))
+  in
+  let rec loop = function
+    | [] -> Ok ()
+    | call :: rest -> (
+        match arguments call.arguments with
+        | Error _ as error -> error
+        | Ok () -> loop rest)
+  in
+  loop calls
+
+let validate_function_input table parent visible declarations compilation_mode
+    expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
   let scope = Module_expression_binding.function_scope expected in
   let item_index = Module_expression_binding.function_item_index expected in
@@ -620,13 +1215,21 @@ let validate_function_input table parent visible expected
   else if not (symbol_in_scope input.symbol parent) then
     Error (invalid_input "function call owner has the wrong module scope")
   else
-    match validate_argument_expressions table parent visible input.calls with
+    match
+      validate_argument_expressions table parent visible declarations
+        compilation_mode input.calls
+    with
     | Error _ as error -> error
-    | Ok () ->
-        validate_calls input.calls
-          (Module_expression_binding.function_occurrences expected)
+    | Ok () -> (
+        let occurrences =
+          Module_expression_binding.function_occurrences expected
+        in
+        match validate_call_bound_occurrences input.calls occurrences with
+        | Error _ as error -> error
+        | Ok () -> validate_calls input.calls occurrences)
 
-let validate_function_inputs table parent expressions inputs =
+let validate_function_inputs table parent expressions declarations
+    compilation_mode inputs =
   let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
@@ -634,7 +1237,10 @@ let validate_function_inputs table parent expressions inputs =
         let visible, publications =
           publish_aggregates_before visible publications input.item_index
         in
-        match validate_function_input table parent visible expected input with
+        match
+          validate_function_input table parent visible declarations
+            compilation_mode expected input
+        with
         | Error _ as error -> error
         | Ok () -> pair visible publications expected_rest input_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -670,11 +1276,7 @@ let provided_or_default (call : call)
             { parameter; value = Declared_default { default; omission = None } }
       | None -> Error (missing_required_argument call parameter None))
 
-let bind_direct_arguments call header =
-  let parameters =
-    Function_type_resolution.function_signature header
-    |> Function_type_resolution.signature_parameters
-  in
+let bind_arguments call ~parameters ~is_variadic =
   let rec fixed fixed_rev parameters arguments =
     match parameters with
     | parameter :: parameter_rest -> (
@@ -691,14 +1293,14 @@ let bind_direct_arguments call header =
   match fixed [] parameters call.arguments with
   | Error _ as error -> error
   | Ok (fixed_arguments, extras) -> (
-      match Function_type_resolution.function_variadic_bindings header with
-      | None -> (
+      match is_variadic with
+      | false -> (
           match extras with
           | [] -> Ok (fixed_arguments, [], 0L)
           | argument :: _ ->
               Error
                 (extra_fixed_argument call argument (List.length parameters)))
-      | Some _ ->
+      | true ->
           let rec variadic count (rev : argument list) = function
             | [] -> Ok (fixed_arguments, List.rev rev, count)
             | (argument : argument) :: rest -> (
@@ -712,67 +1314,104 @@ let bind_direct_arguments call header =
           in
           variadic 0L [] extras)
 
-let same_publication_target publication declaration =
-  let site = Function_resolution.resolved_declaration_site declaration in
-  let function_ = Function_resolution.declaration_site_function site in
-  same_symbol
-    (Module_expression_binding.publication_source_symbol publication)
-    (Function_type_resolution.function_symbol function_)
-  && same_symbol
-       (Module_expression_binding.publication_canonical_symbol publication)
-       (Function_resolution.resolved_declaration_identity_symbol declaration)
+let bind_direct_arguments call header =
+  let parameters =
+    Function_type_resolution.function_signature header
+    |> Function_type_resolution.signature_parameters
+  in
+  bind_arguments call ~parameters
+    ~is_variadic:
+      (Option.is_some
+         (Function_type_resolution.function_variadic_bindings header))
 
-let resolve_call types declarations occurrence call =
+let bind_indirect_arguments call callable =
+  let signature = callable_signature callable in
+  bind_arguments call
+    ~parameters:(Function_type_resolution.signature_parameters signature)
+    ~is_variadic:
+      (Option.is_some
+         (Function_type_resolution.signature_variadic_origin signature))
+
+let same_publication_target publication declaration =
+  function_declaration_matches_publication declaration publication
+
+let resolve_call types declarations occurrence (call : call) =
+  let indirect_or_deferred reason =
+    match call.callable with
+    | None -> Ok (Deferred_call { call; occurrence; reason })
+    | Some callable -> (
+        match bind_indirect_arguments call callable with
+        | Error _ as error -> error
+        | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+            Ok
+              (Indirect_call
+                 {
+                   source = call;
+                   occurrence;
+                   callable;
+                   fixed_arguments;
+                   variadic_arguments;
+                   variadic_count;
+                 }))
+  in
   match Module_expression_binding.occurrence_resolution occurrence with
   | Module_expression_binding.Local_binding binding ->
-      Ok (Deferred_call { call; occurrence; reason = Local_callee binding })
+      indirect_or_deferred (Local_callee binding)
   | Module_expression_binding.Outer_candidate ->
       Ok (Deferred_call { call; occurrence; reason = Outer_callee })
   | Module_expression_binding.Module_binding publication -> (
       match Module_expression_binding.publication_kind publication with
       | Module_expression_binding.Global_variable ->
-          Ok
-            (Deferred_call
-               { call; occurrence; reason = Global_callee publication })
+          indirect_or_deferred (Global_callee publication)
       | Module_expression_binding.Aggregate ->
           Ok
             (Deferred_call
                { call; occurrence; reason = Aggregate_callee publication })
       | Module_expression_binding.Function -> (
-          let source =
-            Module_expression_binding.publication_source_symbol publication
-          in
-          let number = symbol_number source in
-          match
-            (Int_map.find_opt number types, Int_map.find_opt number declarations)
-          with
-          | Some active_header, Some declaration
-            when same_publication_target publication declaration -> (
-              match bind_direct_arguments call active_header with
-              | Error _ as error -> error
-              | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
-                  Ok
-                    (Direct_call
-                       {
-                         source = call;
-                         occurrence;
-                         active_header;
-                         target_symbol =
-                           Module_expression_binding
-                           .publication_canonical_symbol publication;
-                         fixed_arguments;
-                         variadic_arguments;
-                         variadic_count;
-                       }))
-          | Some _, Some _ ->
-              Error
-                (invalid_input
-                   "function call publication disagrees with function identity \
-                    resolution")
-          | None, _ | _, None ->
-              Error
-                (invalid_input
-                   "function call publication has no active typed header")))
+          if Option.is_some call.callable then
+            Error
+              (invalid_input
+                 "direct function call unexpectedly carries a callback header")
+          else if call.callee_form <> Identifier_callee then
+            Ok
+              (Deferred_call
+                 { call; occurrence; reason = Global_callee publication })
+          else
+            let source =
+              Module_expression_binding.publication_source_symbol publication
+            in
+            let number = symbol_number source in
+            match
+              ( Int_map.find_opt number types,
+                Int_map.find_opt number declarations )
+            with
+            | Some active_header, Some declaration
+              when same_publication_target publication declaration -> (
+                match bind_direct_arguments call active_header with
+                | Error _ as error -> error
+                | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                    Ok
+                      (Direct_call
+                         {
+                           source = call;
+                           occurrence;
+                           active_header;
+                           target_symbol =
+                             Module_expression_binding
+                             .publication_canonical_symbol publication;
+                           fixed_arguments;
+                           variadic_arguments;
+                           variadic_count;
+                         }))
+            | Some _, Some _ ->
+                Error
+                  (invalid_input
+                     "function call publication disagrees with function \
+                      identity resolution")
+            | None, _ | _, None ->
+                Error
+                  (invalid_input
+                     "function call publication has no active typed header")))
 
 let resolve_function types declarations expected (input : function_input) =
   let occurrences = Module_expression_binding.function_occurrences expected in
@@ -847,7 +1486,11 @@ let resolve ~table ~parent ~function_types ~functions ~expressions inputs =
         match validate_resolved_declarations table parent types functions with
         | Error _ as error -> error
         | Ok declarations -> (
-            match validate_function_inputs table parent expressions inputs with
+            match
+              validate_function_inputs table parent expressions declarations
+                (Function_resolution.compilation_mode functions)
+                inputs
+            with
             | Error _ as error -> error
             | Ok () -> (
                 match

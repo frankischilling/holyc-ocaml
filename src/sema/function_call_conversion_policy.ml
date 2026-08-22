@@ -12,8 +12,15 @@ type direct_call = {
   variadic_arguments : Function_call_resolution.argument list;
 }
 
+type indirect_call = {
+  source : Function_call_resolution.indirect_call;
+  fixed_policies : fixed_policy list;
+  variadic_arguments : Function_call_resolution.argument list;
+}
+
 type call_policy =
   | Direct_call_policy of direct_call
+  | Indirect_call_policy of indirect_call
   | Deferred_call_policy of Function_call_resolution.call_resolution
 
 type resolved_function = {
@@ -49,6 +56,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_policies (call : direct_call) = call.fixed_policies
 let direct_variadic_arguments (call : direct_call) = call.variadic_arguments
+let indirect_source (call : indirect_call) = call.source
+let indirect_fixed_policies (call : indirect_call) = call.fixed_policies
+let indirect_variadic_arguments (call : indirect_call) = call.variadic_arguments
 let fixed_source (fixed : fixed_policy) = fixed.source
 let fixed_path (fixed : fixed_policy) = fixed.path
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
@@ -218,24 +228,31 @@ let validate_functions table parent calls =
   in
   loop (-1) Int_map.empty (Function_call_resolution.functions calls)
 
-let rec forwarded_target_class headers ~before_item_index type_ =
+let rec source_visible_type headers ~before_item_index type_ =
+  if Type.pointer_depth type_ <> 0 then type_
+  else
+    match Type.base type_ with
+    | Type.Primitive _ -> type_
+    | Type.Aggregate symbol -> (
+        match Int_map.find_opt (symbol_number symbol) headers with
+        | None -> type_
+        | Some header
+          when Aggregate_header_resolution.header_item_index header
+               >= before_item_index -> type_
+        | Some header -> (
+            match Aggregate_header_resolution.header_backing header with
+            | None -> type_
+            | Some backing ->
+                source_visible_type headers ~before_item_index
+                  (Aggregate_header_resolution.backing_type backing)))
+
+let forwarded_target_class headers ~before_item_index type_ =
+  let type_ = source_visible_type headers ~before_item_index type_ in
   if Type.pointer_depth type_ <> 0 then Integer_result
   else
     match Type.base type_ with
     | Type.Primitive (_, Primitive_type.F64) -> F64_result
-    | Type.Primitive _ -> Integer_result
-    | Type.Aggregate symbol -> (
-        match Int_map.find_opt (symbol_number symbol) headers with
-        | None -> Integer_result
-        | Some header
-          when Aggregate_header_resolution.header_item_index header
-               >= before_item_index -> Integer_result
-        | Some header -> (
-            match Aggregate_header_resolution.header_backing header with
-            | None -> Integer_result
-            | Some backing ->
-                forwarded_target_class headers ~before_item_index
-                  (Aggregate_header_resolution.backing_type backing)))
+    | Type.Primitive _ | Type.Aggregate _ -> Integer_result
 
 let parameter_target_class headers ~before_item_index parameter =
   match Function_type_resolution.parameter_declarator_kind parameter with
@@ -256,7 +273,8 @@ let fixed_policy headers ~before_item_index source =
   in
   { source; path }
 
-let direct_call headers ~before_item_index source =
+let direct_call headers ~before_item_index
+    (source : Function_call_resolution.direct_call) : direct_call =
   {
     source;
     fixed_policies =
@@ -266,9 +284,22 @@ let direct_call headers ~before_item_index source =
       Function_call_resolution.direct_variadic_arguments source;
   }
 
+let indirect_call headers ~before_item_index
+    (source : Function_call_resolution.indirect_call) : indirect_call =
+  {
+    source;
+    fixed_policies =
+      source |> Function_call_resolution.indirect_fixed_arguments
+      |> List.map (fixed_policy headers ~before_item_index);
+    variadic_arguments =
+      Function_call_resolution.indirect_variadic_arguments source;
+  }
+
 let call_policy headers ~before_item_index = function
   | Function_call_resolution.Direct_call call ->
       Direct_call_policy (direct_call headers ~before_item_index call)
+  | Function_call_resolution.Indirect_call call ->
+      Indirect_call_policy (indirect_call headers ~before_item_index call)
   | Function_call_resolution.Deferred_call _ as call ->
       Deferred_call_policy call
 
@@ -323,6 +354,9 @@ let analyze ~table ~parent ~headers ~calls =
 
 let forwarded_type_class result ~before_item_index type_ =
   forwarded_target_class result.headers ~before_item_index type_
+
+let forwarded_type result ~before_item_index type_ =
+  source_visible_type result.headers ~before_item_index type_
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

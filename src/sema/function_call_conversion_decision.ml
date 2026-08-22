@@ -1,4 +1,7 @@
-type actual_class = Integer_result | F64_result | Unresolved_actual_class
+type actual_class = Function_call_expression_result.result_class =
+  | Integer_result
+  | F64_result
+  | Unresolved_actual_class
 
 type conversion =
   | No_conversion
@@ -8,6 +11,7 @@ type conversion =
 
 type provided_decision = {
   target : Function_call_conversion_policy.target_class;
+  actual_result : Function_call_expression_result.expression_result;
   actual : actual_class;
   conversion : conversion;
 }
@@ -19,14 +23,26 @@ type fixed_decision = {
   path : fixed_path;
 }
 
+type variadic_decision = {
+  actual_result : Function_call_expression_result.expression_result;
+  actual : actual_class;
+}
+
 type direct_call = {
   source : Function_call_conversion_policy.direct_call;
   fixed_decisions : fixed_decision list;
-  variadic_arguments : Function_call_resolution.argument list;
+  variadic_decisions : variadic_decision list;
+}
+
+type indirect_call = {
+  source : Function_call_conversion_policy.indirect_call;
+  fixed_decisions : fixed_decision list;
+  variadic_decisions : variadic_decision list;
 }
 
 type call_decision =
   | Direct_call_decision of direct_call
+  | Indirect_call_decision of indirect_call
   | Deferred_call_decision of Function_call_resolution.call_resolution
 
 type resolved_function = {
@@ -57,12 +73,24 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_decisions (call : direct_call) = call.fixed_decisions
-let direct_variadic_arguments (call : direct_call) = call.variadic_arguments
+let direct_variadic_decisions (call : direct_call) = call.variadic_decisions
+let indirect_source (call : indirect_call) = call.source
+let indirect_fixed_decisions (call : indirect_call) = call.fixed_decisions
+let indirect_variadic_decisions (call : indirect_call) = call.variadic_decisions
 let fixed_source (fixed : fixed_decision) = fixed.source
 let fixed_path (fixed : fixed_decision) = fixed.path
 let provided_target (provided : provided_decision) = provided.target
+
+let provided_actual_result (provided : provided_decision) =
+  provided.actual_result
+
 let provided_actual (provided : provided_decision) = provided.actual
 let provided_conversion (provided : provided_decision) = provided.conversion
+
+let variadic_actual_result (variadic : variadic_decision) =
+  variadic.actual_result
+
+let variadic_actual (variadic : variadic_decision) = variadic.actual
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let actual_class_name = function
@@ -96,48 +124,6 @@ let error_message error =
 let error_to_string error = error.code ^ ": " ^ error_message error
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
-let rec source_actual_class policies ~before_item_index expression =
-  match Function_call_resolution.argument_expression_kind expression with
-  | Function_call_resolution.Integer_literal
-  | Function_call_resolution.Character_literal
-  | Function_call_resolution.String_literal -> Integer_result
-  | Function_call_resolution.Float_literal -> F64_result
-  | Function_call_resolution.Parenthesized_expression grouped ->
-      source_actual_class policies ~before_item_index grouped
-  | Function_call_resolution.Prefix_expression prefix -> (
-      match Function_call_resolution.prefix_operator prefix with
-      | Function_call_resolution.Unary_plus
-      | Function_call_resolution.Unary_minus
-      | Function_call_resolution.Logical_not ->
-          source_actual_class policies ~before_item_index
-            (Function_call_resolution.prefix_operand prefix)
-      | Function_call_resolution.Address_of -> Integer_result
-      | Function_call_resolution.Bitwise_not
-      | Function_call_resolution.Dereference
-      | Function_call_resolution.Pre_increment
-      | Function_call_resolution.Pre_decrement -> Unresolved_actual_class)
-  | Function_call_resolution.Postfix_cast_expression (_, target) -> (
-      let resolved = Type_reference.resolved_type target in
-      match
-        Function_call_conversion_policy.forwarded_type_class policies
-          ~before_item_index resolved
-      with
-      | Function_call_conversion_policy.Integer_result -> Integer_result
-      | Function_call_conversion_policy.F64_result -> F64_result)
-  | Function_call_resolution.Unresolved_expression
-      ( Function_call_resolution.Current_position_expression
-      | Function_call_resolution.Sizeof_expression
-      | Function_call_resolution.Offset_expression
-      | Function_call_resolution.Defined_expression ) -> Integer_result
-  | Function_call_resolution.Unresolved_expression
-      ( Function_call_resolution.Identifier_expression
-      | Function_call_resolution.Postfix_expression
-      | Function_call_resolution.Postfix_cast_expression
-      | Function_call_resolution.Binary_expression
-      | Function_call_resolution.Call_expression
-      | Function_call_resolution.Index_expression
-      | Function_call_resolution.Member_expression ) -> Unresolved_actual_class
-
 let conversion target actual =
   match (target, actual) with
   | _, Unresolved_actual_class -> Unresolved_conversion
@@ -147,36 +133,35 @@ let conversion target actual =
   | Function_call_conversion_policy.Integer_result, Integer_result ->
       No_conversion
 
-let fixed_decision policies ~before_item_index source =
+let fixed_decision source =
+  let policy = Function_call_expression_result.fixed_source source in
   match
-    ( Function_call_conversion_policy.fixed_path source,
-      source |> Function_call_conversion_policy.fixed_source
-      |> Function_call_resolution.fixed_value )
+    ( Function_call_conversion_policy.fixed_path policy,
+      Function_call_expression_result.fixed_path source )
   with
   | ( Function_call_conversion_policy.Declared_default,
-      Function_call_resolution.Declared_default _ ) ->
-      Ok { source; path = Declared_default_path }
+      Function_call_expression_result.Declared_default_result _ ) ->
+      Ok { source = policy; path = Declared_default_path }
   | ( Function_call_conversion_policy.Provided_expression target,
-      Function_call_resolution.Provided_argument argument ) -> (
-      match Function_call_resolution.argument_expression argument with
-      | None ->
-          Error (invalid_input "provided fixed argument has no expression")
-      | Some expression ->
-          let actual =
-            source_actual_class policies ~before_item_index expression
-          in
-          Ok
-            {
-              source;
-              path =
-                Provided_path
-                  { target; actual; conversion = conversion target actual };
-            })
+      Function_call_expression_result.Provided_result actual_result ) ->
+      let actual = Function_call_expression_result.result_class actual_result in
+      Ok
+        {
+          source = policy;
+          path =
+            Provided_path
+              {
+                target;
+                actual_result;
+                actual;
+                conversion = conversion target actual;
+              };
+        }
   | ( Function_call_conversion_policy.Declared_default,
-      Function_call_resolution.Provided_argument _ )
+      Function_call_expression_result.Provided_result _ )
   | ( Function_call_conversion_policy.Provided_expression _,
-      Function_call_resolution.Declared_default _ ) ->
-      Error (invalid_input "fixed call policy has an inconsistent source path")
+      Function_call_expression_result.Declared_default_result _ ) ->
+      Error (invalid_input "typed fixed call has an inconsistent source path")
 
 let map_result apply values =
   let rec loop rev = function
@@ -188,53 +173,96 @@ let map_result apply values =
   in
   loop [] values
 
-let direct_call policies ~before_item_index source =
+let direct_call (source : Function_call_expression_result.direct_call) :
+    (direct_call, error) result =
   match
-    source |> Function_call_conversion_policy.direct_fixed_policies
-    |> map_result (fixed_decision policies ~before_item_index)
+    source |> Function_call_expression_result.direct_fixed_results
+    |> map_result fixed_decision
   with
   | Error _ as error -> error
   | Ok fixed_decisions ->
+      let variadic_decisions =
+        source |> Function_call_expression_result.direct_variadic_results
+        |> List.map (fun actual_result ->
+            {
+              actual_result;
+              actual =
+                Function_call_expression_result.result_class actual_result;
+            })
+      in
       Ok
         {
-          source;
+          source = Function_call_expression_result.direct_source source;
           fixed_decisions;
-          variadic_arguments =
-            Function_call_conversion_policy.direct_variadic_arguments source;
+          variadic_decisions;
         }
 
-let call_decision policies ~before_item_index = function
-  | Function_call_conversion_policy.Direct_call_policy call -> (
-      match direct_call policies ~before_item_index call with
+let indirect_call (source : Function_call_expression_result.indirect_call) :
+    (indirect_call, error) result =
+  match
+    source |> Function_call_expression_result.indirect_fixed_results
+    |> map_result fixed_decision
+  with
+  | Error _ as error -> error
+  | Ok fixed_decisions ->
+      let variadic_decisions =
+        source |> Function_call_expression_result.indirect_variadic_results
+        |> List.map (fun actual_result ->
+            {
+              actual_result;
+              actual =
+                Function_call_expression_result.result_class actual_result;
+            })
+      in
+      Ok
+        {
+          source = Function_call_expression_result.indirect_source source;
+          fixed_decisions;
+          variadic_decisions;
+        }
+
+let call_decision = function
+  | Function_call_expression_result.Direct_call_result call -> (
+      match direct_call call with
       | Error _ as error -> error
       | Ok call -> Ok (Direct_call_decision call))
-  | Function_call_conversion_policy.Deferred_call_policy call ->
+  | Function_call_expression_result.Indirect_call_result call -> (
+      match indirect_call call with
+      | Error _ as error -> error
+      | Ok call -> Ok (Indirect_call_decision call))
+  | Function_call_expression_result.Deferred_call_result call ->
       Ok (Deferred_call_decision call)
 
-let resolve_function policies source =
-  let item_index = Function_call_conversion_policy.function_item_index source in
+let resolve_function source =
+  let item_index = Function_call_expression_result.function_item_index source in
   match
-    source |> Function_call_conversion_policy.function_calls
-    |> map_result (call_decision policies ~before_item_index:item_index)
+    source |> Function_call_expression_result.function_calls
+    |> map_result call_decision
   with
   | Error _ as error -> error
   | Ok calls ->
       Ok
         {
-          symbol = Function_call_conversion_policy.function_symbol source;
-          scope = Function_call_conversion_policy.function_scope source;
+          symbol = Function_call_expression_result.function_symbol source;
+          scope = Function_call_expression_result.function_scope source;
           item_index;
           calls;
         }
 
-let decide ~table policies =
-  if not (Function_call_conversion_policy.owns_table policies table) then
+let decide ~table ~policies expressions =
+  if not (Function_call_expression_result.owns_table expressions table) then
     Error
-      (invalid_input "call conversion policies belong to another symbol table")
+      (invalid_input "typed call expressions belong to another symbol table")
+  else if
+    not (Function_call_expression_result.owns_policies expressions policies)
+  then
+    Error
+      (invalid_input
+         "typed call expressions belong to another conversion-policy traversal")
   else
     match
-      policies |> Function_call_conversion_policy.functions
-      |> map_result (resolve_function policies)
+      expressions |> Function_call_expression_result.functions
+      |> map_result resolve_function
     with
     | Error _ as error -> error
     | Ok functions ->
@@ -248,7 +276,7 @@ let decide ~table policies =
           {
             table;
             compilation_mode =
-              Function_call_conversion_policy.compilation_mode policies;
+              Function_call_expression_result.compilation_mode expressions;
             functions;
             by_symbol;
           }

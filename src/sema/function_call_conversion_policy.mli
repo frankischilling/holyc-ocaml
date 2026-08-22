@@ -2,9 +2,11 @@ type target_class = Integer_result | F64_result
 type fixed_path = Provided_expression of target_class | Declared_default
 type fixed_policy
 type direct_call
+type indirect_call
 
 type call_policy =
   | Direct_call_policy of direct_call
+  | Indirect_call_policy of indirect_call
   | Deferred_call_policy of Function_call_resolution.call_resolution
 
 type resolved_function
@@ -41,6 +43,12 @@ val direct_fixed_policies : direct_call -> fixed_policy list
 val direct_variadic_arguments :
   direct_call -> Function_call_resolution.argument list
 
+val indirect_source : indirect_call -> Function_call_resolution.indirect_call
+val indirect_fixed_policies : indirect_call -> fixed_policy list
+
+val indirect_variadic_arguments :
+  indirect_call -> Function_call_resolution.argument list
+
 val fixed_source : fixed_policy -> Function_call_resolution.fixed_argument
 val fixed_path : fixed_policy -> fixed_path
 
@@ -48,6 +56,10 @@ val forwarded_type_class : t -> before_item_index:int -> Type.t -> target_class
 (** Follow the validated by-value aggregate backing relation visible before the
     supplied module item. Pointers and unbacked aggregates use the integer
     result path. *)
+
+val forwarded_type : t -> before_item_index:int -> Type.t -> Type.t
+(** Return the source-visible result of the same checked backing traversal.
+    Pointer types are not forwarded. *)
 
 val target_class_name : target_class -> string
 val fixed_path_name : fixed_path -> string

@@ -47,6 +47,8 @@ type error_kind =
 
 type error
 
+val owns_table : t -> Symbol_table.t -> bool
+
 val build :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
@@ -58,12 +60,22 @@ val build :
 
 val aggregates : t -> aggregate list
 val find_aggregate : t -> Symbol.t -> aggregate option
+val aggregate_symbol : aggregate -> Symbol.t
+val aggregate_item_index : aggregate -> int
 
 val lookup :
   t -> aggregate:Symbol.t -> name:string -> (lookup option, error) result
 (** Search the queried aggregate before following its single base chain. This
     operation is pure; use-count accounting belongs to the consuming pass. *)
 
+val lookup_queried_aggregate : lookup -> Symbol.t
+val lookup_declaring_aggregate : lookup -> Symbol.t
+val lookup_inheritance_depth : lookup -> int
+val lookup_member : lookup -> member
+val member_symbol : member -> Symbol.t
+val member_type : member -> Type.t
+val member_is_function_pointer : member -> bool
+val member_layout : member -> Aggregate_layout.member_layout
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option

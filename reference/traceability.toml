@@ -3672,7 +3672,7 @@ duplicate_validation = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX with the p
 base_class_lookup = "implemented by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout = "implemented for closed definitions by HC-SEMA-AGGREGATE-LAYOUT-CLOSED"
 member_metadata_evaluation = "not implemented"
-reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES and inherited name lookup in HC-SEMA-AGGREGATE-MEMBER-INDEX; AST member access remains unresolved"
+reference_resolution = "member type references are implemented in HC-SEMA-AGGREGATE-MEMBER-TYPES, inherited name lookup in HC-SEMA-AGGREGATE-MEMBER-INDEX, and typed AST member access in HC-SEMA-MEMBER-EXPRESSION-RESULTS"
 native_oracle_status = "not required for this identity boundary; PrsVarLst, MemberAdd, and MemberFind state insertion and namespace behavior directly"
 
 [[feature]]
@@ -4513,7 +4513,7 @@ status = "implemented"
 issue = 242
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed literal arguments on already resolved direct function-body calls after target policy"
-semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
+semantic_source_view = "provided fixed and variadic arguments retain literal kind, nested parentheses, recursive prefix, postfix-update, and binary operands, unresolved top-level expression kind, and source provenance; omitted arguments carry no expression"
 integer_actuals = ["integer literal", "character literal", "string literal"]
 f64_actuals = ["float literal"]
 parentheses = "preserve the nested literal class"
@@ -4521,11 +4521,13 @@ decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 to_f64_rule = "forwarded scalar F64 target with an integer-path literal actual"
 to_int_rule = "every non-F64 target with an F64 literal actual"
 no_conversion_rule = "target and actual use the same F64-versus-integer path"
-unresolved_actuals = ["identifier", "postfix", "binary", "call", "index", "member"]
+unresolved_actuals = ["identifier", "call", "index", "member"]
 integer_primary_extension = "HC-SEMA-INTEGER-PRIMARY-CALL-CONVERSION"
 primitive_postfix_cast_extension = "HC-SEMA-PRIMITIVE-POSTFIX-CAST-CALL-CONVERSION"
 named_aggregate_postfix_cast_extension = "HC-SEMA-NAMED-AGGREGATE-POSTFIX-CAST-CALL-CONVERSION"
 prefix_expression_extension = "HC-SEMA-PREFIX-EXPRESSION-CALL-CONVERSION"
+binary_expression_extension = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
+postfix_expression_extension = "HC-SEMA-POSTFIX-EXPRESSION-CALL-CONVERSION"
 declared_default_behavior = "retained as a separate fixed path"
 variadic_behavior = "source view retained without entering the fixed conversion decision"
 deferred_call_behavior = "retained without a conversion decision"
@@ -4690,12 +4692,16 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed prefix-expression arguments on already resolved direct function-body calls after target policy"
 semantic_source_view = "retains the exact prefix operator, operator origin, recursive operand view, and nested cast type identity"
 forwarded_prefixes = ["unary plus", "unary minus", "logical not"]
-integer_prefixes = ["address-of"]
-unresolved_prefixes = ["bitwise complement", "dereference", "pre-increment", "pre-decrement"]
+integer_prefixes = ["address-of", "bitwise complement"]
+unresolved_prefixes = []
+dereference_extension = "HC-SEMA-POINTER-DEREFERENCE-RESULTS"
+prefix_update_extension = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
+bitwise_complement_extension = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
 unary_plus_rule = "the parser returns the operand result without adding an IC, so the recursive operand class is retained"
 unary_minus_rule = "OptPass012 forwards the operand class to the unary-minus result"
 logical_not_rule = "OptPass012 retains the operand class, including F64, while selecting the logical-not IC"
 address_of_rule = "the accepted source path produces a pointer result and therefore uses the non-F64 side of the call comparison"
+bitwise_complement_rule = "the IC_COM optimizer branch assigns internal I64 to the pushed result after optional immediate folding, independently of the operand class"
 parentheses = "preserve the recursively classified prefix result"
 decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
 validation = "the prefix constructor rejects an invalid operator origin before constructing a recursive source view"
@@ -4707,6 +4713,132 @@ lvalue_validation_and_updates = "not implemented"
 ic_flag_emission = "not implemented; the result records intent only"
 remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
 native_oracle_status = "not required for this result-class boundary; PrsExp, OptClassFwd, OptPass012, and PrsFunCall state the retained classes and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
+description = "Pre-increment and pre-decrement fixed arguments retain their recursive source class and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:81-118 prefix and postfix update IC construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:750-759 CCF_PREINC and CCF_PREDEC handling",
+  "Compiler/OptPass012.HC:292-298 shared update class handling",
+  "Compiler/CompilerA.HH:65-66 IC_PP_ and IC_MM_",
+  "Compiler/CInit.HC:65-66 prefix update IC metadata",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 257
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed prefix-update arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "reuses the retained pre-increment or pre-decrement operator, operator origin, recursive operand view, and complete expression origin"
+operators = ["IC_PP_", "IC_MM_"]
+result_rule = "the result class follows the recursively audited operand class"
+unresolved_rule = "an unavailable operand class remains unresolved"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+provenance = ["operator", "operand", "nested cast and binary", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation_and_update_effects = "not implemented"
+new_value_execution = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptPass012, CompilerA, CInit, and PrsFunCall state the retained class and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-BINARY-EXPRESSION-CALL-CONVERSION"
+description = "Audited binary-expression fixed arguments retain the source-selected result class and the resulting direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:15-201 binary expression construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/OptLib.HC:92-180 binary result-class selection",
+  "Compiler/OptPass012.HC:229-897 binary operation classes",
+  "Compiler/CInit.HC:288-329 checked binary operator table",
+  "Kernel/KernelA.HH:1564-1578 raw type values",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 252
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed binary-expression arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains the generated IC identity, operator origin, recursive left and right operands, and nested prefix, parenthesis, and cast state"
+operator_inventory = "all 31 binary operators from the generated Compiler/CInit.HC table"
+f64_result_operators = ["IC_POWER"]
+integer_result_operators = ["IC_EQU_EQU", "IC_NOT_EQU", "IC_LESS", "IC_GREATER_EQU", "IC_GREATER", "IC_LESS_EQU", "IC_AND_AND", "IC_OR_OR", "IC_XOR_XOR"]
+combined_result_operators = ["IC_SHL", "IC_SHR", "IC_MUL", "IC_DIV", "IC_MOD", "IC_AND", "IC_OR", "IC_XOR", "IC_ADD", "IC_SUB"]
+combined_result_rule = "an F64 operand forces the F64 path; two integer-side operands use the integer path; otherwise the result remains unresolved"
+assignment_operators = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
+assignment_boundary = "typed destination results, right-operand conversions, and compound execution classes are implemented by HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
+parentheses = "preserve the recursively classified binary result"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "the binary constructor accepts only generated checked-table identities and rejects an invalid operator origin"
+provenance = ["operator", "left operand", "right operand", "nested prefix and cast", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation = "implemented for assignment expressions by HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
+assignment_effects = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptFixupBinaryOp1, OptPass012, CInit, and PrsFunCall state the operator inventory, retained classes, and conversion condition directly"
+
+[[feature]]
+id = "HC-SEMA-POSTFIX-EXPRESSION-CALL-CONVERSION"
+description = "Postfix increment and decrement fixed arguments retain their recursive source class and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:81-118 postfix IC construction",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:1101-1112 postfix token and precedence handling",
+  "Compiler/OptPass012.HC:292-298 postfix increment and decrement class handling",
+  "Compiler/CompilerA.HH:63-64 IC__PP and IC__MM",
+  "Compiler/CInit.HC:56-57 postfix IC metadata",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 255
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed postfix-update arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains post-increment or post-decrement, the operator origin, recursive operand view, and complete expression origin"
+operators = ["IC__PP", "IC__MM"]
+result_rule = "the result class follows the recursively audited operand class"
+unresolved_rule = "an unavailable operand class remains unresolved"
+parentheses = "preserve the recursively classified postfix result"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "the constructor accepts only a valid operator origin and validates the recursive operand view"
+provenance = ["operator", "operand", "nested prefix, binary, and cast", "included source", "generated invocation and definition"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+lvalue_validation_and_update_effects = "not implemented"
+old_value_execution = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, OptPass012, CompilerA, CInit, and PrsFunCall state the retained class and conversion condition directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RECORD-FLAGS"
@@ -5264,3 +5396,610 @@ implementation = []
 tests = []
 status = "planned"
 issue = 3
+
+[[feature]]
+id = "HC-SEMA-BOUND-IDENTIFIER-CALL-CONVERSION"
+description = "Bound identifier fixed arguments retain their checked value type, source binding, and direct-call conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/PrsExp.HC:761-807 parameter, local, array, static, and callback value construction",
+  "Compiler/PrsExp.HC:830-904 function and global lookup dispatch",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/PrsVar.HC retained parameter, local, and global type records",
+  "Compiler/CMain.HC JIT and AOT compiler table selection"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/sema/function_binding_index.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 259
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed identifier arguments on already resolved direct function-body calls after function and module expression binding"
+binding_kinds = ["named fixed parameter", "variadic argc", "variadic argv", "automatic local", "static local", "source-visible global variable"]
+binding_identity = "the argument retains the exact Module_expression_binding occurrence and follows its stable Function_binding_index binding or global publication source symbol"
+value_shapes = ["object", "array", "function pointer"]
+object_rule = "the resolved semantic type follows the aggregate backing relation visible before the caller"
+pointer_side_rule = "arrays, function pointers, and synthetic argv use the integer result path regardless of their declared base or callback return type"
+synthetic_argc_rule = "argc is an internal I64 object and uses the integer result path"
+outer_rule = "an outer candidate remains unresolved because the current outer binding result has no joined checked value type"
+unsupported_expression_bindings = ["module function value", "aggregate type value", "member", "indirect call"]
+index_extension = "HC-SEMA-INDEX-EXPRESSION-RESULTS"
+decisions = ["none", "ICF_RES_TO_F64", "ICF_RES_TO_INT", "unresolved"]
+validation = "exact occurrence object and origin, source-ordered traversal, stable function owner and scope, AST item position, type-batch ownership, local or global value binding, aggregate type ownership, and module scope"
+provenance = ["identifier expression", "binding symbol", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_access_and_lvalue_conversion = "not implemented"
+value_evaluation = "not implemented"
+ic_construction_and_flag_emission = "not implemented; the result records intent only"
+remaining_expression_typing_default_evaluation_indirect_calls_lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; PrsExp, PrsVar, OptClassFwd, and the fixed call comparison state the retained value classes directly"
+
+[[feature]]
+id = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
+description = "Bitwise-complement fixed arguments use the internal I64 result class assigned by the pinned optimizer."
+sources = [
+  "Compiler/PrsExp.HC:593-676 prefix dispatch and IC_COM construction",
+  "Compiler/OptPass012.HC:153-160 IC_COM folding and internal I64 result assignment",
+  "Compiler/PrsExp.HC:438-486 fixed argument expression and conversion branch",
+  "Compiler/OptLib.HC:9-15 OptClassFwd"
+]
+implementation = [
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 261
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed bitwise-complement arguments on already resolved direct function-body calls after target policy"
+semantic_source_view = "retains the exact bitwise-complement operator, operator origin, and recursive operand view"
+result_class = "integer"
+result_rule = "IC_COM assigns internal I64 to the pushed result after optional immediate folding; the operand class does not determine the result class"
+operand_shapes = ["integer", "F64", "backed aggregate cast", "binary", "outer unresolved", "nested complement"]
+decisions = ["none", "ICF_RES_TO_F64"]
+dereference = "typed by HC-SEMA-POINTER-DEREFERENCE-RESULTS when the operand has a checked pointer, array, or callback shape"
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+value_evaluation = "not implemented"
+operand_validation = "not implemented"
+ic_flag_emission = "not implemented; the result records intent only"
+lowering_execution_and_abi = "not implemented"
+native_oracle_status = "not required for this result-class boundary; the IC_COM branch and fixed-call comparison state the class and conversion directly"
+
+[[feature]]
+id = "HC-SEMA-TYPED-DIRECT-CALL-EXPRESSIONS"
+description = "Provided fixed and variadic direct-call expressions receive immutable semantic results before target conversion selection."
+sources = [
+  "Compiler/CompilerA.HH:CIntermediateCode class and class2 fields",
+  "Compiler/PrsExp.HC:438-486 fixed argument optimization and class comparison",
+  "Compiler/PrsExp.HC:494-502 variadic expression loop",
+  "Compiler/PrsExp.HC:593-904 primary, prefix, local, and global expression construction",
+  "Compiler/PrsExp.HC:936-1055 defined and postfix-cast result construction",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/OptLib.HC:92-220 unary and binary result-class joins",
+  "Compiler/OptPass012.HC:87-305 cast, complement, update, and power results",
+  "Compiler/OptPass012.HC:693-897 logical, comparison, and assignment results"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 264
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed and variadic expressions on already resolved direct function-body calls"
+identity = "deterministic traversal-local expression ID owned by one semantic table and one conversion-policy traversal"
+source_facts = ["exact expression view", "origin", "known semantic type", "value category", "remaining array rank", "intrinsic conversion requirement", "forwarded result class", "distinct execution class when applicable", "resolved member lookup when applicable", "nested call resolution when applicable"]
+value_categories = ["object value", "address value", "array value", "callback value", "function value", "lvalue", "unavailable"]
+result_classes = ["integer", "F64", "unresolved"]
+conversion_separation = "fixed-target ICF_RES_TO_F64 and ICF_RES_TO_INT intent remains in Function_call_conversion_decision; variadic results have no fixed target conversion; index subscripts and assignment right operands independently record their source-required conversion intent"
+type_fallback = "none; an unknown source type remains absent"
+validation = ["symbol-table ownership", "aggregate type ownership", "aggregate member-index ownership", "policy traversal ownership", "fixed source-path agreement", "provided variadic expression shape", "deterministic identity space"]
+provenance = ["source expression", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+existing_conversion_regression_cases = 34
+focused_expression_result_tests = 48
+unimplemented = ["assignment execution", "standalone module function values outside address-of", "member and computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
+native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
+
+[[feature]]
+id = "HC-SEMA-POINTER-DEREFERENCE-RESULTS"
+description = "Prefix dereference derives a checked pointee result while preserving HolyC pointer, array, callback, and lvalue distinctions."
+sources = [
+  "Compiler/CompilerA.HH:60-62 IC_DEREF, IC_DEREF_PP, and IC_DEREF_MM",
+  "Compiler/PrsLib.HC:21-29 PrsPopDeref",
+  "Compiler/PrsExp.HC:81-118 dereference and update construction",
+  "Compiler/PrsExp.HC:145-159 pointer-class adjustment and forwarding",
+  "Compiler/PrsExp.HC:593-676 prefix dispatch",
+  "Compiler/PrsExp.HC:761-904 local and global array or callback state",
+  "Compiler/PrsExp.HC:960-1015 postfix dereference and member preparation",
+  "Compiler/PrsExp.HC:1055-1114 index and final dereference state",
+  "Compiler/OptPass012.HC:275-289 dereference and update combination"
+]
+implementation = [
+  "src/sema/type.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 266
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "prefix dereference inside provided fixed expressions on resolved direct function-body calls"
+pointer_transition = "remove exactly one checked pointer layer while retaining primitive form or aggregate symbol identity; retain the source class when it has zero pointer layers"
+array_rule = "an array already denotes an address in the parser and dereferences to its declared element type without removing a stored pointer layer"
+callback_rule = "PrsPopDeref removes the pending data dereference and the semantic result remains a function value"
+lvalue_rule = "the dereference result stays an lvalue when its parent requests one and is consumed as an object value in an ordinary call argument"
+forwarding_rule = "the pointee follows only aggregate backing headers published before the caller"
+unknown_rule = "an operand without a checked type remains unavailable and unresolved; no pointer type is guessed"
+zero_depth_rule = "an integer or U0 address with no pointer stars retains its source type; the optimizer owns the later U0 warning"
+pointer_depths = [1, 2, 3, 4]
+type_forms = ["public spelling", "internal storage"]
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_reads_updates_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this type transition; PrsExpression2, PrsPopDeref, OptClassFwd, and the fixed call comparison state the result directly"
+
+[[feature]]
+id = "HC-SEMA-INDEX-EXPRESSION-RESULTS"
+description = "Index expressions derive one checked pointer element or remaining-array result while retaining bracket provenance and subscript conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:761-904 local and global pointer, array, callback, and class state",
+  "Compiler/PrsExp.HC:1055-1100 index pointer checks, array-dimension transition, ICF_RES_TO_INT, and address construction",
+  "Compiler/PrsExp.HC:1101-1114 postfix update and final dereference boundary",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/OptPass012.HC:275-305 dereference and update consumers",
+  "Compiler/PrsVar.HC retained local and global array dimensions and element classes"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 268
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "index expressions nested inside provided fixed arguments on resolved direct function-body calls"
+semantic_source_view = ["base expression", "opening bracket origin", "subscript expression", "closing bracket origin"]
+pointer_rule = "remove exactly one checked pointer layer and preserve the public primitive, intrinsic primitive, or aggregate base identity"
+array_rule = "retain declaration-owned rank separately from the element type and consume exactly one dimension per bracket"
+partial_array_rule = "a nonzero remaining rank stays an array value on the integer result path"
+element_rule = "the final element follows its source-visible aggregate backing and is an lvalue only when its parent requests one"
+subscript_rule = "retain the source result and record ICF_RES_TO_INT independently on the subscript root"
+unknown_rule = "an unavailable outer base stays unavailable and unresolved; no pointer or element type is guessed"
+invalid_base_diagnostic = "HCSEMA0046 at the rejected opening bracket for a proven scalar or exhausted array"
+pointer_depths = [1, 2, 3, 4]
+array_sources = ["local", "global"]
+type_forms = ["public spelling", "internal storage", "aggregate identity"]
+provenance = ["base", "subscript", "opening bracket", "closing bracket", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+index_evaluation_bounds_stride_address_storage_and_lowering = "not implemented"
+native_oracle_status = "not required for this checked type transition; the pinned pointer check, array-dimension state, ICF_RES_TO_INT assignment, and class forwarding state the result directly"
+
+[[feature]]
+id = "HC-SEMA-MEMBER-EXPRESSION-RESULTS"
+description = "Direct and pointer member expressions use the completed aggregate index and retain the exact lookup result with their checked value shape."
+sources = [
+  "Compiler/PrsExp.HC:756-904 local and global address, array, and callback state",
+  "Compiler/PrsExp.HC:973-1014 direct and pointer access, member lookup, offset addition, dimensions, and callback handling",
+  "Compiler/LexLib.HC:67-84 MemberFind current-before-base search",
+  "Compiler/PrsExp.HC:300-382 sizeof and offset member lookup",
+  "Compiler/CompilerA.HH class and member records and flags",
+  "Compiler/CompilerB.HH MemberFind declaration"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml",
+  "test/test_aggregate_member_index.ml"
+]
+status = "implemented"
+issue = 270
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "member expressions nested inside provided fixed arguments on resolved direct function-body calls"
+semantic_source_view = ["base expression", "direct or pointer access kind", "operator origin", "member spelling", "member origin"]
+direct_rule = "require a checked by-value aggregate object"
+pointer_rule = "remove exactly one checked pointer layer, then require a by-value aggregate"
+lookup_rule = "search the queried aggregate before following its single base chain"
+lookup_facts = ["queried aggregate", "declaring aggregate", "inheritance depth", "member symbol", "resolved member type", "byte offset", "array dimensions", "callback flag"]
+visibility_rule = "the aggregate definition must precede the owning function item"
+array_rule = "retain every declaration-owned dimension and preserve array shape until indexing consumes it"
+callback_rule = "preserve MLF_FUN-derived callback shape instead of treating the field as an ordinary object"
+lvalue_rule = "retain a member lvalue beneath address-of or update and consume it as an object in a direct-call value context"
+forwarding_rule = "a by-value aggregate member follows only backing headers visible before the caller"
+unknown_rule = "an unavailable outer base stays unavailable and unresolved; no aggregate or member is guessed"
+invalid_access_diagnostic = "HCSEMA0046 at the operator for a proven invalid base shape and at the member name for an incomplete aggregate or missing field"
+provenance = ["base", "operator", "member name", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+offset_addition_storage_use_counts_indirect_calls_and_lowering = "not implemented"
+native_oracle_status = "not required for this checked lookup and type transition; PrsUnaryModifier and MemberFind state the access, search, offset, dimension, callback, and class rules directly"
+
+[[feature]]
+id = "HC-SEMA-ASSIGNMENT-EXPRESSION-RESULTS"
+description = "Assignment expressions validate their destination, retain its result type, and record right-operand conversion and compound execution classes."
+sources = [
+  "Compiler/CInit.HC:319-329 assignment operator table",
+  "Compiler/PrsExp.HC:15-63 PrsAddOp pointer arithmetic preparation",
+  "Compiler/PrsExp.HC:201-209 assignment destination validation",
+  "Compiler/OptPass012.HC:824-897 assignment conversion and execution flags",
+  "Compiler/CompilerA.HH:101-114 assignment IC identities and values"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 272
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "assignment expressions nested inside provided fixed arguments on resolved direct function-body calls"
+operator_inventory = ["IC_ASSIGN", "IC_SHL_EQU", "IC_SHR_EQU", "IC_MUL_EQU", "IC_DIV_EQU", "IC_MOD_EQU", "IC_AND_EQU", "IC_OR_EQU", "IC_XOR_EQU", "IC_ADD_EQU", "IC_SUB_EQU"]
+destination_rule = "walk the left operand in lvalue context and require a checked primitive storage or pointer type"
+accepted_destinations = ["bound primitive or pointer object", "dereference", "final array or pointer index", "ordinary aggregate member"]
+rejected_destinations = ["object value", "address value", "array value", "callback value", "function value", "unavailable value", "by-value aggregate"]
+result_rule = "retain the destination semantic type and its source-visible forwarded integer or F64 class"
+simple_conversion_rule = "record ICF_RES_TO_F64 on an integer right operand for an F64 destination and ICF_RES_TO_INT on an F64 right operand for any non-F64 destination"
+arithmetic_compound_rule = "convert an integer right operand for an F64 destination; select F64 execution when either side is F64 while preserving the destination result class"
+integer_compound_rule = "record ICF_RES_TO_INT for an F64 right operand and select integer execution for shift and bitwise assignment"
+pointer_rule = "retain pointer depth for assignment, +=, and -=; pointee scaling remains a later lowering fact"
+nested_rule = "right-associative assignment results can serve as the right operand of the enclosing assignment without losing their own conversion facts"
+diagnostic = "HCSEMA0046 at the assignment operator for an invalid destination"
+provenance = ["operator", "left operand", "right operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_write_pointer_scaling_constant_folding_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, PrsAddOp, and OptPass012 directly state destination legality, result class, conversion intent, and compound execution selection"
+
+[[feature]]
+id = "HC-SEMA-UPDATE-EXPRESSION-RESULTS"
+description = "Prefix and postfix update expressions require checked writable storage and preserve the operand type and result class."
+sources = [
+  "Compiler/PrsExp.HC:81-109 update IC selection and dereferenced class",
+  "Compiler/PrsExp.HC:752-753 prefix update flags",
+  "Compiler/PrsExp.HC:1100-1110 postfix update flags",
+  "Compiler/CInit.HC:55-60 update IC dereference metadata",
+  "Compiler/OptPass012.HC:292-297 update result class and U0 warning",
+  "Compiler/CompilerA.HH:63-66 update IC identities"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 274
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "prefix and postfix update expressions nested inside provided fixed arguments on resolved direct function-body calls"
+operator_inventory = ["IC_PP_", "IC_MM_", "IC__PP", "IC__MM"]
+operand_rule = "walk the operand in lvalue context and require a checked primitive storage or pointer type"
+accepted_operands = ["bound primitive or pointer object", "dereference", "final array or pointer index", "ordinary aggregate member"]
+rejected_operands = ["object value", "address value", "array value", "callback value", "function value", "unavailable value", "by-value aggregate"]
+result_rule = "the update node is an object value with the operand semantic type and source-visible forwarded integer or F64 class"
+operand_category_rule = "the child remains an lvalue below the update node"
+pointer_rule = "retain pointer depth; pointee-size scaling belongs to lowering"
+diagnostic = "HCSEMA0046 at the update operator for an invalid operand"
+provenance = ["operator", "operand", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+storage_write_pointer_scaling_old_value_semantics_ic_emission_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked semantic boundary; PrsExpression2, CInit metadata, and OptPass012 directly state the writable dereference shape and retained result class"
+
+[[feature]]
+id = "HC-SEMA-VARIADIC-EXPRESSION-RESULTS"
+description = "Provided variadic call expressions receive checked semantic results in source order without a fixed-parameter conversion."
+sources = [
+  "Compiler/PrsExp.HC:420-535 complete PrsFunCall argument construction",
+  "Compiler/PrsExp.HC:477-484 fixed-member class comparison and conversion flags",
+  "Compiler/PrsExp.HC:494-502 variadic expression loop and argc count",
+  "Compiler/CompilerA.HH member-list and intermediate-code flags"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 276
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided variadic expressions on resolved direct function-body calls"
+ordering_rule = "walk fixed slots first, then type every provided variadic expression in source order"
+result_rule = "reuse the immutable expression result with deterministic identity, origin, semantic type, category, array rank, intrinsic conversion facts, result class, execution class, and member lookup"
+separation_rule = "keep fixed provided results, declared defaults, and provided variadic results in distinct direct-call paths"
+conversion_rule = "retain the variadic actual result and class without a target class or fixed-call conversion decision"
+source_reason = "the variadic loop follows the fixed-member comparison and has no member class to compare"
+expression_coverage = ["literal", "bound identifier", "address", "dereference", "index", "member", "binary", "postfix cast", "prefix update", "postfix update"]
+provenance = ["included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+default_evaluation_variadic_promotion_hidden_count_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked traversal boundary; PrsFunCall directly separates the fixed comparison from the later variadic expression loop"
+
+[[feature]]
+id = "HC-SEMA-NESTED-DIRECT-CALL-RESULTS"
+description = "Nested resolved direct calls use their source-visible return type and retain the exact call-resolution identity."
+sources = [
+  "Compiler/PrsExp.HC:383-590 PrsFunCall selection, return_class propagation, call IC, cleanup ICs, and IC_CALL_END",
+  "Compiler/PrsExp.HC:862-866 direct function primary dispatch to PrsFunCall",
+  "Compiler/PrsStmt.HC:92-126 function return_class assignment and validation",
+  "Compiler/OptLib.HC:9-15 OptClassFwd"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 278
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "call expressions nested inside provided fixed or variadic arguments on resolved direct function-body calls"
+matching_rule = "match the nested expression origin to exactly one call-resolution record owned by the same function and policy traversal"
+direct_rule = "retain the direct call record and use the return type from its active source-visible header"
+category_rule = "a pointer return is an address value; a zero-depth return is an object value"
+class_rule = "forward the return type through aggregate backing headers published before the owning function item"
+replacement_rule = "a later same-name function header does not change an earlier nested call result"
+variadic_rule = "a nested direct call in a variadic position retains its actual class without a fixed target or conversion"
+deferred_rule = "retain a deferred callback-call record while leaving its type unavailable and class unresolved"
+uncollected_rule = "a call shape absent from the function call-resolution traversal remains unavailable and unresolved"
+diagnostic = "HCSEMA0046 rejects a missing or ambiguous owning function and duplicate nested-call matches"
+provenance = ["direct or deferred call identity", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+member_and_computed_callback_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this checked result-class boundary; PrsFunCall assigns tmpf->return_class directly to the call and cleanup IC sequence"
+
+[[feature]]
+id = "HC-SEMA-TYPED-INDIRECT-CALLS"
+description = "Calls through typed function-pointer parameters, locals, and globals retain their callback signature, argument mapping, conversion policy, and return type."
+sources = [
+  "Compiler/PrsVar.HC:321-357 function-pointer header and stored pointer value construction",
+  "Compiler/PrsExp.HC:383-590 PrsFunCall argument checks, return class, indirect call, and cleanup",
+  "Compiler/PrsExp.HC:761-807 parameter, local, static-local, and callback expression handling",
+  "Compiler/PrsExp.HC:867-904 global callback expression handling",
+  "Compiler/PrsExp.HC:1016-1021 callable expression dispatch",
+  "Kernel/QSort.HC:1-103 callback-parameter call sites"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_conversion_policy.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_function_call_conversion_decision.ml"
+]
+status = "implemented"
+issue = 280
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "identifier and explicit-dereference calls through function-pointer parameters and scalar function-pointer automatic locals, static locals, and globals in checked function bodies"
+callee_identity = "retain the selected source occurrence, callback binding, identifier or dereference form, and a distinct indirect-call record"
+signature_rule = "use the recursive callback return and parameter types already resolved for the selected value binding"
+argument_rule = "reuse fixed provided, explicit hole, trailing absence, non-trailing default, and variadic-tail checks from PrsFunCall"
+conversion_rule = "reuse fixed target policy and expression-result decisions; variadic values retain only their actual class"
+return_rule = "nested indirect calls use the callback return type; pointer returns are addresses and by-value aggregate returns follow visible backing headers"
+validation = ["symbol-table ownership", "function and occurrence ownership", "callback aggregate ownership", "source-order visibility", "nested-call identity uniqueness"]
+provenance = ["callee occurrence", "call punctuation", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_call_resolution_tests = 10
+focused_conversion_policy_tests = 7
+focused_expression_result_tests = 48
+focused_conversion_decision_tests = 34
+unsupported_callees = ["function-pointer arrays without an index", "aggregate member callbacks", "arbitrary computed callback expressions", "untyped outer callback values"]
+callback_storage_reads_default_evaluation_member_and_computed_calls_abi_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this structural semantic boundary; PrsVar and PrsExp directly retain the callback header and pass it to PrsFunCall"
+
+[[feature]]
+id = "HC-SEMA-LASTCLASS-CALL-SUBSTITUTION"
+description = "A selected lastclass default retains the previous provided fixed expression and its source-compatible base spelling."
+sources = [
+  "Compiler/PrsExp.HC:383-490 PrsFunCall last_class state, provided expressions, and default selection",
+  "Compiler/PrsVar.HC:629-634 MLF_LASTCLASS assignment",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/CInit.HC:1-16 internal primitive class spellings",
+  "Kernel/KernelA.HH:62-114 public integer union backings",
+  "Kernel/KernelA.HH:778-786 CMemberLst default flags",
+  "Doc/HolyC.DD:228 lastclass parameter-default note",
+  "Demo/LastClass.HC aggregate-pointer and primitive-pointer examples"
+]
+implementation = [
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_parser.ml"
+]
+status = "implemented"
+issue = 282
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "selected lastclass defaults on resolved direct and typed indirect function-body calls"
+state_rule = "a provided fixed expression replaces the remembered result; any declared default leaves it unchanged"
+substitution_rule = "retain the exact remembered expression result and derive its source-compatible base class spelling"
+pointer_rule = "use the pointer type's public or intrinsic base spelling without forwarding its pointee"
+aggregate_rule = "a by-value aggregate follows only checked backing headers published before the caller"
+missing_rule = "no previous typed expression or an unavailable type produces no class name"
+call_forms = ["direct", "typed indirect"]
+provenance = ["previous source expression", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_expression_result_tests = 48
+ordinary_default_evaluation_string_allocation_aot_fixups_ir_lowering_abi_placement_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and OptClassFwd directly define the state transition and class spelling"
+
+[[feature]]
+id = "HC-SEMA-SELECTED-DEFAULT-RESULT"
+description = "Each selected fixed-parameter default retains its checked parameter type, forwarded result class, source identity, default kind, and JIT or AOT materialization path."
+sources = [
+  "Compiler/PrsExp.HC:420-490 PrsFunCall fixed-member selection and default IC construction",
+  "Compiler/PrsVar.HC:619-658 default payload and member-flag assignment",
+  "Compiler/OptLib.HC:9-15 OptClassFwd",
+  "Compiler/CompilerA.HH:CMemberLst",
+  "Compiler/CInit.HC:1-16 internal primitive class spellings"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/function_call_conversion_decision.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 284
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "selected fixed defaults on resolved direct and typed indirect function-body calls"
+retained_identity = ["exact fixed parameter", "exact default-use record", "all parameter-default source origins"]
+semantic_type = "the resolved selected parameter type"
+result_class = "the parameter class after source-visible OptClassFwd behavior"
+default_kinds = ["ordinary expression", "lastclass"]
+jit_materialization = "immediate default path"
+aot_materialization = "string-constant path for string-bearing expression defaults and lastclass; immediate path otherwise"
+expression_identity = "none; a declared default is not represented as a provided source expression"
+call_forms = ["direct", "typed indirect", "parenthesized", "parenthesis-free"]
+provenance = ["selected parameter", "default expression or keyword", "included source", "definition expansion"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_expression_result_tests = 48
+default_evaluation_payload_copy_string_allocation_ic_emission_fixups_lowering_abi_placement_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall directly distinguishes immediate and AOT string construction"
+
+[[feature]]
+id = "HC-SEMA-DIRECT-FUNCTION-ADDRESSES"
+description = "A direct function under address-of retains its source-visible function publication and TempleOS RT_PTR result without acquiring an object-pointer layer."
+sources = [
+  "Compiler/PrsExp.HC:620-671 direct function address branch, JIT and AOT selection, and RT_PTR result",
+  "Compiler/PrsExp.HC:862-866 distinct bare direct-call branch",
+  "Compiler/CInit.HC:1544-1574 intrinsic integer classes and RT_PTR alias",
+  "Compiler/CompilerA.HH:HTt_FUN and intermediate type declarations",
+  "Doc/HolyC.DD:parenthesis-free calls"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/oracle/parenthesis-free-calls.json"
+]
+status = "implemented"
+issue = 286
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct function identifiers immediately below address-of in provided fixed and variadic arguments on resolved function-body calls"
+binding_rule = "retain the exact Module_expression_binding function publication, including its source symbol and canonical joined identity"
+source_order_rule = "use the newest function publication visible before the owning function body; the current function is available for recursion"
+operand_rule = "represent the identifier as a direct-function value with internal RT_PTR storage type"
+address_rule = "preserve intrinsic RT_I64 at pointer depth zero instead of applying generic Type.pointer_to"
+result_rule = "the operand is a function value and the completed address expression is an integer-class address value"
+shadowing_rule = "a local or global object and a function-pointer variable retain their ordinary object or callback binding shape"
+validation = ["function publication cannot be forged as object storage", "local storage cannot be forged as a direct function", "occurrence ownership", "symbol-table ownership"]
+provenance = ["function occurrence", "source publication", "canonical function", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_expression_result_tests = 48
+numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
+native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
+
+[[feature]]
+id = "HC-SEMA-DIRECT-FUNCTION-ADDRESS-PATHS"
+description = "Direct function addresses retain the mode-sensitive JIT or AOT path selected from the exact resolved declaration state."
+sources = [
+  "Compiler/PrsExp.HC:620-655 direct function address branch, Cf_EXTERN test, JIT slot load, JIT immediate, AOT rejection, and IC_ABS_ADDR",
+  "Compiler/PrsStmt.HC:62-110 initial exe_addr and Cf_EXTERN state",
+  "Compiler/PrsStmt.HC:235-276 _intern, _extern, extern, import, Ff_INTERNAL, and Cf_EXTERN transitions",
+  "Compiler/PrsExp.HC:535-578 matching direct-call extern, import, and resolved branches"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 288
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct function identifiers immediately below address-of in provided fixed and variadic arguments on resolved function-body calls"
+identity_rule = "the retained declaration must be the exact checked declaration for the source-visible publication and canonical joined identity"
+jit_unresolved_extern = "extern-slot load intent"
+jit_resolved = "immediate-address intent"
+aot_resolved = "absolute-address input intent"
+aot_unresolved_extern = "HCSEMA0046 at address-of"
+aot_import = "HCSEMA0046 at address-of"
+bound_extern = "resolved path because _extern clears Cf_EXTERN"
+internal_function = "explicit HCSEMA0046 because the pinned noninternal direct-address branch does not apply"
+validation = ["exact declaration ownership", "source and canonical publication match", "compilation-mode path match", "occurrence ownership", "symbol-table ownership"]
+provenance = ["address operator", "function occurrence", "source publication", "resolved declaration", "canonical function", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_call_resolution_tests = 10
+focused_expression_result_tests = 48
+numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; the audited parser branches directly select or reject each retained path"
