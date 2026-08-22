@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Typed metadata-bearing outer globals in executable top-level expressions. Primitive, pointer, aggregate, array, and callback records retain their exact source occurrence and JIT task or AOT parent-table binding. Metadata-free records remain unavailable, while outer callback calls, storage access, lowering, and execution remain separate work.
+
 - Added checked type payloads for outer global records. Function-expression typing can now retain a supplied outer primitive, pointer, aggregate, array, or callback value and its exact JIT task or AOT parent binding. Records without metadata remain unavailable, and foreign aggregate identities fail with `HCSEMA0022`; outer calls and runtime storage remain unimplemented.
 
 - Typed fully indexed aggregate callback-member arrays in function bodies and executable top-level expressions. Direct, pointer, inherited, multidimensional, and parenthesized callees preserve their exact member lookup across each subscript, then reuse the stored recursive signature for fixed slots, default holes, variadic values, and return typing. Partial and excessive indexing receive source-positioned `HCSEMA0039` or `HCSEMA0057` diagnostics. Address calculation, storage reads, lowering, and execution remain separate work.

@@ -6891,3 +6891,39 @@ compilation_modes = ["jit", "aot"]
 focused_expression_result_tests = 71
 outer_calls_storage_reads_runtime_addresses_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic metadata boundary; the pinned record layout and parser consumer directly define the retained fields"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-TYPED-OUTER-GLOBAL-VALUES"
+description = "Metadata-bearing outer global records retain checked value shapes in executable top-level expressions."
+sources = [
+  "Kernel/KernelA.HH:877-887 CHashGlblVar type, callback, dimension, and storage fields",
+  "Compiler/CMain.HC:65-75 JIT task and AOT parent table-chain construction",
+  "Compiler/Lex.HC:490-513 selected hash entry for an identifier",
+  "Compiler/PrsExp.HC:867-904 global class, array, and callback expression state"
+]
+implementation = [
+  "src/sema/top_level_identifier_resolution.ml",
+  "src/sema/top_level_identifier_resolution.mli",
+  "src/driver/top_level_identifier_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_top_level_identifier_resolution.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 334
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "executable top-level expression leaves selected from caller-supplied JIT task-parent or AOT enclosing-compilation global records"
+metadata = ["checked type reference", "object or recursive callback kind", "array rank"]
+typing = ["primitive", "F64", "pointer", "aggregate", "array", "callback"]
+retained_identity = ["exact top-level source occurrence", "exact outer table", "exact outer entry", "expression-result identity"]
+validation = ["metadata-bearing and metadata-free resolutions stay distinct", "same semantic table", "same expression batch", "same compilation mode"]
+diagnostics = ["HCSEMA0056 mismatched leaf inputs", "HCSEMA0057 mismatched result inputs"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_identifier_tests = 4
+focused_expression_result_tests = 24
+outer_calls_storage_reads_runtime_addresses_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic metadata boundary; the pinned record layout and parser consumer directly define the retained fields"

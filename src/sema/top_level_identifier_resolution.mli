@@ -11,6 +11,7 @@ type module_value =
 
 type resolution =
   | Module_value of module_value
+  | Outer_value of Outer_environment.binding
   | Outer_type_required of Outer_environment.binding
 
 type leaf
@@ -31,8 +32,9 @@ val create :
   (t, error) result
 (** Freeze one checked classification for every bound identifier leaf in an
     executable top-level expression tree. Module globals and functions retain
-    source-derived value facts. Aggregate records remain offset bases. Outer
-    records stay explicitly unavailable until their snapshots carry types. *)
+    source-derived value facts. Aggregate records remain offset bases. An outer
+    global becomes a value only when its immutable snapshot carries checked
+    type metadata; all other outer records stay explicitly unavailable. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val source : t -> Top_level_expression_tree.t

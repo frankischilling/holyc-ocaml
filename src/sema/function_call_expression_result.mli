@@ -387,6 +387,9 @@ val result_member_lookup :
 val result_outer_occurrence :
   expression_result -> Outer_expression_binding.occurrence option
 
+val result_top_level_outer_occurrence :
+  expression_result -> Top_level_outer_expression_binding.occurrence option
+
 val result_outer_binding : expression_result -> Outer_environment.binding option
 
 val result_aggregate_offset_path :

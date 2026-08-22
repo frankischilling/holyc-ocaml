@@ -33,6 +33,73 @@ let empty_environment (source : Test_function_call_conversion_policy.prepared) =
     (Holyc_lib.create_outer_environment source.session
        ~compilation_mode:source.mode tables)
 
+let checked_outer = function
+  | Ok value -> value
+  | Error error ->
+      error |> Semantic_outer_environment.error_to_string |> Alcotest.fail
+
+let typed_global_named
+    (source : Test_function_call_conversion_policy.prepared) name =
+  source.global_types |> Semantic_global_type_resolution.globals
+  |> List.find (fun global ->
+      global |> Semantic_global_type_resolution.global_symbol
+      |> Semantic_symbol.name |> String.equal name)
+
+let outer_global_metadata source template_name =
+  let global = typed_global_named source template_name in
+  let declarator_kind =
+    match Semantic_global_type_resolution.global_declarator_kind global with
+    | Semantic_global_type_resolution.Object ->
+        Semantic_outer_environment.Object_global
+    | Semantic_global_type_resolution.Function_pointer pointer ->
+        Semantic_outer_environment.Function_pointer_global pointer
+  in
+  Semantic_outer_environment.make_global_metadata
+    ~type_reference:
+      (Semantic_global_type_resolution.global_type_reference global)
+    ~declarator_kind
+    ~array_rank:
+      (global |> Semantic_global_type_resolution.global_array_dimensions
+     |> List.length)
+  |> checked_outer
+
+let make_outer_global_entry
+    (source : Test_function_call_conversion_policy.prepared) ~entry_index ~name
+    ?metadata () =
+  let table = Session.semantic_symbols source.session in
+  let symbol =
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
+      ~name ~kind:Semantic_symbol.Global_variable
+      ~origin:(Semantic_symbol.Synthesized ("top-level outer " ^ name))
+    |> checked
+  in
+  (match metadata with
+  | None ->
+      Semantic_outer_environment.make_entry ~symbol
+        ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
+  | Some global_metadata ->
+      Semantic_outer_environment.make_global_entry ~symbol ~entry_index
+        ~global_metadata)
+  |> checked_outer
+
+let outer_environment
+    (source : Test_function_call_conversion_policy.prepared) entries =
+  let make_table table_kind table_index entries =
+    Semantic_outer_environment.make_table ~table_kind ~table_index entries
+    |> checked_outer
+  in
+  let data_kind =
+    match source.mode with
+    | Preprocessor.Jit -> Semantic_outer_environment.Jit_task 0
+    | Preprocessor.Aot -> Semantic_outer_environment.Aot_parent 0
+  in
+  let data = make_table data_kind 0 entries in
+  let assembler = make_table Semantic_outer_environment.Assembler 1 [] in
+  checked
+    (Holyc_lib.create_outer_environment source.session
+       ~compilation_mode:source.mode [ data; assembler ])
+
 let build_inputs ?environment
     (source : Test_function_call_conversion_policy.prepared) =
   let environment =
@@ -315,6 +382,116 @@ let literals_and_module_values () =
             |> Option.map
                  Semantic_function_call_expression_result.result_use_name)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_outer_globals_retain_checked_shapes () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-typed-outer-results.HC"
+          "class Box {F64 value;};F64 TemplateF;I64 *TemplateP;I64 \
+           TemplateArray[2];I64 (*TemplateCallback)(I64);Box TemplateBox;\n\
+           (OuterF);(OuterP);(OuterArray);(OuterCallback);(OuterBox);"
+      in
+      let specifications =
+        [
+          ("OuterF", "TemplateF");
+          ("OuterP", "TemplateP");
+          ("OuterArray", "TemplateArray");
+          ("OuterCallback", "TemplateCallback");
+          ("OuterBox", "TemplateBox");
+        ]
+      in
+      let entries =
+        specifications
+        |> List.mapi (fun entry_index (name, template_name) ->
+            make_outer_global_entry source ~entry_index ~name
+              ~metadata:(outer_global_metadata source template_name)
+              ())
+      in
+      let environment = outer_environment source entries in
+      let _, identifiers, _, result = analyze ~environment source in
+      Alcotest.(check (list string))
+        "outer globals use the ordinary top-level type lattice"
+        [
+          "F64:object-value:f64-result:rank-0";
+          "I64*:object-value:integer-result:rank-0";
+          "I64:array-value:integer-result:rank-1";
+          "I64:callback-value:integer-result:rank-0";
+          "Box:object-value:integer-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      let names =
+        root_values result
+        |> List.map (fun value ->
+            let occurrence =
+              value
+              |> Semantic_function_call_expression_result
+                 .result_top_level_outer_occurrence
+              |> Option.get
+            in
+            let binding =
+              value
+              |> Semantic_function_call_expression_result.result_outer_binding
+              |> Option.get
+            in
+            Alcotest.(check bool)
+              "function-body outer occurrence stays absent" true
+              (Option.is_none
+                 (Semantic_function_call_expression_result
+                  .result_outer_occurrence value));
+            let name =
+              Semantic_top_level_outer_expression_binding.occurrence_name
+                occurrence
+            in
+            Alcotest.(check string)
+              "the result retains the selected outer record" name
+              (binding |> Semantic_outer_environment.binding_entry
+             |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name);
+            let leaf =
+              Semantic_top_level_identifier_resolution.find_leaf identifiers
+                occurrence
+              |> Option.get
+            in
+            (match
+               Semantic_top_level_identifier_resolution.leaf_resolution leaf
+             with
+            | Semantic_top_level_identifier_resolution.Outer_value selected ->
+                Alcotest.(check bool)
+                  "the result and classifier share one binding" true
+                  (selected == binding)
+            | Semantic_top_level_identifier_resolution.Module_value _
+            | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
+                Alcotest.fail "expected a typed outer classification");
+            name)
+      in
+      Alcotest.(check (list string))
+        "top-level outer provenance follows source order"
+        [ "OuterF"; "OuterP"; "OuterArray"; "OuterCallback"; "OuterBox" ]
+        names)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let metadata_free_top_level_outer_stays_unavailable () =
+  let source = prepared ~path:"top-level-untyped-outer-result.HC" "(Outer);" in
+  let entry = make_outer_global_entry source ~entry_index:0 ~name:"Outer" () in
+  let environment = outer_environment source [ entry ] in
+  let _, _, _, result = analyze ~environment source in
+  match root_values result with
+  | [ value ] ->
+      Alcotest.(check string)
+        "missing metadata does not invent a target type"
+        "unavailable:unavailable:unresolved:rank-0" (descriptor value);
+      Alcotest.(check bool)
+        "untyped result retains its top-level occurrence" true
+        (Option.is_some
+           (Semantic_function_call_expression_result
+            .result_top_level_outer_occurrence value));
+      Alcotest.(check bool)
+        "untyped result retains its outer binding" true
+        (Option.is_some
+           (Semantic_function_call_expression_result.result_outer_binding value))
+  | values ->
+      Alcotest.failf "expected one metadata-free result, got %d"
+        (List.length values)
 
 let updates_assignments_and_invalid_lvalues () =
   let source =
@@ -1661,6 +1838,10 @@ let tests =
   [
     Alcotest.test_case "literals and module values" `Quick
       literals_and_module_values;
+    Alcotest.test_case "typed top-level outer globals" `Quick
+      top_level_outer_globals_retain_checked_shapes;
+    Alcotest.test_case "metadata-free top-level outer global" `Quick
+      metadata_free_top_level_outer_stays_unavailable;
     Alcotest.test_case "updates, assignments, and invalid lvalues" `Quick
       updates_assignments_and_invalid_lvalues;
     Alcotest.test_case "indexes, casts, and conversions" `Quick
