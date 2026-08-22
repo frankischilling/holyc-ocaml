@@ -51,6 +51,8 @@ type error_kind =
 type error
 
 val owns_table : t -> Symbol_table.t -> bool
+val owns_parent : t -> Symbol_table.scope -> bool
+val parent_scope : t -> Symbol_table.scope
 
 val build :
   table:Symbol_table.t ->

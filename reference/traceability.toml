@@ -4299,6 +4299,9 @@ sources = [
   "Doc/HolyC.DD expression syntax and postfix casts"
 ]
 implementation = [
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/module_expression_binding.ml",
+  "src/sema/function_call_conversion_policy.ml",
   "src/sema/function_call_expression_result.ml",
   "src/sema/function_call_expression_result.mli",
   "src/sema/top_level_identifier_resolution.ml",
@@ -4319,9 +4322,10 @@ result_facts = ["statement and root identity", "source origin", "semantic type",
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
 unsupported_roots = ["top-level calls", "aggregate member paths", "aggregate offset bases", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
+validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_tests = 5
+focused_tests = 6
 top_level_call_resolution_aggregate_member_typing_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated scalar classification boundary; PrsExp, OptClassFwd, and OptPass012 directly define the retained result facts"
 

@@ -33,7 +33,7 @@ let empty_environment (source : Test_function_call_conversion_policy.prepared) =
     (Holyc_lib.create_outer_environment source.session
        ~compilation_mode:source.mode tables)
 
-let analyze ?environment
+let build_inputs ?environment
     (source : Test_function_call_conversion_policy.prepared) =
   let environment =
     Option.value environment ~default:(empty_environment source)
@@ -60,6 +60,11 @@ let analyze ?environment
       (Holyc_lib.classify_top_level_identifiers source.session
          ~globals:source.global_types ~functions:source.functions ~expressions)
   in
+  (expressions, identifiers)
+
+let analyze ?environment
+    (source : Test_function_call_conversion_policy.prepared) =
+  let expressions, identifiers = build_inputs ?environment source in
   let policies =
     source |> Test_function_call_conversion_policy.analyze
     |> Test_function_call_conversion_policy.checked_policy
@@ -70,6 +75,38 @@ let analyze ?environment
     |> checked_result
   in
   (expressions, identifiers, policies, result)
+
+let policies_for_mode
+    (source : Test_function_call_conversion_policy.prepared) mode =
+  let functions =
+    checked
+      (Holyc_lib.resolve_function_identities source.session
+         ~declarations:source.declarations ~functions:source.function_types
+         ~compilation_mode:mode source.ast)
+  in
+  let globals =
+    checked
+      (Holyc_lib.resolve_global_records source.session
+         ~declarations:source.declarations ~globals:source.global_types
+         ~compilation_mode:mode source.ast)
+  in
+  let module_expressions =
+    checked
+      (Holyc_lib.resolve_module_expressions source.session
+         ~declarations:source.declarations ~aggregates:source.aggregates
+         ~functions ~globals ~expressions:source.expressions)
+  in
+  let calls =
+    checked
+      (Holyc_lib.resolve_function_calls source.session
+         ~declarations:source.declarations ~function_types:source.function_types
+         ~members:source.members ~local_types:source.local_types
+         ~global_types:source.global_types ~functions
+         ~expressions:module_expressions source.ast)
+  in
+  Holyc_lib.analyze_function_call_conversions source.session
+    ~declarations:source.declarations ~headers:source.headers ~calls
+  |> Test_function_call_conversion_policy.checked_policy
 
 let roots result =
   result |> Semantic_function_call_expression_result.top_level_statements
@@ -307,6 +344,57 @@ let unavailable_boundaries_and_checked_ownership () =
         "top-level ownership diagnostic" "HCSEMA0057"
         (Semantic_function_call_expression_result.error_code error)
 
+let stale_batches_and_mode_mismatch () =
+  let session = Session.create () in
+  let prepare path contents =
+    let source = Session.add_source session ~path ~contents in
+    let ast =
+      Holyc_lib.parse_with_config session
+        ~config:
+          (Test_function_call_conversion_policy.config Preprocessor.Jit)
+        ~source
+      |> Test_function_call_conversion_policy.expect_ast
+    in
+    Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
+      session ast
+  in
+  let first = prepare "top-level-batch-first.HC" "I64 first;first+1;" in
+  let second = prepare "top-level-batch-second.HC" "I64 second;second+2;" in
+  let expressions, identifiers = build_inputs first in
+  let first_policies =
+    first |> Test_function_call_conversion_policy.analyze
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let second_policies =
+    second |> Test_function_call_conversion_policy.analyze
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let expect_input_error label expected_message result =
+    match result with
+    | Ok _ -> Alcotest.failf "expected %s to fail" label
+    | Error error ->
+        Alcotest.(check string)
+          (label ^ " code") "HCSEMA0057"
+          (Semantic_function_call_expression_result.error_code error);
+        Alcotest.(check string)
+          (label ^ " message") expected_message
+          (Semantic_function_call_expression_result.error_message error)
+  in
+  Holyc_lib.type_top_level_expressions session ~members:first.members
+    ~policies:second_policies ~identifiers expressions
+  |> expect_input_error "stale policy batch"
+       "call conversion policies describe another module";
+  Holyc_lib.type_top_level_expressions session ~members:second.members
+    ~policies:first_policies ~identifiers expressions
+  |> expect_input_error "stale member batch"
+       "aggregate member index describes another module";
+  let aot_policies = policies_for_mode first Preprocessor.Aot in
+  Holyc_lib.type_top_level_expressions session ~members:first.members
+    ~policies:aot_policies ~identifiers expressions
+  |> expect_input_error "mode mismatch"
+       "top-level expressions and conversion policies use different compilation \
+        modes"
+
 let generated_provenance_and_purity () =
   let source =
     prepared ~path:"top-level-generated-results.HC"
@@ -357,6 +445,8 @@ let tests =
       indexes_casts_and_conversions;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
+    Alcotest.test_case "stale batches and mode mismatch" `Quick
+      stale_batches_and_mode_mismatch;
     Alcotest.test_case "generated provenance and purity" `Quick
       generated_provenance_and_purity;
   ]

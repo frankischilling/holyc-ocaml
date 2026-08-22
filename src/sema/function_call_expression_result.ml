@@ -1801,6 +1801,15 @@ let analyze ~table ~members policies =
   else if not (Aggregate_member_index.owns_table members table) then
     Error
       (invalid_input "aggregate member index belongs to another symbol table")
+  else if
+    not
+      (Function_call_conversion_policy.owns_parent policies
+         (Aggregate_member_index.parent_scope members))
+  then
+    Error
+      (invalid_input
+         "aggregate member index and conversion policies describe different \
+          modules")
   else
     match
       policies |> Function_call_conversion_policy.functions
@@ -1875,6 +1884,17 @@ let function_mode_of_outer_mode = function
   | Outer_environment.Aot -> Function_resolution.Aot
 
 let analyze_top_level ~table ~members ~policies ~identifiers source =
+  let module_parent =
+    source |> Top_level_expression_tree.source
+    |> Top_level_outer_expression_binding.source
+    |> Top_level_expression_binding.module_expressions
+    |> Module_expression_binding.parent_scope
+  in
+  let source_mode =
+    source |> Top_level_expression_tree.source
+    |> Top_level_outer_expression_binding.environment
+    |> Outer_environment.compilation_mode |> function_mode_of_outer_mode
+  in
   if not (Top_level_expression_tree.owns_table source table) then
     Error
       (invalid_top_level_input
@@ -1896,20 +1916,25 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
     Error
       (invalid_top_level_input
          "call conversion policies belong to another symbol table")
+  else if not (Aggregate_member_index.owns_parent members module_parent) then
+    Error
+      (invalid_top_level_input
+         "aggregate member index describes another module")
+  else if
+    not (Function_call_conversion_policy.owns_parent policies module_parent)
+  then
+    Error
+      (invalid_top_level_input
+         "call conversion policies describe another module")
+  else if
+    Function_call_conversion_policy.compilation_mode policies <> source_mode
+  then
+    Error
+      (invalid_top_level_input
+         "top-level expressions and conversion policies use different \
+          compilation modes")
   else
-    let source_mode =
-      source |> Top_level_expression_tree.source
-      |> Top_level_outer_expression_binding.environment
-      |> Outer_environment.compilation_mode |> function_mode_of_outer_mode
-    in
-    if Function_call_conversion_policy.compilation_mode policies <> source_mode
-    then
-      Error
-        (invalid_top_level_input
-           "top-level expressions and conversion policies use different \
-            compilation modes")
-    else
-      match
+    match
         source |> Top_level_expression_tree.statements
         |> map_state
              (type_top_level_statement table members policies)
