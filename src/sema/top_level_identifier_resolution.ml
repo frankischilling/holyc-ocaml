@@ -1,3 +1,5 @@
+module Int_map = Map.Make (Int)
+
 type module_value =
   | Global_value of {
       global : Global_type_resolution.global;
@@ -23,6 +25,7 @@ type t = {
   table : Symbol_table.t;
   source_ : Top_level_expression_tree.t;
   leaves_ : leaf list;
+  leaves_by_occurrence : leaf Int_map.t;
 }
 
 type error_kind = Invalid_input of string
@@ -45,7 +48,13 @@ let source result = result.source_
 let leaves result = result.leaves_
 
 let find_leaf result occurrence =
-  List.find_opt (fun leaf -> leaf.occurrence == occurrence) result.leaves_
+  match
+    Int_map.find_opt
+      (Top_level_outer_expression_binding.occurrence_index occurrence)
+      result.leaves_by_occurrence
+  with
+  | Some leaf when leaf.occurrence == occurrence -> Some leaf
+  | Some _ | None -> None
 
 let leaf_node (leaf : leaf) = leaf.node
 let leaf_occurrence (leaf : leaf) = leaf.occurrence
@@ -239,4 +248,14 @@ let create ~table ~source leaves =
   else
     match validate_leaves (expected_nodes source) leaves with
     | Error _ as error -> error
-    | Ok () -> Ok { table; source_ = source; leaves_ = leaves }
+    | Ok () ->
+        let leaves_by_occurrence =
+          List.fold_left
+            (fun index leaf ->
+              Int_map.add
+                (Top_level_outer_expression_binding.occurrence_index
+                   leaf.occurrence)
+                leaf index)
+            Int_map.empty leaves
+        in
+        Ok { table; source_ = source; leaves_ = leaves; leaves_by_occurrence }
