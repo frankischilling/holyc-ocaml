@@ -307,6 +307,46 @@ let unavailable_boundaries_and_checked_ownership () =
         "top-level ownership diagnostic" "HCSEMA0057"
         (Semantic_function_call_expression_result.error_code error)
 
+let generated_provenance_and_purity () =
+  let source =
+    prepared ~path:"top-level-generated-results.HC"
+      "#define VALUE scalar\nI64 scalar;VALUE+1;"
+  in
+  let table = Session.semantic_symbols source.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let _, _, _, first = analyze source in
+  let _, _, _, second = analyze source in
+  Alcotest.(check int)
+    "typing does not mutate the symbol table" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  Alcotest.(check (list string))
+    "generated results replay deterministically"
+    (first |> Semantic_function_call_expression_result.top_level_all_results
+   |> List.map descriptor)
+    (second |> Semantic_function_call_expression_result.top_level_all_results
+   |> List.map descriptor);
+  let generated_identifier =
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        match
+          result |> Semantic_function_call_expression_result.result_source
+          |> Semantic_function_call_resolution.argument_expression_kind
+        with
+        | Semantic_function_call_resolution
+          .Top_level_bound_identifier_expression
+            _ -> true
+        | _ -> false)
+  in
+  match
+    Semantic_function_call_expression_result.result_origin generated_identifier
+  with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "definition origin survives result typing" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a definition-generated source location"
+
 let tests =
   [
     Alcotest.test_case "literals and module values" `Quick
@@ -317,4 +357,6 @@ let tests =
       indexes_casts_and_conversions;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
+    Alcotest.test_case "generated provenance and purity" `Quick
+      generated_provenance_and_purity;
   ]
