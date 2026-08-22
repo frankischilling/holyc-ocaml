@@ -4320,7 +4320,7 @@ scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP
 supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
 result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
-unsupported_roots = ["callback arrays, member callbacks, and computed callback callees", "outer records without type payloads"]
+unsupported_roots = ["partial callback arrays, member callbacks, and unrelated computed callback callees", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
 validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
@@ -4446,7 +4446,7 @@ provenance = ["callee invocation and definition origins", "included declaration 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 4
-top_level_callback_array_member_computed_and_outer_calls_default_evaluation_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+top_level_member_computed_and_outer_calls_default_evaluation_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunCall and the checked parenthesis-free fixture already establish the shared slot semantics"
 
 [[feature]]
@@ -4486,8 +4486,50 @@ provenance = ["callee invocation and global declaration origins", "included glob
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
-callback_arrays_member_callbacks_computed_callbacks_outer_callbacks_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+indexed_global_callback_arrays = "implemented downstream by HC-SEMA-TOP-LEVEL-INDEXED-GLOBAL-CALLBACK-ARRAYS"
+member_callbacks_computed_callbacks_outer_callbacks_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsTerm and PrsFunCall state the global callback and slot routes directly"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-INDEXED-GLOBAL-CALLBACK-ARRAYS"
+description = "Executable top-level calls through fully indexed global callback arrays retain their selected callee and stored signature."
+sources = [
+  "Compiler/PrsExp.HC:PrsTerm HTt_GLBL_VAR, GVF_ARRAY, GVF_FUN, dimensions, and fun_ptr",
+  "Compiler/PrsExp.HC:PrsUnaryModifier bracket stepping, integer index conversion, address calculation, and CCF_FUN_EXP preservation",
+  "Compiler/PrsExp.HC:PrsFunCall indirect slots, defaults, variadics, conversion, and result",
+  "Compiler/PrsVar.HC:PrsType and PrsGlblVarLst callback-array declarators",
+  "Compiler/OptLib.HC:OptClassFwd source-visible index and return backing",
+  "Doc/HolyC.DD arrays, function pointers, and calls"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/global_type_resolution.ml",
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_identifier_resolution.ml"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/fixtures/top-level-direct-call-header.HH"
+]
+status = "implemented"
+issue = 326
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "computed callees that are an exact bracket chain rooted at the source-visible global callback-array occurrence"
+callee_rule = "the chain must preserve the exact bound occurrence and consume one bracket for every Global_type_resolution array dimension"
+index_rule = "reuse the shared index expression engine and retain Result_to_int on every bracket expression"
+slot_rule = "derive the callable from the global return type and recursive function-pointer signature, then reuse Function_call_resolution.bind_indirect_arguments"
+supported_syntax = ["one-dimensional global callback arrays", "multidimensional global callback arrays", "explicit non-trailing holes", "declared defaults", "variadic tails", "nested indexed callback calls"]
+retained_call_facts = ["exact source call", "exact global publication and array-shaped identifier value", "exact computed callee expression", "completed callee expression result", "stored callable signature", "typed fixed and variadic results", "provided variadic count", "exact expression-result ID"]
+return_rule = "use the stored signature; pointers remain address values, zero-depth values remain objects, and by-value aggregates follow the existing source-visible backing policy"
+diagnostics = ["HCSEMA0057 partial or excess callback-array rank", "HCSEMA0057 missing required fixed argument", "HCSEMA0057 extra fixed argument", "HCSEMA0057 omitted variadic argument", "HCSEMA0057 inconsistent callee ownership or semantic batch"]
+provenance = ["callee invocation and global declaration origins", "included callback-array declaration origin", "generated call origin", "index, fixed, and variadic expression origins"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 2
+partial_arrays_member_callbacks_unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsTerm, PrsUnaryModifier, and PrsFunCall directly state the array, index, and call routes"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"

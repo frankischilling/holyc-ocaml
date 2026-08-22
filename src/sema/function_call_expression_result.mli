@@ -40,6 +40,7 @@ type fixed_result
 type top_level_fixed_result
 type top_level_direct_call
 type top_level_global_callback_call
+type top_level_indexed_global_callback_call
 type direct_call
 type indirect_call
 
@@ -110,10 +111,11 @@ val analyze_top_level :
   identifiers:Top_level_identifier_resolution.t ->
   Top_level_expression_tree.t ->
   (top_level_t, error) result
-(** Type scalar roots, aggregate object members, and aggregate offset paths in
+(** Type scalar roots, aggregate object members, aggregate offset paths, direct
+    calls, scalar global callbacks, and fully indexed global callback arrays in
     executable top-level statements through the same expression engine used for
-    function bodies. Outer records without type payloads and calls stay
-    explicitly unavailable until their dedicated semantic inputs exist. *)
+    function bodies. Partial callback arrays, unrelated computed callees, and
+    outer records without type payloads stay explicitly unavailable. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -140,6 +142,9 @@ val top_level_direct_calls : top_level_t -> top_level_direct_call list
 
 val top_level_global_callback_calls :
   top_level_t -> top_level_global_callback_call list
+
+val top_level_indexed_global_callback_calls :
+  top_level_t -> top_level_indexed_global_callback_call list
 
 val top_level_all_results : top_level_t -> expression_result list
 
@@ -277,6 +282,34 @@ val top_level_global_callback_variadic_count :
   top_level_global_callback_call -> int64
 
 val top_level_global_callback_result_id : top_level_global_callback_call -> Id.t
+
+val top_level_indexed_global_callback_source :
+  top_level_indexed_global_callback_call -> Top_level_expression_tree.call
+
+val top_level_indexed_global_callback_global :
+  top_level_indexed_global_callback_call -> Global_type_resolution.global
+
+val top_level_indexed_global_callback_value :
+  top_level_indexed_global_callback_call ->
+  Function_call_resolution.identifier_value
+
+val top_level_indexed_global_callback_callee_result :
+  top_level_indexed_global_callback_call -> expression_result
+
+val top_level_indexed_global_callback_callable :
+  top_level_indexed_global_callback_call -> Function_call_resolution.callable
+
+val top_level_indexed_global_callback_fixed_results :
+  top_level_indexed_global_callback_call -> top_level_fixed_result list
+
+val top_level_indexed_global_callback_variadic_results :
+  top_level_indexed_global_callback_call -> expression_result list
+
+val top_level_indexed_global_callback_variadic_count :
+  top_level_indexed_global_callback_call -> int64
+
+val top_level_indexed_global_callback_result_id :
+  top_level_indexed_global_callback_call -> Id.t
 
 val declared_default_source :
   declared_default_result -> Function_call_resolution.default_use
