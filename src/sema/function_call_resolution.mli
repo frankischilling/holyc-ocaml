@@ -346,6 +346,14 @@ val resolve :
     before the caller. Other computed callee categories remain explicit deferred
     calls. *)
 
+val bind_direct_arguments :
+  call ->
+  Function_type_resolution.resolved_function ->
+  (fixed_argument list * argument list * int64, error) result
+(** Apply the checked [PrsFunCall] fixed-slot and variadic rules to one direct
+    call and one source-visible header. This pure seam is shared by function
+    bodies and executable top-level statements. *)
+
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode

@@ -152,6 +152,7 @@
   ../third_party/TempleOS/Doc/Asm.DD
   ../third_party/TempleOS/Compiler/AsmInit.HC
   ../third_party/TempleOS/Compiler/AsmLib.HC
+  fixtures/top-level-direct-call-header.HH
   ../third_party/TempleOS/Kernel/PCIBIOS.HC
   ../third_party/TempleOS/Apps/Budget/BgtMain.HC
   (source_tree ../third_party/TempleOS/Adam)

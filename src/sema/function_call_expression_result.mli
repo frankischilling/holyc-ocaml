@@ -37,6 +37,8 @@ type fixed_path =
 
 type lastclass_substitution
 type fixed_result
+type top_level_fixed_result
+type top_level_direct_call
 type direct_call
 type indirect_call
 
@@ -133,6 +135,7 @@ val top_level_compilation_mode :
   top_level_t -> Function_resolution.compilation_mode
 
 val top_level_statements : top_level_t -> top_level_statement_result list
+val top_level_direct_calls : top_level_t -> top_level_direct_call list
 val top_level_all_results : top_level_t -> expression_result list
 
 val top_level_statement_source :
@@ -217,6 +220,35 @@ val indirect_variadic_results : indirect_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
 val fixed_path : fixed_result -> fixed_path
 val fixed_lastclass_substitution : fixed_result -> lastclass_substitution option
+
+val top_level_fixed_source :
+  top_level_fixed_result -> Function_call_resolution.fixed_argument
+
+val top_level_fixed_target_class : top_level_fixed_result -> result_class
+val top_level_fixed_path : top_level_fixed_result -> fixed_path
+
+val top_level_fixed_lastclass_substitution :
+  top_level_fixed_result -> lastclass_substitution option
+
+val top_level_direct_source :
+  top_level_direct_call -> Top_level_expression_tree.call
+
+val top_level_direct_declaration :
+  top_level_direct_call -> Function_resolution.resolved_declaration
+
+val top_level_direct_header :
+  top_level_direct_call -> Function_type_resolution.resolved_function
+
+val top_level_direct_target_symbol : top_level_direct_call -> Symbol.t
+
+val top_level_direct_fixed_results :
+  top_level_direct_call -> top_level_fixed_result list
+
+val top_level_direct_variadic_results :
+  top_level_direct_call -> expression_result list
+
+val top_level_direct_variadic_count : top_level_direct_call -> int64
+val top_level_direct_result_id : top_level_direct_call -> Id.t
 
 val declared_default_source :
   declared_default_result -> Function_call_resolution.default_use

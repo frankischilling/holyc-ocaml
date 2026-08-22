@@ -82,6 +82,24 @@ type fixed_result = {
   lastclass_substitution : lastclass_substitution option;
 }
 
+type top_level_fixed_result = {
+  top_level_fixed_source : Function_call_resolution.fixed_argument;
+  top_level_fixed_target_class : result_class;
+  top_level_fixed_path : fixed_path;
+  top_level_fixed_lastclass_substitution : lastclass_substitution option;
+}
+
+type top_level_direct_call = {
+  top_level_direct_source : Top_level_expression_tree.call;
+  top_level_direct_declaration : Function_resolution.resolved_declaration;
+  top_level_direct_header : Function_type_resolution.resolved_function;
+  top_level_direct_target_symbol : Symbol.t;
+  top_level_direct_fixed_results : top_level_fixed_result list;
+  top_level_direct_variadic_results : expression_result list;
+  top_level_direct_variadic_count : int64;
+  top_level_direct_result_id : Id.t;
+}
+
 type direct_call = {
   source : Function_call_conversion_policy.direct_call;
   fixed_results : fixed_result list;
@@ -203,6 +221,7 @@ type top_level_t = {
   top_level_source : Top_level_expression_tree.t;
   top_level_compilation_mode : Function_resolution.compilation_mode;
   top_level_statements : top_level_statement_result list;
+  top_level_direct_calls : top_level_direct_call list;
   top_level_all_results : expression_result list;
 }
 
@@ -214,6 +233,7 @@ type build_state = {
   next_id : int;
   results_rev : expression_result list;
   top_level_identifier_batch : Top_level_identifier_resolution.t option;
+  top_level_direct_calls_rev : top_level_direct_call list;
 }
 
 let owns_table result table = result.table == table
@@ -234,6 +254,7 @@ let top_level_owns_identifiers result identifiers =
 let top_level_source result = result.top_level_source
 let top_level_compilation_mode result = result.top_level_compilation_mode
 let top_level_statements result = result.top_level_statements
+let top_level_direct_calls result = result.top_level_direct_calls
 let top_level_all_results result = result.top_level_all_results
 let top_level_statement_source result = result.top_level_statement_source
 let top_level_statement_roots result = result.top_level_statement_roots
@@ -306,6 +327,42 @@ let declared_default_materialization result = result.default_materialization
 
 let fixed_lastclass_substitution (fixed : fixed_result) =
   fixed.lastclass_substitution
+
+let top_level_fixed_source (fixed : top_level_fixed_result) =
+  fixed.top_level_fixed_source
+
+let top_level_fixed_target_class (fixed : top_level_fixed_result) =
+  fixed.top_level_fixed_target_class
+
+let top_level_fixed_path (fixed : top_level_fixed_result) =
+  fixed.top_level_fixed_path
+
+let top_level_fixed_lastclass_substitution (fixed : top_level_fixed_result) =
+  fixed.top_level_fixed_lastclass_substitution
+
+let top_level_direct_source (call : top_level_direct_call) =
+  call.top_level_direct_source
+
+let top_level_direct_declaration (call : top_level_direct_call) =
+  call.top_level_direct_declaration
+
+let top_level_direct_header (call : top_level_direct_call) =
+  call.top_level_direct_header
+
+let top_level_direct_target_symbol (call : top_level_direct_call) =
+  call.top_level_direct_target_symbol
+
+let top_level_direct_fixed_results (call : top_level_direct_call) =
+  call.top_level_direct_fixed_results
+
+let top_level_direct_variadic_results (call : top_level_direct_call) =
+  call.top_level_direct_variadic_results
+
+let top_level_direct_variadic_count (call : top_level_direct_call) =
+  call.top_level_direct_variadic_count
+
+let top_level_direct_result_id (call : top_level_direct_call) =
+  call.top_level_direct_result_id
 
 let lastclass_previous_result substitution = substitution.previous_result_
 let lastclass_class_name substitution = substitution.class_name_
@@ -589,6 +646,97 @@ let nested_call_resolution policies ~before_item_index origin =
             (invalid_input ~origin
                "nested call matches multiple call-resolution records"))
 
+let top_level_call_for_expression state source =
+  match state.top_level_identifier_batch with
+  | None -> Ok None
+  | Some identifiers ->
+      let matches =
+        identifiers |> Top_level_identifier_resolution.source
+        |> Top_level_expression_tree.all_calls
+        |> List.filter (fun call ->
+            Top_level_expression_tree.call_result_expression call == source)
+      in
+      (match matches with
+      | [] ->
+          Error
+            (invalid_top_level_input
+               ~origin:(Function_call_resolution.argument_expression_origin source)
+               "top-level call result is absent from its checked tree")
+      | [ call ] -> Ok (Some call)
+      | _ ->
+          Error
+            (invalid_top_level_input
+               ~origin:(Function_call_resolution.argument_expression_origin source)
+               "top-level call result matches multiple checked calls"))
+
+let lastclass_name policies ~before_item_index result =
+  match result.source_type with
+  | None -> None
+  | Some source_type -> (
+      let forwarded =
+        Function_call_conversion_policy.forwarded_type policies
+          ~before_item_index source_type
+      in
+      match Type.base forwarded with
+      | Type.Aggregate symbol -> Some (Symbol.name symbol)
+      | Type.Primitive (form, primitive) ->
+          let info = Primitive_type.info primitive in
+          Some
+            (match form with
+            | Type.Internal_storage -> info.storage_spelling
+            | Type.Public_spelling -> (
+                if Type.pointer_depth source_type <> 0 then info.spelling
+                else
+                  match info.declaration_form with
+                  | Primitive_type.Internal_type -> info.spelling
+                  | Primitive_type.Public_union -> info.storage_spelling)))
+
+let lastclass_substitution policies ~before_item_index previous default =
+  match Function_call_resolution.default_parameter_default default with
+  | Function_type_resolution.Expression_default _ -> None
+  | Function_type_resolution.Lastclass_default _ ->
+      Some
+        {
+          previous_result_ = previous;
+          class_name_ =
+            Option.bind previous (lastclass_name policies ~before_item_index);
+        }
+
+let declared_default_result policies ~before_item_index fixed default =
+  let parameter = Function_call_resolution.fixed_parameter fixed in
+  let type_ =
+    parameter |> Function_type_resolution.parameter_type_reference
+    |> Type_reference.resolved_type
+  in
+  let kind, contains_string_literal =
+    match Function_call_resolution.default_parameter_default default with
+    | Function_type_resolution.Expression_default { contains_string_literal; _ }
+      -> (Expression_default_kind, contains_string_literal)
+    | Function_type_resolution.Lastclass_default _ ->
+        (Lastclass_default_kind, true)
+  in
+  let materialization =
+    match
+      ( Function_call_conversion_policy.compilation_mode policies,
+        contains_string_literal )
+    with
+    | Function_resolution.Aot, true -> Aot_string_default
+    | Function_resolution.Aot, false | Function_resolution.Jit, _ ->
+        Immediate_default
+  in
+  {
+    default_source = default;
+    default_parameter = parameter;
+    default_type = type_;
+    default_class = forwarded_class policies ~before_item_index type_;
+    default_kind = kind;
+    default_materialization = materialization;
+  }
+
+let result_class_of_target = function
+  | Function_call_conversion_policy.Integer_result -> Integer_result
+  | Function_call_conversion_policy.F64_result -> F64_result
+
 let resolve_member_lookup members ~before_item_index ~aggregate_symbol
     ~member_name ~member_origin =
   match Aggregate_member_index.find_aggregate members aggregate_symbol with
@@ -834,8 +982,13 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Postfix_cast_expression ->
               finish Unavailable Unresolved_actual_class state
           | Function_call_resolution.Call_expression
-            when Option.is_some state.top_level_identifier_batch ->
-              finish Unavailable Unresolved_actual_class state
+            when Option.is_some state.top_level_identifier_batch -> (
+              match top_level_call_for_expression state source with
+              | Error _ as error -> error
+              | Ok None -> finish Unavailable Unresolved_actual_class state
+              | Ok (Some call) ->
+                  type_top_level_call table members policies ~before_item_index
+                    ~intrinsic_conversion state id source call)
           | Function_call_resolution.Call_expression -> (
               match
                 nested_call_resolution policies ~before_item_index
@@ -1427,6 +1580,165 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
                 (make_result ~intrinsic_conversion state ~id ~source
                    ~source_type ~category:Object_value ~result_class)))
 
+and type_top_level_call table members policies ~before_item_index
+    ~intrinsic_conversion state id source call =
+  let callee = Top_level_expression_tree.call_callee call in
+  match state.top_level_identifier_batch with
+  | None ->
+      Error
+        (invalid_top_level_input
+           ~origin:(Top_level_outer_expression_binding.occurrence_origin callee)
+           "top-level call has no identifier classification batch")
+  | Some identifiers -> (
+      match Top_level_identifier_resolution.find_leaf identifiers callee with
+      | None ->
+          Error
+            (invalid_top_level_input
+               ~origin:
+                 (Top_level_outer_expression_binding.occurrence_origin callee)
+               "top-level call callee is absent from its identifier batch")
+      | Some leaf -> (
+          match Top_level_identifier_resolution.leaf_resolution leaf with
+          | Top_level_identifier_resolution.Module_value
+              (Top_level_identifier_resolution.Direct_function_value
+                 { declaration; _ }) ->
+              type_top_level_direct_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                declaration
+          | Top_level_identifier_resolution.Module_value
+              (Top_level_identifier_resolution.Global_value _
+              | Top_level_identifier_resolution.Aggregate_offset_base _)
+          | Top_level_identifier_resolution.Outer_type_required _ ->
+              Ok
+                (make_result ~intrinsic_conversion state ~id ~source
+                   ~source_type:None ~category:Unavailable
+                   ~result_class:Unresolved_actual_class)))
+
+and type_top_level_direct_call table members policies ~before_item_index
+    ~intrinsic_conversion state id source call declaration =
+  let source_call = Top_level_expression_tree.call_source call in
+  let origin = Function_call_resolution.call_origin source_call in
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  if
+    Function_call_resolution.call_callee_form source_call
+    <> Function_call_resolution.Identifier_callee
+  then invalid "top-level direct call does not use an identifier callee"
+  else if Option.is_some (Function_call_resolution.call_callable source_call) then
+    invalid "top-level direct call unexpectedly carries a callback header"
+  else
+    let site = Function_resolution.resolved_declaration_site declaration in
+    let header = Function_resolution.declaration_site_function site in
+    match Function_call_resolution.bind_direct_arguments source_call header with
+    | Error error ->
+        Error
+          (invalid_top_level_input
+             ?origin:(Function_call_resolution.error_origin error)
+             (Function_call_resolution.error_message error))
+    | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+        let rec type_fixed previous state rev = function
+          | [] -> Ok (List.rev rev, state)
+          | fixed :: rest ->
+              let parameter = Function_call_resolution.fixed_parameter fixed in
+              let target_class =
+                Function_call_conversion_policy.parameter_target_class policies
+                  ~before_item_index parameter
+                |> result_class_of_target
+              in
+              (match Function_call_resolution.fixed_value fixed with
+              | Function_call_resolution.Declared_default default ->
+                  let result =
+                    {
+                      top_level_fixed_source = fixed;
+                      top_level_fixed_target_class = target_class;
+                      top_level_fixed_path =
+                        Declared_default_result
+                          (declared_default_result policies ~before_item_index
+                             fixed default);
+                      top_level_fixed_lastclass_substitution =
+                        lastclass_substitution policies ~before_item_index
+                          previous default;
+                    }
+                  in
+                  type_fixed previous state (result :: rev) rest
+              | Function_call_resolution.Provided_argument argument -> (
+                  match Function_call_resolution.argument_expression argument with
+                  | None -> invalid "provided fixed argument has no expression"
+                  | Some expression -> (
+                      match
+                        type_expression table members policies ~before_item_index
+                          ~context:Value_context state expression
+                      with
+                      | Error _ as error -> error
+                      | Ok (value, state) ->
+                          let result =
+                            {
+                              top_level_fixed_source = fixed;
+                              top_level_fixed_target_class = target_class;
+                              top_level_fixed_path = Provided_result value;
+                              top_level_fixed_lastclass_substitution = None;
+                            }
+                          in
+                          type_fixed (Some value) state (result :: rev) rest)))
+        in
+        let rec type_variadic state rev = function
+          | [] -> Ok (List.rev rev, state)
+          | argument :: rest -> (
+              match Function_call_resolution.argument_expression argument with
+              | None -> invalid "provided variadic argument has no expression"
+              | Some expression -> (
+                  match
+                    type_expression table members policies ~before_item_index
+                      ~context:Value_context state expression
+                  with
+                  | Error _ as error -> error
+                  | Ok (value, state) ->
+                      type_variadic state (value :: rev) rest))
+        in
+        (match type_fixed None state [] fixed_arguments with
+        | Error _ as error -> error
+        | Ok (fixed_results, state) -> (
+            match type_variadic state [] variadic_arguments with
+            | Error _ as error -> error
+            | Ok (variadic_results, state) ->
+                let source_type =
+                  header |> Function_type_resolution.function_return_type
+                  |> Type_reference.resolved_type
+                in
+                (match known_type table source_type with
+                | Error _ as error -> error
+                | Ok source_type ->
+                    let category =
+                      if Type.pointer_depth source_type > 0 then Address_value
+                      else Object_value
+                    in
+                    let direct_call =
+                      {
+                        top_level_direct_source = call;
+                        top_level_direct_declaration = declaration;
+                        top_level_direct_header = header;
+                        top_level_direct_target_symbol =
+                          Function_resolution
+                          .resolved_declaration_identity_symbol declaration;
+                        top_level_direct_fixed_results = fixed_results;
+                        top_level_direct_variadic_results = variadic_results;
+                        top_level_direct_variadic_count = variadic_count;
+                        top_level_direct_result_id = id;
+                      }
+                    in
+                    let state =
+                      {
+                        state with
+                        top_level_direct_calls_rev =
+                          direct_call :: state.top_level_direct_calls_rev;
+                      }
+                    in
+                    Ok
+                      (make_result ~intrinsic_conversion state ~id ~source
+                         ~source_type:(Some source_type) ~category
+                         ~result_class:
+                           (forwarded_class policies ~before_item_index
+                              source_type)))))
+
 let map_state apply state values =
   let rec loop state rev = function
     | [] -> Ok (List.rev rev, state)
@@ -1436,73 +1748,6 @@ let map_state apply state values =
         | Ok (result, state) -> loop state (result :: rev) rest)
   in
   loop state [] values
-
-let lastclass_name policies ~before_item_index result =
-  match result.source_type with
-  | None -> None
-  | Some source_type -> (
-      let forwarded =
-        Function_call_conversion_policy.forwarded_type policies
-          ~before_item_index source_type
-      in
-      match Type.base forwarded with
-      | Type.Aggregate symbol -> Some (Symbol.name symbol)
-      | Type.Primitive (form, primitive) ->
-          let info = Primitive_type.info primitive in
-          Some
-            (match form with
-            | Type.Internal_storage -> info.storage_spelling
-            | Type.Public_spelling -> (
-                if Type.pointer_depth source_type <> 0 then info.spelling
-                else
-                  match info.declaration_form with
-                  | Primitive_type.Internal_type -> info.spelling
-                  | Primitive_type.Public_union -> info.storage_spelling)))
-
-let lastclass_substitution policies ~before_item_index previous default =
-  match Function_call_resolution.default_parameter_default default with
-  | Function_type_resolution.Expression_default _ -> None
-  | Function_type_resolution.Lastclass_default _ ->
-      Some
-        {
-          previous_result_ = previous;
-          class_name_ =
-            Option.bind previous (lastclass_name policies ~before_item_index);
-        }
-
-let declared_default_result policies ~before_item_index source default =
-  let parameter =
-    source |> Function_call_conversion_policy.fixed_source
-    |> Function_call_resolution.fixed_parameter
-  in
-  let type_ =
-    parameter |> Function_type_resolution.parameter_type_reference
-    |> Type_reference.resolved_type
-  in
-  let kind, contains_string_literal =
-    match Function_call_resolution.default_parameter_default default with
-    | Function_type_resolution.Expression_default { contains_string_literal; _ }
-      -> (Expression_default_kind, contains_string_literal)
-    | Function_type_resolution.Lastclass_default _ ->
-        (Lastclass_default_kind, true)
-  in
-  let materialization =
-    match
-      ( Function_call_conversion_policy.compilation_mode policies,
-        contains_string_literal )
-    with
-    | Function_resolution.Aot, true -> Aot_string_default
-    | Function_resolution.Aot, false | Function_resolution.Jit, _ ->
-        Immediate_default
-  in
-  {
-    default_source = default;
-    default_parameter = parameter;
-    default_type = type_;
-    default_class = forwarded_class policies ~before_item_index type_;
-    default_kind = kind;
-    default_materialization = materialization;
-  }
 
 let type_fixed table members policies ~before_item_index previous state source =
   match
@@ -1517,7 +1762,8 @@ let type_fixed table members policies ~before_item_index previous state source =
             source;
             path =
               Declared_default_result
-                (declared_default_result policies ~before_item_index source
+                (declared_default_result policies ~before_item_index
+                   (Function_call_conversion_policy.fixed_source source)
                    default);
             lastclass_substitution =
               lastclass_substitution policies ~before_item_index previous
@@ -1945,7 +2191,12 @@ let analyze ~table ~members policies =
       policies |> Function_call_conversion_policy.functions
       |> map_state
            (type_function table members policies)
-           { next_id = 0; results_rev = []; top_level_identifier_batch = None }
+           {
+             next_id = 0;
+             results_rev = [];
+             top_level_identifier_batch = None;
+             top_level_direct_calls_rev = [];
+           }
     with
     | Error _ as error -> error
     | Ok (functions, state) ->
@@ -2080,6 +2331,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
              next_id = 0;
              results_rev = [];
              top_level_identifier_batch = Some identifiers;
+             top_level_direct_calls_rev = [];
            }
     with
     | Error _ as error -> error
@@ -2091,9 +2343,20 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
             top_level_policies = policies;
             top_level_identifiers = identifiers;
             top_level_source = source;
-            top_level_compilation_mode = source_mode;
-            top_level_statements;
-            top_level_all_results =
+             top_level_compilation_mode = source_mode;
+             top_level_statements;
+             top_level_direct_calls =
+               List.sort
+                 (fun left right ->
+                   Int.compare
+                     (left.top_level_direct_source
+                     |> Top_level_expression_tree.call_source
+                     |> Function_call_resolution.call_index)
+                     (right.top_level_direct_source
+                     |> Top_level_expression_tree.call_source
+                     |> Function_call_resolution.call_index))
+                 state.top_level_direct_calls_rev;
+             top_level_all_results =
               List.sort
                 (fun left right -> Id.compare left.id right.id)
                 state.results_rev;
