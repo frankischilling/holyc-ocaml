@@ -146,6 +146,13 @@ let result_intrinsic_conversion (result : expression_result) =
 let result_member_lookup (result : expression_result) = result.member_lookup
 let result_call_resolution (result : expression_result) = result.call_resolution
 
+let result_is_direct_function (result : expression_result) =
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Bound_identifier_expression identifier ->
+      Function_call_resolution.bound_identifier_shape identifier
+      = Function_call_resolution.Direct_function_value
+  | _ -> false
+
 let value_category_name = function
   | Object_value -> "object-value"
   | Address_value -> "address-value"
@@ -423,6 +430,8 @@ let rec type_expression table members policies ~before_item_index ~context
                     (Array_value, Integer_result)
                 | Function_call_resolution.Function_pointer_value ->
                     (Callback_value, Integer_result)
+                | Function_call_resolution.Direct_function_value ->
+                    (Function_value, Integer_result)
                 | Function_call_resolution.Object_value ->
                     ( (match context with
                       | Value_context -> Object_value
@@ -529,9 +538,12 @@ and type_prefix table members policies ~before_item_index ~context
       | Function_call_resolution.Bitwise_not ->
           finish ~source_type:integer_type Object_value Integer_result
       | Function_call_resolution.Address_of -> (
-          match operand.source_type with
-          | None -> finish Address_value Integer_result
-          | Some source_type -> (
+          match (operand.source_type, result_is_direct_function operand) with
+          | Some source_type, true ->
+              finish ~source_type:(Some source_type) Address_value
+                Integer_result
+          | None, _ -> finish Address_value Integer_result
+          | Some source_type, false -> (
               match Type.pointer_to source_type with
               | Ok source_type ->
                   finish ~source_type:(Some source_type) Address_value

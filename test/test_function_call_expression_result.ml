@@ -273,6 +273,37 @@ let binary_source result =
   | Semantic_function_call_resolution.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a retained binary expression"
 
+let address_operand result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Prefix_expression prefix
+    when Semantic_function_call_resolution.prefix_operator prefix
+         = Semantic_function_call_resolution.Address_of ->
+      Semantic_function_call_resolution.prefix_operand prefix
+  | _ -> Alcotest.fail "expected a retained address-of expression"
+
+let bound_identifier expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Bound_identifier_expression identifier ->
+      identifier
+  | _ -> Alcotest.fail "expected a retained bound identifier"
+
+let bound_publication expression =
+  let occurrence =
+    expression |> bound_identifier
+    |> Semantic_function_call_resolution.bound_identifier_occurrence
+  in
+  match Semantic_module_expression_binding.occurrence_resolution occurrence with
+  | Semantic_module_expression_binding.Module_binding publication -> publication
+  | Semantic_module_expression_binding.Local_binding _ ->
+      Alcotest.fail "expected a module publication"
+  | Semantic_module_expression_binding.Outer_candidate ->
+      Alcotest.fail "expected a resolved module publication"
+
 let update_operator_name result =
   match
     result |> Semantic_function_call_expression_result.result_source
@@ -431,6 +462,188 @@ let roots_retain_types_and_categories () =
       "integer-result";
     ]
     (class_names roots)
+
+let direct_function_addresses_keep_publication_identity () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-function-address.HC"
+          "extern I64 Handler();\n\
+           extern I64 Target(I64 fixed=0,...);\n\
+           I64 Handler(){return 1;}\n\
+           I64 Caller(){return Target(&Handler,&Caller);}"
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let _, first = analyze prepared in
+      let _, second = analyze prepared in
+      let call = direct_named first "Caller" "Target" in
+      let roots =
+        provided_results call
+        @ Semantic_function_call_expression_result.direct_variadic_results call
+      in
+      Alcotest.(check (list string))
+        "direct function addresses have address results"
+        [ "address-value"; "address-value" ]
+        (category_names roots);
+      Alcotest.(check (list string))
+        "direct function addresses retain RT_PTR's internal I64 type"
+        [ "I64"; "I64" ] (List.map type_name roots);
+      Alcotest.(check (list string))
+        "direct function addresses use integer result registers"
+        [ "integer-result"; "integer-result" ]
+        (class_names roots);
+      let operands = List.map address_operand roots in
+      let operand_results = List.map (result_for_source first) operands in
+      Alcotest.(check (list string))
+        "direct function operands remain function values"
+        [ "function-value"; "function-value" ]
+        (category_names operand_results);
+      Alcotest.(check (list string))
+        "direct function operands retain the distinct binding shape"
+        [ "direct-function"; "direct-function" ]
+        (List.map
+           (fun operand ->
+             operand |> bound_identifier
+             |> Semantic_function_call_resolution.bound_identifier_shape
+             |> Semantic_function_call_resolution.identifier_value_shape_name)
+           operands);
+      let handler_identifier = List.hd operands |> bound_identifier in
+      let handler_occurrence =
+        Semantic_function_call_resolution.bound_identifier_occurrence
+          handler_identifier
+      in
+      let handler_type =
+        Semantic_function_call_resolution.bound_identifier_type
+          handler_identifier
+      in
+      Alcotest.(check (result reject string))
+        "a function publication cannot be relabeled as object storage"
+        (Error "bound call argument occurrence is not a typed value binding")
+        (Semantic_function_call_resolution
+         .make_bound_identifier_argument_expression
+           ~occurrence:handler_occurrence ~resolved_type:handler_type
+           ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0);
+      List.iter
+        (fun result ->
+          match Semantic_function_call_expression_result.result_type result with
+          | Some type_ -> (
+              Alcotest.(check int)
+                "RT_PTR is not an object pointer layer" 0
+                (Semantic_type.pointer_depth type_);
+              match Semantic_type.base type_ with
+              | Semantic_type.Primitive (form, primitive) ->
+                  Alcotest.(check bool)
+                    "RT_PTR uses the intrinsic primitive form" true
+                    (form = Semantic_type.Internal_storage);
+                  Alcotest.(check bool)
+                    "RT_PTR aliases RT_I64" true
+                    (Primitive_type.equal primitive Primitive_type.I64)
+              | Semantic_type.Aggregate _ ->
+                  Alcotest.fail "expected RT_PTR's primitive type")
+          | None -> Alcotest.fail "expected a direct function address type")
+        roots;
+      let selected_handler = List.hd operands |> bound_publication in
+      Alcotest.(check int)
+        "the address uses the source-visible replacement header" 2
+        (Semantic_module_expression_binding.publication_item_index
+           selected_handler);
+      let source_symbol =
+        Semantic_module_expression_binding.publication_source_symbol
+          selected_handler
+      in
+      let canonical_symbol =
+        Semantic_module_expression_binding.publication_canonical_symbol
+          selected_handler
+      in
+      Alcotest.(check (pair string string))
+        "the replacement keeps its source and canonical function names"
+        ("Handler", "Handler")
+        ( Semantic_symbol.name source_symbol,
+          Semantic_symbol.name canonical_symbol );
+      Alcotest.(check bool)
+        "the replacement source and joined identity remain distinct" false
+        (Semantic_symbol.Id.equal
+           (Semantic_symbol.id source_symbol)
+           (Semantic_symbol.id canonical_symbol));
+      let recursive = List.nth operands 1 |> bound_publication in
+      Alcotest.(check string)
+        "the recursive address retains Caller publication identity" "Caller"
+        (recursive
+       |> Semantic_module_expression_binding.publication_source_symbol
+       |> Semantic_symbol.name);
+      Alcotest.(check (list string))
+        "replaying direct function addresses is deterministic"
+        (Semantic_function_call_expression_result.all_results first
+        |> List.map type_name)
+        (Semantic_function_call_expression_result.all_results second
+        |> List.map type_name);
+      Alcotest.(check int)
+        "typing function addresses leaves symbols unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_address_provenance_and_storage_shadowing () =
+  with_included_source
+    "#define FN Handler\n\
+     extern I64 Target(I64 value);I64 Handler(){return 1;}\n\
+     I64 Caller(){return Target(&FN);}" (fun prepared ->
+      let _, results = analyze prepared in
+      let root = root_results results "Caller" |> List.hd in
+      let occurrence =
+        root |> address_operand |> bound_identifier
+        |> Semantic_function_call_resolution.bound_identifier_occurrence
+      in
+      match Semantic_module_expression_binding.occurrence_origin occurrence with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated function address keeps its invocation" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated function address keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated function-address provenance");
+  let prepared =
+    prepare ~path:"call-expression-function-address-shadow.HC"
+      "extern I64 Target(I64 object_address,I64 callback_address);\n\
+       I64 Handler(){return 1;}\n\
+       I64 Caller(I64 (*callback)()){I64 Handler;return \
+       Target(&Handler,&callback);}"
+  in
+  let _, results = analyze prepared in
+  let roots = root_results results "Caller" in
+  Alcotest.(check (list string))
+    "storage shadowing keeps ordinary address-of types" [ "I64*"; "I64*" ]
+    (List.map type_name roots);
+  let shapes =
+    roots
+    |> List.map (fun result ->
+        result |> address_operand |> bound_identifier
+        |> Semantic_function_call_resolution.bound_identifier_shape
+        |> Semantic_function_call_resolution.identifier_value_shape_name)
+  in
+  Alcotest.(check (list string))
+    "local storage and callbacks are not direct functions"
+    [ "object"; "function-pointer" ]
+    shapes;
+  let local_identifier =
+    roots |> List.hd |> address_operand |> bound_identifier
+  in
+  Alcotest.(check (result reject string))
+    "local storage cannot be relabeled as a direct function"
+    (Error "bound call argument occurrence is not a typed value binding")
+    (Semantic_function_call_resolution.make_bound_identifier_argument_expression
+       ~occurrence:
+         (Semantic_function_call_resolution.bound_identifier_occurrence
+            local_identifier)
+       ~resolved_type:
+         (Semantic_function_call_resolution.bound_identifier_type
+            local_identifier)
+       ~shape:Semantic_function_call_resolution.Direct_function_value
+       ~array_rank:0)
 
 let nested_results_have_stable_value_contexts () =
   let prepared =
@@ -2865,6 +3078,10 @@ let tests =
       pointer_transitions_are_checked;
     Alcotest.test_case "root types and categories" `Quick
       roots_retain_types_and_categories;
+    Alcotest.test_case "direct function address identity" `Quick
+      direct_function_addresses_keep_publication_identity;
+    Alcotest.test_case "function address provenance and shadowing" `Quick
+      function_address_provenance_and_storage_shadowing;
     Alcotest.test_case "nested value contexts" `Quick
       nested_results_have_stable_value_contexts;
     Alcotest.test_case "dereference types and shapes" `Quick

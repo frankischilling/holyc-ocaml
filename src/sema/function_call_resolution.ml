@@ -28,6 +28,7 @@ type identifier_value_shape =
   | Object_value
   | Array_value
   | Function_pointer_value
+  | Direct_function_value
 
 type argument_expression_kind =
   | Integer_literal
@@ -331,6 +332,7 @@ let identifier_value_shape_name = function
   | Object_value -> "object"
   | Array_value -> "array"
   | Function_pointer_value -> "function-pointer"
+  | Direct_function_value -> "direct-function"
 
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
@@ -520,12 +522,19 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
   if String.equal name "" then
     Error "bound call argument identifier cannot have an empty name"
   else if
-    match Module_expression_binding.occurrence_resolution occurrence with
-    | Module_expression_binding.Local_binding _ -> false
-    | Module_expression_binding.Module_binding publication ->
+    match
+      (Module_expression_binding.occurrence_resolution occurrence, shape)
+    with
+    | Module_expression_binding.Local_binding _, Direct_function_value -> true
+    | Module_expression_binding.Local_binding _, _ -> false
+    | ( Module_expression_binding.Module_binding publication,
+        Direct_function_value ) ->
+        Module_expression_binding.publication_kind publication
+        <> Module_expression_binding.Function
+    | Module_expression_binding.Module_binding publication, _ ->
         Module_expression_binding.publication_kind publication
         <> Module_expression_binding.Global_variable
-    | Module_expression_binding.Outer_candidate -> true
+    | Module_expression_binding.Outer_candidate, _ -> true
   then Error "bound call argument occurrence is not a typed value binding"
   else if array_rank < 0 then
     Error "bound call argument array rank cannot be negative"
@@ -709,12 +718,21 @@ let rec validate_argument_expression table parent visible expression =
           (invalid_input
              "bound call argument origin does not match its occurrence")
       else if
-        match Module_expression_binding.occurrence_resolution occurrence with
-        | Module_expression_binding.Local_binding _ -> false
-        | Module_expression_binding.Module_binding publication ->
+        match
+          ( Module_expression_binding.occurrence_resolution occurrence,
+            identifier.bound_identifier_shape_ )
+        with
+        | Module_expression_binding.Local_binding _, Direct_function_value ->
+            true
+        | Module_expression_binding.Local_binding _, _ -> false
+        | ( Module_expression_binding.Module_binding publication,
+            Direct_function_value ) ->
+            Module_expression_binding.publication_kind publication
+            <> Module_expression_binding.Function
+        | Module_expression_binding.Module_binding publication, _ ->
             Module_expression_binding.publication_kind publication
             <> Module_expression_binding.Global_variable
-        | Module_expression_binding.Outer_candidate -> true
+        | Module_expression_binding.Outer_candidate, _ -> true
       then
         Error
           (invalid_input
