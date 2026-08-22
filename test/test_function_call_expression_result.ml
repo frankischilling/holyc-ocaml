@@ -122,6 +122,10 @@ let expression_statements_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_expression_statements
 
+let implicit_outputs_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_implicit_outputs
+
 let conditions_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_conditions
@@ -4322,6 +4326,196 @@ let included_expression_statements_replay_without_mutation () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected included statement value provenance")
 
+let function_implicit_outputs_keep_targets_values_and_calls () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-implicit-output-results.HC"
+          "extern I64 Direct(I64 value);\n\
+           I64 Caller(I64 value,F64 ratio,U8 *fmt,U64 ch){\n\
+           \"fixed\";\n\
+           \"\" fmt,value,ratio,Direct(value);\n\
+           'A';\n\
+           '' ch;\n\
+           if(value){\"nested\",ratio;}\n\
+           for(value=0;value;value++)'B';\n\
+           try \"\" fmt,value;catch '' ch;\n\
+           return 0;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let outputs = implicit_outputs_named results "Caller" in
+      Alcotest.(check int)
+        "every implicit output statement is retained" 8 (List.length outputs);
+      Alcotest.(check (list int))
+        "implicit output identities follow recursive source traversal"
+        (List.init 8 Fun.id)
+        (List.map
+           (fun output ->
+             output
+             |> Semantic_function_call_expression_result.implicit_output_source
+             |> Semantic_function_call_resolution.implicit_output_index)
+           outputs);
+      Alcotest.(check (list string))
+        "implicit output targets remain explicit"
+        [
+          "Print";
+          "Print";
+          "PutChars";
+          "PutChars";
+          "Print";
+          "PutChars";
+          "Print";
+          "PutChars";
+        ]
+        (List.map
+           (fun output ->
+             output
+             |> Semantic_function_call_expression_result.implicit_output_source
+             |> Semantic_function_call_resolution.implicit_output_target
+             |> Semantic_function_call_resolution.implicit_output_target_name)
+           outputs);
+      Alcotest.(check (list string))
+        "empty markers keep their following-expression fixed source"
+        [
+          "marker";
+          "following-expression";
+          "marker";
+          "following-expression";
+          "marker";
+          "marker";
+          "following-expression";
+          "following-expression";
+        ]
+        (List.map
+           (fun output ->
+             output
+             |> Semantic_function_call_expression_result.implicit_output_source
+             |> Semantic_function_call_resolution.implicit_output_fixed_source
+             |> Semantic_function_call_resolution
+                .implicit_output_fixed_source_name)
+           outputs);
+      Alcotest.(check (list string))
+        "fixed output values retain their semantic types"
+        [ "U8*"; "U8*"; "I64"; "U64"; "U8*"; "I64"; "U8*"; "U64" ]
+        (List.map
+           (fun output ->
+             output
+             |> Semantic_function_call_expression_result
+                .implicit_output_fixed_value |> type_name)
+           outputs);
+      let arguments =
+        outputs
+        |> List.concat_map (fun output ->
+            output
+            |> Semantic_function_call_expression_result
+               .implicit_output_arguments)
+      in
+      Alcotest.(check (list string))
+        "Print arguments retain their source order and types"
+        [ "I64"; "F64"; "I64"; "F64"; "I64" ]
+        (List.map
+           (fun argument ->
+             argument
+             |> Semantic_function_call_expression_result
+                .implicit_output_argument_value |> type_name)
+           arguments);
+      Alcotest.(check (list string))
+        "implicit output results carry discarded-result intent"
+        (List.init 8 (fun _ -> "ICF_RES_NOT_USED"))
+        (List.map
+           (fun output ->
+             output
+             |> Semantic_function_call_expression_result
+                .implicit_output_result_use
+             |> Semantic_function_call_expression_result.result_use_name)
+           outputs);
+      match
+        List.nth arguments 2
+        |> Semantic_function_call_expression_result
+           .implicit_output_argument_value
+        |> Semantic_function_call_expression_result.result_call_resolution
+      with
+      | Some (Semantic_function_call_resolution.Direct_call call) ->
+          Alcotest.(check string)
+            "a nested Print argument keeps its direct call target" "Direct"
+            (call |> Semantic_function_call_resolution.direct_source
+           |> Semantic_function_call_resolution.call_callee_name)
+      | Some (Semantic_function_call_resolution.Indirect_call _)
+      | Some (Semantic_function_call_resolution.Deferred_call _)
+      | None -> Alcotest.fail "expected a resolved direct Print argument call")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_implicit_outputs_replay_without_mutation () =
+  with_included_source
+    "#define FORMAT fmt\n\
+     I64 Caller(U8 *fmt,I64 value){\"\" FORMAT,value;return 0;}"
+    (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        let output = implicit_outputs_named results "Caller" |> List.hd in
+        ( output
+          |> Semantic_function_call_expression_result
+             .implicit_output_fixed_value |> type_name,
+          output
+          |> Semantic_function_call_expression_result.implicit_output_arguments
+          |> List.map (fun argument ->
+              argument
+              |> Semantic_function_call_expression_result
+                 .implicit_output_argument_value |> type_name) )
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check (pair string (list string)))
+        "included implicit output typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "implicit output typing leaves the semantic table unchanged"
+        symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let output = implicit_outputs_named first "Caller" |> List.hd in
+      (match
+         output
+         |> Semantic_function_call_expression_result.implicit_output_source
+         |> Semantic_function_call_resolution.implicit_output_origin
+       with
+      | Semantic_symbol.Source_location location ->
+          let source_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "implicit output statements keep their included source" "calls.HC"
+            (Source_file.path source_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included implicit output provenance");
+      match
+        output
+        |> Semantic_function_call_expression_result.implicit_output_fixed_value
+        |> Semantic_function_call_expression_result.result_origin
+      with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed fixed output values keep their definition origin"
+            true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected definition-backed output value provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -4495,6 +4689,10 @@ let tests =
       function_expression_statements_keep_results_and_discard_intent;
     Alcotest.test_case "included expression statement replay" `Quick
       included_expression_statements_replay_without_mutation;
+    Alcotest.test_case "function implicit output results" `Quick
+      function_implicit_outputs_keep_targets_values_and_calls;
+    Alcotest.test_case "included implicit output replay" `Quick
+      included_implicit_outputs_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

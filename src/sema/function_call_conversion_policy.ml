@@ -30,6 +30,7 @@ type resolved_function = {
   return_type : Type_reference.t;
   expression_statements :
     Function_call_resolution.expression_statement_input list;
+  implicit_outputs : Function_call_resolution.implicit_output_input list;
   conditions : Function_call_resolution.condition_input list;
   selectors : Function_call_resolution.selector_input list;
   switch_cases : Function_call_resolution.switch_case_input list;
@@ -63,6 +64,9 @@ let function_return_type (function_ : resolved_function) = function_.return_type
 
 let function_expression_statements (function_ : resolved_function) =
   function_.expression_statements
+
+let function_implicit_outputs (function_ : resolved_function) =
+  function_.implicit_outputs
 
 let function_conditions (function_ : resolved_function) = function_.conditions
 let function_selectors (function_ : resolved_function) = function_.selectors
@@ -331,6 +335,7 @@ let resolve_function headers source =
     return_type = Function_call_resolution.function_return_type source;
     expression_statements =
       Function_call_resolution.function_expression_statements source;
+    implicit_outputs = Function_call_resolution.function_implicit_outputs source;
     conditions = Function_call_resolution.function_conditions source;
     selectors = Function_call_resolution.function_selectors source;
     switch_cases = Function_call_resolution.function_switch_cases source;

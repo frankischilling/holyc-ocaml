@@ -103,6 +103,19 @@ type expression_statement_result = {
   expression_statement_result_use : result_use;
 }
 
+type implicit_output_argument_result = {
+  implicit_output_argument_source :
+    Function_call_resolution.implicit_output_argument;
+  implicit_output_argument_value : expression_result;
+}
+
+type implicit_output_result = {
+  implicit_output_source : Function_call_resolution.implicit_output_input;
+  implicit_output_fixed_value : expression_result;
+  implicit_output_arguments : implicit_output_argument_result list;
+  implicit_output_result_use : result_use;
+}
+
 type selector_result = {
   selector_source : Function_call_resolution.selector_input;
   selector_value : expression_result;
@@ -141,6 +154,7 @@ type resolved_function = {
   item_index : int;
   calls : call_result list;
   expression_statements : expression_statement_result list;
+  implicit_outputs : implicit_output_result list;
   conditions : condition_result list;
   selectors : selector_result list;
   switch_cases : switch_case_result list;
@@ -180,6 +194,20 @@ let expression_statement_value result = result.expression_statement_value
 
 let expression_statement_result_use result =
   result.expression_statement_result_use
+
+let function_implicit_outputs (function_ : resolved_function) =
+  function_.implicit_outputs
+
+let implicit_output_source result = result.implicit_output_source
+let implicit_output_fixed_value result = result.implicit_output_fixed_value
+let implicit_output_arguments result = result.implicit_output_arguments
+let implicit_output_result_use result = result.implicit_output_result_use
+
+let implicit_output_argument_source result =
+  result.implicit_output_argument_source
+
+let implicit_output_argument_value result =
+  result.implicit_output_argument_value
 
 let function_conditions (function_ : resolved_function) = function_.conditions
 let condition_source result = result.condition_source
@@ -1378,6 +1406,49 @@ let type_expression_statement table members policies ~before_item_index state
           },
           state )
 
+let type_implicit_output_argument table members policies ~before_item_index
+    state source =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Function_call_resolution.implicit_output_argument_expression source)
+  with
+  | Error _ as error -> error
+  | Ok (implicit_output_argument_value, state) ->
+      Ok
+        ( {
+            implicit_output_argument_source = source;
+            implicit_output_argument_value;
+          },
+          state )
+
+let type_implicit_output table members policies ~before_item_index state source
+    =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Function_call_resolution.implicit_output_fixed_expression source)
+  with
+  | Error _ as error -> error
+  | Ok (implicit_output_fixed_value, state) -> (
+      match
+        source |> Function_call_resolution.implicit_output_arguments
+        |> map_state
+             (type_implicit_output_argument table members policies
+                ~before_item_index)
+             state
+      with
+      | Error _ as error -> error
+      | Ok (implicit_output_arguments, state) ->
+          Ok
+            ( {
+                implicit_output_source = source;
+                implicit_output_fixed_value;
+                implicit_output_arguments;
+                implicit_output_result_use = Result_not_used;
+              },
+              state ))
+
 let type_selector table members policies ~before_item_index state source =
   match
     type_expression table members policies ~before_item_index
@@ -1566,24 +1637,36 @@ let type_function table members policies state source =
                              state
                       with
                       | Error _ as error -> error
-                      | Ok (expression_statements, state) ->
-                          Ok
-                            ( {
-                                symbol =
-                                  Function_call_conversion_policy
-                                  .function_symbol source;
-                                scope =
-                                  Function_call_conversion_policy.function_scope
-                                    source;
-                                item_index;
-                                calls;
-                                expression_statements;
-                                conditions;
-                                selectors;
-                                switch_cases;
-                                returns;
-                              },
-                              state ))))))
+                      | Ok (expression_statements, state) -> (
+                          match
+                            source
+                            |> Function_call_conversion_policy
+                               .function_implicit_outputs
+                            |> map_state
+                                 (type_implicit_output table members policies
+                                    ~before_item_index:item_index)
+                                 state
+                          with
+                          | Error _ as error -> error
+                          | Ok (implicit_outputs, state) ->
+                              Ok
+                                ( {
+                                    symbol =
+                                      Function_call_conversion_policy
+                                      .function_symbol source;
+                                    scope =
+                                      Function_call_conversion_policy
+                                      .function_scope source;
+                                    item_index;
+                                    calls;
+                                    expression_statements;
+                                    implicit_outputs;
+                                    conditions;
+                                    selectors;
+                                    switch_cases;
+                                    returns;
+                                  },
+                                  state )))))))
 
 let analyze ~table ~members policies =
   if not (Function_call_conversion_policy.owns_table policies table) then

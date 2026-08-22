@@ -352,6 +352,9 @@ type state = {
   next_expression_statement : int;
   expression_statements_rev :
     Sema.Function_call_resolution.expression_statement_input list;
+  next_implicit_output : int;
+  implicit_outputs_rev :
+    Sema.Function_call_resolution.implicit_output_input list;
   next_condition : int;
   conditions_rev : Sema.Function_call_resolution.condition_input list;
   next_selector : int;
@@ -373,6 +376,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     calls_rev = [];
     next_expression_statement = 0;
     expression_statements_rev = [];
+    next_implicit_output = 0;
+    implicit_outputs_rev = [];
     next_condition = 0;
     conditions_rev = [];
     next_selector = 0;
@@ -917,19 +922,98 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
   in
   fold_result declarator state declaration.local_declarators
 
-let implicit_output state (output : Frontend.Ast.implicit_output_statement) =
-  let fixed =
+let record_implicit_output state
+    (output : Frontend.Ast.implicit_output_statement) =
+  let first_occurrence = state.next_occurrence in
+  let visible = state.visible_aggregates in
+  let locals = state.typed_values in
+  let globals = state.global_values in
+  let occurrences = state.occurrences in
+  let fixed_value, fixed_source =
     match output.fixed_argument with
-    | Frontend.Ast.Marker_fixed_argument value
-    | Frontend.Ast.Expression_fixed_argument value -> expression state value
+    | Frontend.Ast.Marker_fixed_argument value ->
+        (value, Sema.Function_call_resolution.Marker_fixed_output)
+    | Frontend.Ast.Expression_fixed_argument value ->
+        (value, Sema.Function_call_resolution.Following_expression_output)
   in
-  match fixed with
+  match expression state fixed_value with
   | Error _ as error -> error
-  | Ok state ->
-      fold_result
-        (fun state (argument : Frontend.Ast.implicit_output_argument) ->
-          expression state argument.value)
-        state output.arguments
+  | Ok state -> (
+      match
+        fold_result
+          (fun state (argument : Frontend.Ast.implicit_output_argument) ->
+            expression state argument.value)
+          state output.arguments
+      with
+      | Error _ as error -> error
+      | Ok state -> (
+          let cursor = ref first_occurrence in
+          match
+            argument_expression visible locals globals occurrences cursor
+              fixed_value
+          with
+          | Error _ as error -> error
+          | Ok fixed_expression -> (
+              let rec prepare_arguments index rev = function
+                | [] -> Ok (List.rev rev)
+                | (argument : Frontend.Ast.implicit_output_argument) :: rest
+                  -> (
+                    match
+                      argument_expression visible locals globals occurrences
+                        cursor argument.value
+                    with
+                    | Error _ as error -> error
+                    | Ok expression -> (
+                        match
+                          Sema.Function_call_resolution
+                          .make_implicit_output_argument ~index
+                            ~leading_comma_origin:
+                              (origin argument.leading_comma)
+                            ~expression ~origin:(origin argument.location)
+                        with
+                        | Error _ as error -> error
+                        | Ok prepared ->
+                            if index = max_int then
+                              Error
+                                "implicit output argument space is exhausted"
+                            else
+                              prepare_arguments (index + 1) (prepared :: rev)
+                                rest))
+              in
+              match prepare_arguments 0 [] output.arguments with
+              | Error _ as error -> error
+              | Ok _ when !cursor <> state.next_occurrence ->
+                  Error
+                    "function implicit output traversal disagrees with \
+                     ordinary expression binding"
+              | Ok arguments -> (
+                  let target =
+                    match output.target with
+                    | Frontend.Ast.Print_target ->
+                        Sema.Function_call_resolution.Print_output
+                    | Frontend.Ast.Put_chars_target ->
+                        Sema.Function_call_resolution.Put_chars_output
+                  in
+                  match
+                    Sema.Function_call_resolution.make_implicit_output
+                      ~index:state.next_implicit_output ~target
+                      ~marker_origin:(origin output.marker.literal_location)
+                      ~fixed_source ~fixed_expression ~arguments
+                      ~origin:(origin output.location)
+                  with
+                  | Error _ as error -> error
+                  | Ok prepared ->
+                      if state.next_implicit_output = max_int then
+                        Error "function implicit output space is exhausted"
+                      else
+                        Ok
+                          {
+                            state with
+                            next_implicit_output =
+                              state.next_implicit_output + 1;
+                            implicit_outputs_rev =
+                              prepared :: state.implicit_outputs_rev;
+                          }))))
 
 let case_pattern state = function
   | Frontend.Ast.Implicit_case -> Ok state
@@ -1201,7 +1285,7 @@ let rec statement state = function
               | None -> Ok state
               | Some else_ -> statement state else_.else_branch)))
   | Frontend.Ast.Implicit_output_statement output ->
-      implicit_output state output
+      record_implicit_output state output
   | Frontend.Ast.Local_declaration_statement declaration ->
       local_declaration state declaration
   | Frontend.Ast.Lock_statement lock -> statement state lock.lock_body
@@ -1319,6 +1403,7 @@ let function_input table visible_aggregates global_values expected typed locals
                 ~item_index
                 ~expression_statements:
                   (List.rev state.expression_statements_rev)
+                ~implicit_outputs:(List.rev state.implicit_outputs_rev)
                 ~conditions:(List.rev state.conditions_rev)
                 ~selectors:(List.rev state.selectors_rev)
                 ~switch_cases:(List.rev state.switch_cases_rev)

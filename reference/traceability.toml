@@ -6087,7 +6087,7 @@ provenance = ["function identity", "return keyword", "return statement", "value 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_return_tests = 4
-focused_expression_result_tests = 64
+focused_expression_result_tests = 66
 return_ir_leave_label_try_unwinding_register_placement_epilogue_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained warning and conversion facts"
 
@@ -6125,7 +6125,7 @@ provenance = ["function identity", "statement keyword", "statement", "condition 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_condition_tests = 2
-focused_expression_result_tests = 64
+focused_expression_result_tests = 66
 boolean_conversion_control_flow_edges_labels_branch_emission_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained condition and branch facts"
 
@@ -6164,7 +6164,7 @@ provenance = ["function identity", "switch keyword", "switch statement", "select
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_selector_tests = 3
-focused_expression_result_tests = 64
+focused_expression_result_tests = 66
 range_adjustment_case_evaluation_jump_table_control_flow_switch_ir_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained selector and mode facts"
 
@@ -6204,7 +6204,7 @@ provenance = ["function identity", "case keyword", "case label", "range ellipsis
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_case_tests = 3
-focused_expression_result_tests = 64
+focused_expression_result_tests = 66
 case_evaluation_implicit_value_assignment_range_normalization_duplicate_detection_jump_table_control_flow_switch_ir_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and LexExpressionI64 directly define the retained pattern and conversion facts"
 
@@ -6244,6 +6244,48 @@ provenance = ["function identity", "statement", "expression", "included source",
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_statement_tests = 3
-focused_expression_result_tests = 64
+focused_expression_result_tests = 66
 implicit_output_runtime_result_disposal_side_effects_ir_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt, PrsExpression, and ICF_RES_NOT_USED directly define the retained statement and result-use facts"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-IMPLICIT-OUTPUT-RESULTS"
+description = "Implicit Print and PutChars statements retain their source-defined argument shape and checked expression results."
+sources = [
+  "Compiler/PrsExp.HC:383-413 implicit target selection and empty-marker handling",
+  "Compiler/PrsExp.HC:430-502 fixed and variadic argument parsing",
+  "Compiler/PrsExp.HC:264-300 statement end-expression handling",
+  "Kernel/KernelA.HH:1611 ICF_RES_NOT_USED definition",
+  "Doc/HolyC.DD:35 standalone string and character statement behavior"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_conversion_policy.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 302
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "implicit Print and PutChars statements in checked top-level function definitions"
+order_rule = "retain outputs in recursive statement order and Print arguments in comma order with contiguous per-function and per-output identities"
+target_rule = "preserve Print for string markers and PutChars for character markers"
+fixed_source_rule = "preserve whether the nonzero marker supplies the fixed expression or a zero marker is consumed before a following expression"
+typing_rule = "reuse the immutable expression-result traversal for the fixed expression and every extra Print expression"
+result_use_rule = "record ICF_RES_NOT_USED without creating IC_END_EXP"
+validation = ["symbol-table ownership", "function traversal ownership", "bound occurrence ownership", "source-order visibility", "contiguous output identities", "contiguous argument identities", "PutChars argument shape", "marker and comma provenance"]
+provenance = ["function identity", "statement", "marker", "fixed expression", "argument commas", "argument expressions", "included source", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_output_tests = 3
+focused_expression_result_tests = 66
+runtime_header_lookup_fixed_slot_conversion_format_validation_vararg_promotion_call_lowering_output_and_top_level_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and HolyC.DD directly define the retained target and argument-shape facts"

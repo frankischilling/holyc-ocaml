@@ -50,6 +50,8 @@ type return_presence =
 
 type condition_result
 type expression_statement_result
+type implicit_output_argument_result
+type implicit_output_result
 type selector_result
 type switch_case_value
 
@@ -73,16 +75,16 @@ val analyze :
   members:Aggregate_member_index.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
-(** Derive immutable source-expression results for call arguments, ordinary
-    function expression statements, conditions, switch selectors, case values,
-    and returns. Each checked expression has a deterministic identity, source
-    origin, semantic type, value category, remaining array rank, conversion
-    intent, forwarded result class, and any separate execution class needed by
-    later lowering. A selected default has a result with its exact source and
-    parameter, semantic parameter type, forwarded class, kind, and JIT or AOT
-    materialization path; it does not receive an expression identity. A selected
-    [lastclass] default also retains the previous provided result and derived
-    base spelling. Each function expression statement records the
+(** Derive immutable source-expression results for call arguments, ordinary and
+    implicit-output function statements, conditions, switch selectors, case
+    values, and returns. Each checked expression has a deterministic identity,
+    source origin, semantic type, value category, remaining array rank,
+    conversion intent, forwarded result class, and any separate execution class
+    needed by later lowering. A selected default has a result with its exact
+    source and parameter, semantic parameter type, forwarded class, kind, and
+    JIT or AOT materialization path; it does not receive an expression identity.
+    A selected [lastclass] default also retains the previous provided result and
+    derived base spelling. Each function expression statement records the
     [ICF_RES_NOT_USED] intent emitted by [PrsExpression] without mutating the
     parser AST. Function conditions retain their statement role without an
     invented Boolean conversion. Switch selectors retain their bounded or
@@ -114,6 +116,25 @@ val expression_statement_value :
   expression_statement_result -> expression_result
 
 val expression_statement_result_use : expression_statement_result -> result_use
+val function_implicit_outputs : resolved_function -> implicit_output_result list
+
+val implicit_output_source :
+  implicit_output_result -> Function_call_resolution.implicit_output_input
+
+val implicit_output_fixed_value : implicit_output_result -> expression_result
+
+val implicit_output_arguments :
+  implicit_output_result -> implicit_output_argument_result list
+
+val implicit_output_result_use : implicit_output_result -> result_use
+
+val implicit_output_argument_source :
+  implicit_output_argument_result ->
+  Function_call_resolution.implicit_output_argument
+
+val implicit_output_argument_value :
+  implicit_output_argument_result -> expression_result
+
 val function_conditions : resolved_function -> condition_result list
 
 val condition_source :

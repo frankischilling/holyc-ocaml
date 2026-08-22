@@ -162,6 +162,29 @@ type expression_statement_input = {
   origin : Symbol.origin;
 }
 
+type implicit_output_target = Print_output | Put_chars_output
+
+type implicit_output_fixed_source =
+  | Marker_fixed_output
+  | Following_expression_output
+
+type implicit_output_argument = {
+  index : int;
+  leading_comma_origin : Symbol.origin;
+  expression : argument_expression;
+  origin : Symbol.origin;
+}
+
+type implicit_output_input = {
+  index : int;
+  target : implicit_output_target;
+  marker_origin : Symbol.origin;
+  fixed_source : implicit_output_fixed_source;
+  fixed_expression : argument_expression;
+  arguments : implicit_output_argument list;
+  origin : Symbol.origin;
+}
+
 type switch_case_pattern =
   | Implicit_case
   | Single_case of argument_expression
@@ -191,6 +214,7 @@ type function_input = {
   item_index : int;
   calls : call list;
   expression_statements : expression_statement_input list;
+  implicit_outputs : implicit_output_input list;
   conditions : condition_input list;
   selectors : selector_input list;
   switch_cases : switch_case_input list;
@@ -254,6 +278,7 @@ type resolved_function = {
   return_type : Type_reference.t;
   calls : call_resolution list;
   expression_statements : expression_statement_input list;
+  implicit_outputs : implicit_output_input list;
   conditions : condition_input list;
   selectors : selector_input list;
   switch_cases : switch_case_input list;
@@ -299,6 +324,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let function_expression_statements (function_ : resolved_function) =
   function_.expression_statements
 
+let function_implicit_outputs (function_ : resolved_function) =
+  function_.implicit_outputs
+
 let function_conditions (function_ : resolved_function) = function_.conditions
 let function_selectors (function_ : resolved_function) = function_.selectors
 
@@ -341,6 +369,36 @@ let expression_statement_expression (statement : expression_statement_input) =
 
 let expression_statement_origin (statement : expression_statement_input) =
   statement.origin
+
+let implicit_output_index (output : implicit_output_input) = output.index
+let implicit_output_target (output : implicit_output_input) = output.target
+
+let implicit_output_marker_origin (output : implicit_output_input) =
+  output.marker_origin
+
+let implicit_output_fixed_source (output : implicit_output_input) =
+  output.fixed_source
+
+let implicit_output_fixed_expression (output : implicit_output_input) =
+  output.fixed_expression
+
+let implicit_output_arguments (output : implicit_output_input) =
+  output.arguments
+
+let implicit_output_origin (output : implicit_output_input) = output.origin
+
+let implicit_output_argument_index (argument : implicit_output_argument) =
+  argument.index
+
+let implicit_output_argument_leading_comma_origin
+    (argument : implicit_output_argument) =
+  argument.leading_comma_origin
+
+let implicit_output_argument_expression (argument : implicit_output_argument) =
+  argument.expression
+
+let implicit_output_argument_origin (argument : implicit_output_argument) =
+  argument.origin
 
 let switch_case_index (case_ : switch_case_input) = case_.index
 
@@ -466,6 +524,14 @@ let postfix_operator_name = function
 let member_access_kind_name = function
   | Direct_member -> "direct"
   | Pointer_member -> "pointer"
+
+let implicit_output_target_name = function
+  | Print_output -> "Print"
+  | Put_chars_output -> "PutChars"
+
+let implicit_output_fixed_source_name = function
+  | Marker_fixed_output -> "marker"
+  | Following_expression_output -> "following-expression"
 
 let binary_operator_name = Generated.Intermediate_codes.to_source_name
 
@@ -854,6 +920,49 @@ let make_expression_statement ~index ~expression ~origin =
     Error "function expression statement has an invalid source origin"
   else Ok { index; expression; origin }
 
+let make_implicit_output_argument ~index ~leading_comma_origin ~expression
+    ~origin =
+  if index < 0 then Error "implicit output argument index cannot be negative"
+  else if not (valid_origin leading_comma_origin) then
+    Error "implicit output argument comma has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "implicit output argument has an invalid source origin"
+  else Ok { index; leading_comma_origin; expression; origin }
+
+let validate_implicit_output_argument_indexes arguments =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (argument : implicit_output_argument) :: rest ->
+        if argument.index <> expected then
+          Error "implicit output argument indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 arguments
+
+let make_implicit_output ~index ~target ~marker_origin ~fixed_source
+    ~fixed_expression ~arguments ~origin =
+  if index < 0 then Error "function implicit output index cannot be negative"
+  else if not (valid_origin marker_origin) then
+    Error "function implicit output marker has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "function implicit output statement has an invalid source origin"
+  else if target = Put_chars_output && arguments <> [] then
+    Error "implicit PutChars output cannot have variadic arguments"
+  else
+    match validate_implicit_output_argument_indexes arguments with
+    | Error _ as error -> error
+    | Ok () ->
+        Ok
+          {
+            index;
+            target;
+            marker_origin;
+            fixed_source;
+            fixed_expression;
+            arguments;
+            origin;
+          }
+
 let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
     =
   if not (valid_origin ellipsis_origin) then
@@ -903,6 +1012,16 @@ let validate_expression_statement_indexes statements =
   in
   loop 0 statements
 
+let validate_implicit_output_indexes outputs =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (output : implicit_output_input) :: rest ->
+        if output.index <> expected then
+          Error "function implicit output indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 outputs
+
 let validate_switch_case_indexes cases =
   let rec loop expected = function
     | [] -> Ok ()
@@ -924,8 +1043,9 @@ let validate_return_indexes returns =
   loop 0 returns
 
 let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
-    ?(conditions = []) ?(selectors = []) ?(switch_cases = []) ?(returns = [])
-    (calls : call list) : (function_input, string) result =
+    ?(implicit_outputs = []) ?(conditions = []) ?(selectors = [])
+    ?(switch_cases = []) ?(returns = []) (calls : call list) :
+    (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -936,31 +1056,35 @@ let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
     match validate_expression_statement_indexes expression_statements with
     | Error _ as error -> error
     | Ok () -> (
-        match validate_condition_indexes conditions with
+        match validate_implicit_output_indexes implicit_outputs with
         | Error _ as error -> error
         | Ok () -> (
-            match validate_selector_indexes selectors with
+            match validate_condition_indexes conditions with
             | Error _ as error -> error
             | Ok () -> (
-                match validate_switch_case_indexes switch_cases with
+                match validate_selector_indexes selectors with
                 | Error _ as error -> error
                 | Ok () -> (
-                    match validate_return_indexes returns with
+                    match validate_switch_case_indexes switch_cases with
                     | Error _ as error -> error
-                    | Ok () ->
-                        Ok
-                          ({
-                             symbol;
-                             scope;
-                             item_index;
-                             calls;
-                             expression_statements;
-                             conditions;
-                             selectors;
-                             switch_cases;
-                             returns;
-                           }
-                            : function_input)))))
+                    | Ok () -> (
+                        match validate_return_indexes returns with
+                        | Error _ as error -> error
+                        | Ok () ->
+                            Ok
+                              ({
+                                 symbol;
+                                 scope;
+                                 item_index;
+                                 calls;
+                                 expression_statements;
+                                 implicit_outputs;
+                                 conditions;
+                                 selectors;
+                                 switch_cases;
+                                 returns;
+                               }
+                                : function_input))))))
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -1543,6 +1667,55 @@ let validate_expression_statements table parent visible declarations
   in
   loop 0 statements
 
+let validate_implicit_outputs table parent visible declarations compilation_mode
+    outputs occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let validate_expression expression =
+    match
+      validate_argument_expression table parent visible declarations
+        compilation_mode expression
+    with
+    | Error _ as error -> error
+    | Ok () -> validate_bound_occurrences occurrence_by_index expression
+  in
+  let rec validate_arguments expected = function
+    | [] -> Ok ()
+    | (argument : implicit_output_argument) :: rest -> (
+        if argument.index <> expected then
+          Error
+            (invalid_input "implicit output argument indexes are not contiguous")
+        else
+          match validate_expression argument.expression with
+          | Error _ as error -> error
+          | Ok () -> validate_arguments (expected + 1) rest)
+  in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (output : implicit_output_input) :: rest -> (
+        if output.index <> expected then
+          Error
+            (invalid_input "function implicit output indexes are not contiguous")
+        else if output.target = Put_chars_output && output.arguments <> [] then
+          Error
+            (invalid_input
+               "implicit PutChars output cannot have variadic arguments")
+        else
+          match validate_expression output.fixed_expression with
+          | Error _ as error -> error
+          | Ok () -> (
+              match validate_arguments 0 output.arguments with
+              | Error _ as error -> error
+              | Ok () -> loop (expected + 1) rest))
+  in
+  loop 0 outputs
+
 let validate_conditions table parent visible declarations compilation_mode
     conditions occurrences =
   let occurrence_by_index =
@@ -1691,27 +1864,35 @@ let validate_function_input table parent visible declarations compilation_mode
                 | Error _ as error -> error
                 | Ok () -> (
                     match
-                      validate_conditions table parent visible declarations
-                        compilation_mode input.conditions occurrences
+                      validate_implicit_outputs table parent visible
+                        declarations compilation_mode input.implicit_outputs
+                        occurrences
                     with
                     | Error _ as error -> error
                     | Ok () -> (
                         match
-                          validate_selectors table parent visible declarations
-                            compilation_mode input.selectors occurrences
+                          validate_conditions table parent visible declarations
+                            compilation_mode input.conditions occurrences
                         with
                         | Error _ as error -> error
                         | Ok () -> (
                             match
-                              validate_switch_cases table parent visible
-                                declarations compilation_mode input.switch_cases
+                              validate_selectors table parent visible
+                                declarations compilation_mode input.selectors
                                 occurrences
                             with
                             | Error _ as error -> error
-                            | Ok () ->
-                                validate_returns table parent visible
-                                  declarations compilation_mode input.returns
-                                  occurrences))))))
+                            | Ok () -> (
+                                match
+                                  validate_switch_cases table parent visible
+                                    declarations compilation_mode
+                                    input.switch_cases occurrences
+                                with
+                                | Error _ as error -> error
+                                | Ok () ->
+                                    validate_returns table parent visible
+                                      declarations compilation_mode
+                                      input.returns occurrences)))))))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =
@@ -2133,6 +2314,7 @@ let resolve_function ?members types declarations expected
                   Function_type_resolution.function_return_type typed;
                 calls = List.rev rev;
                 expression_statements = input.expression_statements;
+                implicit_outputs = input.implicit_outputs;
                 conditions = input.conditions;
                 selectors = input.selectors;
                 switch_cases = input.switch_cases;
