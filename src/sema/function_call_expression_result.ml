@@ -649,24 +649,26 @@ let nested_call_resolution policies ~before_item_index origin =
 let top_level_call_for_expression state source =
   match state.top_level_identifier_batch with
   | None -> Ok None
-  | Some identifiers ->
+  | Some identifiers -> (
       let matches =
         identifiers |> Top_level_identifier_resolution.source
         |> Top_level_expression_tree.all_calls
         |> List.filter (fun call ->
             Top_level_expression_tree.call_result_expression call == source)
       in
-      (match matches with
+      match matches with
       | [] ->
           Error
             (invalid_top_level_input
-               ~origin:(Function_call_resolution.argument_expression_origin source)
+               ~origin:
+                 (Function_call_resolution.argument_expression_origin source)
                "top-level call result is absent from its checked tree")
       | [ call ] -> Ok (Some call)
       | _ ->
           Error
             (invalid_top_level_input
-               ~origin:(Function_call_resolution.argument_expression_origin source)
+               ~origin:
+                 (Function_call_resolution.argument_expression_origin source)
                "top-level call result matches multiple checked calls"))
 
 let lastclass_name policies ~before_item_index result =
@@ -1606,8 +1608,8 @@ and type_top_level_call table members policies ~before_item_index
                 ~before_item_index ~intrinsic_conversion state id source call
                 declaration
           | Top_level_identifier_resolution.Module_value
-              (Top_level_identifier_resolution.Global_value _
-              | Top_level_identifier_resolution.Aggregate_offset_base _)
+              ( Top_level_identifier_resolution.Global_value _
+              | Top_level_identifier_resolution.Aggregate_offset_base _ )
           | Top_level_identifier_resolution.Outer_type_required _ ->
               Ok
                 (make_result ~intrinsic_conversion state ~id ~source
@@ -1623,8 +1625,8 @@ and type_top_level_direct_call table members policies ~before_item_index
     Function_call_resolution.call_callee_form source_call
     <> Function_call_resolution.Identifier_callee
   then invalid "top-level direct call does not use an identifier callee"
-  else if Option.is_some (Function_call_resolution.call_callable source_call) then
-    invalid "top-level direct call unexpectedly carries a callback header"
+  else if Option.is_some (Function_call_resolution.call_callable source_call)
+  then invalid "top-level direct call unexpectedly carries a callback header"
   else
     let site = Function_resolution.resolved_declaration_site declaration in
     let header = Function_resolution.declaration_site_function site in
@@ -1634,17 +1636,17 @@ and type_top_level_direct_call table members policies ~before_item_index
           (invalid_top_level_input
              ?origin:(Function_call_resolution.error_origin error)
              (Function_call_resolution.error_message error))
-    | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+    | Ok (fixed_arguments, variadic_arguments, variadic_count) -> (
         let rec type_fixed previous state rev = function
           | [] -> Ok (List.rev rev, state)
-          | fixed :: rest ->
+          | fixed :: rest -> (
               let parameter = Function_call_resolution.fixed_parameter fixed in
               let target_class =
                 Function_call_conversion_policy.parameter_target_class policies
                   ~before_item_index parameter
                 |> result_class_of_target
               in
-              (match Function_call_resolution.fixed_value fixed with
+              match Function_call_resolution.fixed_value fixed with
               | Function_call_resolution.Declared_default default ->
                   let result =
                     {
@@ -1661,12 +1663,15 @@ and type_top_level_direct_call table members policies ~before_item_index
                   in
                   type_fixed previous state (result :: rev) rest
               | Function_call_resolution.Provided_argument argument -> (
-                  match Function_call_resolution.argument_expression argument with
+                  match
+                    Function_call_resolution.argument_expression argument
+                  with
                   | None -> invalid "provided fixed argument has no expression"
                   | Some expression -> (
                       match
-                        type_expression table members policies ~before_item_index
-                          ~context:Value_context state expression
+                        type_expression table members policies
+                          ~before_item_index ~context:Value_context state
+                          expression
                       with
                       | Error _ as error -> error
                       | Ok (value, state) ->
@@ -1691,20 +1696,20 @@ and type_top_level_direct_call table members policies ~before_item_index
                       ~context:Value_context state expression
                   with
                   | Error _ as error -> error
-                  | Ok (value, state) ->
-                      type_variadic state (value :: rev) rest))
+                  | Ok (value, state) -> type_variadic state (value :: rev) rest
+                  ))
         in
-        (match type_fixed None state [] fixed_arguments with
+        match type_fixed None state [] fixed_arguments with
         | Error _ as error -> error
         | Ok (fixed_results, state) -> (
             match type_variadic state [] variadic_arguments with
             | Error _ as error -> error
-            | Ok (variadic_results, state) ->
+            | Ok (variadic_results, state) -> (
                 let source_type =
                   header |> Function_type_resolution.function_return_type
                   |> Type_reference.resolved_type
                 in
-                (match known_type table source_type with
+                match known_type table source_type with
                 | Error _ as error -> error
                 | Ok source_type ->
                     let category =
@@ -2343,20 +2348,20 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
             top_level_policies = policies;
             top_level_identifiers = identifiers;
             top_level_source = source;
-             top_level_compilation_mode = source_mode;
-             top_level_statements;
-             top_level_direct_calls =
-               List.sort
-                 (fun left right ->
-                   Int.compare
-                     (left.top_level_direct_source
-                     |> Top_level_expression_tree.call_source
-                     |> Function_call_resolution.call_index)
-                     (right.top_level_direct_source
-                     |> Top_level_expression_tree.call_source
-                     |> Function_call_resolution.call_index))
-                 state.top_level_direct_calls_rev;
-             top_level_all_results =
+            top_level_compilation_mode = source_mode;
+            top_level_statements;
+            top_level_direct_calls =
+              List.sort
+                (fun left right ->
+                  Int.compare
+                    (left.top_level_direct_source
+                    |> Top_level_expression_tree.call_source
+                    |> Function_call_resolution.call_index)
+                    (right.top_level_direct_source
+                    |> Top_level_expression_tree.call_source
+                    |> Function_call_resolution.call_index))
+                state.top_level_direct_calls_rev;
+            top_level_all_results =
               List.sort
                 (fun left right -> Id.compare left.id right.id)
                 state.results_rev;

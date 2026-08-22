@@ -217,19 +217,21 @@ let top_level_fixed_description fixed =
         "provided:" ^ descriptor value
     | Semantic_function_call_expression_result.Declared_default_result value ->
         Printf.sprintf "default:%s:%s:%s"
-          (value |> Semantic_function_call_expression_result.declared_default_type
-         |> Semantic_type.base |> function
-           | Semantic_type.Primitive (_, primitive) ->
-               Primitive_type.to_string primitive
-           | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol)
+          ( value
+            |> Semantic_function_call_expression_result.declared_default_type
+            |> Semantic_type.base
+          |> function
+            | Semantic_type.Primitive (_, primitive) ->
+                Primitive_type.to_string primitive
+            | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol )
           (value
-          |> Semantic_function_call_expression_result.declared_default_class
-          |> Semantic_function_call_expression_result.result_class_name)
+         |> Semantic_function_call_expression_result.declared_default_class
+         |> Semantic_function_call_expression_result.result_class_name)
           (value
-          |> Semantic_function_call_expression_result
-             .declared_default_materialization
-          |> Semantic_function_call_expression_result
-             .declared_default_materialization_name)
+         |> Semantic_function_call_expression_result
+            .declared_default_materialization
+         |> Semantic_function_call_expression_result
+            .declared_default_materialization_name)
   in
   target ^ ":" ^ path
 
@@ -623,13 +625,14 @@ let top_level_direct_calls () =
           "integer-result:provided:I64:object-value:integer-result:rank-0";
         ]
         (first
-        |> Semantic_function_call_expression_result.top_level_direct_fixed_results
+       |> Semantic_function_call_expression_result
+          .top_level_direct_fixed_results
         |> List.map top_level_fixed_description);
       let variadic = List.nth calls 4 in
       Alcotest.(check int64)
         "variadic count uses target I64" 2L
-        (Semantic_function_call_expression_result.top_level_direct_variadic_count
-           variadic);
+        (Semantic_function_call_expression_result
+         .top_level_direct_variadic_count variadic);
       Alcotest.(check (list string))
         "variadic expressions retain source order and actual classes"
         [
@@ -637,14 +640,13 @@ let top_level_direct_calls () =
           "I64:object-value:integer-result:rank-0";
         ]
         (variadic
-        |> Semantic_function_call_expression_result
-           .top_level_direct_variadic_results
-        |> List.map descriptor);
+       |> Semantic_function_call_expression_result
+          .top_level_direct_variadic_results |> List.map descriptor);
       let outer = List.nth calls 5 in
       let nested_first =
         outer
-        |> Semantic_function_call_expression_result.top_level_direct_fixed_results
-        |> List.hd
+        |> Semantic_function_call_expression_result
+           .top_level_direct_fixed_results |> List.hd
       in
       Alcotest.(check string)
         "nested F64 result remains distinct from its integer target"
@@ -686,10 +688,9 @@ let top_level_direct_call_replacement_headers () =
         ]
         (root_values result |> List.map descriptor);
       Alcotest.(check (list int))
-        "replacement headers retain distinct source item indexes"
-        [ 0; 2 ]
+        "replacement headers retain distinct source item indexes" [ 0; 2 ]
         (result
-        |> Semantic_function_call_expression_result.top_level_direct_calls
+       |> Semantic_function_call_expression_result.top_level_direct_calls
         |> List.map (fun call ->
             call
             |> Semantic_function_call_expression_result.top_level_direct_header
@@ -712,7 +713,8 @@ let included_top_level_direct_call () =
   in
   Alcotest.(check (list string))
     "an included header supplies the exact visible call declaration"
-    [ "IncludedCall" ] (List.map top_level_call_name calls);
+    [ "IncludedCall" ]
+    (List.map top_level_call_name calls);
   let call = List.hd calls in
   let header =
     Semantic_function_call_expression_result.top_level_direct_header call
@@ -899,7 +901,8 @@ let generated_provenance_and_purity () =
           (Semantic_function_call_expression_result.result_id result))
   in
   (match
-     Semantic_function_call_expression_result.result_origin generated_call_result
+     Semantic_function_call_expression_result.result_origin
+       generated_call_result
    with
   | Semantic_symbol.Source_location location ->
       Alcotest.(check bool)
