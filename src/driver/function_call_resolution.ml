@@ -353,6 +353,8 @@ type state = {
   conditions_rev : Sema.Function_call_resolution.condition_input list;
   next_selector : int;
   selectors_rev : Sema.Function_call_resolution.selector_input list;
+  next_switch_case : int;
+  switch_cases_rev : Sema.Function_call_resolution.switch_case_input list;
   next_return : int;
   returns_rev : Sema.Function_call_resolution.return_input list;
   visible_aggregates : Sema.Symbol.t String_map.t;
@@ -370,6 +372,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     conditions_rev = [];
     next_selector = 0;
     selectors_rev = [];
+    next_switch_case = 0;
+    switch_cases_rev = [];
     next_return = 0;
     returns_rev = [];
     visible_aggregates;
@@ -1050,6 +1054,66 @@ let selector_mode = function
   | Frontend.Ast.No_bound_switch ->
       Sema.Function_call_resolution.No_bound_switch
 
+let record_switch_case state (case_ : Frontend.Ast.switch_case_label) =
+  let first_occurrence = state.next_occurrence in
+  let visible = state.visible_aggregates in
+  let locals = state.typed_values in
+  let globals = state.global_values in
+  let occurrences = state.occurrences in
+  match case_pattern state case_.switch_case_pattern with
+  | Error _ as error -> error
+  | Ok state -> (
+      let cursor = ref first_occurrence in
+      let checked_expression value =
+        argument_expression visible locals globals occurrences cursor value
+      in
+      let pattern =
+        match case_.switch_case_pattern with
+        | Frontend.Ast.Implicit_case ->
+            Ok Sema.Function_call_resolution.Implicit_case
+        | Frontend.Ast.Single_case value -> (
+            match checked_expression value with
+            | Error _ as error -> error
+            | Ok expression ->
+                Ok (Sema.Function_call_resolution.Single_case expression))
+        | Frontend.Ast.Ranged_case range -> (
+            match checked_expression range.case_range_start with
+            | Error _ as error -> error
+            | Ok start_expression -> (
+                match checked_expression range.case_range_end with
+                | Error _ as error -> error
+                | Ok end_expression ->
+                    Sema.Function_call_resolution.make_ranged_case_pattern
+                      ~start_expression
+                      ~ellipsis_origin:(origin range.case_range_ellipsis)
+                      ~end_expression))
+      in
+      match pattern with
+      | Error _ as error -> error
+      | Ok _ when !cursor <> state.next_occurrence ->
+          Error
+            "function switch case traversal disagrees with ordinary expression \
+             binding"
+      | Ok pattern -> (
+          match
+            Sema.Function_call_resolution.make_switch_case
+              ~index:state.next_switch_case
+              ~keyword_origin:(origin case_.switch_case_keyword)
+              ~pattern
+              ~origin:(origin case_.switch_case_location)
+          with
+          | Error _ as error -> error
+          | Ok case_input ->
+              if state.next_switch_case = max_int then
+                Error "function switch case space is exhausted"
+              else
+                Ok
+                  {
+                    state with
+                    next_switch_case = state.next_switch_case + 1;
+                    switch_cases_rev = case_input :: state.switch_cases_rev;
+                  }))
+
 let rec statement state = function
   | Frontend.Ast.Block_statement block ->
       statements state block.block_statements
@@ -1139,8 +1203,7 @@ and sequence_elements state elements =
 and switch_elements state elements = fold_result switch_element state elements
 
 and switch_element state = function
-  | Frontend.Ast.Switch_case_element case ->
-      case_pattern state case.switch_case_pattern
+  | Frontend.Ast.Switch_case_element case_ -> record_switch_case state case_
   | Frontend.Ast.Switch_default_element _ -> Ok state
   | Frontend.Ast.Switch_subswitch_element subswitch ->
       switch_elements state subswitch.subswitch_elements
@@ -1211,6 +1274,7 @@ let function_input table visible_aggregates global_values expected typed locals
                 ~item_index
                 ~conditions:(List.rev state.conditions_rev)
                 ~selectors:(List.rev state.selectors_rev)
+                ~switch_cases:(List.rev state.switch_cases_rev)
                 ~returns:(List.rev state.returns_rev)
                 (List.rev state.calls_rev))
 

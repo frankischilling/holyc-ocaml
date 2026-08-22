@@ -46,6 +46,9 @@ val function_conditions :
 val function_selectors :
   resolved_function -> Function_call_resolution.selector_input list
 
+val function_switch_cases :
+  resolved_function -> Function_call_resolution.switch_case_input list
+
 val function_returns :
   resolved_function -> Function_call_resolution.return_input list
 

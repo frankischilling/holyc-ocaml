@@ -1184,6 +1184,94 @@ let switch_selector_constructors_validate_identity_and_origins () =
          (Semantic_module_expression_binding.function_item_index owner)
        ~selectors:[ noncontiguous ] [])
 
+let switch_case_constructors_validate_patterns_and_origins () =
+  let keyword_origin = Semantic_symbol.Synthesized "case keyword" in
+  let expression_origin = Semantic_symbol.Synthesized "case expression" in
+  let ellipsis_origin = Semantic_symbol.Synthesized "case ellipsis" in
+  let label_origin = Semantic_symbol.Synthesized "case label" in
+  let expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:expression_origin
+  in
+  let range =
+    Semantic_function_call_resolution.make_ranged_case_pattern
+      ~start_expression:expression ~ellipsis_origin ~end_expression:expression
+    |> checked
+  in
+  let make ?(index = 0) ?(keyword_origin = keyword_origin) ?(pattern = range)
+      ?(origin = label_origin) () =
+    Semantic_function_call_resolution.make_switch_case ~index ~keyword_origin
+      ~pattern ~origin
+  in
+  let retained = checked (make ()) in
+  Alcotest.(check int)
+    "case constructor retains its identity" 0
+    (Semantic_function_call_resolution.switch_case_index retained);
+  (match Semantic_function_call_resolution.switch_case_pattern retained with
+  | Semantic_function_call_resolution.Ranged_case retained ->
+      Alcotest.(check bool)
+        "ranged case retains its start" true
+        (retained.start_expression == expression);
+      Alcotest.(check bool)
+        "ranged case retains its end" true
+        (retained.end_expression == expression);
+      Alcotest.(check bool)
+        "ranged case retains its ellipsis" true
+        (retained.ellipsis_origin = ellipsis_origin)
+  | Semantic_function_call_resolution.Implicit_case
+  | Semantic_function_call_resolution.Single_case _ ->
+      Alcotest.fail "expected a retained ranged case");
+  Alcotest.(check (result reject string))
+    "an empty case ellipsis origin is rejected"
+    (Error "function switch case ellipsis has an invalid source origin")
+    (Semantic_function_call_resolution.make_ranged_case_pattern
+       ~start_expression:expression
+       ~ellipsis_origin:(Semantic_symbol.Synthesized "")
+       ~end_expression:expression);
+  Alcotest.(check (result reject string))
+    "the case constructor rejects an unvalidated ellipsis origin"
+    (Error "function switch case ellipsis has an invalid source origin")
+    (make
+       ~pattern:
+         (Semantic_function_call_resolution.Ranged_case
+            {
+              start_expression = expression;
+              ellipsis_origin = Semantic_symbol.Synthesized "";
+              end_expression = expression;
+            })
+       ());
+  Alcotest.(check (result reject string))
+    "a negative case identity is rejected"
+    (Error "function switch case index cannot be negative")
+    (make ~index:(-1) ());
+  Alcotest.(check (result reject string))
+    "an empty case keyword origin is rejected"
+    (Error "function switch case keyword has an invalid source origin")
+    (make ~keyword_origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "an empty case label origin is rejected"
+    (Error "function switch case label has an invalid source origin")
+    (make ~origin:(Semantic_symbol.Synthesized "") ());
+  let prepared =
+    prepare ~path:"function-switch-case-constructor.HC"
+      "I64 Caller(){switch(0){case 0:break;}return 0;}"
+  in
+  let owner =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd
+  in
+  let noncontiguous = checked (make ~index:1 ()) in
+  Alcotest.(check (result reject string))
+    "a function rejects noncontiguous case identities"
+    (Error "function switch case indexes are not contiguous")
+    (Semantic_function_call_resolution.make_function
+       ~symbol:(Semantic_module_expression_binding.function_symbol owner)
+       ~scope:(Semantic_module_expression_binding.function_scope owner)
+       ~item_index:
+         (Semantic_module_expression_binding.function_item_index owner)
+       ~switch_cases:[ noncontiguous ] [])
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -1208,4 +1296,6 @@ let tests =
       index_expression_constructors_validate_bracket_origins;
     Alcotest.test_case "switch selector constructor validation" `Quick
       switch_selector_constructors_validate_identity_and_origins;
+    Alcotest.test_case "switch case constructor validation" `Quick
+      switch_case_constructors_validate_patterns_and_origins;
   ]

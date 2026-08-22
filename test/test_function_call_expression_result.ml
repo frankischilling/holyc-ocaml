@@ -126,6 +126,10 @@ let selectors_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_selectors
 
+let switch_cases_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_switch_cases
+
 let return_value result =
   match Semantic_function_call_expression_result.return_value result with
   | Some value -> value
@@ -133,6 +137,14 @@ let return_value result =
 
 let condition_value = Semantic_function_call_expression_result.condition_value
 let selector_value = Semantic_function_call_expression_result.selector_value
+
+let switch_case_values case_ =
+  match Semantic_function_call_expression_result.switch_case_pattern case_ with
+  | Semantic_function_call_expression_result.Implicit_case_result -> []
+  | Semantic_function_call_expression_result.Single_case_result value ->
+      [ value ]
+  | Semantic_function_call_expression_result.Ranged_case_result
+      { start_value; end_value } -> [ start_value; end_value ]
 
 let direct = function
   | Semantic_function_call_expression_result.Direct_call_result call -> call
@@ -3977,6 +3989,172 @@ let included_switch_selectors_replay_without_mutation () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected included switch selector provenance")
 
+let switch_cases_keep_patterns_types_conversions_and_calls () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-switch-case-results.HC"
+          "class Box {I64 value;I64 (*callback)();};\n\
+           I64 Direct(){return 1;}\n\
+           I64 Caller(I64 integer,F64 floating,U8 *pointer,Box box){\n\
+           switch(integer){\n\
+           case:\n\
+           case integer:\n\
+           case floating...pointer:\n\
+           case box.value:\n\
+           case Direct():\n\
+           case box.callback():break;\n\
+           }\n\
+           return 0;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let cases = switch_cases_named results "Caller" in
+      Alcotest.(check int)
+        "every function case label is retained" 6 (List.length cases);
+      Alcotest.(check (list int))
+        "case identities are contiguous" [ 0; 1; 2; 3; 4; 5 ]
+        (List.map
+           (fun case_ ->
+             case_
+             |> Semantic_function_call_expression_result.switch_case_source
+             |> Semantic_function_call_resolution.switch_case_index)
+           cases);
+      Alcotest.(check (list string))
+        "case patterns retain implicit, single, and ranged structure"
+        [ "implicit"; "single"; "ranged"; "single"; "single"; "single" ]
+        (List.map
+           (fun case_ ->
+             match
+               Semantic_function_call_expression_result.switch_case_pattern
+                 case_
+             with
+             | Semantic_function_call_expression_result.Implicit_case_result ->
+                 "implicit"
+             | Semantic_function_call_expression_result.Single_case_result _ ->
+                 "single"
+             | Semantic_function_call_expression_result.Ranged_case_result _ ->
+                 "ranged")
+           cases);
+      let values = List.concat_map switch_case_values cases in
+      Alcotest.(check (list string))
+        "explicit case values retain source-visible types"
+        [ "I64"; "F64"; "U8*"; "I64"; "I64"; "I64" ]
+        (List.map
+           (fun value ->
+             value
+             |> Semantic_function_call_expression_result
+                .switch_case_value_result |> type_name)
+           values);
+      Alcotest.(check (list string))
+        "only F64 case values carry the LexExpressionI64 conversion"
+        [ "none"; "ICF_RES_TO_INT"; "none"; "none"; "none"; "none" ]
+        (List.map
+           (fun value ->
+             value
+             |> Semantic_function_call_expression_result
+                .switch_case_value_conversion
+             |> Semantic_function_call_expression_result
+                .intrinsic_conversion_name)
+           values);
+      let call_kind value =
+        match
+          value
+          |> Semantic_function_call_expression_result.switch_case_value_result
+          |> Semantic_function_call_expression_result.result_call_resolution
+        with
+        | Some (Semantic_function_call_resolution.Direct_call _) -> "direct"
+        | Some (Semantic_function_call_resolution.Indirect_call call) ->
+            Alcotest.(check bool)
+              "member callback case keeps its member lookup" true
+              (call |> Semantic_function_call_resolution.indirect_member_lookup
+             |> Option.is_some);
+            "callback"
+        | Some (Semantic_function_call_resolution.Deferred_call _) -> "deferred"
+        | None -> "none"
+      in
+      Alcotest.(check (list string))
+        "nested case calls keep their resolution identity"
+        [ "direct"; "callback" ]
+        (values |> List.rev
+        |> List.filteri (fun index _ -> index < 2)
+        |> List.rev |> List.map call_kind))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_switch_cases_replay_without_mutation () =
+  with_included_source
+    "#define LOW value\n\
+     I64 Caller(F64 value){switch(0){case LOW...2:break;}return 0;}"
+    (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        switch_cases_named results "Caller"
+        |> List.hd |> switch_case_values
+        |> List.map (fun value ->
+            let result =
+              Semantic_function_call_expression_result.switch_case_value_result
+                value
+            in
+            Printf.sprintf "%s:%s:%d" (type_name result)
+              (value
+             |> Semantic_function_call_expression_result
+                .switch_case_value_conversion
+             |> Semantic_function_call_expression_result
+                .intrinsic_conversion_name)
+              (result |> Semantic_function_call_expression_result.result_id
+             |> Semantic_function_call_expression_result.Id.to_int))
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check (list string))
+        "included case typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "case typing leaves the semantic table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let case_ = switch_cases_named first "Caller" |> List.hd in
+      let source =
+        Semantic_function_call_expression_result.switch_case_source case_
+      in
+      (match
+         Semantic_function_call_resolution.switch_case_keyword_origin source
+       with
+      | Semantic_symbol.Source_location location ->
+          let source_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included case keywords keep their include source" "calls.HC"
+            (Source_file.path source_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included case keyword provenance");
+      match
+        case_ |> switch_case_values |> List.hd
+        |> Semantic_function_call_expression_result.switch_case_value_result
+        |> Semantic_function_call_expression_result.result_origin
+      with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed case values keep their definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included case value provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -4142,6 +4320,10 @@ let tests =
       switch_selectors_keep_modes_types_and_calls;
     Alcotest.test_case "included function switch selector replay" `Quick
       included_switch_selectors_replay_without_mutation;
+    Alcotest.test_case "function switch case values" `Quick
+      switch_cases_keep_patterns_types_conversions_and_calls;
+    Alcotest.test_case "included function switch case replay" `Quick
+      included_switch_cases_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retained implicit, single, and ranged function switch cases as immutable semantic patterns. Explicit values keep their checked type and nested call identity; an `F64` value records the integer conversion used by `LexExpressionI64`. This boundary does not evaluate a case, assign an implicit value, calculate a range, detect duplicates, or build a jump table.
 - Typed bounded and no-bound function switch selectors through the shared expression-result model. Each selector keeps its syntax mode, source identity, checked type, result class, and nested call resolution without claiming range adjustment, a jump table, or switch IR.
 - Typed `if`, `while`, `do while`, and `for` conditions through the shared immutable expression-result model. Each result keeps its statement role, source identity, integer or `F64` class, and nested call resolution without claiming a Boolean conversion or branch IR.
 - Typed function return expressions against their declared result types. Each return keeps its source identity, checked expression result, declared type, integer or `F64` conversion intent, and a warning fact for missing or unexpected values. This semantic boundary does not emit `IC_RETURN_VAL`, build leave-label control flow, unwind `try` regions, assign RAX, or execute the function.
