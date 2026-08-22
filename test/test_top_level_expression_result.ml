@@ -138,7 +138,9 @@ let descriptor result =
     (Semantic_function_call_expression_result.result_array_rank result)
 
 let lookup_description result =
-  match Semantic_function_call_expression_result.result_member_lookup result with
+  match
+    Semantic_function_call_expression_result.result_member_lookup result
+  with
   | None -> Alcotest.fail "expected a resolved aggregate member lookup"
   | Some lookup ->
       let member = Semantic_aggregate_member_index.lookup_member lookup in
@@ -322,13 +324,14 @@ let aggregate_member_paths () =
     (fun mode ->
       let source =
         prepared ~mode ~path:"top-level-member-paths.HC"
-          "F64 class FloatBox {};
-           class Base {I8 inherited;};
-           class Box : Base {I64 matrix[2][3];F64 (*callback)(I64);FloatBox \
-           floating;I64 value;};
-           Box box;Box *pointer;
-           box.inherited;box.matrix;box.matrix[0];box.callback;box.floating;
-           pointer->value;++box.value;box.value=3;"
+          "F64 class FloatBox {};\n\
+          \           class Base {I8 inherited;};\n\
+          \           class Box : Base {I64 matrix[2][3];F64 \
+           (*callback)(I64);FloatBox floating;I64 value;};\n\
+          \           Box box;Box *pointer;\n\
+          \           \
+           box.inherited;box.matrix;box.matrix[0];box.callback;box.floating;\n\
+          \           pointer->value;++box.value;box.value=3;"
       in
       let _, _, _, result = analyze source in
       let values = root_values result in
@@ -387,7 +390,7 @@ let invalid_aggregate_member_paths () =
           ~members:source.members ~policies ~identifiers expressions
       with
       | Ok _ -> Alcotest.failf "expected %s member path to fail" label
-      | Error error ->
+      | Error error -> (
           Alcotest.(check string)
             (label ^ " code") "HCSEMA0046"
             (Semantic_function_call_expression_result.error_code error);
@@ -398,7 +401,7 @@ let invalid_aggregate_member_paths () =
           | Some (Semantic_symbol.Source_location _) -> ()
           | Some
               (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
-          | None -> Alcotest.fail "expected a member source location")
+          | None -> Alcotest.fail "expected a member source location"))
 
 let unavailable_boundaries_and_checked_ownership () =
   let source =
