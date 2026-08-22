@@ -216,6 +216,12 @@ let top_level_indexed_global_callback_name call =
   |> Semantic_top_level_expression_tree.call_source
   |> Semantic_function_call_resolution.call_callee_name
 
+let top_level_member_callback_name call =
+  call
+  |> Semantic_function_call_expression_result.top_level_member_callback_source
+  |> Semantic_top_level_expression_tree.call_source
+  |> Semantic_function_call_resolution.call_callee_name
+
 let top_level_fixed_description fixed =
   let target =
     fixed
@@ -720,7 +726,7 @@ let included_top_level_calls () =
     prepared ~path:"top-level-direct-call-use.HC"
       (Printf.sprintf
          "#include \"%s\"\n\
-          IncludedCall(1);IncludedCallback(2);IncludedCallbacks[0](3);"
+          IncludedCall(1);IncludedCallback(2);IncludedCallbacks[0](3);IncludedObject.Member(4);"
          include_path)
   in
   let _, _, _, result = analyze source in
@@ -778,15 +784,36 @@ let included_top_level_calls () =
     |> Semantic_function_call_expression_result
        .top_level_indexed_global_callback_global
   in
-  match
-    Semantic_global_type_resolution.global_declarator_origin indexed_global
-  with
+  (match
+     Semantic_global_type_resolution.global_declarator_origin indexed_global
+   with
   | Semantic_symbol.Source_location location ->
       Alcotest.(check bool)
         "included callback array keeps an include backtrace" true
         (location.source_segments <> [])
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
-      Alcotest.fail "expected an included callback-array source location"
+      Alcotest.fail "expected an included callback-array source location");
+  let member_calls =
+    Semantic_function_call_expression_result.top_level_member_callback_calls
+      result
+  in
+  Alcotest.(check (list string))
+    "an included callback member keeps its source-visible global"
+    [ "IncludedObject" ]
+    (List.map top_level_member_callback_name member_calls);
+  let member =
+    member_calls |> List.hd
+    |> Semantic_function_call_expression_result.top_level_member_callback_lookup
+    |> Semantic_aggregate_member_index.lookup_member
+    |> Semantic_aggregate_member_index.member_symbol
+  in
+  match Semantic_symbol.origin member with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "included callback member keeps an include backtrace" true
+        (location.source_segments <> [])
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected an included callback-member source location"
 
 let invalid_top_level_direct_calls () =
   [
@@ -1098,6 +1125,149 @@ let invalid_top_level_indexed_global_callback_calls () =
             (label ^ " message") expected_message
             (Semantic_function_call_expression_result.error_message error))
 
+let top_level_member_callback_calls () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-member-callbacks.HC"
+          "F64 class Product {};\n\
+          \           class Base {F64 (*Invoke)(I64 first=1,I64 required,F64 \
+           last=3,...);};\n\
+          \           class Box:Base {I64 (*Integer)();I64 *(*Pointer)();\n\
+          \           Product (*Make)();I64 (*Apply)(I64 value);I64 ordinary;};\n\
+          \           Box box;Box *pointer;\n\
+          \           box.Integer();pointer->Invoke(,2,,4.0,5);\n\
+          \           (box.Pointer)();box.Make();box.Apply(box.Integer());"
+      in
+      let _, _, _, result = analyze source in
+      Alcotest.(check (list string))
+        "member callback returns use their stored signatures"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "I64*:address-value:integer-result:rank-0";
+          "Product:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      let calls =
+        Semantic_function_call_expression_result.top_level_member_callback_calls
+          result
+      in
+      Alcotest.(check (list string))
+        "member callback calls retain source order, including nested calls"
+        [ "box"; "pointer"; "box"; "box"; "box"; "box" ]
+        (List.map top_level_member_callback_name calls);
+      let member_names =
+        List.map
+          (fun call ->
+            call
+            |> Semantic_function_call_expression_result
+               .top_level_member_callback_lookup
+            |> Semantic_aggregate_member_index.lookup_member
+            |> Semantic_aggregate_member_index.member_symbol
+            |> Semantic_symbol.name)
+          calls
+      in
+      Alcotest.(check (list string))
+        "each call keeps its exact direct or inherited member"
+        [ "Integer"; "Invoke"; "Pointer"; "Make"; "Apply"; "Integer" ]
+        member_names;
+      let inherited = List.nth calls 1 in
+      let inherited_lookup =
+        Semantic_function_call_expression_result
+        .top_level_member_callback_lookup inherited
+      in
+      Alcotest.(check (triple string string int))
+        "pointer access keeps the inherited callback lookup" ("Box", "Base", 1)
+        ( inherited_lookup
+          |> Semantic_aggregate_member_index.lookup_queried_aggregate
+          |> Semantic_symbol.name,
+          inherited_lookup
+          |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth
+            inherited_lookup );
+      Alcotest.(check (list string))
+        "member defaults stay separate from provided arguments"
+        [
+          "integer-result:default:I64:integer-result:immediate";
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+          "f64-result:default:F64:f64-result:immediate";
+        ]
+        (inherited
+       |> Semantic_function_call_expression_result
+          .top_level_member_callback_fixed_results
+        |> List.map top_level_fixed_description);
+      Alcotest.(check int64)
+        "member variadic count uses target I64" 2L
+        (Semantic_function_call_expression_result
+         .top_level_member_callback_variadic_count inherited);
+      Alcotest.(check string)
+        "parenthesized member callee keeps its callback lookup"
+        "Pointer:Box:depth-0:offset-16"
+        (List.nth calls 2
+       |> Semantic_function_call_expression_result
+          .top_level_member_callback_callee_result |> lookup_description);
+      let all =
+        Semantic_function_call_expression_result.top_level_all_results result
+      in
+      List.iter
+        (fun call ->
+          let id =
+            Semantic_function_call_expression_result
+            .top_level_member_callback_result_id call
+          in
+          Alcotest.(check int)
+            "each member callback links to one expression result" 1
+            (List.length
+               (List.filter
+                  (fun value ->
+                    Semantic_function_call_expression_result.Id.equal id
+                      (Semantic_function_call_expression_result.result_id value))
+                  all)))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_top_level_member_callback_calls () =
+  [
+    ( "ordinary member",
+      "class Box {I64 value;};Box box;box.value();",
+      "member `value` is not callable" );
+    ( "callback array",
+      "class Box {I64 (*callbacks)(I64 value)[2];};Box box;box.callbacks(1);",
+      "callback member `callbacks` retains 1 array dimension" );
+    ( "wrong access",
+      "class Box {I64 (*callback)();};Box *box;box.callback();",
+      "direct member access requires an aggregate object, not a pointer" );
+    ( "missing argument",
+      "class Box {I64 (*callback)(I64 value);};Box box;box.callback();",
+      "call to \"box\" is missing required argument 1 (value)" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared
+          ~path:("top-level-invalid-member-callback-" ^ label ^ ".HC")
+          contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s member callback to fail" label
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0057"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error))
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
@@ -1198,9 +1368,10 @@ let generated_provenance_and_purity () =
        #define CALL F(1)\n\
        #define CALLBACK Callback(2)\n\
        #define INDEXED Indexed[0](3)\n\
-       class Box {I64 value;};I64 F(I64 value);\n\
+       #define MEMBER box.Member(4)\n\
+       class Box {I64 value;I64 (*Member)(I64 value);};I64 F(I64 value);\n\
        I64 (*Callback)(I64 value);I64 (*Indexed)(I64 value)[1];Box box;\n\
-       VALUE+1;0+OFFSET;CALL;CALLBACK;INDEXED;"
+       VALUE+1;0+OFFSET;CALL;CALLBACK;INDEXED;MEMBER;"
   in
   let table = Session.semantic_symbols source.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
@@ -1303,6 +1474,34 @@ let generated_provenance_and_purity () =
         (Option.is_some location.defined_at)
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a generated indexed callback source location");
+  let generated_member_callbacks =
+    Semantic_function_call_expression_result.top_level_member_callback_calls
+      first
+  in
+  Alcotest.(check (list string))
+    "generated member callback calls retain deterministic identity" [ "box" ]
+    (List.map top_level_member_callback_name generated_member_callbacks);
+  let generated_member_callback_result =
+    let id =
+      generated_member_callbacks |> List.hd
+      |> Semantic_function_call_expression_result
+         .top_level_member_callback_result_id
+    in
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        Semantic_function_call_expression_result.Id.equal id
+          (Semantic_function_call_expression_result.result_id result))
+  in
+  (match
+     Semantic_function_call_expression_result.result_origin
+       generated_member_callback_result
+   with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated member callback keeps its definition origin" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a generated member callback source location");
   let generated_identifier =
     first |> Semantic_function_call_expression_result.top_level_all_results
     |> List.find (fun result ->
@@ -1387,6 +1586,10 @@ let tests =
       top_level_indexed_global_callback_calls;
     Alcotest.test_case "invalid top-level indexed global callback calls" `Quick
       invalid_top_level_indexed_global_callback_calls;
+    Alcotest.test_case "top-level member callback calls" `Quick
+      top_level_member_callback_calls;
+    Alcotest.test_case "invalid top-level member callback calls" `Quick
+      invalid_top_level_member_callback_calls;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick
