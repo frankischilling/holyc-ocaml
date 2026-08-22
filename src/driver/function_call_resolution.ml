@@ -48,6 +48,22 @@ let callback_value reference pointer =
            ~function_pointer:pointer);
   }
 
+let direct_function_value =
+  let resolved_type =
+    match
+      Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+        ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+    with
+    | Ok type_ -> type_
+    | Error message -> invalid_arg message
+  in
+  {
+    resolved_type;
+    shape = Sema.Function_call_resolution.Direct_function_value;
+    array_rank = 0;
+    callable = None;
+  }
+
 let parameter_value parameter =
   match Sema.Function_type_resolution.parameter_declarator_kind parameter with
   | Sema.Function_type_resolution.Object ->
@@ -272,6 +288,9 @@ let typed_value_for_occurrence locals globals occurrence =
         (publication |> Sema.Module_expression_binding.publication_source_symbol
        |> symbol_number)
         globals
+  | Sema.Module_expression_binding.Module_binding publication
+    when Sema.Module_expression_binding.publication_kind publication
+         = Sema.Module_expression_binding.Function -> Some direct_function_value
   | Sema.Module_expression_binding.Module_binding _
   | Sema.Module_expression_binding.Outer_candidate -> None
 

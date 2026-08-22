@@ -33,6 +33,7 @@ type identifier_value_shape =
   | Object_value
   | Array_value
   | Function_pointer_value
+  | Direct_function_value
 
 type bound_identifier
 
