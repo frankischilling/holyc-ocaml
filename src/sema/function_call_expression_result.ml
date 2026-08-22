@@ -12,6 +12,7 @@ type value_category =
   | Array_value
   | Callback_value
   | Function_value
+  | Offset_value
   | Lvalue
   | Unavailable
 
@@ -24,6 +25,18 @@ type intrinsic_conversion =
 
 type result_use = Result_not_used
 
+type aggregate_offset_segment = {
+  offset_lookup : Aggregate_member_index.lookup;
+  offset_cumulative : int64;
+}
+
+type aggregate_offset_path = {
+  offset_base : Module_expression_binding.publication;
+  offset_current_type : Type.t;
+  offset_segments : aggregate_offset_segment list;
+  offset_value : int64;
+}
+
 type expression_result = {
   id : Id.t;
   source : Function_call_resolution.argument_expression;
@@ -35,6 +48,7 @@ type expression_result = {
   array_rank : int;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
+  aggregate_offset_path : aggregate_offset_path option;
   call_resolution : Function_call_resolution.call_resolution option;
   function_declaration : Function_resolution.resolved_declaration option;
   function_address_path :
@@ -308,6 +322,19 @@ let result_intrinsic_conversion (result : expression_result) =
   result.intrinsic_conversion
 
 let result_member_lookup (result : expression_result) = result.member_lookup
+
+let result_aggregate_offset_path (result : expression_result) =
+  result.aggregate_offset_path
+
+let aggregate_offset_base path = path.offset_base
+let aggregate_offset_current_type path = path.offset_current_type
+let aggregate_offset_segments path = path.offset_segments
+let aggregate_offset_value path = path.offset_value
+let aggregate_offset_segment_lookup segment = segment.offset_lookup
+
+let aggregate_offset_segment_cumulative_offset segment =
+  segment.offset_cumulative
+
 let result_call_resolution (result : expression_result) = result.call_resolution
 let result_function_declaration result = result.function_declaration
 let result_function_address_path result = result.function_address_path
@@ -339,6 +366,7 @@ let value_category_name = function
   | Array_value -> "array-value"
   | Callback_value -> "callback-value"
   | Function_value -> "function-value"
+  | Offset_value -> "offset-value"
   | Lvalue -> "lvalue"
   | Unavailable -> "unavailable"
 
@@ -427,9 +455,9 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?call_resolution ?function_declaration ?function_address_path
-    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
-    ~source_type ~category ~result_class =
+    ?aggregate_offset_path ?call_resolution ?function_declaration
+    ?function_address_path ?(intrinsic_conversion = No_intrinsic_conversion)
+    state ~id ~source ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -442,6 +470,7 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       array_rank;
       intrinsic_conversion;
       member_lookup;
+      aggregate_offset_path;
       call_resolution;
       function_declaration;
       function_address_path;
@@ -512,7 +541,8 @@ let validate_update_operand operand ~operator_origin ~operator_name =
       | Address_value
       | Array_value
       | Callback_value
-      | Function_value ),
+      | Function_value
+      | Offset_value ),
       _ ) -> invalid (operator_name ^ " operand is not an lvalue")
 
 let policy_call_resolution = function
@@ -559,18 +589,52 @@ let nested_call_resolution policies ~before_item_index origin =
             (invalid_input ~origin
                "nested call matches multiple call-resolution records"))
 
+let resolve_member_lookup members ~before_item_index ~aggregate_symbol
+    ~member_name ~member_origin =
+  match Aggregate_member_index.find_aggregate members aggregate_symbol with
+  | None ->
+      Error
+        (invalid_input ~origin:member_origin
+           (Printf.sprintf "aggregate `%s` has no completed member index"
+              (Symbol.name aggregate_symbol)))
+  | Some aggregate
+    when Aggregate_member_index.aggregate_item_index aggregate
+         >= before_item_index ->
+      Error
+        (invalid_input ~origin:member_origin
+           (Printf.sprintf
+              "aggregate `%s` is not complete before this member access"
+              (Symbol.name aggregate_symbol)))
+  | Some _ -> (
+      match
+        Aggregate_member_index.lookup members ~aggregate:aggregate_symbol
+          ~name:member_name
+      with
+      | Error error ->
+          Error
+            (invalid_input ~origin:member_origin
+               (Aggregate_member_index.error_message error))
+      | Ok None ->
+          Error
+            (invalid_input ~origin:member_origin
+               (Printf.sprintf "aggregate `%s` has no member `%s`"
+                  (Symbol.name aggregate_symbol)
+                  member_name))
+      | Ok (Some lookup) -> Ok lookup)
+
 let rec type_expression table members policies ~before_item_index ~context
+    ?(allow_aggregate_offset_base = false)
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) ?call_resolution
-          ?function_declaration ?function_address_path category result_class
-          state =
+      let finish ?(source_type = None) ?(array_rank = 0) ?aggregate_offset_path
+          ?call_resolution ?function_declaration ?function_address_path category
+          result_class state =
         Ok
-          (make_result ~array_rank ?call_resolution ?function_declaration
-             ?function_address_path ~intrinsic_conversion state ~id ~source
-             ~source_type ~category ~result_class)
+          (make_result ~array_rank ?aggregate_offset_path ?call_resolution
+             ?function_declaration ?function_address_path ~intrinsic_conversion
+             state ~id ~source ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -588,8 +652,9 @@ let rec type_expression table members policies ~before_item_index ~context
           | Error _ as error -> error
           | Ok (grouped_result, state) ->
               finish ~source_type:grouped_result.source_type
-                ~array_rank:grouped_result.array_rank grouped_result.category
-                grouped_result.result_class state)
+                ~array_rank:grouped_result.array_rank
+                ?aggregate_offset_path:grouped_result.aggregate_offset_path
+                grouped_result.category grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
           type_prefix table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source prefix
@@ -680,10 +745,43 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_identifier_resolution.Outer_type_required _
+                  | Top_level_identifier_resolution.Outer_type_required _ ->
+                      finish Unavailable Unresolved_actual_class state
                   | Top_level_identifier_resolution.Module_value
-                      (Top_level_identifier_resolution.Aggregate_offset_base _)
-                    -> finish Unavailable Unresolved_actual_class state
+                      (Top_level_identifier_resolution.Aggregate_offset_base
+                         publication) -> (
+                      if not allow_aggregate_offset_base then
+                        Error
+                          (invalid_input
+                             ~origin:
+                               (Top_level_outer_expression_binding
+                                .occurrence_origin occurrence)
+                             "aggregate offset base requires a member path")
+                      else
+                        let symbol =
+                          Module_expression_binding.publication_canonical_symbol
+                            publication
+                        in
+                        match Type.make_aggregate ~symbol ~pointer_depth:0 with
+                        | Error message ->
+                            Error
+                              (invalid_top_level_input
+                                 ~origin:
+                                   (Top_level_outer_expression_binding
+                                    .occurrence_origin occurrence)
+                                 message)
+                        | Ok offset_current_type ->
+                            let aggregate_offset_path =
+                              {
+                                offset_base = publication;
+                                offset_current_type;
+                                offset_segments = [];
+                                offset_value = 0L;
+                              }
+                            in
+                            finish ~source_type:integer_type
+                              ~aggregate_offset_path Offset_value Integer_result
+                              state)
                   | Top_level_identifier_resolution.Module_value
                       (Top_level_identifier_resolution.Global_value { value; _ })
                   | Top_level_identifier_resolution.Module_value
@@ -824,8 +922,18 @@ and type_prefix table members policies ~before_item_index ~context
       | Function_call_resolution.Bitwise_not ->
           finish ~source_type:integer_type Object_value Integer_result
       | Function_call_resolution.Address_of -> (
-          match (operand.source_type, result_is_direct_function operand) with
-          | Some source_type, true -> (
+          match
+            ( operand.category,
+              operand.source_type,
+              result_is_direct_function operand )
+          with
+          | Offset_value, _, _ ->
+              Error
+                (invalid_input
+                   ~origin:
+                     (Function_call_resolution.prefix_operator_origin prefix)
+                   "aggregate offset value has no addressable storage")
+          | _, Some source_type, true -> (
               let name = result_direct_function_name operand in
               match operand.function_address_path with
               | Some Function_call_resolution.Jit_extern_slot
@@ -869,8 +977,8 @@ and type_prefix table members policies ~before_item_index ~context
                          (Function_call_resolution.prefix_operator_origin prefix)
                        "direct function address has no checked JIT or AOT path")
               )
-          | None, _ -> finish Address_value Integer_result
-          | Some source_type, false -> (
+          | _, None, _ -> finish Address_value Integer_result
+          | _, Some source_type, false -> (
               match Type.pointer_to source_type with
               | Ok source_type ->
                   finish ~source_type:(Some source_type) Address_value
@@ -898,6 +1006,12 @@ and type_prefix table members policies ~before_item_index ~context
             | Lvalue_context -> Lvalue
           in
           match (operand.source_type, operand.category) with
+          | _, Offset_value ->
+              Error
+                (invalid_input
+                   ~origin:
+                     (Function_call_resolution.prefix_operator_origin prefix)
+                   "aggregate offset value cannot be dereferenced")
           | None, _ -> finish Unavailable Unresolved_actual_class
           | Some source_type, Array_value ->
               let array_rank = max 0 (operand.array_rank - 1) in
@@ -995,16 +1109,17 @@ and type_member table members policies ~before_item_index ~context
   in
   match
     type_expression table members policies ~before_item_index
-      ~context:base_context state
+      ~context:base_context ~allow_aggregate_offset_base:true state
       (Function_call_resolution.member_base member)
   with
   | Error _ as error -> error
   | Ok (base, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup category
-          result_class =
+      let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup
+          ?aggregate_offset_path category result_class =
         Ok
-          (make_result ~array_rank ~intrinsic_conversion ?member_lookup state
-             ~id ~source ~source_type ~category ~result_class)
+          (make_result ~array_rank ~intrinsic_conversion ?member_lookup
+             ?aggregate_offset_path state ~id ~source ~source_type ~category
+             ~result_class)
       in
       let operator_origin =
         Function_call_resolution.member_operator_origin member
@@ -1012,6 +1127,15 @@ and type_member table members policies ~before_item_index ~context
       let member_origin = Function_call_resolution.member_origin member in
       let invalid_operator message =
         Error (invalid_input ~origin:operator_origin message)
+      in
+      let lookup aggregate_type =
+        match Type.base aggregate_type with
+        | Type.Primitive _ ->
+            invalid_operator "member access base is not an aggregate"
+        | Type.Aggregate aggregate_symbol ->
+            resolve_member_lookup members ~before_item_index ~aggregate_symbol
+              ~member_name:(Function_call_resolution.member_name member)
+              ~member_origin
       in
       let resolve_aggregate source_type =
         match access_kind with
@@ -1032,79 +1156,87 @@ and type_member table members policies ~before_item_index ~context
                   "pointer member access leaves another pointer layer before \
                    the aggregate")
       in
-      match base.source_type with
-      | None -> finish Unavailable Unresolved_actual_class
-      | Some source_type -> (
-          match resolve_aggregate source_type with
-          | Error _ as error -> error
-          | Ok aggregate_type -> (
-              match Type.base aggregate_type with
-              | Type.Primitive _ ->
-                  invalid_operator "member access base is not an aggregate"
-              | Type.Aggregate aggregate_symbol -> (
-                  match
-                    Aggregate_member_index.find_aggregate members
-                      aggregate_symbol
-                  with
-                  | None ->
-                      Error
-                        (invalid_input ~origin:member_origin
-                           (Printf.sprintf
-                              "aggregate `%s` has no completed member index"
-                              (Symbol.name aggregate_symbol)))
-                  | Some aggregate
-                    when Aggregate_member_index.aggregate_item_index aggregate
-                         >= before_item_index ->
-                      Error
-                        (invalid_input ~origin:member_origin
-                           (Printf.sprintf
-                              "aggregate `%s` is not complete before this \
-                               member access"
-                              (Symbol.name aggregate_symbol)))
-                  | Some _ -> (
-                      match
-                        Aggregate_member_index.lookup members
-                          ~aggregate:aggregate_symbol
-                          ~name:(Function_call_resolution.member_name member)
-                      with
-                      | Error error ->
-                          Error
-                            (invalid_input ~origin:member_origin
-                               (Aggregate_member_index.error_message error))
-                      | Ok None ->
-                          Error
-                            (invalid_input ~origin:member_origin
-                               (Printf.sprintf
-                                  "aggregate `%s` has no member `%s`"
-                                  (Symbol.name aggregate_symbol)
-                                  (Function_call_resolution.member_name member)))
-                      | Ok (Some lookup) ->
-                          let indexed_member =
-                            Aggregate_member_index.lookup_member lookup
-                          in
-                          let member_type =
-                            Aggregate_member_index.member_type indexed_member
-                          in
-                          let layout =
-                            Aggregate_member_index.member_layout indexed_member
-                          in
-                          let array_rank = List.length layout.dimensions in
-                          let category, result_class =
-                            if
-                              Aggregate_member_index.member_is_function_pointer
-                                indexed_member
-                            then (Callback_value, Integer_result)
-                            else if array_rank > 0 then
-                              (Array_value, Integer_result)
-                            else
-                              ( (match context with
-                                | Value_context -> Object_value
-                                | Lvalue_context -> Lvalue),
-                                forwarded_class policies ~before_item_index
-                                  member_type )
-                          in
-                          finish ~source_type:(Some member_type) ~array_rank
-                            ~member_lookup:lookup category result_class)))))
+      match base.aggregate_offset_path with
+      | Some path -> (
+          match access_kind with
+          | Function_call_resolution.Pointer_member ->
+              invalid_operator
+                "aggregate offset paths require direct member access"
+          | Function_call_resolution.Direct_member -> (
+              let aggregate_type = path.offset_current_type in
+              if Type.pointer_depth aggregate_type <> 0 then
+                invalid_operator
+                  "aggregate offset path leaves a pointer before this member"
+              else
+                match lookup aggregate_type with
+                | Error _ as error -> error
+                | Ok member_lookup ->
+                    let indexed_member =
+                      Aggregate_member_index.lookup_member member_lookup
+                    in
+                    let member_type =
+                      Aggregate_member_index.member_type indexed_member
+                    in
+                    let member_offset =
+                      let layout =
+                        Aggregate_member_index.member_layout indexed_member
+                      in
+                      layout.offset
+                    in
+                    let offset_value =
+                      Int64.add path.offset_value member_offset
+                    in
+                    let segment =
+                      {
+                        offset_lookup = member_lookup;
+                        offset_cumulative = offset_value;
+                      }
+                    in
+                    let aggregate_offset_path =
+                      {
+                        path with
+                        offset_current_type = member_type;
+                        offset_segments = path.offset_segments @ [ segment ];
+                        offset_value;
+                      }
+                    in
+                    finish ~source_type:integer_type ~member_lookup
+                      ~aggregate_offset_path Offset_value Integer_result))
+      | None -> (
+          match base.source_type with
+          | None -> finish Unavailable Unresolved_actual_class
+          | Some source_type -> (
+              match resolve_aggregate source_type with
+              | Error _ as error -> error
+              | Ok aggregate_type -> (
+                  match lookup aggregate_type with
+                  | Error _ as error -> error
+                  | Ok lookup ->
+                      let indexed_member =
+                        Aggregate_member_index.lookup_member lookup
+                      in
+                      let member_type =
+                        Aggregate_member_index.member_type indexed_member
+                      in
+                      let layout =
+                        Aggregate_member_index.member_layout indexed_member
+                      in
+                      let array_rank = List.length layout.dimensions in
+                      let category, result_class =
+                        if
+                          Aggregate_member_index.member_is_function_pointer
+                            indexed_member
+                        then (Callback_value, Integer_result)
+                        else if array_rank > 0 then (Array_value, Integer_result)
+                        else
+                          ( (match context with
+                            | Value_context -> Object_value
+                            | Lvalue_context -> Lvalue),
+                            forwarded_class policies ~before_item_index
+                              member_type )
+                      in
+                      finish ~source_type:(Some member_type) ~array_rank
+                        ~member_lookup:lookup category result_class))))
 
 and type_postfix table members policies ~before_item_index ~intrinsic_conversion
     state id source postfix =
@@ -1214,7 +1346,8 @@ and type_assignment table members policies ~before_item_index
           | Address_value
           | Array_value
           | Callback_value
-          | Function_value ),
+          | Function_value
+          | Offset_value ),
           _,
           _ ) -> invalid_destination "assignment destination is not an lvalue")
 
@@ -1838,26 +1971,35 @@ let type_top_level_root table members policies ~before_item_index state source =
   with
   | Error _ as error -> error
   | Ok (top_level_root_value, state) ->
-      let top_level_root_result_use =
-        match Top_level_expression_tree.root_role source with
-        | Top_level_expression_tree.Expression_statement _ ->
-            Some Result_not_used
-        | Top_level_expression_tree.Implicit_output_fixed _
-        | Top_level_expression_tree.Implicit_output_argument _
-        | Top_level_expression_tree.Condition _
-        | Top_level_expression_tree.Switch_selector _
-        | Top_level_expression_tree.Switch_case_value _
-        | Top_level_expression_tree.Local_array_dimension _
-        | Top_level_expression_tree.Local_initializer _
-        | Top_level_expression_tree.Return_value _ -> None
-      in
-      Ok
-        ( {
-            top_level_root_source = source;
-            top_level_root_value;
-            top_level_root_result_use;
-          },
-          state )
+      if
+        match top_level_root_value.aggregate_offset_path with
+        | Some path -> path.offset_segments = []
+        | None -> false
+      then
+        Error
+          (invalid_input ~origin:top_level_root_value.origin
+             "aggregate offset base requires a member path")
+      else
+        let top_level_root_result_use =
+          match Top_level_expression_tree.root_role source with
+          | Top_level_expression_tree.Expression_statement _ ->
+              Some Result_not_used
+          | Top_level_expression_tree.Implicit_output_fixed _
+          | Top_level_expression_tree.Implicit_output_argument _
+          | Top_level_expression_tree.Condition _
+          | Top_level_expression_tree.Switch_selector _
+          | Top_level_expression_tree.Switch_case_value _
+          | Top_level_expression_tree.Local_array_dimension _
+          | Top_level_expression_tree.Local_initializer _
+          | Top_level_expression_tree.Return_value _ -> None
+        in
+        Ok
+          ( {
+              top_level_root_source = source;
+              top_level_root_value;
+              top_level_root_result_use;
+            },
+            state )
 
 let type_top_level_statement table members policies state source =
   let before_item_index =

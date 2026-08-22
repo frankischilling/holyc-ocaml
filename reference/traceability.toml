@@ -4320,13 +4320,13 @@ scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP
 supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
 result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
-unsupported_roots = ["top-level calls", "aggregate offset bases", "outer records without type payloads"]
+unsupported_roots = ["top-level calls", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
 validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_tests = 8
-top_level_call_resolution_aggregate_offset_base_typing_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+focused_tests = 10
+top_level_call_resolution_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated scalar classification boundary; PrsExp, OptClassFwd, and OptPass012 directly define the retained result facts"
 
 [[feature]]
@@ -4363,8 +4363,48 @@ validation = ["same module-scope member index", "completed aggregate visible bef
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
-aggregate_offset_bases_outer_type_payloads_use_counting_address_calculation_calls_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+outer_type_payloads_use_counting_address_calculation_calls_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated lookup and result-shape boundary; PrsTerm, MemberFind, and OptClassFwd directly define the retained facts"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-AGGREGATE-OFFSETS"
+description = "Source-visible aggregate records produce checked PrsOffsetOf-shaped integer paths in executable top-level expressions."
+sources = [
+  "Compiler/PrsExp.HC:PrsTerm HTT_CLASS route",
+  "Compiler/PrsExp.HC:PrsOffsetOf direct member loop and IC_IMM_I64 result",
+  "Compiler/LexLib.HC:MemberFind current-class then base-chain lookup",
+  "Compiler/CompilerA.HH IC_IMM_I64 identity",
+  "Compiler/CInit.HC intrinsic I64 record"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/top_level_identifier_resolution.ml"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/test_aggregate_member_index.ml",
+  "test/test_aggregate_layout.ml"
+]
+status = "implemented"
+issue = 320
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "source-visible module aggregate records used after expression parsing has begun"
+parser_context = "a visible aggregate name at statement start remains a declaration head; accepted offset paths occur after expression parsing has begun"
+result_type = "intrinsic I64"
+result_category = "offset value, distinct from object storage and lvalues"
+path_facts = ["base aggregate publication", "ordered member lookups", "declaring aggregate and inheritance depth per lookup", "intermediate member type", "per-segment offset", "per-segment cumulative offset", "final I64 value"]
+member_rule = "each direct segment reuses Aggregate_member_index lookup and advances through the selected member type"
+backing_rule = "a final F64-backed member does not change the PrsOffsetOf I64 result"
+consumers = ["ordinary integer unary and binary expression rules after a completed path"]
+rejected = ["bare aggregate base", "pointer-member syntax", "missing member", "aggregate incomplete before the statement", "pointer continuation", "nonaggregate continuation", "address-of or dereference of the completed offset value", "update or assignment as an lvalue"]
+diagnostics = ["HCSEMA0046 source-positioned invalid offset path", "HCSEMA0057 mismatched top-level semantic batches"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 2
+outer_type_payloads_use_counting_runtime_address_calculation_general_constant_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf directly defines path accumulation and its intrinsic I64 result"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"

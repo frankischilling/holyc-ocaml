@@ -153,6 +153,51 @@ let lookup_description result =
         (Semantic_aggregate_member_index.lookup_inheritance_depth lookup)
         layout.offset
 
+let offset_description result =
+  match
+    Semantic_function_call_expression_result.result_aggregate_offset_path result
+  with
+  | None -> Alcotest.fail "expected an aggregate offset path"
+  | Some path ->
+      let base =
+        path |> Semantic_function_call_expression_result.aggregate_offset_base
+        |> Semantic_module_expression_binding.publication_canonical_symbol
+        |> Semantic_symbol.name
+      in
+      let segments =
+        path
+        |> Semantic_function_call_expression_result.aggregate_offset_segments
+        |> List.map (fun segment ->
+            let lookup =
+              Semantic_function_call_expression_result
+              .aggregate_offset_segment_lookup segment
+            in
+            let name =
+              lookup |> Semantic_aggregate_member_index.lookup_member
+              |> Semantic_aggregate_member_index.member_symbol
+              |> Semantic_symbol.name
+            in
+            Printf.sprintf "%s:%Ld" name
+              (Semantic_function_call_expression_result
+               .aggregate_offset_segment_cumulative_offset segment))
+      in
+      Printf.sprintf "%s[%s]=%Ld" base
+        (String.concat "/" segments)
+        (Semantic_function_call_expression_result.aggregate_offset_value path)
+
+let completed_offsets result =
+  result |> Semantic_function_call_expression_result.top_level_all_results
+  |> List.filter (fun value ->
+      match
+        Semantic_function_call_expression_result.result_aggregate_offset_path
+          value
+      with
+      | Some path ->
+          path
+          |> Semantic_function_call_expression_result.aggregate_offset_segments
+          <> []
+      | None -> false)
+
 let literals_and_module_values () =
   List.iter
     (fun mode ->
@@ -403,6 +448,106 @@ let invalid_aggregate_member_paths () =
               (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
           | None -> Alcotest.fail "expected a member source location"))
 
+let aggregate_offset_paths () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-offset-paths.HC"
+          "F64 class FloatBox {};\n\
+          \           class Inner {I8 head;I64 value;};\n\
+          \           class Base {I8 inherited;};\n\
+          \           class Box : Base {I16 prefix;Inner inner;FloatBox \
+           floating;};\n\
+          \           \
+           0+Box.prefix;0+Box.inner.value;0+Box.inherited;0+Box.floating;\n\
+          \           0+Box.inner.value;"
+      in
+      let _, _, _, result = analyze source in
+      let values = root_values result in
+      Alcotest.(check (list string))
+        "offset paths yield integers before ordinary expression consumers"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (List.map descriptor values);
+      let offsets = completed_offsets result in
+      Alcotest.(check (list string))
+        "offset paths retain ordered segments and cumulative values"
+        [
+          "Box[prefix:1]=1";
+          "Box[inner:3/value:4]=4";
+          "Box[inner:3]=3";
+          "Box[inherited:0]=0";
+          "Box[floating:12]=12";
+          "Box[inner:3/value:4]=4";
+          "Box[inner:3]=3";
+        ]
+        (List.map offset_description offsets);
+      let float_path =
+        List.nth offsets 4
+        |> Semantic_function_call_expression_result.result_aggregate_offset_path
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "a backed member keeps its path type without changing the I64 result"
+        "FloatBox"
+        ( float_path
+          |> Semantic_function_call_expression_result
+             .aggregate_offset_current_type |> Semantic_type.base
+        |> function
+          | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+          | Semantic_type.Primitive _ -> "primitive" ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_aggregate_offset_paths () =
+  [
+    ( "bare aggregate",
+      "class Box {I64 value;};0+Box;",
+      "aggregate offset base requires a member path" );
+    ( "pointer syntax",
+      "class Box {I64 value;};0+Box->value;",
+      "aggregate offset paths require direct member access" );
+    ( "missing member",
+      "class Box {I64 value;};0+Box.missing;",
+      "aggregate `Box` has no member `missing`" );
+    ( "incomplete aggregate",
+      "extern class Later;0+Later.value;class Later {I64 value;};",
+      "aggregate `Later` is not complete before this member access" );
+    ( "nonaggregate continuation",
+      "class Box {I64 value;};0+Box.value.missing;",
+      "member access base is not an aggregate" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared ~path:("top-level-invalid-offset-" ^ label ^ ".HC") contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s offset path to fail" label
+      | Error error -> (
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location _) -> ()
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected an offset-path source location"))
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
@@ -497,7 +642,9 @@ let stale_batches_and_mode_mismatch () =
 let generated_provenance_and_purity () =
   let source =
     prepared ~path:"top-level-generated-results.HC"
-      "#define VALUE box.value\nclass Box {I64 value;};Box box;VALUE+1;"
+      "#define VALUE box.value\n\
+       #define OFFSET Box.value\n\
+       class Box {I64 value;};Box box;VALUE+1;0+OFFSET;"
   in
   let table = Session.semantic_symbols source.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
@@ -512,6 +659,10 @@ let generated_provenance_and_purity () =
    |> List.map descriptor)
     (second |> Semantic_function_call_expression_result.top_level_all_results
    |> List.map descriptor);
+  Alcotest.(check (list string))
+    "generated offset paths replay deterministically"
+    (first |> completed_offsets |> List.map offset_description)
+    (second |> completed_offsets |> List.map offset_description);
   let generated_identifier =
     first |> Semantic_function_call_expression_result.top_level_all_results
     |> List.find (fun result ->
@@ -539,6 +690,24 @@ let generated_provenance_and_purity () =
     (Option.is_some
        (Semantic_function_call_expression_result.result_member_lookup
           generated_member));
+  let generated_offset =
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        result |> Semantic_function_call_expression_result.result_category
+        = Semantic_function_call_expression_result.Offset_value)
+  in
+  Alcotest.(check string)
+    "generated offset retains its cumulative path" "Box[value:0]=0"
+    (offset_description generated_offset);
+  (match
+     Semantic_function_call_expression_result.result_origin generated_offset
+   with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated offset keeps its definition origin" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a generated offset source location");
   match
     Semantic_function_call_expression_result.result_origin generated_identifier
   with
@@ -560,6 +729,9 @@ let tests =
     Alcotest.test_case "aggregate member paths" `Quick aggregate_member_paths;
     Alcotest.test_case "invalid aggregate member paths" `Quick
       invalid_aggregate_member_paths;
+    Alcotest.test_case "aggregate offset paths" `Quick aggregate_offset_paths;
+    Alcotest.test_case "invalid aggregate offset paths" `Quick
+      invalid_aggregate_offset_paths;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick
