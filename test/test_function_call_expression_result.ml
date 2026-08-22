@@ -126,6 +126,26 @@ let direct_named results owner callee =
       Alcotest.failf "expected one direct call to %s in %s, got %d" callee owner
         (List.length calls)
 
+let indirect_named results owner callee =
+  function_named results owner
+  |> Semantic_function_call_expression_result.function_calls
+  |> List.filter_map (function
+    | Semantic_function_call_expression_result.Indirect_call_result call ->
+        let name =
+          call |> Semantic_function_call_expression_result.indirect_source
+          |> Semantic_function_call_conversion_policy.indirect_source
+          |> Semantic_function_call_resolution.indirect_source
+          |> Semantic_function_call_resolution.call_callee_name
+        in
+        if String.equal name callee then Some call else None
+    | Semantic_function_call_expression_result.Direct_call_result _
+    | Semantic_function_call_expression_result.Deferred_call_result _ -> None)
+  |> function
+  | [ call ] -> call
+  | calls ->
+      Alcotest.failf "expected one indirect call to %s in %s, got %d" callee
+        owner (List.length calls)
+
 let decision_direct_named result owner callee =
   result |> Semantic_function_call_conversion_decision.functions
   |> List.find (fun function_ ->
@@ -158,6 +178,15 @@ let provided_results call =
       | Semantic_function_call_expression_result.Provided_result result ->
           Some result
       | Semantic_function_call_expression_result.Declared_default_result -> None)
+
+let lastclass_substitutions fixed_results =
+  List.filter_map
+    Semantic_function_call_expression_result.fixed_lastclass_substitution
+    fixed_results
+
+let lastclass_names fixed_results =
+  fixed_results |> lastclass_substitutions
+  |> List.map Semantic_function_call_expression_result.lastclass_class_name
 
 let root_results results name = only_direct results name |> provided_results
 
@@ -2368,6 +2397,177 @@ let indirect_included_and_generated_nested_calls_keep_identity () =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated nested call provenance"
 
+let lastclass_defaults_follow_previous_provided_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-lastclass.HC"
+          "class Student {};\n\
+           I64i union ScalarBack {};\n\
+           Student *Make();\n\
+           U0 StudentDefaults(Student *value,U8 *name=lastclass,I64 \
+           ordinary=1,U8 *again=lastclass);\n\
+           U0 NumberDefaults(I64 *value,U8 *name=lastclass);\n\
+           U0 ScalarDefaults(I64 value,U8 *name=lastclass);\n\
+           U0 FloatDefaults(F64 value,U8 *name=lastclass);\n\
+           U0 NestedDefaults(Student *value,U8 *name=lastclass);\n\
+           U0 BackedDefaults(ScalarBack value,U8 *name=lastclass);\n\
+           U0 Empty(U8 *name=lastclass);\n\
+           U0 Caller(Student *student,I64 *number,I64 scalar,F64 float,U0 \
+           (*callback)(Student *value,U8 *name=lastclass)){\n\
+           StudentDefaults(student,,,);NumberDefaults(number,);\n\
+           ScalarDefaults(scalar,);FloatDefaults(float,);\n\
+           NestedDefaults(Make(),);BackedDefaults(0(ScalarBack),);\n\
+           Empty();callback(student,);return;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let direct_fixed callee =
+        direct_named results "Caller" callee
+        |> Semantic_function_call_expression_result.direct_fixed_results
+      in
+      Alcotest.(check (list (option string)))
+        "ordinary defaults do not replace the previous provided class"
+        [ Some "Student"; Some "Student" ]
+        (lastclass_names (direct_fixed "StudentDefaults"));
+      let substitutions =
+        direct_fixed "StudentDefaults" |> lastclass_substitutions
+      in
+      let previous_ids =
+        List.map
+          (fun substitution ->
+            substitution
+            |> Semantic_function_call_expression_result
+               .lastclass_previous_result
+            |> Option.map (fun result ->
+                result |> Semantic_function_call_expression_result.result_id
+                |> Semantic_function_call_expression_result.Id.to_int))
+          substitutions
+      in
+      Alcotest.(check (list (option int)))
+        "both lastclass defaults retain the same provided expression"
+        [ Some 0; Some 0 ] previous_ids;
+      Alcotest.(check (list (option string)))
+        "public primitive pointers keep their public base spelling"
+        [ Some "I64" ]
+        (lastclass_names (direct_fixed "NumberDefaults"));
+      Alcotest.(check (list (option string)))
+        "public union scalars forward to their storage class" [ Some "I64i" ]
+        (lastclass_names (direct_fixed "ScalarDefaults"));
+      Alcotest.(check (list (option string)))
+        "direct public scalar classes keep their spelling" [ Some "F64" ]
+        (lastclass_names (direct_fixed "FloatDefaults"));
+      Alcotest.(check (list (option string)))
+        "nested call return types supply lastclass" [ Some "Student" ]
+        (lastclass_names (direct_fixed "NestedDefaults"));
+      Alcotest.(check (list (option string)))
+        "by-value aggregate backings supply the forwarded class name"
+        [ Some "I64i" ]
+        (lastclass_names (direct_fixed "BackedDefaults"));
+      Alcotest.(check (list (option string)))
+        "a missing previous expression stays explicit" [ None ]
+        (lastclass_names (direct_fixed "Empty"));
+      let indirect_fixed =
+        indirect_named results "Caller" "callback"
+        |> Semantic_function_call_expression_result.indirect_fixed_results
+      in
+      Alcotest.(check (list (option string)))
+        "typed indirect calls use the same lastclass state" [ Some "Student" ]
+        (lastclass_names indirect_fixed))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let lastclass_provenance_and_replay_are_deterministic () =
+  with_included_source
+    "class Student {};U0 Target(Student *value,U8 *name=lastclass);U0 \
+     Caller(Student *student){Target(student,);}" (fun included ->
+      let _, results = analyze included in
+      let substitution =
+        direct_named results "Caller" "Target"
+        |> Semantic_function_call_expression_result.direct_fixed_results
+        |> lastclass_substitutions |> List.hd
+      in
+      match
+        Semantic_function_call_expression_result.lastclass_previous_result
+          substitution
+      with
+      | None -> Alcotest.fail "expected an included previous call result"
+      | Some result -> (
+          match
+            Semantic_function_call_expression_result.result_origin result
+          with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find
+                  (Session.sources included.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "included lastclass input keeps its source file" "calls.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected included lastclass provenance"));
+  let generated =
+    prepare ~path:"call-expression-generated-lastclass.HC"
+      "class Student {};\n\
+       U0 Target(Student *value,U8 *name=lastclass);\n\
+       #define ARG student\n\
+       U0 Caller(Student *student){Target(ARG,);}"
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze generated
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let table = Session.semantic_symbols generated.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let run () =
+    Holyc_lib.type_function_call_expressions generated.session
+      ~members:generated.members ~policies
+    |> checked_results
+  in
+  let first = run () in
+  let second = run () in
+  let describe results =
+    direct_named results "Caller" "Target"
+    |> Semantic_function_call_expression_result.direct_fixed_results
+    |> lastclass_substitutions
+    |> List.map (fun substitution ->
+        ( Semantic_function_call_expression_result.lastclass_previous_result
+            substitution
+          |> Option.map (fun result ->
+              result |> Semantic_function_call_expression_result.result_id
+              |> Semantic_function_call_expression_result.Id.to_int),
+          Semantic_function_call_expression_result.lastclass_class_name
+            substitution ))
+  in
+  Alcotest.(check (list (pair (option int) (option string))))
+    "generated lastclass typing replays identically" (describe first)
+    (describe second);
+  Alcotest.(check int)
+    "lastclass typing leaves the symbol table unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let substitution =
+    direct_named first "Caller" "Target"
+    |> Semantic_function_call_expression_result.direct_fixed_results
+    |> lastclass_substitutions |> List.hd
+  in
+  match
+    Semantic_function_call_expression_result.lastclass_previous_result
+      substitution
+  with
+  | None -> Alcotest.fail "expected a generated previous call result"
+  | Some result -> (
+      match Semantic_function_call_expression_result.result_origin result with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated lastclass input keeps its invocation" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated lastclass input keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated lastclass provenance")
+
 let unsupported_member_callback_calls_remain_unresolved () =
   let prepared =
     prepare ~path:"call-expression-member-callee.HC"
@@ -2511,6 +2711,10 @@ let tests =
       nested_indirect_calls_use_callback_return_headers;
     Alcotest.test_case "indirect included generated nested calls" `Quick
       indirect_included_and_generated_nested_calls_keep_identity;
+    Alcotest.test_case "lastclass default substitution" `Quick
+      lastclass_defaults_follow_previous_provided_results;
+    Alcotest.test_case "lastclass provenance and replay" `Quick
+      lastclass_provenance_and_replay_are_deterministic;
     Alcotest.test_case "unsupported member callback call" `Quick
       unsupported_member_callback_calls_remain_unresolved;
     Alcotest.test_case "ownership validation" `Quick

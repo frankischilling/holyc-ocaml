@@ -57,6 +57,10 @@ val forwarded_type_class : t -> before_item_index:int -> Type.t -> target_class
     supplied module item. Pointers and unbacked aggregates use the integer
     result path. *)
 
+val forwarded_type : t -> before_item_index:int -> Type.t -> Type.t
+(** Return the source-visible result of the same checked backing traversal.
+    Pointer types are not forwarded. *)
+
 val target_class_name : target_class -> string
 val fixed_path_name : fixed_path -> string
 val error_code : error -> string

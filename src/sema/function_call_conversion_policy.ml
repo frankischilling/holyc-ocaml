@@ -228,24 +228,31 @@ let validate_functions table parent calls =
   in
   loop (-1) Int_map.empty (Function_call_resolution.functions calls)
 
-let rec forwarded_target_class headers ~before_item_index type_ =
+let rec source_visible_type headers ~before_item_index type_ =
+  if Type.pointer_depth type_ <> 0 then type_
+  else
+    match Type.base type_ with
+    | Type.Primitive _ -> type_
+    | Type.Aggregate symbol -> (
+        match Int_map.find_opt (symbol_number symbol) headers with
+        | None -> type_
+        | Some header
+          when Aggregate_header_resolution.header_item_index header
+               >= before_item_index -> type_
+        | Some header -> (
+            match Aggregate_header_resolution.header_backing header with
+            | None -> type_
+            | Some backing ->
+                source_visible_type headers ~before_item_index
+                  (Aggregate_header_resolution.backing_type backing)))
+
+let forwarded_target_class headers ~before_item_index type_ =
+  let type_ = source_visible_type headers ~before_item_index type_ in
   if Type.pointer_depth type_ <> 0 then Integer_result
   else
     match Type.base type_ with
     | Type.Primitive (_, Primitive_type.F64) -> F64_result
-    | Type.Primitive _ -> Integer_result
-    | Type.Aggregate symbol -> (
-        match Int_map.find_opt (symbol_number symbol) headers with
-        | None -> Integer_result
-        | Some header
-          when Aggregate_header_resolution.header_item_index header
-               >= before_item_index -> Integer_result
-        | Some header -> (
-            match Aggregate_header_resolution.header_backing header with
-            | None -> Integer_result
-            | Some backing ->
-                forwarded_target_class headers ~before_item_index
-                  (Aggregate_header_resolution.backing_type backing)))
+    | Type.Primitive _ | Type.Aggregate _ -> Integer_result
 
 let parameter_target_class headers ~before_item_index parameter =
   match Function_type_resolution.parameter_declarator_kind parameter with
@@ -347,6 +354,9 @@ let analyze ~table ~parent ~headers ~calls =
 
 let forwarded_type_class result ~before_item_index type_ =
   forwarded_target_class result.headers ~before_item_index type_
+
+let forwarded_type result ~before_item_index type_ =
+  source_visible_type result.headers ~before_item_index type_
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None
