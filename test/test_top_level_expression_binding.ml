@@ -20,7 +20,9 @@ let expect_ast = function
               diagnostic.message)
         |> String.concat ", ")
 
-let config mode = checked (Preprocessor.Config.create ~compilation_mode:mode ())
+let config ?working_directory mode =
+  checked
+    (Preprocessor.Config.create ?working_directory ~compilation_mode:mode ())
 
 type prepared = {
   session : Session.t;
@@ -30,13 +32,7 @@ type prepared = {
   globals : Semantic_global_resolution.t;
 }
 
-let prepare ?(mode = Preprocessor.Jit) ~path contents =
-  let session = Session.create () in
-  let source = Session.add_source session ~path ~contents in
-  let ast =
-    Holyc_lib.parse_with_config session ~config:(config mode) ~source
-    |> expect_ast
-  in
+let finish_prepare mode session ast =
   let declarations = checked (Holyc_lib.collect_declarations session ast) in
   let aggregates =
     checked (Holyc_lib.resolve_aggregates session ~declarations ast)
@@ -84,6 +80,15 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
          ~functions ~globals ~expressions)
   in
   { session; ast; declarations; module_expressions; globals }
+
+let prepare ?(mode = Preprocessor.Jit) ~path contents =
+  let session = Session.create () in
+  let source = Session.add_source session ~path ~contents in
+  let ast =
+    Holyc_lib.parse_with_config session ~config:(config mode) ~source
+    |> expect_ast
+  in
+  finish_prepare mode session ast
 
 let resolve prepared =
   Holyc_lib.resolve_top_level_expressions prepared.session
@@ -169,9 +174,10 @@ let source_order_and_outer_candidates () =
 let nested_statement_expression_order () =
   let prepared =
     prepare ~path:"top-level-nested.HC"
-      "I64 \
-       value;{if(value)value=value+Print(\"%d\",value);while(value)value--;switch(value){case \
-       0:value;}}"
+      "I64 value;I64 *values;class Node{I64 field;};Node \
+       node;{if(value)value=values[value]+node.field+(Print)(\"%d\",value);do \
+       value--;while(value);while(value)value--;for(value;value;value--)node.field;switch(value){case \
+       0:value;}}\"%d\",value;"
   in
   let result = resolve prepared |> checked in
   Alcotest.(check (list string))
@@ -179,10 +185,19 @@ let nested_statement_expression_order () =
     [
       "value";
       "value";
+      "values";
       "value";
+      "node";
       "Print";
       "value";
       "value";
+      "value";
+      "value";
+      "value";
+      "value";
+      "value";
+      "value";
+      "node";
       "value";
       "value";
       "value";
@@ -191,7 +206,7 @@ let nested_statement_expression_order () =
     |> List.map Semantic_top_level_expression_binding.occurrence_name);
   Alcotest.(check (list int))
     "contiguous occurrence identities"
-    [ 0; 1; 2; 3; 4; 5; 6; 7; 8 ]
+    [ 0; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15; 16; 17 ]
     (Semantic_top_level_expression_binding.all_occurrences result
     |> List.map Semantic_top_level_expression_binding.occurrence_index)
 
@@ -200,7 +215,21 @@ let source_origin = function
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected source provenance"
 
-let generated_provenance_determinism_and_purity () =
+let rec remove_tree path =
+  match (Unix.lstat path).st_kind with
+  | Unix.S_DIR ->
+      Sys.readdir path |> Array.to_list |> List.sort String.compare
+      |> List.iter (fun name -> remove_tree (Filename.concat path name));
+      Unix.rmdir path
+  | _ -> Unix.unlink path
+
+let write_file path contents =
+  let channel = open_out_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr channel)
+    (fun () -> output_string channel contents)
+
+let generated_and_included_provenance_determinism_and_purity () =
   let prepared =
     prepare ~path:"top-level-generated.HC" "#define USE value\nI64 value;USE;"
   in
@@ -214,7 +243,7 @@ let generated_provenance_determinism_and_purity () =
     "repeated binding is deterministic" (signature first) (signature second);
   Alcotest.(check (pair int int))
     "symbol table is unchanged" (before, before) (middle, after);
-  match Semantic_top_level_expression_binding.all_occurrences first with
+  (match Semantic_top_level_expression_binding.all_occurrences first with
   | [ occurrence ] ->
       let source =
         occurrence |> Semantic_top_level_expression_binding.occurrence_origin
@@ -226,7 +255,39 @@ let generated_provenance_determinism_and_purity () =
       Alcotest.(check bool)
         "definition site is retained" true
         (Option.is_some source.defined_at)
-  | _ -> Alcotest.fail "expected one generated top-level occurrence"
+  | _ -> Alcotest.fail "expected one generated top-level occurrence");
+  let directory = Filename.temp_dir "holyc-top-level-binding-" "" in
+  Fun.protect
+    ~finally:(fun () -> remove_tree directory)
+    (fun () ->
+      let root_path = Filename.concat directory "root.HC" in
+      let included_path = Filename.concat directory "statements.HC" in
+      write_file root_path "#include \"statements\"";
+      write_file included_path "I64 included;included;";
+      let session = Session.create () in
+      let source = checked (Session.load_source session ~path:root_path) in
+      let ast =
+        Holyc_lib.parse_with_config session
+          ~config:(config ~working_directory:directory Preprocessor.Jit)
+          ~source
+        |> expect_ast
+      in
+      let prepared = finish_prepare Preprocessor.Jit session ast in
+      let occurrence =
+        resolve prepared |> checked
+        |> Semantic_top_level_expression_binding.all_occurrences |> List.hd
+      in
+      let location =
+        occurrence |> Semantic_top_level_expression_binding.occurrence_origin
+        |> source_origin
+      in
+      let source_file =
+        Source_manager.find (Session.sources session) location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included occurrence keeps its source file" "statements.HC"
+        (Source_file.path source_file |> Filename.basename))
 
 let low_level_aggregate_publication () =
   let prepared = prepare ~path:"top-level-aggregate.HC" "extern class Node;" in
@@ -303,8 +364,9 @@ let tests =
       source_order_and_outer_candidates;
     Alcotest.test_case "nested statement expression order" `Quick
       nested_statement_expression_order;
-    Alcotest.test_case "generated provenance, determinism, and purity" `Quick
-      generated_provenance_determinism_and_purity;
+    Alcotest.test_case
+      "generated and included provenance, determinism, and purity" `Quick
+      generated_and_included_provenance_determinism_and_purity;
     Alcotest.test_case "low-level aggregate publication" `Quick
       low_level_aggregate_publication;
     Alcotest.test_case "validation errors" `Quick validation_errors;
