@@ -30,6 +30,7 @@ type resolved_function = {
   return_type : Type_reference.t;
   conditions : Function_call_resolution.condition_input list;
   selectors : Function_call_resolution.selector_input list;
+  switch_cases : Function_call_resolution.switch_case_input list;
   returns : Function_call_resolution.return_input list;
   calls : call_policy list;
 }
@@ -59,6 +60,10 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_return_type (function_ : resolved_function) = function_.return_type
 let function_conditions (function_ : resolved_function) = function_.conditions
 let function_selectors (function_ : resolved_function) = function_.selectors
+
+let function_switch_cases (function_ : resolved_function) =
+  function_.switch_cases
+
 let function_returns (function_ : resolved_function) = function_.returns
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
@@ -320,6 +325,7 @@ let resolve_function headers source =
     return_type = Function_call_resolution.function_return_type source;
     conditions = Function_call_resolution.function_conditions source;
     selectors = Function_call_resolution.function_selectors source;
+    switch_cases = Function_call_resolution.function_switch_cases source;
     returns = Function_call_resolution.function_returns source;
     calls =
       source |> Function_call_resolution.function_calls

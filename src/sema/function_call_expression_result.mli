@@ -49,6 +49,17 @@ type return_presence =
 
 type condition_result
 type selector_result
+type switch_case_value
+
+type switch_case_pattern_result =
+  | Implicit_case_result
+  | Single_case_result of switch_case_value
+  | Ranged_case_result of {
+      start_value : switch_case_value;
+      end_value : switch_case_value;
+    }
+
+type switch_case_result
 type return_result
 type resolved_function
 type t
@@ -61,18 +72,21 @@ val analyze :
   Function_call_conversion_policy.t ->
   (t, error) result
 (** Derive immutable source-expression results for call arguments, function
-    conditions, switch selectors, and returns. Each checked expression has a
-    deterministic identity, source origin, semantic type, value category,
-    remaining array rank, conversion intent, forwarded result class, and any
-    separate execution class needed by later lowering. A selected default has a
-    result with its exact source and parameter, semantic parameter type,
-    forwarded class, kind, and JIT or AOT materialization path; it does not
-    receive an expression identity. A selected [lastclass] default also retains
-    the previous provided result and derived base spelling. Function conditions
-    retain their statement role without an invented Boolean conversion. Switch
-    selectors retain their bounded or no-bound mode without applying range
-    arithmetic. Function returns retain the declared type, integer or F64
-    conversion intent, and warning facts for missing or unexpected values. *)
+    conditions, switch selectors, case values, and returns. Each checked
+    expression has a deterministic identity, source origin, semantic type, value
+    category, remaining array rank, conversion intent, forwarded result class,
+    and any separate execution class needed by later lowering. A selected
+    default has a result with its exact source and parameter, semantic parameter
+    type, forwarded class, kind, and JIT or AOT materialization path; it does
+    not receive an expression identity. A selected [lastclass] default also
+    retains the previous provided result and derived base spelling. Function
+    conditions retain their statement role without an invented Boolean
+    conversion. Switch selectors retain their bounded or no-bound mode without
+    applying range arithmetic. Switch cases retain implicit, single, or ranged
+    structure; explicit F64 values carry the conversion performed by
+    [LexExpressionI64] without being evaluated. Function returns retain the
+    declared type, integer or F64 conversion intent, and warning facts for
+    missing or unexpected values. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -93,6 +107,14 @@ val condition_value : condition_result -> expression_result
 val function_selectors : resolved_function -> selector_result list
 val selector_source : selector_result -> Function_call_resolution.selector_input
 val selector_value : selector_result -> expression_result
+val function_switch_cases : resolved_function -> switch_case_result list
+
+val switch_case_source :
+  switch_case_result -> Function_call_resolution.switch_case_input
+
+val switch_case_pattern : switch_case_result -> switch_case_pattern_result
+val switch_case_value_result : switch_case_value -> expression_result
+val switch_case_value_conversion : switch_case_value -> intrinsic_conversion
 val function_returns : resolved_function -> return_result list
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t

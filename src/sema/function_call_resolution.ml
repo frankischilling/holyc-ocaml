@@ -156,6 +156,22 @@ type selector_input = {
   origin : Symbol.origin;
 }
 
+type switch_case_pattern =
+  | Implicit_case
+  | Single_case of argument_expression
+  | Ranged_case of {
+      start_expression : argument_expression;
+      ellipsis_origin : Symbol.origin;
+      end_expression : argument_expression;
+    }
+
+type switch_case_input = {
+  index : int;
+  keyword_origin : Symbol.origin;
+  pattern : switch_case_pattern;
+  origin : Symbol.origin;
+}
+
 type return_input = {
   index : int;
   keyword_origin : Symbol.origin;
@@ -170,6 +186,7 @@ type function_input = {
   calls : call list;
   conditions : condition_input list;
   selectors : selector_input list;
+  switch_cases : switch_case_input list;
   returns : return_input list;
 }
 
@@ -231,6 +248,7 @@ type resolved_function = {
   calls : call_resolution list;
   conditions : condition_input list;
   selectors : selector_input list;
+  switch_cases : switch_case_input list;
   returns : return_input list;
 }
 
@@ -271,6 +289,10 @@ let function_return_type (function_ : resolved_function) = function_.return_type
 let function_calls (function_ : resolved_function) = function_.calls
 let function_conditions (function_ : resolved_function) = function_.conditions
 let function_selectors (function_ : resolved_function) = function_.selectors
+
+let function_switch_cases (function_ : resolved_function) =
+  function_.switch_cases
+
 let function_returns (function_ : resolved_function) = function_.returns
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
@@ -298,6 +320,13 @@ let selector_keyword_origin (selector : selector_input) =
 
 let selector_expression (selector : selector_input) = selector.expression
 let selector_origin (selector : selector_input) = selector.origin
+let switch_case_index (case_ : switch_case_input) = case_.index
+
+let switch_case_keyword_origin (case_ : switch_case_input) =
+  case_.keyword_origin
+
+let switch_case_pattern (case_ : switch_case_input) = case_.pattern
+let switch_case_origin (case_ : switch_case_input) = case_.origin
 let return_index (return_ : return_input) = return_.index
 let return_keyword_origin (return_ : return_input) = return_.keyword_origin
 let return_expression (return_ : return_input) = return_.expression
@@ -796,6 +825,25 @@ let make_selector ~index ~mode ~keyword_origin ~expression ~origin =
     Error "function switch statement has an invalid source origin"
   else Ok { index; mode; keyword_origin; expression; origin }
 
+let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
+    =
+  if not (valid_origin ellipsis_origin) then
+    Error "function switch case ellipsis has an invalid source origin"
+  else Ok (Ranged_case { start_expression; ellipsis_origin; end_expression })
+
+let make_switch_case ~index ~keyword_origin ~pattern ~origin =
+  if index < 0 then Error "function switch case index cannot be negative"
+  else if not (valid_origin keyword_origin) then
+    Error "function switch case keyword has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "function switch case label has an invalid source origin"
+  else
+    match pattern with
+    | Ranged_case { ellipsis_origin; _ } when not (valid_origin ellipsis_origin)
+      -> Error "function switch case ellipsis has an invalid source origin"
+    | Implicit_case | Single_case _ | Ranged_case _ ->
+        Ok { index; keyword_origin; pattern; origin }
+
 let validate_condition_indexes conditions =
   let rec loop expected = function
     | [] -> Ok ()
@@ -816,6 +864,16 @@ let validate_selector_indexes selectors =
   in
   loop 0 selectors
 
+let validate_switch_case_indexes cases =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (case_ : switch_case_input) :: rest ->
+        if case_.index <> expected then
+          Error "function switch case indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 cases
+
 let validate_return_indexes returns =
   let rec loop expected = function
     | [] -> Ok ()
@@ -827,7 +885,7 @@ let validate_return_indexes returns =
   loop 0 returns
 
 let make_function ~symbol ~scope ~item_index ?(conditions = [])
-    ?(selectors = []) ?(returns = []) (calls : call list) :
+    ?(selectors = []) ?(switch_cases = []) ?(returns = []) (calls : call list) :
     (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
@@ -842,20 +900,24 @@ let make_function ~symbol ~scope ~item_index ?(conditions = [])
         match validate_selector_indexes selectors with
         | Error _ as error -> error
         | Ok () -> (
-            match validate_return_indexes returns with
+            match validate_switch_case_indexes switch_cases with
             | Error _ as error -> error
-            | Ok () ->
-                Ok
-                  ({
-                     symbol;
-                     scope;
-                     item_index;
-                     calls;
-                     conditions;
-                     selectors;
-                     returns;
-                   }
-                    : function_input)))
+            | Ok () -> (
+                match validate_return_indexes returns with
+                | Error _ as error -> error
+                | Ok () ->
+                    Ok
+                      ({
+                         symbol;
+                         scope;
+                         item_index;
+                         calls;
+                         conditions;
+                         selectors;
+                         switch_cases;
+                         returns;
+                       }
+                        : function_input))))
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -1468,6 +1530,45 @@ let validate_selectors table parent visible declarations compilation_mode
   in
   loop 0 selectors
 
+let validate_switch_cases table parent visible declarations compilation_mode
+    cases occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let validate_expression expression =
+    match
+      validate_argument_expression table parent visible declarations
+        compilation_mode expression
+    with
+    | Error _ as error -> error
+    | Ok () -> validate_bound_occurrences occurrence_by_index expression
+  in
+  let validate_pattern = function
+    | Implicit_case -> Ok ()
+    | Single_case expression -> validate_expression expression
+    | Ranged_case { start_expression; end_expression; _ } -> (
+        match validate_expression start_expression with
+        | Error _ as error -> error
+        | Ok () -> validate_expression end_expression)
+  in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (case_ : switch_case_input) :: rest -> (
+        if case_.index <> expected then
+          Error
+            (invalid_input "function switch case indexes are not contiguous")
+        else
+          match validate_pattern case_.pattern with
+          | Error _ as error -> error
+          | Ok () -> loop (expected + 1) rest)
+  in
+  loop 0 cases
+
 let validate_function_input table parent visible declarations compilation_mode
     expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
@@ -1517,9 +1618,16 @@ let validate_function_input table parent visible declarations compilation_mode
                         compilation_mode input.selectors occurrences
                     with
                     | Error _ as error -> error
-                    | Ok () ->
-                        validate_returns table parent visible declarations
-                          compilation_mode input.returns occurrences))))
+                    | Ok () -> (
+                        match
+                          validate_switch_cases table parent visible
+                            declarations compilation_mode input.switch_cases
+                            occurrences
+                        with
+                        | Error _ as error -> error
+                        | Ok () ->
+                            validate_returns table parent visible declarations
+                              compilation_mode input.returns occurrences)))))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =
@@ -1942,6 +2050,7 @@ let resolve_function ?members types declarations expected
                 calls = List.rev rev;
                 conditions = input.conditions;
                 selectors = input.selectors;
+                switch_cases = input.switch_cases;
                 returns = input.returns;
               })
     | call :: rest -> (

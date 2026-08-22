@@ -80,6 +80,17 @@ type condition_role =
 type condition_input
 type selector_mode = Bounded_switch | No_bound_switch
 type selector_input
+
+type switch_case_pattern =
+  | Implicit_case
+  | Single_case of argument_expression
+  | Ranged_case of {
+      start_expression : argument_expression;
+      ellipsis_origin : Symbol.origin;
+      end_expression : argument_expression;
+    }
+
+type switch_case_input
 type return_input
 type function_input
 
@@ -178,12 +189,26 @@ val make_selector :
   origin:Symbol.origin ->
   (selector_input, string) result
 
+val make_ranged_case_pattern :
+  start_expression:argument_expression ->
+  ellipsis_origin:Symbol.origin ->
+  end_expression:argument_expression ->
+  (switch_case_pattern, string) result
+
+val make_switch_case :
+  index:int ->
+  keyword_origin:Symbol.origin ->
+  pattern:switch_case_pattern ->
+  origin:Symbol.origin ->
+  (switch_case_input, string) result
+
 val make_function :
   symbol:Symbol.t ->
   scope:Symbol_table.scope ->
   item_index:int ->
   ?conditions:condition_input list ->
   ?selectors:selector_input list ->
+  ?switch_cases:switch_case_input list ->
   ?returns:return_input list ->
   call list ->
   (function_input, string) result
@@ -260,6 +285,7 @@ val function_return_type : resolved_function -> Type_reference.t
 val function_calls : resolved_function -> call_resolution list
 val function_conditions : resolved_function -> condition_input list
 val function_selectors : resolved_function -> selector_input list
+val function_switch_cases : resolved_function -> switch_case_input list
 val function_returns : resolved_function -> return_input list
 val call_index : call -> int
 val call_callee_occurrence_index : call -> int
@@ -281,6 +307,10 @@ val selector_mode : selector_input -> selector_mode
 val selector_keyword_origin : selector_input -> Symbol.origin
 val selector_expression : selector_input -> argument_expression
 val selector_origin : selector_input -> Symbol.origin
+val switch_case_index : switch_case_input -> int
+val switch_case_keyword_origin : switch_case_input -> Symbol.origin
+val switch_case_pattern : switch_case_input -> switch_case_pattern
+val switch_case_origin : switch_case_input -> Symbol.origin
 val return_index : return_input -> int
 val return_keyword_origin : return_input -> Symbol.origin
 val return_expression : return_input -> argument_expression option
