@@ -6087,7 +6087,7 @@ provenance = ["function identity", "return keyword", "return statement", "value 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_return_tests = 4
-focused_expression_result_tests = 60
+focused_expression_result_tests = 62
 return_ir_leave_label_try_unwinding_register_placement_epilogue_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained warning and conversion facts"
 
@@ -6125,7 +6125,7 @@ provenance = ["function identity", "statement keyword", "statement", "condition 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_condition_tests = 2
-focused_expression_result_tests = 60
+focused_expression_result_tests = 62
 boolean_conversion_control_flow_edges_labels_branch_emission_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained condition and branch facts"
 
@@ -6164,6 +6164,46 @@ provenance = ["function identity", "switch keyword", "switch statement", "select
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_selector_tests = 3
-focused_expression_result_tests = 60
+focused_expression_result_tests = 62
 range_adjustment_case_evaluation_jump_table_control_flow_switch_ir_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained selector and mode facts"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-SWITCH-CASE-RESULTS"
+description = "Function switch cases retain implicit, single, or ranged structure and checked explicit values."
+sources = [
+  "Compiler/PrsStmt.HC:673-714 implicit value assignment and single or ranged LexExpressionI64 calls",
+  "Compiler/PrsStmt.HC:767-792 range validation, duplicate detection, and jump-table population",
+  "Compiler/PrsExp.HC:1140-1153 LexExpressionI64 execution and RT_F64 conversion",
+  "Compiler/PrsStmt.HC:578-617 owning switch selector and operation construction"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_conversion_policy.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 298
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "implicit, single-value, and ranged case labels in checked top-level function definitions"
+order_rule = "retain cases in recursive source traversal order with a contiguous per-function identity"
+pattern_rule = "keep each implicit or single pattern intact and retain both ranged endpoints in one record"
+typing_rule = "reuse the immutable expression-result traversal for every explicit value"
+conversion_rule = "record ICF_RES_TO_INT only for an F64 explicit value because LexExpressionI64 converts only RT_F64"
+validation = ["symbol-table ownership", "function traversal ownership", "bound occurrence ownership", "source-order visibility", "contiguous case identities", "ellipsis provenance"]
+provenance = ["function identity", "case keyword", "case label", "range ellipsis", "explicit expressions", "included source", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_case_tests = 3
+focused_expression_result_tests = 62
+case_evaluation_implicit_value_assignment_range_normalization_duplicate_detection_jump_table_control_flow_switch_ir_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and LexExpressionI64 directly define the retained pattern and conversion facts"
