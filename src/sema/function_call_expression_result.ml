@@ -6,6 +6,8 @@ module Id = struct
   let to_int value = value
 end
 
+module Top_level_id = Top_level_identifier_resolution
+
 type value_category =
   | Object_value
   | Address_value
@@ -50,6 +52,8 @@ type expression_result = {
   member_lookup : Aggregate_member_index.lookup option;
   aggregate_offset_path : aggregate_offset_path option;
   outer_occurrence : Outer_expression_binding.occurrence option;
+  top_level_outer_occurrence :
+    Top_level_outer_expression_binding.occurrence option;
   outer_binding : Outer_environment.binding option;
   call_resolution : Function_call_resolution.call_resolution option;
   function_declaration : Function_resolution.resolved_declaration option;
@@ -545,6 +549,7 @@ let result_intrinsic_conversion (result : expression_result) =
 
 let result_member_lookup (result : expression_result) = result.member_lookup
 let result_outer_occurrence result = result.outer_occurrence
+let result_top_level_outer_occurrence result = result.top_level_outer_occurrence
 let result_outer_binding result = result.outer_binding
 
 let result_aggregate_offset_path (result : expression_result) =
@@ -679,8 +684,8 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?aggregate_offset_path ?outer_occurrence ?outer_binding ?call_resolution
-    ?function_declaration ?function_address_path
+    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
+    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -697,6 +702,7 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       member_lookup;
       aggregate_offset_path;
       outer_occurrence;
+      top_level_outer_occurrence;
       outer_binding;
       call_resolution;
       function_declaration;
@@ -1005,14 +1011,15 @@ let rec type_expression table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (id, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup
-          ?aggregate_offset_path ?outer_occurrence ?outer_binding
-          ?call_resolution ?function_declaration ?function_address_path category
-          result_class state =
+          ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
+          ?outer_binding ?call_resolution ?function_declaration
+          ?function_address_path category result_class state =
         Ok
           (make_result ~array_rank ?member_lookup ?aggregate_offset_path
-             ?outer_occurrence ?outer_binding ?call_resolution
-             ?function_declaration ?function_address_path ~intrinsic_conversion
-             state ~id ~source ~source_type ~category ~result_class)
+             ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
+             ?call_resolution ?function_declaration ?function_address_path
+             ~intrinsic_conversion state ~id ~source ~source_type ~category
+             ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -1034,6 +1041,8 @@ let rec type_expression table members policies ~before_item_index ~context
                 ?member_lookup:grouped_result.member_lookup
                 ?aggregate_offset_path:grouped_result.aggregate_offset_path
                 ?outer_occurrence:grouped_result.outer_occurrence
+                ?top_level_outer_occurrence:
+                  grouped_result.top_level_outer_occurrence
                 ?outer_binding:grouped_result.outer_binding
                 grouped_result.category grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
@@ -1126,11 +1135,56 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_identifier_resolution.Outer_type_required _ ->
-                      finish Unavailable Unresolved_actual_class state
-                  | Top_level_identifier_resolution.Module_value
-                      (Top_level_identifier_resolution.Aggregate_offset_base
-                         publication) -> (
+                  | Top_level_id.Outer_type_required binding ->
+                      finish ~top_level_outer_occurrence:occurrence
+                        ~outer_binding:binding Unavailable
+                        Unresolved_actual_class state
+                  | Top_level_id.Outer_value binding -> (
+                      let entry = Outer_environment.binding_entry binding in
+                      match Outer_environment.entry_global_metadata entry with
+                      | None ->
+                          let origin =
+                            Top_level_outer_expression_binding.occurrence_origin
+                              occurrence
+                          in
+                          let message =
+                            "typed top-level outer global has no checked \
+                             metadata"
+                          in
+                          Error (invalid_top_level_input ~origin message)
+                      | Some metadata -> (
+                          match
+                            metadata |> Outer_environment.global_type_reference
+                            |> Type_reference.resolved_type |> known_type table
+                          with
+                          | Error _ as error -> error
+                          | Ok source_type ->
+                              let array_rank =
+                                Outer_environment.global_array_rank metadata
+                              in
+                              let category, result_class =
+                                if array_rank > 0 then
+                                  (Array_value, Integer_result)
+                                else
+                                  match
+                                    Outer_environment.global_declarator_kind
+                                      metadata
+                                  with
+                                  | Outer_environment.Function_pointer_global _
+                                    -> (Callback_value, Integer_result)
+                                  | Outer_environment.Object_global ->
+                                      ( (match context with
+                                        | Value_context -> Object_value
+                                        | Lvalue_context -> Lvalue),
+                                        forwarded_class policies
+                                          ~before_item_index source_type )
+                              in
+                              finish ~source_type:(Some source_type) ~array_rank
+                                ~top_level_outer_occurrence:occurrence
+                                ~outer_binding:binding category result_class
+                                state))
+                  | Top_level_id.Module_value
+                      (Top_level_id.Aggregate_offset_base publication) -> (
                       if not allow_aggregate_offset_base then
                         Error
                           (invalid_input
@@ -1935,6 +1989,12 @@ and type_top_level_call table members policies ~before_item_index
               Ok
                 (make_result ~intrinsic_conversion state ~id ~source
                    ~source_type:None ~category:Unavailable
+                   ~result_class:Unresolved_actual_class)
+          | Top_level_identifier_resolution.Outer_value binding ->
+              Ok
+                (make_result ~intrinsic_conversion state ~id ~source
+                   ~source_type:None ~category:Unavailable
+                   ~top_level_outer_occurrence:callee ~outer_binding:binding
                    ~result_class:Unresolved_actual_class)))
 
 and type_top_level_direct_call table members policies ~before_item_index

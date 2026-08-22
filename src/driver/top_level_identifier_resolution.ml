@@ -98,7 +98,11 @@ let leaf globals functions compilation_mode node occurrence =
     | Sema.Top_level_outer_expression_binding.Module_binding publication ->
         module_resolution globals functions compilation_mode publication
     | Sema.Top_level_outer_expression_binding.Outer_binding binding ->
-        Ok (Sema.Top_level_identifier_resolution.Outer_type_required binding)
+        let entry = Sema.Outer_environment.binding_entry binding in
+        if Option.is_some (Sema.Outer_environment.entry_global_metadata entry)
+        then Ok (Sema.Top_level_identifier_resolution.Outer_value binding)
+        else
+          Ok (Sema.Top_level_identifier_resolution.Outer_type_required binding)
   in
   match resolution with
   | Error _ as error -> error

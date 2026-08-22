@@ -97,25 +97,7 @@ let semantic_kind = function
   | Semantic_outer_environment.Export_system_symbol ->
       Semantic_symbol.Assembler_symbol
 
-let environment prepared records =
-  let table = Session.semantic_symbols prepared.session in
-  let entries =
-    records
-    |> List.mapi (fun entry_index (name, record_kind) ->
-        let symbol =
-          checked
-            (Semantic_symbol_table.add table
-               ~scope:(Semantic_symbol_table.root table)
-               ~name
-               ~kind:(semantic_kind record_kind)
-               ~origin:(Semantic_symbol.Synthesized ("outer " ^ name)))
-        in
-        Semantic_outer_environment.make_entry ~symbol ~record_kind ~entry_index
-        |> function
-        | Ok entry -> entry
-        | Error error ->
-            error |> Semantic_outer_environment.error_to_string |> Alcotest.fail)
-  in
+let create_environment prepared entries =
   let table_kind =
     match prepared.mode with
     | Preprocessor.Jit -> Semantic_outer_environment.Jit_task 0
@@ -158,6 +140,75 @@ let environment prepared records =
     (Holyc_lib.create_outer_environment prepared.session
        ~compilation_mode:prepared.mode tables)
 
+let environment prepared records =
+  let table = Session.semantic_symbols prepared.session in
+  let entries =
+    records
+    |> List.mapi (fun entry_index (name, record_kind) ->
+        let symbol =
+          checked
+            (Semantic_symbol_table.add table
+               ~scope:(Semantic_symbol_table.root table)
+               ~name
+               ~kind:(semantic_kind record_kind)
+               ~origin:(Semantic_symbol.Synthesized ("outer " ^ name)))
+        in
+        Semantic_outer_environment.make_entry ~symbol ~record_kind ~entry_index
+        |> function
+        | Ok entry -> entry
+        | Error error ->
+            error |> Semantic_outer_environment.error_to_string |> Alcotest.fail)
+  in
+  create_environment prepared entries
+
+let typed_global_named prepared name =
+  prepared.global_types |> Semantic_global_type_resolution.globals
+  |> List.find (fun global ->
+      global |> Semantic_global_type_resolution.global_symbol
+      |> Semantic_symbol.name |> String.equal name)
+
+let checked_outer = function
+  | Ok value -> value
+  | Error error ->
+      error |> Semantic_outer_environment.error_to_string |> Alcotest.fail
+
+let global_metadata prepared template_name =
+  let global = typed_global_named prepared template_name in
+  let declarator_kind =
+    match Semantic_global_type_resolution.global_declarator_kind global with
+    | Semantic_global_type_resolution.Object ->
+        Semantic_outer_environment.Object_global
+    | Semantic_global_type_resolution.Function_pointer pointer ->
+        Semantic_outer_environment.Function_pointer_global pointer
+  in
+  Semantic_outer_environment.make_global_metadata
+    ~type_reference:
+      (Semantic_global_type_resolution.global_type_reference global)
+    ~declarator_kind
+    ~array_rank:
+      (global |> Semantic_global_type_resolution.global_array_dimensions
+     |> List.length)
+  |> checked_outer
+
+let typed_environment prepared specifications =
+  let table = Session.semantic_symbols prepared.session in
+  let entries =
+    specifications
+    |> List.mapi (fun entry_index (name, template_name) ->
+        let symbol =
+          let origin = Semantic_symbol.Synthesized ("typed outer " ^ name) in
+          let kind = Semantic_symbol.Global_variable in
+          checked
+            (Semantic_symbol_table.add table
+               ~scope:(Semantic_symbol_table.root table)
+               ~name ~kind ~origin)
+        in
+        Semantic_outer_environment.make_global_entry ~symbol ~entry_index
+          ~global_metadata:(global_metadata prepared template_name)
+        |> checked_outer)
+  in
+  create_environment prepared entries
+
 let tree prepared records =
   let environment = environment prepared records in
   let module_bound =
@@ -191,6 +242,7 @@ let leaf_named result name =
 let module_value leaf =
   match Semantic_top_level_identifier_resolution.leaf_resolution leaf with
   | Semantic_top_level_identifier_resolution.Module_value value -> value
+  | Semantic_top_level_identifier_resolution.Outer_value _
   | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
       Alcotest.fail "expected a source-typed module value"
 
@@ -317,9 +369,100 @@ let outer_records_require_typed_metadata () =
             "outer binding identity survives" (leaf_name leaf)
             (binding |> Semantic_outer_environment.binding_entry
            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name)
+      | Semantic_top_level_identifier_resolution.Outer_value _ ->
+          Alcotest.fail "metadata-free outer records must stay untyped"
       | Semantic_top_level_identifier_resolution.Module_value _ ->
           Alcotest.fail "outer records must not receive guessed module types")
     leaves
+
+let typed_outer_globals_become_values () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"top-level-typed-outer-identifiers.HC"
+          "class Box {F64 value;};F64 TemplateF;I64 *TemplateP;I64 \
+           TemplateArray[2];I64 (*TemplateCallback)(I64);Box TemplateBox;\n\
+           (OuterF);(OuterP);(OuterArray);(OuterCallback);(OuterBox);"
+      in
+      let specifications =
+        [
+          ("OuterF", "TemplateF");
+          ("OuterP", "TemplateP");
+          ("OuterArray", "TemplateArray");
+          ("OuterCallback", "TemplateCallback");
+          ("OuterBox", "TemplateBox");
+        ]
+      in
+      let environment = typed_environment prepared specifications in
+      let module_bound =
+        checked
+          (Holyc_lib.resolve_top_level_expressions prepared.session
+             ~declarations:prepared.declarations
+             ~module_expressions:prepared.module_expressions prepared.ast)
+      in
+      let outer_bound =
+        checked
+          (Holyc_lib.resolve_top_level_outer_expressions prepared.session
+             ~environment ~expressions:module_bound)
+      in
+      let expressions =
+        let compilation_mode = prepared.mode in
+        let declarations = prepared.declarations in
+        let build = Holyc_lib.build_top_level_expression_trees in
+        checked
+          (build prepared.session ~declarations ~compilation_mode
+             ~expressions:outer_bound prepared.ast)
+      in
+      let result = classify prepared expressions |> checked in
+      let describe leaf =
+        match Semantic_top_level_identifier_resolution.leaf_resolution leaf with
+        | Semantic_top_level_identifier_resolution.Outer_value binding ->
+            let metadata =
+              let entry = Semantic_outer_environment.binding_entry binding in
+              entry |> Semantic_outer_environment.entry_global_metadata
+              |> Option.get
+            in
+            let type_ =
+              metadata |> Semantic_outer_environment.global_type_reference
+              |> Semantic_type_reference.resolved_type
+            in
+            let base =
+              match Semantic_type.base type_ with
+              | Semantic_type.Primitive (_, primitive) ->
+                  Primitive_type.to_string primitive
+              | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+            in
+            let shape =
+              if Semantic_outer_environment.global_array_rank metadata > 0 then
+                "array"
+              else
+                match
+                  Semantic_outer_environment.global_declarator_kind metadata
+                with
+                | Semantic_outer_environment.Object_global -> "object"
+                | Semantic_outer_environment.Function_pointer_global _ ->
+                    "callback"
+            in
+            Printf.sprintf "%s%s:%s:rank-%d" base
+              (String.make (Semantic_type.pointer_depth type_) '*')
+              shape
+              (Semantic_outer_environment.global_array_rank metadata)
+        | Semantic_top_level_identifier_resolution.Module_value _
+        | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
+            Alcotest.fail "expected checked outer global metadata"
+      in
+      Alcotest.(check (list string))
+        "typed outer records keep distinct value shapes"
+        [
+          "F64:object:rank-0";
+          "I64*:object:rank-0";
+          "I64:array:rank-1";
+          "I64:callback:rank-0";
+          "Box:object:rank-0";
+        ]
+        (result |> Semantic_top_level_identifier_resolution.leaves
+       |> List.map describe))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let generated_provenance_and_checked_inputs () =
   let prepared =
@@ -403,6 +546,8 @@ let tests =
       module_types_and_value_shapes;
     Alcotest.test_case "outer records require typed metadata" `Quick
       outer_records_require_typed_metadata;
+    Alcotest.test_case "typed outer globals become values" `Quick
+      typed_outer_globals_become_values;
     Alcotest.test_case "generated provenance and checked inputs" `Quick
       generated_provenance_and_checked_inputs;
   ]

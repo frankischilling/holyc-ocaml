@@ -13,6 +13,7 @@ type module_value =
 
 type resolution =
   | Module_value of module_value
+  | Outer_value of Outer_environment.binding
   | Outer_type_required of Outer_environment.binding
 
 type leaf = {
@@ -150,10 +151,22 @@ let resolution_is_valid occurrence = function
       match occurrence_publication occurrence with
       | None -> false
       | Some publication -> module_resolution_is_valid publication value)
+  | Outer_value binding -> (
+      match occurrence_outer_binding occurrence with
+      | None -> false
+      | Some selected ->
+          selected == binding
+          && Option.is_some
+               (binding |> Outer_environment.binding_entry
+              |> Outer_environment.entry_global_metadata))
   | Outer_type_required binding -> (
       match occurrence_outer_binding occurrence with
       | None -> false
-      | Some selected -> selected == binding)
+      | Some selected ->
+          selected == binding
+          && Option.is_none
+               (binding |> Outer_environment.binding_entry
+              |> Outer_environment.entry_global_metadata))
 
 let node_occurrence node =
   match
@@ -228,7 +241,7 @@ let leaf_symbols_are_owned table leaves =
             Symbol_table.owns_symbol table
               (Module_expression_binding.publication_canonical_symbol
                  publication)
-        | Outer_type_required binding ->
+        | Outer_value binding | Outer_type_required binding ->
             binding |> Outer_environment.binding_entry
             |> Outer_environment.entry_symbol
             |> Symbol_table.owns_symbol table
