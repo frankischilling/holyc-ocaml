@@ -83,11 +83,27 @@ type call_result =
   | Indirect_call_result of indirect_call
   | Deferred_call_result of Function_call_resolution.call_resolution
 
+type return_presence =
+  | Matching_value
+  | Matching_no_value
+  | Unexpected_value
+  | Missing_value
+
+type return_result = {
+  return_source : Function_call_resolution.return_input;
+  return_declared_type : Type.t;
+  return_declared_class : result_class;
+  return_value : expression_result option;
+  return_conversion : intrinsic_conversion;
+  return_presence : return_presence;
+}
+
 type resolved_function = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
   item_index : int;
   calls : call_result list;
+  returns : return_result list;
 }
 
 type t = {
@@ -114,6 +130,13 @@ let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
+let function_returns (function_ : resolved_function) = function_.returns
+let return_source result = result.return_source
+let return_declared_type result = result.return_declared_type
+let return_declared_class result = result.return_declared_class
+let return_value result = result.return_value
+let return_conversion result = result.return_conversion
+let return_presence result = result.return_presence
 let direct_source (call : direct_call) = call.source
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
@@ -176,6 +199,12 @@ let intrinsic_conversion_name = function
   | No_intrinsic_conversion -> "none"
   | Result_to_f64 -> "ICF_RES_TO_F64"
   | Result_to_int -> "ICF_RES_TO_INT"
+
+let return_presence_name = function
+  | Matching_value -> "matching-value"
+  | Matching_no_value -> "matching-no-value"
+  | Unexpected_value -> "unexpected-value"
+  | Missing_value -> "missing-value"
 
 let declared_default_kind_name = function
   | Expression_default_kind -> "expression"
@@ -1224,6 +1253,77 @@ let type_call table members policies ~before_item_index state = function
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_result call, state)
 
+let return_type_is_zero_sized members ~before_item_index type_ =
+  if Type.pointer_depth type_ <> 0 then false
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, primitive) -> Primitive_type.is_zero_sized primitive
+    | Type.Aggregate symbol -> (
+        match Aggregate_member_index.find_aggregate members symbol with
+        | Some aggregate
+          when Aggregate_member_index.aggregate_item_index aggregate
+               < before_item_index ->
+            Int64.equal (Aggregate_member_index.aggregate_size aggregate) 0L
+        | Some _ | None -> true)
+
+let select_return_conversion declared_class value_class =
+  match (declared_class, value_class) with
+  | F64_result, Integer_result -> Result_to_f64
+  | Integer_result, F64_result -> Result_to_int
+  | F64_result, (F64_result | Unresolved_actual_class)
+  | Integer_result, (Integer_result | Unresolved_actual_class)
+  | Unresolved_actual_class, _ -> No_intrinsic_conversion
+
+let type_return table members policies ~before_item_index ~declared_type state
+    source =
+  match known_type table declared_type with
+  | Error _ as error -> error
+  | Ok declared_type -> (
+      let declared_class =
+        forwarded_class policies ~before_item_index declared_type
+      in
+      let zero_sized =
+        return_type_is_zero_sized members ~before_item_index declared_type
+      in
+      match Function_call_resolution.return_expression source with
+      | None ->
+          Ok
+            ( {
+                return_source = source;
+                return_declared_type = declared_type;
+                return_declared_class = declared_class;
+                return_value = None;
+                return_conversion = No_intrinsic_conversion;
+                return_presence =
+                  (if zero_sized then Matching_no_value else Missing_value);
+              },
+              state )
+      | Some expression -> (
+          match
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state expression
+          with
+          | Error _ as error -> error
+          | Ok (value, state) -> (
+              let conversion =
+                select_return_conversion declared_class value.result_class
+              in
+              match set_intrinsic_conversion state value conversion with
+              | Error _ as error -> error
+              | Ok (value, state) ->
+                  Ok
+                    ( {
+                        return_source = source;
+                        return_declared_type = declared_type;
+                        return_declared_class = declared_class;
+                        return_value = Some value;
+                        return_conversion = conversion;
+                        return_presence =
+                          (if zero_sized then Unexpected_value
+                           else Matching_value);
+                      },
+                      state ))))
+
 let type_function table members policies state source =
   let item_index = Function_call_conversion_policy.function_item_index source in
   match
@@ -1233,15 +1333,29 @@ let type_function table members policies state source =
          state
   with
   | Error _ as error -> error
-  | Ok (calls, state) ->
-      Ok
-        ( {
-            symbol = Function_call_conversion_policy.function_symbol source;
-            scope = Function_call_conversion_policy.function_scope source;
-            item_index;
-            calls;
-          },
-          state )
+  | Ok (calls, state) -> (
+      let declared_type =
+        source |> Function_call_conversion_policy.function_return_type
+        |> Type_reference.resolved_type
+      in
+      match
+        source |> Function_call_conversion_policy.function_returns
+        |> map_state
+             (type_return table members policies ~before_item_index:item_index
+                ~declared_type)
+             state
+      with
+      | Error _ as error -> error
+      | Ok (returns, state) ->
+          Ok
+            ( {
+                symbol = Function_call_conversion_policy.function_symbol source;
+                scope = Function_call_conversion_policy.function_scope source;
+                item_index;
+                calls;
+                returns;
+              },
+              state ))
 
 let analyze ~table ~members policies =
   if not (Function_call_conversion_policy.owns_table policies table) then

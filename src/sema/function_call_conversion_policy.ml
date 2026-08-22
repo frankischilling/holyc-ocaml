@@ -27,6 +27,8 @@ type resolved_function = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
   item_index : int;
+  return_type : Type_reference.t;
+  returns : Function_call_resolution.return_input list;
   calls : call_policy list;
 }
 
@@ -52,6 +54,8 @@ let owns_table (result : t) table = result.table == table
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
+let function_return_type (function_ : resolved_function) = function_.return_type
+let function_returns (function_ : resolved_function) = function_.returns
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_policies (call : direct_call) = call.fixed_policies
@@ -309,6 +313,8 @@ let resolve_function headers source =
     symbol = Function_call_resolution.function_symbol source;
     scope = Function_call_resolution.function_scope source;
     item_index;
+    return_type = Function_call_resolution.function_return_type source;
+    returns = Function_call_resolution.function_returns source;
     calls =
       source |> Function_call_resolution.function_calls
       |> List.map (call_policy headers ~before_item_index:item_index);

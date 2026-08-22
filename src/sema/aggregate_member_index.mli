@@ -65,6 +65,7 @@ val aggregates : t -> aggregate list
 val find_aggregate : t -> Symbol.t -> aggregate option
 val aggregate_symbol : aggregate -> Symbol.t
 val aggregate_item_index : aggregate -> int
+val aggregate_size : aggregate -> int64
 
 val lookup :
   t -> aggregate:Symbol.t -> name:string -> (lookup option, error) result

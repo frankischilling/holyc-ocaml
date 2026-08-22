@@ -41,6 +41,13 @@ type call_result =
   | Indirect_call_result of indirect_call
   | Deferred_call_result of Function_call_resolution.call_resolution
 
+type return_presence =
+  | Matching_value
+  | Matching_no_value
+  | Unexpected_value
+  | Missing_value
+
+type return_result
 type resolved_function
 type t
 type error_kind = Invalid_input of string
@@ -51,15 +58,16 @@ val analyze :
   members:Aggregate_member_index.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
-(** Derive immutable source-expression results for provided fixed and variadic
-    arguments on resolved direct and typed indirect calls. Each result has a
-    deterministic identity, source origin, known semantic type, value category,
-    remaining array rank, intrinsic conversion requirement, forwarded result
-    class, and any distinct execution class needed by later lowering. A selected
-    default has a separate result with its exact source and parameter, semantic
-    parameter type, forwarded class, kind, and JIT or AOT materialization path;
-    it does not receive an expression identity. A selected [lastclass] default
-    also retains the previous provided result and derived base spelling. *)
+(** Derive immutable source-expression results for call arguments and function
+    returns. Each checked expression has a deterministic identity, source
+    origin, semantic type, value category, remaining array rank, conversion
+    intent, forwarded result class, and any separate execution class needed by
+    later lowering. A selected default has a result with its exact source and
+    parameter, semantic parameter type, forwarded class, kind, and JIT or AOT
+    materialization path; it does not receive an expression identity. A selected
+    [lastclass] default also retains the previous provided result and derived
+    base spelling. Function returns retain the declared type, integer or F64
+    conversion intent, and warning facts for missing or unexpected values. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -71,6 +79,13 @@ val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
+val function_returns : resolved_function -> return_result list
+val return_source : return_result -> Function_call_resolution.return_input
+val return_declared_type : return_result -> Type.t
+val return_declared_class : return_result -> result_class
+val return_value : return_result -> expression_result option
+val return_conversion : return_result -> intrinsic_conversion
+val return_presence : return_result -> return_presence
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_fixed_results : direct_call -> fixed_result list
 val direct_variadic_results : direct_call -> expression_result list
@@ -130,6 +145,7 @@ val result_function_address_path :
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string
+val return_presence_name : return_presence -> string
 val declared_default_kind_name : declared_default_kind -> string
 
 val declared_default_materialization_name :
