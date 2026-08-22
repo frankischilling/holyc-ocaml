@@ -23,10 +23,13 @@ type intrinsic_conversion =
   | Result_to_int
 
 type expression_result
+type declared_default_kind = Expression_default_kind | Lastclass_default_kind
+type declared_default_materialization = Immediate_default | Aot_string_default
+type declared_default_result
 
 type fixed_path =
   | Provided_result of expression_result
-  | Declared_default_result
+  | Declared_default_result of declared_default_result
 
 type lastclass_substitution
 type fixed_result
@@ -53,8 +56,10 @@ val analyze :
     deterministic identity, source origin, known semantic type, value category,
     remaining array rank, intrinsic conversion requirement, forwarded result
     class, and any distinct execution class needed by later lowering. A selected
-    [lastclass] default retains the previous provided result and derived base
-    spelling. *)
+    default has a separate result with its exact source and parameter, semantic
+    parameter type, forwarded class, kind, and JIT or AOT materialization path;
+    it does not receive an expression identity. A selected [lastclass] default
+    also retains the previous provided result and derived base spelling. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -78,6 +83,19 @@ val indirect_variadic_results : indirect_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
 val fixed_path : fixed_result -> fixed_path
 val fixed_lastclass_substitution : fixed_result -> lastclass_substitution option
+
+val declared_default_source :
+  declared_default_result -> Function_call_resolution.default_use
+
+val declared_default_parameter :
+  declared_default_result -> Function_type_resolution.parameter
+
+val declared_default_type : declared_default_result -> Type.t
+val declared_default_class : declared_default_result -> result_class
+val declared_default_kind : declared_default_result -> declared_default_kind
+
+val declared_default_materialization :
+  declared_default_result -> declared_default_materialization
 
 val lastclass_previous_result :
   lastclass_substitution -> expression_result option
@@ -105,6 +123,11 @@ val result_call_resolution :
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string
+val declared_default_kind_name : declared_default_kind -> string
+
+val declared_default_materialization_name :
+  declared_default_materialization -> string
+
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
