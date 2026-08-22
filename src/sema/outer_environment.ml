@@ -210,10 +210,10 @@ and pointer_is_owned symbol_table pointer =
 and signature_is_owned symbol_table signature =
   signature |> Function_type_resolution.signature_parameters
   |> List.for_all (fun parameter ->
-         reference_is_owned symbol_table
-           (Function_type_resolution.parameter_type_reference parameter)
-         && declarator_is_owned symbol_table
-              (Function_type_resolution.parameter_declarator_kind parameter))
+      reference_is_owned symbol_table
+        (Function_type_resolution.parameter_type_reference parameter)
+      && declarator_is_owned symbol_table
+           (Function_type_resolution.parameter_declarator_kind parameter))
 
 let global_metadata_is_owned symbol_table metadata =
   reference_is_owned symbol_table metadata.type_reference
@@ -235,7 +235,8 @@ let validate_symbols symbol_table table_chain =
         else if
           match entry.global_metadata with
           | None -> false
-          | Some metadata -> not (global_metadata_is_owned symbol_table metadata)
+          | Some metadata ->
+              not (global_metadata_is_owned symbol_table metadata)
         then
           Error
             (invalid_input

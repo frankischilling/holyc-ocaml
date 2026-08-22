@@ -92,14 +92,14 @@ val analyze :
     values, and returns. When [outer] is supplied, it must be the exact
     outer-expression batch for this policy traversal; checked global metadata
     supplies the type, value shape, and array rank of the selected outer leaf.
-    Each checked expression has a deterministic identity,
-    source origin, semantic type, value category, remaining array rank,
-    conversion intent, forwarded result class, and any separate execution class
-    needed by later lowering. A selected default has a result with its exact
-    source and parameter, semantic parameter type, forwarded class, kind, and
-    JIT or AOT materialization path; it does not receive an expression identity.
-    A selected [lastclass] default also retains the previous provided result and
-    derived base spelling. Each function expression statement records the
+    Each checked expression has a deterministic identity, source origin,
+    semantic type, value category, remaining array rank, conversion intent,
+    forwarded result class, and any separate execution class needed by later
+    lowering. A selected default has a result with its exact source and
+    parameter, semantic parameter type, forwarded class, kind, and JIT or AOT
+    materialization path; it does not receive an expression identity. A selected
+    [lastclass] default also retains the previous provided result and derived
+    base spelling. Each function expression statement records the
     [ICF_RES_NOT_USED] intent emitted by [PrsExpression] without mutating the
     parser AST. Function conditions retain their statement role without an
     invented Boolean conversion. Switch selectors retain their bounded or

@@ -42,8 +42,8 @@ val make_global_entry :
   entry_index:int ->
   global_metadata:global_metadata ->
   (entry, error) result
-(** Build one global-variable record with its checked source type, callback,
-    and array-rank metadata. *)
+(** Build one global-variable record with its checked source type, callback, and
+    array-rank metadata. *)
 
 val make_table :
   table_kind:table_kind ->

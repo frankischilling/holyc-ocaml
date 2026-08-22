@@ -4634,8 +4634,8 @@ let typed_global_named prepared name =
   prepared.Test_function_call_conversion_policy.global_types
   |> Semantic_global_type_resolution.globals
   |> List.find (fun global ->
-         global |> Semantic_global_type_resolution.global_symbol
-         |> Semantic_symbol.name |> String.equal name)
+      global |> Semantic_global_type_resolution.global_symbol
+      |> Semantic_symbol.name |> String.equal name)
 
 let outer_global_metadata prepared template_name =
   let global = typed_global_named prepared template_name in
@@ -4652,7 +4652,7 @@ let outer_global_metadata prepared template_name =
     ~declarator_kind
     ~array_rank:
       (global |> Semantic_global_type_resolution.global_array_dimensions
-      |> List.length)
+     |> List.length)
   |> checked_outer
 
 let make_outer_global_entry prepared ~entry_index ~name ?metadata () =
@@ -4661,18 +4661,19 @@ let make_outer_global_entry prepared ~entry_index ~name ?metadata () =
       prepared.Test_function_call_conversion_policy.session
   in
   let symbol =
-    Semantic_symbol_table.add table ~scope:(Semantic_symbol_table.root table)
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
       ~name ~kind:Semantic_symbol.Global_variable
       ~origin:(Semantic_symbol.Synthesized ("outer global fixture " ^ name))
     |> checked_type
   in
   (match metadata with
-  | None ->
-      Semantic_outer_environment.make_entry ~symbol
-        ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
-  | Some global_metadata ->
-      Semantic_outer_environment.make_global_entry ~symbol ~entry_index
-        ~global_metadata)
+    | None ->
+        Semantic_outer_environment.make_entry ~symbol
+          ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
+    | Some global_metadata ->
+        Semantic_outer_environment.make_global_entry ~symbol ~entry_index
+          ~global_metadata)
   |> checked_outer
 
 let make_outer_table ~table_kind ~table_index entries =
@@ -4724,8 +4725,9 @@ let outer_globals_retain_checked_expression_shapes () =
         Test_function_call_conversion_policy.prepare ~mode
           ~path:"typed-outer-globals.HC"
           "class Box {F64 value;};F64 TemplateF;I64 *TemplateP;I64 \
-           TemplateArray[2];I64 (*TemplateCallback)(I64);Box TemplateBox;extern \
-           I64 Target(I64 a,I64 b,I64 c,I64 d,F64 e);I64 Caller(){return \
+           TemplateArray[2];I64 (*TemplateCallback)(I64);Box \
+           TemplateBox;extern I64 Target(I64 a,I64 b,I64 c,I64 d,F64 e);I64 \
+           Caller(){return \
            Target(OuterF,*OuterP,OuterCallback,OuterArray[0],OuterBox.value);}"
       in
       let specs =
@@ -4740,8 +4742,9 @@ let outer_globals_retain_checked_expression_shapes () =
       let entries =
         specs
         |> List.mapi (fun entry_index (name, template) ->
-               make_outer_global_entry prepared ~entry_index ~name
-                 ~metadata:(outer_global_metadata prepared template) ())
+            make_outer_global_entry prepared ~entry_index ~name
+              ~metadata:(outer_global_metadata prepared template)
+              ())
       in
       let outer, results = type_with_outer prepared entries in
       Alcotest.(check bool)
@@ -4763,23 +4766,22 @@ let outer_globals_retain_checked_expression_shapes () =
         ]
         (List.map
            (fun result ->
-             result
-             |> Semantic_function_call_expression_result.result_category
+             result |> Semantic_function_call_expression_result.result_category
              |> Semantic_function_call_expression_result.value_category_name)
            roots);
       let retained_names =
         results |> Semantic_function_call_expression_result.all_results
         |> List.filter_map (fun result ->
-               match
-                 Semantic_function_call_expression_result.result_outer_binding
-                   result
-               with
-               | None -> None
-               | Some binding ->
-                   Some
-                     (binding |> Semantic_outer_environment.binding_entry
-                    |> Semantic_outer_environment.entry_symbol
-                    |> Semantic_symbol.name))
+            match
+              Semantic_function_call_expression_result.result_outer_binding
+                result
+            with
+            | None -> None
+            | Some binding ->
+                Some
+                  (binding |> Semantic_outer_environment.binding_entry
+                 |> Semantic_outer_environment.entry_symbol
+                 |> Semantic_symbol.name))
       in
       Alcotest.(check (list string))
         "every supplied outer leaf retains its selected hash record"
@@ -4792,7 +4794,9 @@ let missing_outer_global_metadata_stays_unavailable () =
     prepare ~path:"untyped-outer-global.HC"
       "extern I64 Target(I64 value);I64 Caller(){return Target(Outer);}"
   in
-  let entry = make_outer_global_entry prepared ~entry_index:0 ~name:"Outer" () in
+  let entry =
+    make_outer_global_entry prepared ~entry_index:0 ~name:"Outer" ()
+  in
   let _, results = type_with_outer prepared [ entry ] in
   match root_results results "Caller" with
   | [ result ] ->
@@ -4801,8 +4805,7 @@ let missing_outer_global_metadata_stays_unavailable () =
       Alcotest.(check bool)
         "the unresolved result still retains the exact outer record" true
         (Option.is_some
-           (Semantic_function_call_expression_result.result_outer_binding
-              result))
+           (Semantic_function_call_expression_result.result_outer_binding result))
   | roots ->
       Alcotest.failf "expected one untyped outer result, got %d"
         (List.length roots)
@@ -4813,10 +4816,13 @@ let outer_global_metadata_validates_rank_and_kind () =
       "class Box {I64 value;};Box Template;I64 Caller(){return 0;}"
   in
   let template = typed_global_named prepared "Template" in
-  let reference = Semantic_global_type_resolution.global_type_reference template in
+  let reference =
+    Semantic_global_type_resolution.global_type_reference template
+  in
   (match
      Semantic_outer_environment.make_global_metadata ~type_reference:reference
-       ~declarator_kind:Semantic_outer_environment.Object_global ~array_rank:(-1)
+       ~declarator_kind:Semantic_outer_environment.Object_global
+       ~array_rank:(-1)
    with
   | Error error ->
       Alcotest.(check string)
@@ -4830,7 +4836,8 @@ let outer_global_metadata_validates_rank_and_kind () =
   in
   let table = Session.semantic_symbols prepared.session in
   let function_symbol =
-    Semantic_symbol_table.add table ~scope:(Semantic_symbol_table.root table)
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
       ~name:"WrongKind" ~kind:Semantic_symbol.Function
       ~origin:(Semantic_symbol.Synthesized "wrong outer metadata kind")
     |> checked_type
@@ -4870,7 +4877,8 @@ let outer_global_metadata_validates_rank_and_kind () =
     |> checked_outer
   in
   let current_symbol =
-    Semantic_symbol_table.add table ~scope:(Semantic_symbol_table.root table)
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
       ~name:"ForeignTyped" ~kind:Semantic_symbol.Global_variable
       ~origin:(Semantic_symbol.Synthesized "foreign typed outer global")
     |> checked_type
@@ -4899,8 +4907,8 @@ let outer_global_metadata_validates_rank_and_kind () =
   | Ok _ -> Alcotest.fail "expected foreign aggregate metadata to fail");
   let foreign_callback_prepared =
     prepare ~path:"foreign-callback-metadata.HC"
-      "class ForeignBox {I64 value;};I64 \
-       (*TemplateCallback)(ForeignBox);I64 Caller(){return 0;}"
+      "class ForeignBox {I64 value;};I64 (*TemplateCallback)(ForeignBox);I64 \
+       Caller(){return 0;}"
   in
   let callback_metadata =
     outer_global_metadata foreign_callback_prepared "TemplateCallback"
@@ -4926,8 +4934,7 @@ let outer_global_metadata_validates_rank_and_kind () =
       Alcotest.(check bool)
         "foreign callback parameter metadata has a stable diagnostic" true
         (String.starts_with ~prefix:"HCSEMA0022: " message)
-  | Ok _ ->
-      Alcotest.fail "expected foreign callback parameter metadata to fail"
+  | Ok _ -> Alcotest.fail "expected foreign callback parameter metadata to fail"
 
 let mismatched_outer_expression_batch_is_rejected () =
   let prepared =
