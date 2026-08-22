@@ -84,18 +84,22 @@ type error
 val analyze :
   table:Symbol_table.t ->
   members:Aggregate_member_index.t ->
+  ?outer:Outer_expression_binding.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
 (** Derive immutable source-expression results for call arguments, ordinary and
     implicit-output function statements, conditions, switch selectors, case
-    values, and returns. Each checked expression has a deterministic identity,
-    source origin, semantic type, value category, remaining array rank,
-    conversion intent, forwarded result class, and any separate execution class
-    needed by later lowering. A selected default has a result with its exact
-    source and parameter, semantic parameter type, forwarded class, kind, and
-    JIT or AOT materialization path; it does not receive an expression identity.
-    A selected [lastclass] default also retains the previous provided result and
-    derived base spelling. Each function expression statement records the
+    values, and returns. When [outer] is supplied, it must be the exact
+    outer-expression batch for this policy traversal; checked global metadata
+    supplies the type, value shape, and array rank of the selected outer leaf.
+    Each checked expression has a deterministic identity, source origin,
+    semantic type, value category, remaining array rank, conversion intent,
+    forwarded result class, and any separate execution class needed by later
+    lowering. A selected default has a result with its exact source and
+    parameter, semantic parameter type, forwarded class, kind, and JIT or AOT
+    materialization path; it does not receive an expression identity. A selected
+    [lastclass] default also retains the previous provided result and derived
+    base spelling. Each function expression statement records the
     [ICF_RES_NOT_USED] intent emitted by [PrsExpression] without mutating the
     parser AST. Function conditions retain their statement role without an
     invented Boolean conversion. Switch selectors retain their bounded or
@@ -123,6 +127,7 @@ val analyze_top_level :
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
 val owns_policies : t -> Function_call_conversion_policy.t -> bool
+val owns_outer : t -> Outer_expression_binding.t -> bool
 val compilation_mode : t -> Function_resolution.compilation_mode
 val functions : t -> resolved_function list
 val all_results : t -> expression_result list
@@ -378,6 +383,11 @@ val result_intrinsic_conversion : expression_result -> intrinsic_conversion
 
 val result_member_lookup :
   expression_result -> Aggregate_member_index.lookup option
+
+val result_outer_occurrence :
+  expression_result -> Outer_expression_binding.occurrence option
+
+val result_outer_binding : expression_result -> Outer_environment.binding option
 
 val result_aggregate_offset_path :
   expression_result -> aggregate_offset_path option

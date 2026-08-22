@@ -4625,6 +4625,354 @@ let foreign_session_and_traversal_are_rejected () =
         "mismatched traversal has a stable conversion diagnostic" "HCSEMA0045"
         (Semantic_function_call_conversion_decision.error_code error)
 
+let checked_outer = function
+  | Ok value -> value
+  | Error error ->
+      error |> Semantic_outer_environment.error_to_string |> Alcotest.fail
+
+let typed_global_named prepared name =
+  prepared.Test_function_call_conversion_policy.global_types
+  |> Semantic_global_type_resolution.globals
+  |> List.find (fun global ->
+      global |> Semantic_global_type_resolution.global_symbol
+      |> Semantic_symbol.name |> String.equal name)
+
+let outer_global_metadata prepared template_name =
+  let global = typed_global_named prepared template_name in
+  let declarator_kind =
+    match Semantic_global_type_resolution.global_declarator_kind global with
+    | Semantic_global_type_resolution.Object ->
+        Semantic_outer_environment.Object_global
+    | Semantic_global_type_resolution.Function_pointer pointer ->
+        Semantic_outer_environment.Function_pointer_global pointer
+  in
+  Semantic_outer_environment.make_global_metadata
+    ~type_reference:
+      (Semantic_global_type_resolution.global_type_reference global)
+    ~declarator_kind
+    ~array_rank:
+      (global |> Semantic_global_type_resolution.global_array_dimensions
+     |> List.length)
+  |> checked_outer
+
+let make_outer_global_entry prepared ~entry_index ~name ?metadata () =
+  let table =
+    Session.semantic_symbols
+      prepared.Test_function_call_conversion_policy.session
+  in
+  let symbol =
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
+      ~name ~kind:Semantic_symbol.Global_variable
+      ~origin:(Semantic_symbol.Synthesized ("outer global fixture " ^ name))
+    |> checked_type
+  in
+  (match metadata with
+    | None ->
+        Semantic_outer_environment.make_entry ~symbol
+          ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
+    | Some global_metadata ->
+        Semantic_outer_environment.make_global_entry ~symbol ~entry_index
+          ~global_metadata)
+  |> checked_outer
+
+let make_outer_table ~table_kind ~table_index entries =
+  Semantic_outer_environment.make_table ~table_kind ~table_index entries
+  |> checked_outer
+
+let resolve_outer_batch prepared entries =
+  let mode, data_kind =
+    match prepared.Test_function_call_conversion_policy.mode with
+    | Preprocessor.Jit ->
+        (Preprocessor.Jit, Semantic_outer_environment.Jit_task 0)
+    | Preprocessor.Aot ->
+        (Preprocessor.Aot, Semantic_outer_environment.Aot_parent 0)
+  in
+  let data = make_outer_table ~table_kind:data_kind ~table_index:0 entries in
+  let assembler =
+    make_outer_table ~table_kind:Semantic_outer_environment.Assembler
+      ~table_index:1 []
+  in
+  let environment =
+    Holyc_lib.create_outer_environment prepared.session ~compilation_mode:mode
+      [ data; assembler ]
+    |> checked_type
+  in
+  let outer =
+    Holyc_lib.resolve_outer_expressions prepared.session ~environment
+      ~expressions:prepared.module_expressions
+    |> checked_type
+  in
+  outer
+
+let type_with_outer prepared entries =
+  let outer = resolve_outer_batch prepared entries in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let results =
+    Holyc_lib.type_function_call_expressions_with_outer prepared.session
+      ~members:prepared.members ~outer ~policies
+    |> checked_results
+  in
+  (outer, results)
+
+let outer_globals_retain_checked_expression_shapes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_function_call_conversion_policy.prepare ~mode
+          ~path:"typed-outer-globals.HC"
+          "class Box {F64 value;};F64 TemplateF;I64 *TemplateP;I64 \
+           TemplateArray[2];I64 (*TemplateCallback)(I64);Box \
+           TemplateBox;extern I64 Target(I64 a,I64 b,I64 c,I64 d,F64 e);I64 \
+           Caller(){return \
+           Target(OuterF,*OuterP,OuterCallback,OuterArray[0],OuterBox.value);}"
+      in
+      let specs =
+        [
+          ("OuterF", "TemplateF");
+          ("OuterP", "TemplateP");
+          ("OuterCallback", "TemplateCallback");
+          ("OuterArray", "TemplateArray");
+          ("OuterBox", "TemplateBox");
+        ]
+      in
+      let entries =
+        specs
+        |> List.mapi (fun entry_index (name, template) ->
+            make_outer_global_entry prepared ~entry_index ~name
+              ~metadata:(outer_global_metadata prepared template)
+              ())
+      in
+      let outer, results = type_with_outer prepared entries in
+      Alcotest.(check bool)
+        "typed expression results retain their outer batch" true
+        (Semantic_function_call_expression_result.owns_outer results outer);
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "outer leaves feed the ordinary expression rules"
+        [ "F64"; "I64"; "I64"; "I64"; "F64" ]
+        (List.map type_name roots);
+      Alcotest.(check (list string))
+        "outer root categories retain callbacks separately"
+        [
+          "object-value";
+          "object-value";
+          "callback-value";
+          "object-value";
+          "object-value";
+        ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.result_category
+             |> Semantic_function_call_expression_result.value_category_name)
+           roots);
+      let retained_names =
+        results |> Semantic_function_call_expression_result.all_results
+        |> List.filter_map (fun result ->
+            match
+              Semantic_function_call_expression_result.result_outer_binding
+                result
+            with
+            | None -> None
+            | Some binding ->
+                Some
+                  (binding |> Semantic_outer_environment.binding_entry
+                 |> Semantic_outer_environment.entry_symbol
+                 |> Semantic_symbol.name))
+      in
+      Alcotest.(check (list string))
+        "every supplied outer leaf retains its selected hash record"
+        [ "OuterF"; "OuterP"; "OuterCallback"; "OuterArray"; "OuterBox" ]
+        retained_names)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let missing_outer_global_metadata_stays_unavailable () =
+  let prepared =
+    prepare ~path:"untyped-outer-global.HC"
+      "extern I64 Target(I64 value);I64 Caller(){return Target(Outer);}"
+  in
+  let entry =
+    make_outer_global_entry prepared ~entry_index:0 ~name:"Outer" ()
+  in
+  let _, results = type_with_outer prepared [ entry ] in
+  match root_results results "Caller" with
+  | [ result ] ->
+      Alcotest.(check string)
+        "missing metadata does not invent I64" "unavailable" (type_name result);
+      Alcotest.(check bool)
+        "the unresolved result still retains the exact outer record" true
+        (Option.is_some
+           (Semantic_function_call_expression_result.result_outer_binding result))
+  | roots ->
+      Alcotest.failf "expected one untyped outer result, got %d"
+        (List.length roots)
+
+let outer_global_metadata_validates_rank_and_kind () =
+  let prepared =
+    prepare ~path:"outer-global-metadata-validation.HC"
+      "class Box {I64 value;};Box Template;I64 Caller(){return 0;}"
+  in
+  let template = typed_global_named prepared "Template" in
+  let reference =
+    Semantic_global_type_resolution.global_type_reference template
+  in
+  (match
+     Semantic_outer_environment.make_global_metadata ~type_reference:reference
+       ~declarator_kind:Semantic_outer_environment.Object_global
+       ~array_rank:(-1)
+   with
+  | Error error ->
+      Alcotest.(check string)
+        "negative ranks have a stable diagnostic" "HCSEMA0022"
+        (Semantic_outer_environment.error_code error)
+  | Ok _ -> Alcotest.fail "expected a negative outer array rank to fail");
+  let metadata =
+    Semantic_outer_environment.make_global_metadata ~type_reference:reference
+      ~declarator_kind:Semantic_outer_environment.Object_global ~array_rank:0
+    |> checked_outer
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let function_symbol =
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
+      ~name:"WrongKind" ~kind:Semantic_symbol.Function
+      ~origin:(Semantic_symbol.Synthesized "wrong outer metadata kind")
+    |> checked_type
+  in
+  (match
+     Semantic_outer_environment.make_global_entry ~symbol:function_symbol
+       ~entry_index:0 ~global_metadata:metadata
+   with
+  | Error error ->
+      Alcotest.(check string)
+        "non-global records reject global metadata" "HCSEMA0022"
+        (Semantic_outer_environment.error_code error)
+  | Ok _ -> Alcotest.fail "expected metadata on a function record to fail");
+  let foreign_session = Session.create () in
+  let foreign_table = Session.semantic_symbols foreign_session in
+  let foreign_aggregate =
+    Semantic_symbol_table.add foreign_table
+      ~scope:(Semantic_symbol_table.root foreign_table)
+      ~name:"ForeignBox" ~kind:Semantic_symbol.Aggregate_type
+      ~origin:(Semantic_symbol.Synthesized "foreign aggregate metadata")
+    |> checked_type
+  in
+  let foreign_type =
+    Semantic_type.make_aggregate ~symbol:foreign_aggregate ~pointer_depth:0
+    |> checked_type
+  in
+  let foreign_reference =
+    Semantic_type_reference.make ~spelling:"ForeignBox"
+      ~spelling_origin:(Semantic_symbol.Synthesized "foreign type spelling")
+      ~pointer_origins:[] ~resolved_type:foreign_type
+    |> checked_type
+  in
+  let foreign_metadata =
+    Semantic_outer_environment.make_global_metadata
+      ~type_reference:foreign_reference
+      ~declarator_kind:Semantic_outer_environment.Object_global ~array_rank:0
+    |> checked_outer
+  in
+  let current_symbol =
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
+      ~name:"ForeignTyped" ~kind:Semantic_symbol.Global_variable
+      ~origin:(Semantic_symbol.Synthesized "foreign typed outer global")
+    |> checked_type
+  in
+  let entry =
+    Semantic_outer_environment.make_global_entry ~symbol:current_symbol
+      ~entry_index:0 ~global_metadata:foreign_metadata
+    |> checked_outer
+  in
+  let data =
+    make_outer_table ~table_kind:(Semantic_outer_environment.Jit_task 0)
+      ~table_index:0 [ entry ]
+  in
+  let assembler =
+    make_outer_table ~table_kind:Semantic_outer_environment.Assembler
+      ~table_index:1 []
+  in
+  (match
+     Holyc_lib.create_outer_environment prepared.session
+       ~compilation_mode:Preprocessor.Jit [ data; assembler ]
+   with
+  | Error message ->
+      Alcotest.(check bool)
+        "foreign aggregate metadata has a stable diagnostic" true
+        (String.starts_with ~prefix:"HCSEMA0022: " message)
+  | Ok _ -> Alcotest.fail "expected foreign aggregate metadata to fail");
+  let foreign_callback_prepared =
+    prepare ~path:"foreign-callback-metadata.HC"
+      "class ForeignBox {I64 value;};I64 (*TemplateCallback)(ForeignBox);I64 \
+       Caller(){return 0;}"
+  in
+  let callback_metadata =
+    outer_global_metadata foreign_callback_prepared "TemplateCallback"
+  in
+  let callback_entry =
+    make_outer_global_entry prepared ~entry_index:0 ~name:"ForeignCallback"
+      ~metadata:callback_metadata ()
+  in
+  let callback_data =
+    make_outer_table ~table_kind:(Semantic_outer_environment.Jit_task 0)
+      ~table_index:0 [ callback_entry ]
+  in
+  let callback_assembler =
+    make_outer_table ~table_kind:Semantic_outer_environment.Assembler
+      ~table_index:1 []
+  in
+  match
+    Holyc_lib.create_outer_environment prepared.session
+      ~compilation_mode:Preprocessor.Jit
+      [ callback_data; callback_assembler ]
+  with
+  | Error message ->
+      Alcotest.(check bool)
+        "foreign callback parameter metadata has a stable diagnostic" true
+        (String.starts_with ~prefix:"HCSEMA0022: " message)
+  | Ok _ -> Alcotest.fail "expected foreign callback parameter metadata to fail"
+
+let mismatched_outer_expression_batch_is_rejected () =
+  let prepared =
+    prepare ~path:"outer-batch-owner.HC"
+      "extern I64 Target(I64 value);I64 Caller(){return Target(Outer);}"
+  in
+  let source =
+    Session.add_source prepared.session ~path:"other-outer-batch.HC"
+      ~contents:"I64 Other(){return OtherOuter;}"
+  in
+  let ast =
+    Holyc_lib.parse_with_config prepared.session
+      ~config:(Test_function_call_conversion_policy.config Preprocessor.Jit)
+      ~source
+    |> Test_function_call_conversion_policy.expect_ast
+  in
+  let other =
+    Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
+      prepared.session ast
+  in
+  let other_entry =
+    make_outer_global_entry other ~entry_index:0 ~name:"OtherOuter" ()
+  in
+  let outer = resolve_outer_batch other [ other_entry ] in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  match
+    Holyc_lib.type_function_call_expressions_with_outer prepared.session
+      ~members:prepared.members ~outer ~policies
+  with
+  | Error error ->
+      Alcotest.(check string)
+        "a mismatched outer batch has a stable diagnostic" "HCSEMA0046"
+        (Semantic_function_call_expression_result.error_code error)
+  | Ok _ -> Alcotest.fail "expected a mismatched outer batch to fail"
+
 let tests =
   [
     Alcotest.test_case "checked pointer transitions" `Quick
@@ -4759,6 +5107,14 @@ let tests =
       function_implicit_outputs_keep_targets_values_and_calls;
     Alcotest.test_case "included implicit output replay" `Quick
       included_implicit_outputs_replay_without_mutation;
+    Alcotest.test_case "typed outer global expression shapes" `Quick
+      outer_globals_retain_checked_expression_shapes;
+    Alcotest.test_case "missing outer global metadata" `Quick
+      missing_outer_global_metadata_stays_unavailable;
+    Alcotest.test_case "outer global metadata validation" `Quick
+      outer_global_metadata_validates_rank_and_kind;
+    Alcotest.test_case "outer expression batch validation" `Quick
+      mismatched_outer_expression_batch_is_rejected;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

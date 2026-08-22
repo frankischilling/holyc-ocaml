@@ -43,6 +43,7 @@ module Int_map = Map.Make (Int)
 type t = {
   table : Symbol_table.t;
   parent : Symbol_table.scope;
+  expressions : Module_expression_binding.t;
   compilation_mode : Function_resolution.compilation_mode;
   headers : Aggregate_header_resolution.header Int_map.t;
   functions : resolved_function list;
@@ -56,6 +57,7 @@ type error_kind =
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let functions (result : t) = result.functions
+let expressions (result : t) = result.expressions
 let compilation_mode (result : t) = result.compilation_mode
 let owns_table (result : t) table = result.table == table
 let owns_parent (result : t) parent = result.parent == parent
@@ -379,6 +381,7 @@ let analyze ~table ~parent ~headers ~calls =
                   {
                     table;
                     parent;
+                    expressions = Function_call_resolution.expressions calls;
                     compilation_mode =
                       Function_call_resolution.compilation_mode calls;
                     headers;

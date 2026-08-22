@@ -32,6 +32,7 @@ val analyze :
     the following expression-result pass. *)
 
 val functions : t -> resolved_function list
+val expressions : t -> Module_expression_binding.t
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode
 val owns_table : t -> Symbol_table.t -> bool

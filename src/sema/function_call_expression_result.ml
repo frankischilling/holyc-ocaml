@@ -49,6 +49,8 @@ type expression_result = {
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
   aggregate_offset_path : aggregate_offset_path option;
+  outer_occurrence : Outer_expression_binding.occurrence option;
+  outer_binding : Outer_environment.binding option;
   call_resolution : Function_call_resolution.call_resolution option;
   function_declaration : Function_resolution.resolved_declaration option;
   function_address_path :
@@ -235,6 +237,7 @@ type t = {
   table : Symbol_table.t;
   members : Aggregate_member_index.t;
   policies : Function_call_conversion_policy.t;
+  outer : Outer_expression_binding.t option;
   compilation_mode : Function_resolution.compilation_mode;
   functions : resolved_function list;
   all_results : expression_result list;
@@ -274,6 +277,7 @@ type expression_context = Value_context | Lvalue_context
 type build_state = {
   next_id : int;
   results_rev : expression_result list;
+  outer_function : Outer_expression_binding.resolved_function option;
   top_level_identifier_batch : Top_level_identifier_resolution.t option;
   top_level_direct_calls_rev : top_level_direct_call list;
   top_level_global_callback_calls_rev : top_level_global_callback_call list;
@@ -285,6 +289,12 @@ type build_state = {
 let owns_table result table = result.table == table
 let owns_members result members = result.members == members
 let owns_policies result policies = result.policies == policies
+
+let owns_outer result outer =
+  match result.outer with
+  | Some owned -> owned == outer
+  | None -> false
+
 let compilation_mode result = result.compilation_mode
 let functions result = result.functions
 let all_results result = result.all_results
@@ -534,6 +544,8 @@ let result_intrinsic_conversion (result : expression_result) =
   result.intrinsic_conversion
 
 let result_member_lookup (result : expression_result) = result.member_lookup
+let result_outer_occurrence result = result.outer_occurrence
+let result_outer_binding result = result.outer_binding
 
 let result_aggregate_offset_path (result : expression_result) =
   result.aggregate_offset_path
@@ -667,9 +679,10 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?aggregate_offset_path ?call_resolution ?function_declaration
-    ?function_address_path ?(intrinsic_conversion = No_intrinsic_conversion)
-    state ~id ~source ~source_type ~category ~result_class =
+    ?aggregate_offset_path ?outer_occurrence ?outer_binding ?call_resolution
+    ?function_declaration ?function_address_path
+    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
+    ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -683,6 +696,8 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       intrinsic_conversion;
       member_lookup;
       aggregate_offset_path;
+      outer_occurrence;
+      outer_binding;
       call_resolution;
       function_declaration;
       function_address_path;
@@ -952,6 +967,37 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
+let outer_binding_for_expression state source =
+  match state.outer_function with
+  | None -> Ok None
+  | Some function_ -> (
+      let source_origin =
+        Function_call_resolution.argument_expression_origin source
+      in
+      let matches =
+        function_ |> Outer_expression_binding.function_occurrences
+        |> List.filter_map (fun occurrence ->
+            if
+              Outer_expression_binding.occurrence_origin occurrence
+              <> source_origin
+            then None
+            else
+              match
+                Outer_expression_binding.occurrence_resolution occurrence
+              with
+              | Outer_expression_binding.Outer_binding binding ->
+                  Some (occurrence, binding)
+              | Outer_expression_binding.Local_binding _
+              | Outer_expression_binding.Module_binding _ -> None)
+      in
+      match matches with
+      | [] -> Ok None
+      | [ match_ ] -> Ok (Some match_)
+      | _ ->
+          Error
+            (invalid_input ~origin:source_origin
+               "outer expression binding repeats one source occurrence"))
+
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
     ?(intrinsic_conversion = No_intrinsic_conversion) state source =
@@ -959,13 +1005,14 @@ let rec type_expression table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (id, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup
-          ?aggregate_offset_path ?call_resolution ?function_declaration
-          ?function_address_path category result_class state =
+          ?aggregate_offset_path ?outer_occurrence ?outer_binding
+          ?call_resolution ?function_declaration ?function_address_path category
+          result_class state =
         Ok
           (make_result ~array_rank ?member_lookup ?aggregate_offset_path
-             ?call_resolution ?function_declaration ?function_address_path
-             ~intrinsic_conversion state ~id ~source ~source_type ~category
-             ~result_class)
+             ?outer_occurrence ?outer_binding ?call_resolution
+             ?function_declaration ?function_address_path ~intrinsic_conversion
+             state ~id ~source ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -986,6 +1033,8 @@ let rec type_expression table members policies ~before_item_index ~context
                 ~array_rank:grouped_result.array_rank
                 ?member_lookup:grouped_result.member_lookup
                 ?aggregate_offset_path:grouped_result.aggregate_offset_path
+                ?outer_occurrence:grouped_result.outer_occurrence
+                ?outer_binding:grouped_result.outer_binding
                 grouped_result.category grouped_result.result_class state)
       | Function_call_resolution.Prefix_expression prefix ->
           type_prefix table members policies ~before_item_index ~context
@@ -1162,7 +1211,47 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Offset_expression
           | Function_call_resolution.Defined_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
-          | Function_call_resolution.Identifier_expression
+          | Function_call_resolution.Identifier_expression -> (
+              match outer_binding_for_expression state source with
+              | Error _ as error -> error
+              | Ok None -> finish Unavailable Unresolved_actual_class state
+              | Ok (Some (outer_occurrence, outer_binding)) -> (
+                  let entry = Outer_environment.binding_entry outer_binding in
+                  let unavailable () =
+                    finish ~outer_occurrence ~outer_binding Unavailable
+                      Unresolved_actual_class state
+                  in
+                  match Outer_environment.entry_global_metadata entry with
+                  | None -> unavailable ()
+                  | Some metadata -> (
+                      match
+                        metadata |> Outer_environment.global_type_reference
+                        |> Type_reference.resolved_type |> known_type table
+                      with
+                      | Error _ as error -> error
+                      | Ok source_type ->
+                          let array_rank =
+                            Outer_environment.global_array_rank metadata
+                          in
+                          let category, result_class =
+                            if array_rank > 0 then (Array_value, Integer_result)
+                            else
+                              match
+                                Outer_environment.global_declarator_kind
+                                  metadata
+                              with
+                              | Outer_environment.Function_pointer_global _ ->
+                                  (Callback_value, Integer_result)
+                              | Outer_environment.Object_global ->
+                                  ( (match context with
+                                    | Value_context -> Object_value
+                                    | Lvalue_context -> Lvalue),
+                                    forwarded_class policies ~before_item_index
+                                      source_type )
+                          in
+                          finish ~source_type:(Some source_type) ~array_rank
+                            ~outer_occurrence ~outer_binding category
+                            result_class state)))
           | Function_call_resolution.Postfix_cast_expression ->
               finish Unavailable Unresolved_actual_class state
           | Function_call_resolution.Call_expression
@@ -2637,7 +2726,13 @@ let type_return table members policies ~before_item_index ~declared_type state
                       },
                       state ))))
 
-let type_function table members policies state source =
+let type_function table members policies outer state source =
+  let outer_function =
+    Option.bind outer (fun outer ->
+        Outer_expression_binding.find_function outer
+          (Function_call_conversion_policy.function_symbol source))
+  in
+  let state = { state with outer_function } in
   let item_index = Function_call_conversion_policy.function_item_index source in
   match
     source |> Function_call_conversion_policy.function_calls
@@ -2729,7 +2824,46 @@ let type_function table members policies state source =
                                   },
                                   state )))))))
 
-let analyze ~table ~members policies =
+let validate_outer policies outer =
+  if
+    Outer_expression_binding.source outer
+    != Function_call_conversion_policy.expressions policies
+  then
+    Error
+      (invalid_input
+         "outer expression bindings describe another expression batch")
+  else if
+    (match
+       outer |> Outer_expression_binding.environment
+       |> Outer_environment.compilation_mode
+     with
+      | Outer_environment.Jit -> Function_resolution.Jit
+      | Outer_environment.Aot -> Function_resolution.Aot)
+    <> Function_call_conversion_policy.compilation_mode policies
+  then
+    Error
+      (invalid_input
+         "outer expression bindings and conversion policies use different \
+          compilation modes")
+  else
+    let missing =
+      policies |> Function_call_conversion_policy.functions
+      |> List.find_opt (fun function_ ->
+          function_ |> Function_call_conversion_policy.function_symbol
+          |> Outer_expression_binding.find_function outer
+          |> Option.is_none)
+    in
+    match missing with
+    | None -> Ok ()
+    | Some function_ ->
+        Error
+          (invalid_input
+             ~origin:
+               (function_ |> Function_call_conversion_policy.function_symbol
+              |> Symbol.origin)
+             "outer expression bindings omit a checked function")
+
+let analyze ~table ~members ?outer policies =
   if not (Function_call_conversion_policy.owns_table policies table) then
     Error
       (invalid_input "call conversion policies belong to another symbol table")
@@ -2745,36 +2879,53 @@ let analyze ~table ~members policies =
       (invalid_input
          "aggregate member index and conversion policies describe different \
           modules")
+  else if
+    match outer with
+    | None -> false
+    | Some outer -> not (Outer_expression_binding.owns_table outer table)
+  then
+    Error
+      (invalid_input "outer expression bindings belong to another symbol table")
   else
-    match
-      policies |> Function_call_conversion_policy.functions
-      |> map_state
-           (type_function table members policies)
-           {
-             next_id = 0;
-             results_rev = [];
-             top_level_identifier_batch = None;
-             top_level_direct_calls_rev = [];
-             top_level_global_callback_calls_rev = [];
-             top_level_indexed_global_callback_calls_rev = [];
-             top_level_member_callback_calls_rev = [];
-           }
-    with
+    let outer_validation =
+      match outer with
+      | None -> Ok ()
+      | Some outer -> validate_outer policies outer
+    in
+    match outer_validation with
     | Error _ as error -> error
-    | Ok (functions, state) ->
-        Ok
-          {
-            table;
-            members;
-            policies;
-            compilation_mode =
-              Function_call_conversion_policy.compilation_mode policies;
-            functions;
-            all_results =
-              List.sort
-                (fun left right -> Id.compare left.id right.id)
-                state.results_rev;
-          }
+    | Ok () -> (
+        match
+          policies |> Function_call_conversion_policy.functions
+          |> map_state
+               (type_function table members policies outer)
+               {
+                 next_id = 0;
+                 results_rev = [];
+                 outer_function = None;
+                 top_level_identifier_batch = None;
+                 top_level_direct_calls_rev = [];
+                 top_level_global_callback_calls_rev = [];
+                 top_level_indexed_global_callback_calls_rev = [];
+                 top_level_member_callback_calls_rev = [];
+               }
+        with
+        | Error _ as error -> error
+        | Ok (functions, state) ->
+            Ok
+              {
+                table;
+                members;
+                policies;
+                outer;
+                compilation_mode =
+                  Function_call_conversion_policy.compilation_mode policies;
+                functions;
+                all_results =
+                  List.sort
+                    (fun left right -> Id.compare left.id right.id)
+                    state.results_rev;
+              })
 
 let type_top_level_root table members policies ~before_item_index state source =
   match
@@ -2892,6 +3043,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
            {
              next_id = 0;
              results_rev = [];
+             outer_function = None;
              top_level_identifier_batch = Some identifiers;
              top_level_direct_calls_rev = [];
              top_level_global_callback_calls_rev = [];

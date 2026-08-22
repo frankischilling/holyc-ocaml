@@ -460,6 +460,17 @@ val type_function_call_expressions :
     Known source types and value categories stay separate from the
     target-specific conversion intent selected by the next pass. *)
 
+val type_function_call_expressions_with_outer :
+  Session.t ->
+  members:Semantic_aggregate_member_index.t ->
+  outer:Semantic_outer_expression_binding.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  ( Semantic_function_call_expression_result.t,
+    Semantic_function_call_expression_result.error )
+  result
+(** Type function expressions with an exact outer-table binding batch. Entries
+    without checked metadata remain unavailable. *)
+
 val type_top_level_expressions :
   Session.t ->
   members:Semantic_aggregate_member_index.t ->

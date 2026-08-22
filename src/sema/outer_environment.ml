@@ -7,7 +7,22 @@ type record_kind =
   | Global_variable
   | Export_system_symbol
 
-type entry = { symbol : Symbol.t; record_kind : record_kind; entry_index : int }
+type global_declarator_kind =
+  | Object_global
+  | Function_pointer_global of Function_type_resolution.function_pointer
+
+type global_metadata = {
+  type_reference : Type_reference.t;
+  declarator_kind : global_declarator_kind;
+  array_rank : int;
+}
+
+type entry = {
+  symbol : Symbol.t;
+  record_kind : record_kind;
+  entry_index : int;
+  global_metadata : global_metadata option;
+}
 
 module Int_set = Set.Make (Int)
 module String_map = Map.Make (String)
@@ -64,7 +79,12 @@ let symbol_kind_for_record = function
   | Global_variable -> Symbol.Global_variable
   | Export_system_symbol -> Symbol.Assembler_symbol
 
-let make_entry ~symbol ~record_kind ~entry_index =
+let make_global_metadata ~type_reference ~declarator_kind ~array_rank =
+  if array_rank < 0 then
+    Error (invalid_input "outer global array rank cannot be negative")
+  else Ok { type_reference; declarator_kind; array_rank }
+
+let make_entry_with_metadata ~symbol ~record_kind ~entry_index global_metadata =
   if entry_index < 0 then
     Error (invalid_input "outer environment entry index cannot be negative")
   else if
@@ -75,7 +95,18 @@ let make_entry ~symbol ~record_kind ~entry_index =
     Error
       (invalid_input ~origin:(Symbol.origin symbol)
          "outer environment entry has the wrong semantic symbol kind")
-  else Ok { symbol; record_kind; entry_index }
+  else if Option.is_some global_metadata && record_kind <> Global_variable then
+    Error
+      (invalid_input ~origin:(Symbol.origin symbol)
+         "only an outer global-variable record can carry global metadata")
+  else Ok { symbol; record_kind; entry_index; global_metadata }
+
+let make_entry ~symbol ~record_kind ~entry_index =
+  make_entry_with_metadata ~symbol ~record_kind ~entry_index None
+
+let make_global_entry ~symbol ~entry_index ~global_metadata =
+  make_entry_with_metadata ~symbol ~record_kind:Global_variable ~entry_index
+    (Some global_metadata)
 
 let valid_table_kind = function
   | Jit_task depth | Aot_parent depth -> depth >= 0
@@ -159,6 +190,38 @@ let validate_roles compilation_mode tables =
   | Jit -> validate_jit_roles tables
   | Aot -> validate_aot_roles tables
 
+let type_is_owned symbol_table type_ =
+  match Type.base type_ with
+  | Type.Primitive _ -> true
+  | Type.Aggregate symbol -> Symbol_table.owns_symbol symbol_table symbol
+
+let reference_is_owned symbol_table reference =
+  type_is_owned symbol_table (Type_reference.resolved_type reference)
+
+let rec declarator_is_owned symbol_table = function
+  | Function_type_resolution.Object -> true
+  | Function_type_resolution.Function_pointer pointer ->
+      pointer_is_owned symbol_table pointer
+
+and pointer_is_owned symbol_table pointer =
+  pointer |> Function_type_resolution.function_pointer_signature
+  |> signature_is_owned symbol_table
+
+and signature_is_owned symbol_table signature =
+  signature |> Function_type_resolution.signature_parameters
+  |> List.for_all (fun parameter ->
+      reference_is_owned symbol_table
+        (Function_type_resolution.parameter_type_reference parameter)
+      && declarator_is_owned symbol_table
+           (Function_type_resolution.parameter_declarator_kind parameter))
+
+let global_metadata_is_owned symbol_table metadata =
+  reference_is_owned symbol_table metadata.type_reference
+  &&
+  match metadata.declarator_kind with
+  | Object_global -> true
+  | Function_pointer_global pointer -> pointer_is_owned symbol_table pointer
+
 let validate_symbols symbol_table table_chain =
   let rec entries seen = function
     | [] -> Ok seen
@@ -169,6 +232,16 @@ let validate_symbols symbol_table table_chain =
             (invalid_input
                ~origin:(Symbol.origin entry.symbol)
                "outer environment entry belongs to another symbol table")
+        else if
+          match entry.global_metadata with
+          | None -> false
+          | Some metadata ->
+              not (global_metadata_is_owned symbol_table metadata)
+        then
+          Error
+            (invalid_input
+               ~origin:(Symbol.origin entry.symbol)
+               "outer global metadata belongs to another symbol table")
         else if Int_set.mem number seen then
           Error
             (invalid_input
@@ -205,6 +278,10 @@ let table_entries table = table.entries
 let entry_symbol entry = entry.symbol
 let entry_record_kind entry = entry.record_kind
 let entry_index entry = entry.entry_index
+let entry_global_metadata entry = entry.global_metadata
+let global_type_reference metadata = metadata.type_reference
+let global_declarator_kind metadata = metadata.declarator_kind
+let global_array_rank metadata = metadata.array_rank
 let binding_table binding = binding.table
 let binding_entry binding = binding.entry
 
