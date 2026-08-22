@@ -154,6 +154,12 @@ Three top-level semantic-tree cases consume those exact bindings and follow `Lex
 dune exec test/test_main.exe -- test '^semantic top-level expression tree$'
 ```
 
+Three top-level identifier-classification cases consume those trees and follow the `HTt_GLBL_VAR`, `HTt_FUN`, `HTt_CLASS`, callback, and array routes in `PrsTerm`. They cover ordinary globals, arrays, callbacks, callback arrays, direct functions, aggregate offset bases, source-order redeclarations, all four outer record kinds, JIT/AOT address policy, generated provenance, deterministic replay, purity, mode mismatch, foreign ownership, and stale type batches. Outer entries remain explicitly unavailable because their current snapshots have no type payload. `HCSEMA0056` rejects mismatched inputs. The tests do not type operators, resolve call arguments, lower IR, execute statements, or emit `IET_MAIN`. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test '^semantic top-level identifier resolution$'
+```
+
 Seven outer expression-binding cases follow the explicit `CHashTable.next` field, single-table and chained lookup in `Kernel/KHashA.HC`, task-parent links in `Kernel/KTask.HC`, compiler-chain selection in `Compiler/CMain.HC`, and the final assembler link in `Compiler/AsmInit.HC`. They cover current and parent JIT tasks, nested and top-level AOT, assembler fallback, newest-record selection across all four supported record kinds, local and module precedence, generated-source failure provenance, deterministic replay, unchanged symbol counts, repeated identities, role and index errors, foreign sessions, and mode mismatches. `HCSEMA0022` through `HCSEMA0024` report validation and unresolved-name failures. The tests use supplied immutable table snapshots; they do not claim live task construction, addresses, imports, fixups, loader records, use counts, typing, storage, or lowering. Run only this group with:
 
 ```text
