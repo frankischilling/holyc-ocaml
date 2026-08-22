@@ -56,6 +56,7 @@ type argument_expression_kind =
   | Index_expression of index_expression
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
+  | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
@@ -105,6 +106,11 @@ and bound_identifier = {
   bound_identifier_function_declaration_ :
     Function_resolution.resolved_declaration option;
   bound_identifier_function_address_path_ : direct_function_address_path option;
+}
+
+and top_level_bound_identifier = {
+  top_level_bound_identifier_occurrence_ :
+    Top_level_outer_expression_binding.occurrence;
 }
 
 type argument = {
@@ -462,6 +468,9 @@ let bound_identifier_function_declaration identifier =
 let bound_identifier_function_address_path identifier =
   identifier.bound_identifier_function_address_path_
 
+let top_level_bound_identifier_occurrence identifier =
+  identifier.top_level_bound_identifier_occurrence_
+
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -592,6 +601,7 @@ let argument_expression_kind_name = function
   | Index_expression _ -> "index"
   | Member_access_expression _ -> "member"
   | Bound_identifier_expression _ -> "bound-identifier"
+  | Top_level_bound_identifier_expression _ -> "top-level-bound-identifier"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
@@ -825,6 +835,17 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
            bound_identifier_function_declaration_ = function_declaration;
            bound_identifier_function_address_path_ = function_address_path;
          })
+
+let make_top_level_bound_identifier_argument_expression ~occurrence =
+  if
+    String.equal
+      (Top_level_outer_expression_binding.occurrence_name occurrence)
+      ""
+  then Error "bound top-level identifier cannot have an empty name"
+  else
+    Ok
+      (Top_level_bound_identifier_expression
+         { top_level_bound_identifier_occurrence_ = occurrence })
 
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
@@ -1284,6 +1305,10 @@ let rec validate_argument_expression table parent visible declarations
               Error
                 (invalid_input "bound call argument type is not an aggregate")
             else Ok ())
+  | Top_level_bound_identifier_expression _ ->
+      Error
+        (invalid_input
+           "function call input contains a top-level identifier binding")
   | Integer_literal
   | Float_literal
   | Character_literal
@@ -1558,6 +1583,10 @@ let rec validate_bound_occurrences occurrence_by_index expression =
             (invalid_input
                "bound call argument occurrence does not belong to its function")
       )
+  | Top_level_bound_identifier_expression _ ->
+      Error
+        (invalid_input
+           "function call input contains a top-level identifier binding")
   | Integer_literal
   | Float_literal
   | Character_literal
@@ -2074,6 +2103,7 @@ let rec computed_expression_type members ~before_item_index expression =
             })
   | Postfix_expression _
   | Binary_expression _
+  | Top_level_bound_identifier_expression _
   | Integer_literal
   | Float_literal
   | Character_literal

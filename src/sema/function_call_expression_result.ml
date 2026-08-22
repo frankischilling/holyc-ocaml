@@ -593,6 +593,8 @@ let rec type_expression table members policies ~before_item_index ~context
                   (Function_call_resolution
                    .bound_identifier_function_address_path identifier)
                 category result_class state)
+      | Function_call_resolution.Top_level_bound_identifier_expression _ ->
+          finish Unavailable Unresolved_actual_class state
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->

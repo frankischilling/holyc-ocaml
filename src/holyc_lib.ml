@@ -60,6 +60,7 @@ module Semantic_top_level_expression_binding = Sema.Top_level_expression_binding
 module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
+module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
@@ -233,6 +234,17 @@ let resolve_top_level_outer_expressions session ~environment ~expressions =
     ~table:(Session.semantic_symbols session)
     ~environment ~expressions
   |> Result.map_error Sema.Top_level_outer_expression_binding.error_to_string
+
+let build_top_level_expression_trees session ~declarations ~compilation_mode
+    ~expressions module_ =
+  let compilation_mode =
+    match compilation_mode with
+    | Preprocessor.Jit -> Sema.Outer_environment.Jit
+    | Preprocessor.Aot -> Sema.Outer_environment.Aot
+  in
+  Driver.Top_level_expression_tree.build
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~compilation_mode ~expressions module_
 
 let create_outer_environment session ~compilation_mode tables =
   Driver.Outer_expression_binding.create_environment

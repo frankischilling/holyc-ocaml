@@ -31,6 +31,7 @@
   test_module_expression_binding
   test_top_level_expression_binding
   test_top_level_outer_expression_binding
+  test_top_level_expression_tree
   test_outer_expression_binding
   test_global_initializer_binding
   test_global_dimension_binding
