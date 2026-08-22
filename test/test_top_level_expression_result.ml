@@ -64,7 +64,8 @@ let outer_global_metadata source template_name =
      |> List.length)
   |> checked_outer
 
-let make_outer_entry (source : prepared_source) ~entry_index ~name ?metadata () =
+let make_outer_entry (source : prepared_source) ~entry_index ~name ?metadata ()
+    =
   let table = Session.semantic_symbols source.session in
   let symbol =
     Semantic_symbol_table.add table

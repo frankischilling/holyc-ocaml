@@ -1148,10 +1148,10 @@ let rec type_expression table members policies ~before_item_index ~context
                               occurrence
                           in
                           let message =
-                            "typed top-level outer global has no checked metadata"
+                            "typed top-level outer global has no checked \
+                             metadata"
                           in
-                          Error
-                            (invalid_top_level_input ~origin message)
+                          Error (invalid_top_level_input ~origin message)
                       | Some metadata -> (
                           match
                             metadata |> Outer_environment.global_type_reference
