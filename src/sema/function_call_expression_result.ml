@@ -36,9 +36,21 @@ type expression_result = {
   call_resolution : Function_call_resolution.call_resolution option;
 }
 
+type declared_default_kind = Expression_default_kind | Lastclass_default_kind
+type declared_default_materialization = Immediate_default | Aot_string_default
+
+type declared_default_result = {
+  default_source : Function_call_resolution.default_use;
+  default_parameter : Function_type_resolution.parameter;
+  default_type : Type.t;
+  default_class : result_class;
+  default_kind : declared_default_kind;
+  default_materialization : declared_default_materialization;
+}
+
 type fixed_path =
   | Provided_result of expression_result
-  | Declared_default_result
+  | Declared_default_result of declared_default_result
 
 type lastclass_substitution = {
   previous_result_ : expression_result option;
@@ -107,6 +119,12 @@ let indirect_fixed_results (call : indirect_call) = call.fixed_results
 let indirect_variadic_results (call : indirect_call) = call.variadic_results
 let fixed_source (fixed : fixed_result) = fixed.source
 let fixed_path (fixed : fixed_result) = fixed.path
+let declared_default_source result = result.default_source
+let declared_default_parameter result = result.default_parameter
+let declared_default_type result = result.default_type
+let declared_default_class result = result.default_class
+let declared_default_kind result = result.default_kind
+let declared_default_materialization result = result.default_materialization
 
 let fixed_lastclass_substitution (fixed : fixed_result) =
   fixed.lastclass_substitution
@@ -146,6 +164,14 @@ let intrinsic_conversion_name = function
   | No_intrinsic_conversion -> "none"
   | Result_to_f64 -> "ICF_RES_TO_F64"
   | Result_to_int -> "ICF_RES_TO_INT"
+
+let declared_default_kind_name = function
+  | Expression_default_kind -> "expression"
+  | Lastclass_default_kind -> "lastclass"
+
+let declared_default_materialization_name = function
+  | Immediate_default -> "immediate"
+  | Aot_string_default -> "aot-string-constant"
 
 let invalid_input ?origin message =
   let kind = Invalid_input message in
@@ -972,6 +998,40 @@ let lastclass_substitution policies ~before_item_index previous default =
             Option.bind previous (lastclass_name policies ~before_item_index);
         }
 
+let declared_default_result policies ~before_item_index source default =
+  let parameter =
+    source |> Function_call_conversion_policy.fixed_source
+    |> Function_call_resolution.fixed_parameter
+  in
+  let type_ =
+    parameter |> Function_type_resolution.parameter_type_reference
+    |> Type_reference.resolved_type
+  in
+  let kind, contains_string_literal =
+    match Function_call_resolution.default_parameter_default default with
+    | Function_type_resolution.Expression_default { contains_string_literal; _ }
+      -> (Expression_default_kind, contains_string_literal)
+    | Function_type_resolution.Lastclass_default _ ->
+        (Lastclass_default_kind, true)
+  in
+  let materialization =
+    match
+      ( Function_call_conversion_policy.compilation_mode policies,
+        contains_string_literal )
+    with
+    | Function_resolution.Aot, true -> Aot_string_default
+    | Function_resolution.Aot, false | Function_resolution.Jit, _ ->
+        Immediate_default
+  in
+  {
+    default_source = default;
+    default_parameter = parameter;
+    default_type = type_;
+    default_class = forwarded_class policies ~before_item_index type_;
+    default_kind = kind;
+    default_materialization = materialization;
+  }
+
 let type_fixed table members policies ~before_item_index previous state source =
   match
     ( Function_call_conversion_policy.fixed_path source,
@@ -983,7 +1043,10 @@ let type_fixed table members policies ~before_item_index previous state source =
       Ok
         ( {
             source;
-            path = Declared_default_result;
+            path =
+              Declared_default_result
+                (declared_default_result policies ~before_item_index source
+                   default);
             lastclass_substitution =
               lastclass_substitution policies ~before_item_index previous
                 default;

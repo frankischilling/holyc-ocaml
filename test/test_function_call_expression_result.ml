@@ -177,7 +177,17 @@ let provided_results call =
       match Semantic_function_call_expression_result.fixed_path fixed with
       | Semantic_function_call_expression_result.Provided_result result ->
           Some result
-      | Semantic_function_call_expression_result.Declared_default_result -> None)
+      | Semantic_function_call_expression_result.Declared_default_result _ ->
+          None)
+
+let declared_defaults fixed_results =
+  List.filter_map
+    (fun fixed ->
+      match Semantic_function_call_expression_result.fixed_path fixed with
+      | Semantic_function_call_expression_result.Declared_default_result result
+        -> Some (fixed, result)
+      | Semantic_function_call_expression_result.Provided_result _ -> None)
+    fixed_results
 
 let lastclass_substitutions fixed_results =
   List.filter_map
@@ -230,6 +240,15 @@ let type_name result =
         | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
+
+let semantic_type_name type_ =
+  let base =
+    match Semantic_type.base type_ with
+    | Semantic_type.Primitive (_, primitive) ->
+        Primitive_type.to_string primitive
+    | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+  in
+  base ^ String.make (Semantic_type.pointer_depth type_) '*'
 
 let member_lookup result =
   match
@@ -2009,8 +2028,8 @@ let variadic_expressions_receive_typed_results () =
       with
       | [ fixed ] -> (
           match Semantic_function_call_expression_result.fixed_path fixed with
-          | Semantic_function_call_expression_result.Declared_default_result ->
-              ()
+          | Semantic_function_call_expression_result.Declared_default_result _
+            -> ()
           | Semantic_function_call_expression_result.Provided_result _ ->
               Alcotest.fail "expected the fixed default to remain separate")
       | fixed ->
@@ -2397,6 +2416,213 @@ let indirect_included_and_generated_nested_calls_keep_identity () =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected generated nested call provenance"
 
+let selected_defaults_retain_semantic_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-default-results.HC"
+          "I64i union ScalarBack {};\n\
+           U0 Target(I64 integer=1,F64 floating=2.0,U8 \
+           *text=\"fallback\",ScalarBack backed=0(ScalarBack),U8 \
+           *name=lastclass);\n\
+           U0 AllDefault(I64 value=1);\n\
+           U0 Caller(U0 (*callback)(I64 integer=1,F64 floating=2.0,U8 \
+           *text=\"fallback\",U8 *name=lastclass)){\n\
+           Target(,,,,);AllDefault;callback(,,,);return;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let direct_defaults callee =
+        direct_named results "Caller" callee
+        |> Semantic_function_call_expression_result.direct_fixed_results
+        |> declared_defaults
+      in
+      let indirect_defaults =
+        indirect_named results "Caller" "callback"
+        |> Semantic_function_call_expression_result.indirect_fixed_results
+        |> declared_defaults
+      in
+      let describe defaults =
+        List.map
+          (fun (_, result) ->
+            Printf.sprintf "%s|%s|%s|%s"
+              (result
+             |> Semantic_function_call_expression_result.declared_default_type
+             |> semantic_type_name)
+              (result
+             |> Semantic_function_call_expression_result.declared_default_class
+             |> Semantic_function_call_expression_result.result_class_name)
+              (result
+             |> Semantic_function_call_expression_result.declared_default_kind
+             |> Semantic_function_call_expression_result
+                .declared_default_kind_name)
+              (result
+             |> Semantic_function_call_expression_result
+                .declared_default_materialization
+             |> Semantic_function_call_expression_result
+                .declared_default_materialization_name))
+          defaults
+      in
+      let materialization string_path =
+        match mode with
+        | Preprocessor.Jit -> "immediate"
+        | Preprocessor.Aot -> string_path
+      in
+      Alcotest.(check (list string))
+        "direct defaults retain their type, class, kind, and materialization"
+        [
+          "I64|integer-result|expression|immediate";
+          "F64|f64-result|expression|immediate";
+          Printf.sprintf "U8*|integer-result|expression|%s"
+            (materialization "aot-string-constant");
+          "ScalarBack|integer-result|expression|immediate";
+          Printf.sprintf "U8*|integer-result|lastclass|%s"
+            (materialization "aot-string-constant");
+        ]
+        (describe (direct_defaults "Target"));
+      Alcotest.(check (list string))
+        "typed indirect defaults use the same semantic result"
+        [
+          "I64|integer-result|expression|immediate";
+          "F64|f64-result|expression|immediate";
+          Printf.sprintf "U8*|integer-result|expression|%s"
+            (materialization "aot-string-constant");
+          Printf.sprintf "U8*|integer-result|lastclass|%s"
+            (materialization "aot-string-constant");
+        ]
+        (describe indirect_defaults);
+      Alcotest.(check int)
+        "parenthesis-free calls select one typed default" 1
+        (List.length (direct_defaults "AllDefault"));
+      List.iter
+        (fun (fixed, result) ->
+          let source =
+            fixed |> Semantic_function_call_expression_result.fixed_source
+            |> Semantic_function_call_conversion_policy.fixed_source
+          in
+          let expected_parameter =
+            Semantic_function_call_resolution.fixed_parameter source
+          in
+          let expected_default =
+            match Semantic_function_call_resolution.fixed_value source with
+            | Semantic_function_call_resolution.Declared_default default ->
+                default
+            | Semantic_function_call_resolution.Provided_argument _ ->
+                Alcotest.fail "expected a selected declared default"
+          in
+          Alcotest.(check bool)
+            "default result keeps the exact selected parameter" true
+            (expected_parameter
+            == Semantic_function_call_expression_result
+               .declared_default_parameter result);
+          Alcotest.(check bool)
+            "default result keeps the exact selected source" true
+            (expected_default
+            == Semantic_function_call_expression_result.declared_default_source
+                 result))
+        (direct_defaults "Target" @ indirect_defaults);
+      Alcotest.(check int)
+        "selected defaults do not manufacture expression identities" 0
+        (results |> Semantic_function_call_expression_result.all_results
+       |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let selected_default_provenance_and_replay_are_deterministic () =
+  with_included_source "U0 Target(U8 *text=\"fallback\");U0 Caller(){Target();}"
+    (fun included ->
+      let _, results = analyze included in
+      let default =
+        direct_named results "Caller" "Target"
+        |> Semantic_function_call_expression_result.direct_fixed_results
+        |> declared_defaults |> List.hd |> snd
+      in
+      match
+        default
+        |> Semantic_function_call_expression_result.declared_default_source
+        |> Semantic_function_call_resolution.default_parameter_default
+      with
+      | Semantic_function_type_resolution.Expression_default { origin; _ } -> (
+          match origin with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find
+                  (Session.sources included.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "included default keeps its source file" "calls.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected included default provenance")
+      | Semantic_function_type_resolution.Lastclass_default _ ->
+          Alcotest.fail "expected an expression default");
+  let prepared =
+    prepare ~mode:Preprocessor.Aot
+      ~path:"call-expression-generated-default-result.HC"
+      "#define FALLBACK \"fallback\"\n\
+       U0 Target(U8 *text=FALLBACK);U0 Caller(){Target();}"
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+  let run () =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> checked_results
+  in
+  let describe results =
+    let default =
+      direct_named results "Caller" "Target"
+      |> Semantic_function_call_expression_result.direct_fixed_results
+      |> declared_defaults |> List.hd |> snd
+    in
+    Printf.sprintf "%s|%s|%s|%s"
+      (default |> Semantic_function_call_expression_result.declared_default_type
+     |> semantic_type_name)
+      (default
+     |> Semantic_function_call_expression_result.declared_default_class
+     |> Semantic_function_call_expression_result.result_class_name)
+      (default |> Semantic_function_call_expression_result.declared_default_kind
+     |> Semantic_function_call_expression_result.declared_default_kind_name)
+      (default
+     |> Semantic_function_call_expression_result
+        .declared_default_materialization
+     |> Semantic_function_call_expression_result
+        .declared_default_materialization_name)
+  in
+  let first = run () in
+  let second = run () in
+  Alcotest.(check string)
+    "generated default typing replays identically" (describe first)
+    (describe second);
+  Alcotest.(check int)
+    "default typing leaves the symbol table unchanged" symbol_count
+    (Semantic_symbol_table.all_symbols table |> List.length);
+  let default =
+    direct_named first "Caller" "Target"
+    |> Semantic_function_call_expression_result.direct_fixed_results
+    |> declared_defaults |> List.hd |> snd
+  in
+  match
+    default |> Semantic_function_call_expression_result.declared_default_source
+    |> Semantic_function_call_resolution.default_parameter_default
+  with
+  | Semantic_function_type_resolution.Expression_default
+      { expression_origin; _ } -> (
+      match expression_origin with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed default keeps its definition" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated default provenance")
+  | Semantic_function_type_resolution.Lastclass_default _ ->
+      Alcotest.fail "expected a generated expression default"
+
 let lastclass_defaults_follow_previous_provided_results () =
   List.iter
     (fun mode ->
@@ -2711,6 +2937,10 @@ let tests =
       nested_indirect_calls_use_callback_return_headers;
     Alcotest.test_case "indirect included generated nested calls" `Quick
       indirect_included_and_generated_nested_calls_keep_identity;
+    Alcotest.test_case "selected default semantic results" `Quick
+      selected_defaults_retain_semantic_results;
+    Alcotest.test_case "selected default provenance and replay" `Quick
+      selected_default_provenance_and_replay_are_deterministic;
     Alcotest.test_case "lastclass default substitution" `Quick
       lastclass_defaults_follow_previous_provided_results;
     Alcotest.test_case "lastclass provenance and replay" `Quick

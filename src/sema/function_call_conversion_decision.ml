@@ -140,7 +140,7 @@ let fixed_decision source =
       Function_call_expression_result.fixed_path source )
   with
   | ( Function_call_conversion_policy.Declared_default,
-      Function_call_expression_result.Declared_default_result ) ->
+      Function_call_expression_result.Declared_default_result _ ) ->
       Ok { source = policy; path = Declared_default_path }
   | ( Function_call_conversion_policy.Provided_expression target,
       Function_call_expression_result.Provided_result actual_result ) ->
@@ -160,7 +160,7 @@ let fixed_decision source =
   | ( Function_call_conversion_policy.Declared_default,
       Function_call_expression_result.Provided_result _ )
   | ( Function_call_conversion_policy.Provided_expression _,
-      Function_call_expression_result.Declared_default_result ) ->
+      Function_call_expression_result.Declared_default_result _ ) ->
       Error (invalid_input "typed fixed call has an inconsistent source path")
 
 let map_result apply values =
