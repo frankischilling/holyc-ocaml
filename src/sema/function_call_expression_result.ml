@@ -40,9 +40,15 @@ type fixed_path =
   | Provided_result of expression_result
   | Declared_default_result
 
+type lastclass_substitution = {
+  previous_result_ : expression_result option;
+  class_name_ : string option;
+}
+
 type fixed_result = {
   source : Function_call_conversion_policy.fixed_policy;
   path : fixed_path;
+  lastclass_substitution : lastclass_substitution option;
 }
 
 type direct_call = {
@@ -101,6 +107,12 @@ let indirect_fixed_results (call : indirect_call) = call.fixed_results
 let indirect_variadic_results (call : indirect_call) = call.variadic_results
 let fixed_source (fixed : fixed_result) = fixed.source
 let fixed_path (fixed : fixed_result) = fixed.path
+
+let fixed_lastclass_substitution (fixed : fixed_result) =
+  fixed.lastclass_substitution
+
+let lastclass_previous_result substitution = substitution.previous_result_
+let lastclass_class_name substitution = substitution.class_name_
 let result_id (result : expression_result) = result.id
 let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
@@ -927,15 +939,57 @@ let map_state apply state values =
   in
   loop state [] values
 
-let type_fixed table members policies ~before_item_index state source =
+let lastclass_name policies ~before_item_index result =
+  match result.source_type with
+  | None -> None
+  | Some source_type -> (
+      let forwarded =
+        Function_call_conversion_policy.forwarded_type policies
+          ~before_item_index source_type
+      in
+      match Type.base forwarded with
+      | Type.Aggregate symbol -> Some (Symbol.name symbol)
+      | Type.Primitive (form, primitive) ->
+          let info = Primitive_type.info primitive in
+          Some
+            (match form with
+            | Type.Internal_storage -> info.storage_spelling
+            | Type.Public_spelling -> (
+                if Type.pointer_depth source_type <> 0 then info.spelling
+                else
+                  match info.declaration_form with
+                  | Primitive_type.Internal_type -> info.spelling
+                  | Primitive_type.Public_union -> info.storage_spelling)))
+
+let lastclass_substitution policies ~before_item_index previous default =
+  match Function_call_resolution.default_parameter_default default with
+  | Function_type_resolution.Expression_default _ -> None
+  | Function_type_resolution.Lastclass_default _ ->
+      Some
+        {
+          previous_result_ = previous;
+          class_name_ =
+            Option.bind previous (lastclass_name policies ~before_item_index);
+        }
+
+let type_fixed table members policies ~before_item_index previous state source =
   match
     ( Function_call_conversion_policy.fixed_path source,
       source |> Function_call_conversion_policy.fixed_source
       |> Function_call_resolution.fixed_value )
   with
   | ( Function_call_conversion_policy.Declared_default,
-      Function_call_resolution.Declared_default _ ) ->
-      Ok ({ source; path = Declared_default_result }, state)
+      Function_call_resolution.Declared_default default ) ->
+      Ok
+        ( {
+            source;
+            path = Declared_default_result;
+            lastclass_substitution =
+              lastclass_substitution policies ~before_item_index previous
+                default;
+          },
+          previous,
+          state )
   | ( Function_call_conversion_policy.Provided_expression _,
       Function_call_resolution.Provided_argument argument ) -> (
       match Function_call_resolution.argument_expression argument with
@@ -948,12 +1002,33 @@ let type_fixed table members policies ~before_item_index state source =
           with
           | Error _ as error -> error
           | Ok (result, state) ->
-              Ok ({ source; path = Provided_result result }, state)))
+              Ok
+                ( {
+                    source;
+                    path = Provided_result result;
+                    lastclass_substitution = None;
+                  },
+                  Some result,
+                  state )))
   | ( Function_call_conversion_policy.Declared_default,
       Function_call_resolution.Provided_argument _ )
   | ( Function_call_conversion_policy.Provided_expression _,
       Function_call_resolution.Declared_default _ ) ->
       Error (invalid_input "fixed call policy has an inconsistent source path")
+
+let type_fixed_results table members policies ~before_item_index state values =
+  let rec loop previous state rev = function
+    | [] -> Ok (List.rev rev, state)
+    | value :: rest -> (
+        match
+          type_fixed table members policies ~before_item_index previous state
+            value
+        with
+        | Error _ as error -> error
+        | Ok (result, previous, state) ->
+            loop previous state (result :: rev) rest)
+  in
+  loop None state [] values
 
 let type_variadic table members policies ~before_item_index state argument =
   match Function_call_resolution.argument_expression argument with
@@ -966,9 +1041,7 @@ let type_call table members policies ~before_item_index state = function
   | Function_call_conversion_policy.Direct_call_policy source -> (
       match
         source |> Function_call_conversion_policy.direct_fixed_policies
-        |> map_state
-             (type_fixed table members policies ~before_item_index)
-             state
+        |> type_fixed_results table members policies ~before_item_index state
       with
       | Error _ as error -> error
       | Ok (fixed_results, state) -> (
@@ -986,9 +1059,7 @@ let type_call table members policies ~before_item_index state = function
   | Function_call_conversion_policy.Indirect_call_policy source -> (
       match
         source |> Function_call_conversion_policy.indirect_fixed_policies
-        |> map_state
-             (type_fixed table members policies ~before_item_index)
-             state
+        |> type_fixed_results table members policies ~before_item_index state
       with
       | Error _ as error -> error
       | Ok (fixed_results, state) -> (

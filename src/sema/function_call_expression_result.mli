@@ -28,6 +28,7 @@ type fixed_path =
   | Provided_result of expression_result
   | Declared_default_result
 
+type lastclass_substitution
 type fixed_result
 type direct_call
 type indirect_call
@@ -48,10 +49,12 @@ val analyze :
   Function_call_conversion_policy.t ->
   (t, error) result
 (** Derive immutable source-expression results for provided fixed and variadic
-    direct-call arguments. Each result has a deterministic identity, source
-    origin, known semantic type, value category, remaining array rank, intrinsic
-    conversion requirement, forwarded result class, and any distinct execution
-    class needed by later lowering. *)
+    arguments on resolved direct and typed indirect calls. Each result has a
+    deterministic identity, source origin, known semantic type, value category,
+    remaining array rank, intrinsic conversion requirement, forwarded result
+    class, and any distinct execution class needed by later lowering. A selected
+    [lastclass] default retains the previous provided result and derived base
+    spelling. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -74,6 +77,12 @@ val indirect_fixed_results : indirect_call -> fixed_result list
 val indirect_variadic_results : indirect_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
 val fixed_path : fixed_result -> fixed_path
+val fixed_lastclass_substitution : fixed_result -> lastclass_substitution option
+
+val lastclass_previous_result :
+  lastclass_substitution -> expression_result option
+
+val lastclass_class_name : lastclass_substitution -> string option
 val result_id : expression_result -> Id.t
 
 val result_source :
