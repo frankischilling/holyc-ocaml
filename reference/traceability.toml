@@ -5517,7 +5517,7 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 unimplemented = ["assignment execution", "standalone module function values outside address-of", "arbitrary computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
@@ -5843,7 +5843,7 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
 focused_conversion_policy_tests = 7
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 focused_conversion_decision_tests = 34
 unsupported_callees = ["function-pointer arrays without an index", "arbitrary computed callback expressions", "untyped outer callback values"]
 callback_storage_reads_default_evaluation_arbitrary_computed_calls_abi_lowering_and_execution = "not implemented"
@@ -5892,7 +5892,7 @@ provenance = ["object expression", "member operator", "member name", "call punct
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_aggregate_member_index_tests = 8
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 native_oracle_status = "not required for this structural semantic boundary; the pinned member branch explicitly transfers CMemberLst.fun_ptr to PrsFunCall after checking MLF_FUN"
 callback_storage_reads_default_evaluation_abi_lowering_and_execution = "not implemented"
 
@@ -5931,7 +5931,7 @@ call_forms = ["direct", "typed indirect"]
 provenance = ["previous source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 ordinary_default_evaluation_string_allocation_aot_fixups_ir_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and OptClassFwd directly define the state transition and class spelling"
 
@@ -5968,7 +5968,7 @@ call_forms = ["direct", "typed indirect", "parenthesized", "parenthesis-free"]
 provenance = ["selected parameter", "default expression or keyword", "included source", "definition expansion"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 default_evaluation_payload_copy_string_allocation_ic_emission_fixups_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall directly distinguishes immediate and AOT string construction"
 
@@ -6006,7 +6006,7 @@ validation = ["function publication cannot be forged as object storage", "local 
 provenance = ["function occurrence", "source publication", "canonical function", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
 native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
 
@@ -6047,6 +6047,46 @@ provenance = ["address operator", "function occurrence", "source publication", "
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
-focused_expression_result_tests = 52
+focused_expression_result_tests = 56
 numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the audited parser branches directly select or reject each retained path"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-RETURN-RESULTS"
+description = "Function return statements retain their checked value, declared type, conversion intent, and value-presence warning fact."
+sources = [
+  "Compiler/PrsStmt.HC:140-169 function return state and missing-return warning",
+  "Compiler/PrsStmt.HC:1089-1120 return context, optional expression, declared class, and leave-label jump",
+  "Compiler/OptPass3.HC:249-257 integer and F64 result conversion flags",
+  "Compiler/OptPass4.HC:415-433 effective raw return type",
+  "Compiler/OptPass789A.HC:779-786 integer-side return register materialization",
+  "Compiler/CompilerA.HH:20-33 return intermediate-code identities"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 292
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "return statements in checked top-level function definitions"
+order_rule = "retain every return in recursive statement traversal order with a contiguous per-function identity"
+typing_rule = "a present value uses the same immutable expression-result traversal as a call argument"
+conversion_rule = "compare the declared forwarded raw class with the value class to record no conversion, ICF_RES_TO_F64, or ICF_RES_TO_INT"
+presence_rule = "use the declared class size to distinguish matching, missing, and unexpected values without turning the source warnings into hard errors"
+aggregate_rule = "a completed by-value aggregate uses its checked layout size for presence and source-visible backing for integer or F64 class forwarding"
+validation = ["symbol-table ownership", "function traversal ownership", "bound occurrence ownership", "source-order visibility", "contiguous return identities"]
+provenance = ["function identity", "return keyword", "return statement", "value expression", "included source", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_return_tests = 4
+focused_expression_result_tests = 56
+return_ir_leave_label_try_unwinding_register_placement_epilogue_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained warning and conversion facts"
