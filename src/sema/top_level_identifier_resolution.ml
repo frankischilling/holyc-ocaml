@@ -43,6 +43,10 @@ let error_to_string error = error.code ^ ": " ^ error_message error
 let owns_table result table = result.table == table
 let source result = result.source_
 let leaves result = result.leaves_
+
+let find_leaf result occurrence =
+  List.find_opt (fun leaf -> leaf.occurrence == occurrence) result.leaves_
+
 let leaf_node (leaf : leaf) = leaf.node
 let leaf_occurrence (leaf : leaf) = leaf.occurrence
 let leaf_resolution (leaf : leaf) = leaf.resolution

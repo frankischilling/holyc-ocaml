@@ -67,6 +67,9 @@ type switch_case_result
 type return_result
 type resolved_function
 type t
+type top_level_root_result
+type top_level_statement_result
+type top_level_t
 type error_kind = Invalid_input of string
 type error
 
@@ -94,12 +97,52 @@ val analyze :
     returns retain the declared type, integer or F64 conversion intent, and
     warning facts for missing or unexpected values. *)
 
+val analyze_top_level :
+  table:Symbol_table.t ->
+  members:Aggregate_member_index.t ->
+  policies:Function_call_conversion_policy.t ->
+  identifiers:Top_level_identifier_resolution.t ->
+  Top_level_expression_tree.t ->
+  (top_level_t, error) result
+(** Type scalar roots in executable top-level statements through the same
+    expression engine used for function bodies. Aggregate offset bases, outer
+    records without type payloads, member paths, and calls stay explicitly
+    unavailable until their dedicated semantic inputs exist. *)
+
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
 val owns_policies : t -> Function_call_conversion_policy.t -> bool
 val compilation_mode : t -> Function_resolution.compilation_mode
 val functions : t -> resolved_function list
 val all_results : t -> expression_result list
+val top_level_owns_table : top_level_t -> Symbol_table.t -> bool
+val top_level_owns_members : top_level_t -> Aggregate_member_index.t -> bool
+
+val top_level_owns_policies :
+  top_level_t -> Function_call_conversion_policy.t -> bool
+
+val top_level_owns_identifiers :
+  top_level_t -> Top_level_identifier_resolution.t -> bool
+
+val top_level_source : top_level_t -> Top_level_expression_tree.t
+
+val top_level_compilation_mode :
+  top_level_t -> Function_resolution.compilation_mode
+
+val top_level_statements : top_level_t -> top_level_statement_result list
+val top_level_all_results : top_level_t -> expression_result list
+
+val top_level_statement_source :
+  top_level_statement_result -> Top_level_expression_tree.statement
+
+val top_level_statement_roots :
+  top_level_statement_result -> top_level_root_result list
+
+val top_level_root_source :
+  top_level_root_result -> Top_level_expression_tree.root
+
+val top_level_root_value : top_level_root_result -> expression_result
+val top_level_root_result_use : top_level_root_result -> result_use option
 val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
