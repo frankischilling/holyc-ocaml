@@ -46,6 +46,8 @@ let () =
         Test_function_call_expression_result.tests );
       ( "semantic implicit output target resolution",
         Test_implicit_output_target_resolution.tests );
+      ( "semantic implicit output argument binding",
+        Test_implicit_output_argument_binding.tests );
       ( "semantic function call conversion decision",
         Test_function_call_conversion_decision.tests );
       ("semantic extern-to-import rewriting", Test_externs_to_imports.tests);
