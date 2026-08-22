@@ -4151,7 +4151,7 @@ scope = "ordinary identifier occurrences below executable top-level statement it
 publication_stream = ["aggregate declaration sites", "function declaration sites", "global records"]
 publication_boundary = "only publications at module item indexes before the owning statement are visible"
 lookup_rule = "the newest visible same-name publication wins across aggregate, function, and global kinds"
-outer_candidate = "a name absent from the visible module prefix remains explicit for a later outer-environment pass"
+outer_candidate = "a name absent from the visible module prefix remains explicit for HC-SEMA-TOP-LEVEL-OUTER-EXPRESSION-BINDINGS"
 statement_routes = ["block", "do-while", "expression", "for", "if and else", "implicit output", "local declaration initializer", "lock", "return", "sequence", "switch and sub-switch", "try and catch", "while"]
 excluded_identifier_roles = ["type syntax", "member suffix names", "sizeof", "offset", "defined", "labels", "assembly tokens"]
 identity = "statement indexes, module item indexes, and occurrence indexes are contiguous and deterministic"
@@ -4161,8 +4161,46 @@ diagnostic = "HCSEMA0052"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 5
-outer_lookup_type_checking_call_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+outer_lookup = "implemented by HC-SEMA-TOP-LEVEL-OUTER-EXPRESSION-BINDINGS"
+type_checking_call_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this binding boundary; CmpJoin, LexStmt2Bin, PrsStmt, PrsExp, Lex, and the hash routines state the source order and lookup rule directly"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-OUTER-EXPRESSION-BINDINGS"
+description = "Top-level ordinary-name candidates bind through explicit JIT or AOT outer tables without losing their statement identity."
+sources = [
+  "Compiler/CMain.HC:35-95 CmpJoin compiler and task table chain",
+  "Compiler/CMain.HC:1-32 LexStmt2Bin executable statement boundary",
+  "Compiler/PrsExp.HC:PrsTerm active hash records",
+  "Kernel/KHashA.HC:29-106 newest-first single-table and chained lookup",
+  "Doc/ScopingLinkage.DD:3-9 JIT task-parent lookup and shadowing"
+]
+implementation = [
+  "src/sema/top_level_outer_expression_binding.ml",
+  "src/sema/top_level_outer_expression_binding.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_top_level_outer_expression_binding.ml"
+]
+status = "implemented"
+issue = 310
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "outer candidates already classified by HC-SEMA-TOP-LEVEL-EXPRESSION-BINDINGS"
+lookup_precedence = ["source-visible module publication", "outer table chain"]
+jit_chain = ["current task", "parent tasks in depth order", "assembler table"]
+aot_chain = ["enclosing compilations in depth order", "assembler table"]
+single_table_rule = "newest same-name record wins regardless of the later expression role"
+result = ["source statement", "source occurrence", "module publication or exact outer binding"]
+identity = "statement indexes, item indexes, occurrence indexes, and origins are copied from the checked source batch"
+diagnostics = ["HCSEMA0053 invalid or mismatched semantic input", "HCSEMA0054 unresolved top-level identifier"]
+provenance = ["statement origin", "identifier origin", "generated invocation", "definition origin", "module publication or outer entry"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 4
+expression_role_filtering_type_checking_call_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this lookup boundary; CmpJoin, SYS_HASH_FIND, and ScopingLinkage.DD state the chain and shadowing order directly"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"

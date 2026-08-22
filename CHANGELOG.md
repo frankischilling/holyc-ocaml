@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Resolved top-level outer identifier candidates through supplied JIT task-parent or AOT enclosing-compilation tables and the assembler table. Module bindings keep precedence, statement and occurrence identities stay unchanged, and `HCSEMA0054` reports a name absent from the complete chain at its original source. Typing, call checking, evaluation, IR, execution, and `IET_MAIN` emission remain separate work.
 - Bound implicit `Print` and `PutChars` values to the fixed and variadic slots of the selected source-visible header. The semantic result keeps provided, omitted, and defaulted paths distinct; records integer and `F64` conversion intent; preserves JIT or AOT default materialization; defers unchecked outer signatures; and reports `HCSEMA0050` or `HCSEMA0051` for missing or excess values.
 - Resolved implicit `Print` and `PutChars` targets through source-visible module function headers and supplied JIT or AOT outer-table snapshots. The typed lookup skips same-name records of other kinds, retains module header and identity facts or the exact outer entry, and reports `HCSEMA0048` when no function header is visible.
 - Typed implicit `Print` and `PutChars` statement expressions while preserving their target, marker-backed or following-expression fixed slot, ordered `Print` arguments, and discarded-result intent. Fixed-slot conversion, formatting, output, and IR remain unimplemented.
