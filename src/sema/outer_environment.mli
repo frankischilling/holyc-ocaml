@@ -7,12 +7,26 @@ type record_kind =
   | Global_variable
   | Export_system_symbol
 
+type global_declarator_kind =
+  | Object_global
+  | Function_pointer_global of Function_type_resolution.function_pointer
+
+type global_metadata
 type entry
 type table
 type binding
 type t
 type error_kind = Invalid_input of string
 type error
+
+val make_global_metadata :
+  type_reference:Type_reference.t ->
+  declarator_kind:global_declarator_kind ->
+  array_rank:int ->
+  (global_metadata, error) result
+(** Retain the checked fields needed from one source [CHashGlblVar]. The rank
+    represents its linked dimension list; storage and runtime addresses remain
+    outside this semantic snapshot. *)
 
 val make_entry :
   symbol:Symbol.t ->
@@ -22,6 +36,14 @@ val make_entry :
 (** Describe one source-ordered record in an outer hash table. Export-system
     records use the semantic assembler-symbol kind until address and loader
     metadata are modeled. *)
+
+val make_global_entry :
+  symbol:Symbol.t ->
+  entry_index:int ->
+  global_metadata:global_metadata ->
+  (entry, error) result
+(** Build one global-variable record with its checked source type, callback,
+    and array-rank metadata. *)
 
 val make_table :
   table_kind:table_kind ->
@@ -54,6 +76,10 @@ val table_entries : table -> entry list
 val entry_symbol : entry -> Symbol.t
 val entry_record_kind : entry -> record_kind
 val entry_index : entry -> int
+val entry_global_metadata : entry -> global_metadata option
+val global_type_reference : global_metadata -> Type_reference.t
+val global_declarator_kind : global_metadata -> global_declarator_kind
+val global_array_rank : global_metadata -> int
 val binding_table : binding -> table
 val binding_entry : binding -> entry
 val compilation_mode_name : compilation_mode -> string

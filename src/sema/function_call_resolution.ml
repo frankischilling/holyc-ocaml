@@ -306,6 +306,7 @@ module String_map = Map.Make (String)
 
 type t = {
   table : Symbol_table.t;
+  expressions : Module_expression_binding.t;
   compilation_mode : Function_resolution.compilation_mode;
   functions : resolved_function list;
   by_symbol : resolved_function Int_map.t;
@@ -328,6 +329,7 @@ type error_kind =
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let functions (result : t) = result.functions
+let expressions (result : t) = result.expressions
 let compilation_mode (result : t) = result.compilation_mode
 let owns_table (result : t) table = result.table == table
 let function_symbol (function_ : resolved_function) = function_.symbol
@@ -2553,6 +2555,7 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
                     Ok
                       {
                         table;
+                        expressions;
                         compilation_mode =
                           Function_resolution.compilation_mode functions;
                         functions = functions_result;
