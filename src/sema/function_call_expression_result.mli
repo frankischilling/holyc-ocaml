@@ -40,6 +40,7 @@ type fixed_result
 type top_level_fixed_result
 type top_level_direct_call
 type top_level_global_callback_call
+type top_level_outer_callback_call
 type top_level_indexed_global_callback_call
 type top_level_member_callback_call
 type direct_call
@@ -150,6 +151,9 @@ val top_level_direct_calls : top_level_t -> top_level_direct_call list
 
 val top_level_global_callback_calls :
   top_level_t -> top_level_global_callback_call list
+
+val top_level_outer_callback_calls :
+  top_level_t -> top_level_outer_callback_call list
 
 val top_level_indexed_global_callback_calls :
   top_level_t -> top_level_indexed_global_callback_call list
@@ -293,6 +297,29 @@ val top_level_global_callback_variadic_count :
   top_level_global_callback_call -> int64
 
 val top_level_global_callback_result_id : top_level_global_callback_call -> Id.t
+
+val top_level_outer_callback_source :
+  top_level_outer_callback_call -> Top_level_expression_tree.call
+
+val top_level_outer_callback_occurrence :
+  top_level_outer_callback_call -> Top_level_outer_expression_binding.occurrence
+
+val top_level_outer_callback_binding :
+  top_level_outer_callback_call -> Outer_environment.binding
+
+val top_level_outer_callback_callable :
+  top_level_outer_callback_call -> Function_call_resolution.callable
+
+val top_level_outer_callback_fixed_results :
+  top_level_outer_callback_call -> top_level_fixed_result list
+
+val top_level_outer_callback_variadic_results :
+  top_level_outer_callback_call -> expression_result list
+
+val top_level_outer_callback_variadic_count :
+  top_level_outer_callback_call -> int64
+
+val top_level_outer_callback_result_id : top_level_outer_callback_call -> Id.t
 
 val top_level_indexed_global_callback_source :
   top_level_indexed_global_callback_call -> Top_level_expression_tree.call

@@ -6889,7 +6889,7 @@ diagnostics = ["HCSEMA0022 malformed or foreign outer metadata", "HCSEMA0046 mis
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_expression_result_tests = 71
-outer_calls_storage_reads_runtime_addresses_lowering_and_execution = "not implemented"
+outer_storage_reads_runtime_addresses_lowering_and_execution = "not implemented; scalar top-level outer callback typing is tracked separately by HC-SEMA-TOP-LEVEL-TYPED-OUTER-CALLBACKS"
 native_oracle_status = "not required for this source-stated semantic metadata boundary; the pinned record layout and parser consumer directly define the retained fields"
 
 [[feature]]
@@ -6924,6 +6924,41 @@ diagnostics = ["HCSEMA0056 mismatched leaf inputs", "HCSEMA0057 mismatched resul
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_identifier_tests = 4
-focused_expression_result_tests = 24
-outer_calls_storage_reads_runtime_addresses_lowering_and_execution = "not implemented"
+focused_expression_result_tests = 26
+outer_storage_reads_runtime_addresses_lowering_and_execution = "not implemented; scalar top-level outer callback typing is tracked separately by HC-SEMA-TOP-LEVEL-TYPED-OUTER-CALLBACKS"
 native_oracle_status = "not required for this source-stated semantic metadata boundary; the pinned record layout and parser consumer directly define the retained fields"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-TYPED-OUTER-CALLBACKS"
+description = "Scalar outer callback calls in executable top-level code retain the selected table record and use its checked recursive signature."
+sources = [
+  "Kernel/KernelA.HH:877-887 CHashGlblVar callback, dimension, type, and storage fields",
+  "Compiler/CMain.HC:65-75 JIT task and AOT parent table-chain construction",
+  "Compiler/Lex.HC:490-513 selected outer hash record",
+  "Compiler/PrsExp.HC:421-530 fixed arguments, defaults, conversions, and variadic tail",
+  "Compiler/PrsExp.HC:867-904 global callback selection and PrsPopDeref"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 336
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "rank-zero metadata-bearing outer callback globals selected for executable top-level calls"
+callable_rule = "the selected outer CHashGlblVar callback metadata supplies the return type and complete recursive function-pointer signature"
+argument_binding = "Sema.Function_call_resolution.bind_indirect_arguments retains provided fixed values, explicit holes, defaults, and the variadic tail"
+return_typing = ["integer", "F64", "pointer", "backed aggregate"]
+retained_identity = ["exact top-level source occurrence", "exact outer table binding", "fixed and variadic result identity", "call result identity"]
+unavailable_callee_shapes = ["metadata-free outer record", "ordinary outer object", "outer callback array"]
+validation = ["same semantic table", "same top-level expression batch", "same compilation mode", "rank-zero callback metadata", "exact selected outer binding"]
+diagnostics = ["HCSEMA0057 inconsistent top-level result or call input"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_top_level_expression_result_tests = 2
+parser_boundary = "fixtures group the unknown outer callee explicitly; parenthesis-free syntax still requires a source-visible direct function shape before outer lookup"
+storage_reads_runtime_addresses_default_evaluation_lowering_execution_and_iet_main = "not implemented"
+native_oracle_status = "not required for this semantic binding boundary; the pinned record layout, table lookup, and PrsFunCall consumer directly define the retained fields"
