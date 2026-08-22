@@ -5517,7 +5517,7 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 44
+focused_expression_result_tests = 46
 unimplemented = ["assignment execution", "module function value typing", "member and computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
@@ -5843,7 +5843,7 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
 focused_conversion_policy_tests = 7
-focused_expression_result_tests = 44
+focused_expression_result_tests = 46
 focused_conversion_decision_tests = 34
 unsupported_callees = ["function-pointer arrays without an index", "aggregate member callbacks", "arbitrary computed callback expressions", "untyped outer callback values"]
 callback_storage_reads_default_evaluation_member_and_computed_calls_abi_lowering_and_execution = "not implemented"
@@ -5884,7 +5884,7 @@ call_forms = ["direct", "typed indirect"]
 provenance = ["previous source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 44
+focused_expression_result_tests = 46
 ordinary_default_evaluation_string_allocation_aot_fixups_ir_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and OptClassFwd directly define the state transition and class spelling"
 
@@ -5921,6 +5921,44 @@ call_forms = ["direct", "typed indirect", "parenthesized", "parenthesis-free"]
 provenance = ["selected parameter", "default expression or keyword", "included source", "definition expansion"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 44
+focused_expression_result_tests = 46
 default_evaluation_payload_copy_string_allocation_ic_emission_fixups_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall directly distinguishes immediate and AOT string construction"
+
+[[feature]]
+id = "HC-SEMA-DIRECT-FUNCTION-ADDRESSES"
+description = "A direct function under address-of retains its source-visible function publication and TempleOS RT_PTR result without acquiring an object-pointer layer."
+sources = [
+  "Compiler/PrsExp.HC:620-671 direct function address branch, JIT and AOT selection, and RT_PTR result",
+  "Compiler/PrsExp.HC:862-866 distinct bare direct-call branch",
+  "Compiler/CInit.HC:1544-1574 intrinsic integer classes and RT_PTR alias",
+  "Compiler/CompilerA.HH:HTt_FUN and intermediate type declarations",
+  "Doc/HolyC.DD:parenthesis-free calls"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/oracle/parenthesis-free-calls.json"
+]
+status = "implemented"
+issue = 286
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct function identifiers immediately below address-of in provided fixed and variadic arguments on resolved function-body calls"
+binding_rule = "retain the exact Module_expression_binding function publication, including its source symbol and canonical joined identity"
+source_order_rule = "use the newest function publication visible before the owning function body; the current function is available for recursion"
+operand_rule = "represent the identifier as a direct-function value with internal RT_PTR storage type"
+address_rule = "preserve intrinsic RT_I64 at pointer depth zero instead of applying generic Type.pointer_to"
+result_rule = "the operand is a function value and the completed address expression is an integer-class address value"
+shadowing_rule = "a local or global object and a function-pointer variable retain their ordinary object or callback binding shape"
+validation = ["function publication cannot be forged as object storage", "local storage cannot be forged as a direct function", "occurrence ownership", "symbol-table ownership"]
+provenance = ["function occurrence", "source publication", "canonical function", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_expression_result_tests = 46
+jit_executable_address_extern_slot_aot_absolute_address_import_relocation_ic_emission_lowering_abi_and_execution = "not implemented"
+native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
