@@ -217,3 +217,22 @@ let find environment name =
         | None -> find_table rest)
   in
   find_table environment.tables
+
+let find_record environment ~name ~record_kind =
+  let rec find_entries = function
+    | [] -> None
+    | entry :: rest ->
+        if
+          entry.record_kind = record_kind
+          && String.equal (Symbol.name entry.symbol) name
+        then Some entry
+        else find_entries rest
+  in
+  let rec find_table = function
+    | [] -> None
+    | table :: rest -> (
+        match find_entries (List.rev table.entries) with
+        | Some entry -> Some { table; entry }
+        | None -> find_table rest)
+  in
+  find_table environment.tables

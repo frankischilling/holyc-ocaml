@@ -70,6 +70,9 @@ module Semantic_function_call_conversion_policy =
 module Semantic_function_call_expression_result =
   Sema.Function_call_expression_result
 
+module Semantic_implicit_output_target_resolution =
+  Sema.Implicit_output_target_resolution
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -272,6 +275,12 @@ let type_function_call_expressions session ~members ~policies =
   Sema.Function_call_expression_result.analyze
     ~table:(Session.semantic_symbols session)
     ~members policies
+
+let resolve_implicit_output_targets session ~environment ~module_expressions
+    ~function_types ~functions ~expressions =
+  Sema.Implicit_output_target_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~environment ~module_expressions ~function_types ~functions ~expressions
 
 let decide_function_call_conversions session ~policies ~expressions =
   Sema.Function_call_conversion_decision.decide

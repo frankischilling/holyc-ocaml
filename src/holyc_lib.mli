@@ -70,6 +70,9 @@ module Semantic_function_call_conversion_policy =
 module Semantic_function_call_expression_result =
   Sema.Function_call_expression_result
 
+module Semantic_implicit_output_target_resolution =
+  Sema.Implicit_output_target_resolution
+
 module Semantic_function_call_conversion_decision =
   Sema.Function_call_conversion_decision
 
@@ -406,6 +409,19 @@ val type_function_call_expressions :
     expression. Member expressions use the completed, immutable aggregate index.
     Known source types and value categories stay separate from the
     target-specific conversion intent selected by the next pass. *)
+
+val resolve_implicit_output_targets :
+  Session.t ->
+  environment:Semantic_outer_environment.t ->
+  module_expressions:Semantic_module_expression_binding.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  functions:Semantic_function_resolution.t ->
+  expressions:Semantic_function_call_expression_result.t ->
+  ( Semantic_implicit_output_target_resolution.t,
+    Semantic_implicit_output_target_resolution.error )
+  result
+(** Resolve implicit [Print] and [PutChars] statements through visible module
+    function headers and the supplied outer hash-table snapshot. *)
 
 val decide_function_call_conversions :
   Session.t ->
