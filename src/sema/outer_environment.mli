@@ -40,6 +40,10 @@ val create :
     current task and a final assembler table. AOT accepts zero or more enclosing
     compilations followed by one assembler table. *)
 
+val find_record : t -> name:string -> record_kind:record_kind -> binding option
+(** Find the newest matching name and record kind across the table chain. This
+    mirrors the type-mask filtering performed by TempleOS [HashFind]. *)
+
 val find : t -> string -> binding option
 val compilation_mode : t -> compilation_mode
 val tables : t -> table list
