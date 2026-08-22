@@ -744,9 +744,8 @@ let validate_return_indexes returns =
   in
   loop 0 returns
 
-let make_function ~symbol ~scope ~item_index ?(returns = [])
-    (calls : call list) :
-    (function_input, string) result =
+let make_function ~symbol ~scope ~item_index ?(returns = []) (calls : call list)
+    : (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -756,7 +755,8 @@ let make_function ~symbol ~scope ~item_index ?(returns = [])
   else
     match validate_return_indexes returns with
     | Error _ as error -> error
-    | Ok () -> Ok ({ symbol; scope; item_index; calls; returns } : function_input)
+    | Ok () ->
+        Ok ({ symbol; scope; item_index; calls; returns } : function_input)
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -1285,7 +1285,7 @@ let validate_returns table parent visible declarations compilation_mode returns
   in
   let rec loop expected = function
     | [] -> Ok ()
-    | (return_ : return_input) :: rest ->
+    | (return_ : return_input) :: rest -> (
         if return_.index <> expected then
           Error (invalid_input "function return indexes are not contiguous")
         else
@@ -1302,7 +1302,7 @@ let validate_returns table parent visible declarations compilation_mode returns
                     validate_bound_occurrences occurrence_by_index expression
                   with
                   | Error _ as error -> error
-                  | Ok () -> loop (expected + 1) rest))
+                  | Ok () -> loop (expected + 1) rest)))
   in
   loop 0 returns
 
@@ -1751,8 +1751,8 @@ let resolve_function ?members types declarations expected
   in
   let typed_function = Int_map.find_opt (symbol_number input.symbol) types in
   let rec calls rev = function
-    | [] ->
-        (match typed_function with
+    | [] -> (
+        match typed_function with
         | None ->
             Error
               (invalid_input

@@ -3525,9 +3525,8 @@ let return_values_follow_declared_result_classes () =
           (List.length returns)
   in
   let check message function_name expected =
-    Alcotest.(check (pair (pair string string) (pair string string))) message
-      expected
-      (descriptor function_name)
+    Alcotest.(check (pair (pair string string) (pair string string)))
+      message expected (descriptor function_name)
   in
   check "integer return converts to F64" "FloatFromInt"
     (("F64", "I64"), ("ICF_RES_TO_F64", "matching-value"));
@@ -3580,9 +3579,9 @@ let nested_return_calls_keep_exact_call_identity () =
           "class Box {I64 (*callback)();};\n\
            I64 Direct(){return 1;}\n\
            I64 Caller(I64 (*local)(),Box box,I64 flag){\n\
-             if(flag)return Direct();\n\
-             if(flag-1)return local();\n\
-             return box.callback();\n\
+           if(flag)return Direct();\n\
+           if(flag-1)return local();\n\
+           return box.callback();\n\
            }"
       in
       let _, results = analyze prepared in
@@ -3618,14 +3617,16 @@ let nested_return_calls_keep_exact_call_identity () =
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let included_return_values_replay_without_mutation () =
-  with_included_source
-    "#define VALUE 3.5\nF64 Caller(){return VALUE;}" (fun prepared ->
+  with_included_source "#define VALUE 3.5\nF64 Caller(){return VALUE;}"
+    (fun prepared ->
       let policies =
         Test_function_call_conversion_policy.analyze prepared
         |> Test_function_call_conversion_policy.checked_policy
       in
       let table = Session.semantic_symbols prepared.session in
-      let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
       let run () =
         Holyc_lib.type_function_call_expressions prepared.session
           ~members:prepared.members ~policies
@@ -3636,7 +3637,8 @@ let included_return_values_replay_without_mutation () =
         let value = return_value return_ in
         ( value |> type_name,
           value
-          |> Semantic_function_call_expression_result.result_intrinsic_conversion
+          |> Semantic_function_call_expression_result
+             .result_intrinsic_conversion
           |> Semantic_function_call_expression_result.intrinsic_conversion_name,
           value |> Semantic_function_call_expression_result.result_id
           |> Semantic_function_call_expression_result.Id.to_int )

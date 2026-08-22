@@ -929,7 +929,8 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
     let finish state expression =
       match
         Sema.Function_call_resolution.make_return ~index:state.next_return
-          ~keyword_origin:(origin return_.return_keyword) ~expression
+          ~keyword_origin:(origin return_.return_keyword)
+          ~expression
           ~origin:(origin return_.return_location)
       with
       | Error _ as error -> error
@@ -943,25 +944,25 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
     in
     match return_.return_value with
     | None -> finish state None
-    | Some value ->
+    | Some value -> (
         let first_occurrence = state.next_occurrence in
         let visible = state.visible_aggregates in
         let locals = state.typed_values in
         let globals = state.global_values in
         let occurrences = state.occurrences in
-        (match expression state value with
+        match expression state value with
         | Error _ as error -> error
-        | Ok state ->
+        | Ok state -> (
             let cursor = ref first_occurrence in
-            (match
-               argument_expression visible locals globals occurrences cursor
-                 value
-             with
+            match
+              argument_expression visible locals globals occurrences cursor
+                value
+            with
             | Error _ as error -> error
             | Ok _ when !cursor <> state.next_occurrence ->
                 Error
-                  "function return expression traversal disagrees with ordinary \
-                   expression binding"
+                  "function return expression traversal disagrees with \
+                   ordinary expression binding"
             | Ok expression -> finish state (Some expression)))
 
 let rec statement state = function
@@ -1104,7 +1105,8 @@ let function_input table visible_aggregates global_values expected typed locals
                  binding"
             else
               Sema.Function_call_resolution.make_function ~symbol ~scope
-                ~item_index ~returns:(List.rev state.returns_rev)
+                ~item_index
+                ~returns:(List.rev state.returns_rev)
                 (List.rev state.calls_rev))
 
 let publish_aggregates_before visible publications item_index =

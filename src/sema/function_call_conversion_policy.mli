@@ -28,8 +28,8 @@ val analyze :
     provided fixed expression receives the target class forwarded through
     aggregate headers visible before its caller. Defaults, variadic expressions,
     and deferred callees remain distinct source paths. Each resolved function
-    also carries its checked return type and source-ordered return inputs for the
-    following expression-result pass. *)
+    also carries its checked return type and source-ordered return inputs for
+    the following expression-result pass. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
@@ -39,8 +39,10 @@ val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_return_type : resolved_function -> Type_reference.t
+
 val function_returns :
   resolved_function -> Function_call_resolution.return_input list
+
 val function_calls : resolved_function -> call_policy list
 val direct_source : direct_call -> Function_call_resolution.direct_call
 val direct_fixed_policies : direct_call -> fixed_policy list

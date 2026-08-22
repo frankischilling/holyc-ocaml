@@ -1270,24 +1270,22 @@ let select_return_conversion declared_class value_class =
   match (declared_class, value_class) with
   | F64_result, Integer_result -> Result_to_f64
   | Integer_result, F64_result -> Result_to_int
-  | ( F64_result,
-      (F64_result | Unresolved_actual_class) )
-  | ( Integer_result,
-      (Integer_result | Unresolved_actual_class) )
+  | F64_result, (F64_result | Unresolved_actual_class)
+  | Integer_result, (Integer_result | Unresolved_actual_class)
   | Unresolved_actual_class, _ -> No_intrinsic_conversion
 
 let type_return table members policies ~before_item_index ~declared_type state
     source =
   match known_type table declared_type with
   | Error _ as error -> error
-  | Ok declared_type ->
+  | Ok declared_type -> (
       let declared_class =
         forwarded_class policies ~before_item_index declared_type
       in
       let zero_sized =
         return_type_is_zero_sized members ~before_item_index declared_type
       in
-      (match Function_call_resolution.return_expression source with
+      match Function_call_resolution.return_expression source with
       | None ->
           Ok
             ( {
@@ -1306,11 +1304,11 @@ let type_return table members policies ~before_item_index ~declared_type state
               ~context:Value_context state expression
           with
           | Error _ as error -> error
-          | Ok (value, state) ->
+          | Ok (value, state) -> (
               let conversion =
                 select_return_conversion declared_class value.result_class
               in
-              (match set_intrinsic_conversion state value conversion with
+              match set_intrinsic_conversion state value conversion with
               | Error _ as error -> error
               | Ok (value, state) ->
                   Ok
@@ -1335,24 +1333,23 @@ let type_function table members policies state source =
          state
   with
   | Error _ as error -> error
-  | Ok (calls, state) ->
+  | Ok (calls, state) -> (
       let declared_type =
         source |> Function_call_conversion_policy.function_return_type
         |> Type_reference.resolved_type
       in
-      (match
-         source |> Function_call_conversion_policy.function_returns
-         |> map_state
-              (type_return table members policies ~before_item_index:item_index
-                 ~declared_type)
-              state
-       with
+      match
+        source |> Function_call_conversion_policy.function_returns
+        |> map_state
+             (type_return table members policies ~before_item_index:item_index
+                ~declared_type)
+             state
+      with
       | Error _ as error -> error
       | Ok (returns, state) ->
           Ok
             ( {
-                symbol =
-                  Function_call_conversion_policy.function_symbol source;
+                symbol = Function_call_conversion_policy.function_symbol source;
                 scope = Function_call_conversion_policy.function_scope source;
                 item_index;
                 calls;
