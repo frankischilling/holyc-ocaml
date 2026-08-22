@@ -4320,14 +4320,51 @@ scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP
 supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
 result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
-unsupported_roots = ["top-level calls", "aggregate member paths", "aggregate offset bases", "outer records without type payloads"]
+unsupported_roots = ["top-level calls", "aggregate offset bases", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
 validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_tests = 6
-top_level_call_resolution_aggregate_member_typing_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+focused_tests = 8
+top_level_call_resolution_aggregate_offset_base_typing_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated scalar classification boundary; PrsExp, OptClassFwd, and OptPass012 directly define the retained result facts"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-MEMBER-RESULTS"
+description = "Executable top-level direct and pointer member paths reuse the checked aggregate-member expression engine."
+sources = [
+  "Compiler/PrsExp.HC:PrsTerm direct and pointer member access",
+  "Compiler/PrsExp.HC:PrsExpression2 postfix member consumers",
+  "Compiler/LexLib.HC:MemberFind current-class then base-chain lookup",
+  "Compiler/OptLib.HC:OptClassFwd source-visible backing class",
+  "Compiler/CInit.HC primitive and internal type records",
+  "Doc/HolyC.DD member syntax"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/top_level_identifier_resolution.ml"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_aggregate_member_index.ml"
+]
+status = "implemented"
+issue = 318
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct and pointer aggregate member paths whose top-level base already has a checked module type"
+lookup_facts = ["queried aggregate", "declaring aggregate", "inheritance depth", "member symbol", "member type", "byte layout", "array dimensions", "callback shape"]
+supported_consumers = ["value reads", "address and lvalue contexts", "partial and final indexing", "prefix and postfix updates", "simple and compound assignment", "postfix casts", "scalar binary operators"]
+backing_rule = "reuse Function_call_conversion_policy source-visible forwarding before the owning module item"
+diagnostics = ["HCSEMA0046 invalid direct or pointer base, incomplete aggregate, missing member, or invalid lvalue", "HCSEMA0057 mismatched top-level semantic batches"]
+validation = ["same module-scope member index", "completed aggregate visible before statement", "exact top-level base leaf", "source-positioned operator and member origins"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 2
+aggregate_offset_bases_outer_type_payloads_use_counting_address_calculation_calls_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this source-stated lookup and result-shape boundary; PrsTerm, MemberFind, and OptClassFwd directly define the retained facts"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
