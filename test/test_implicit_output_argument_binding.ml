@@ -415,6 +415,41 @@ let replay_purity_and_foreign_batches () =
         "foreign batch code" "HCSEMA0049"
         (Semantic_implicit_output_argument_binding.error_code error)
 
+let included_provenance_survives () =
+  Test_function_call_expression_result.with_included_source
+    "extern U0 Print(F64 fmt);I64 Caller(){\"\" 1;return 0;}"
+    (fun prepared ->
+      let inputs =
+        semantic_inputs prepared (environment prepared Preprocessor.Jit [])
+      in
+      let output =
+        bind inputs |> checked_bindings |> fun result ->
+        outputs_named result "Caller" |> List.hd |> bound
+      in
+      let slot =
+        output |> Semantic_implicit_output_argument_binding.bound_fixed_slots
+        |> List.hd
+      in
+      match Semantic_implicit_output_argument_binding.fixed_path slot with
+      | Semantic_implicit_output_argument_binding.Defaulted_path _ ->
+          Alcotest.fail "expected a provided included value"
+      | Semantic_implicit_output_argument_binding.Provided_path provided -> (
+          match
+            provided |> Semantic_implicit_output_argument_binding.provided_result
+            |> Semantic_function_call_expression_result.result_origin
+          with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find (Session.sources prepared.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "included output value keeps its source file" "calls.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected included output provenance"))
+
 let tests =
   [
     Alcotest.test_case "ordinary Print and PutChars" `Quick
@@ -433,4 +468,6 @@ let tests =
       checked_outer_header_enables_binding;
     Alcotest.test_case "replay, purity, and ownership" `Quick
       replay_purity_and_foreign_batches;
+    Alcotest.test_case "included provenance" `Quick
+      included_provenance_survives;
   ]

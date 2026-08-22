@@ -6360,6 +6360,6 @@ diagnostics = ["HCSEMA0049 invalid or mismatched semantic inputs", "HCSEMA0050 m
 provenance = ["owning function", "implicit output record", "literal marker", "provided expression", "definition origin", "selected parameter", "declared default", "module header or exact outer entry"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_tests = 8
+focused_tests = 9
 format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_and_top_level_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
