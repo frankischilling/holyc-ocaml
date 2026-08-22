@@ -351,6 +351,8 @@ type state = {
   calls_rev : Sema.Function_call_resolution.call list;
   next_condition : int;
   conditions_rev : Sema.Function_call_resolution.condition_input list;
+  next_selector : int;
+  selectors_rev : Sema.Function_call_resolution.selector_input list;
   next_return : int;
   returns_rev : Sema.Function_call_resolution.return_input list;
   visible_aggregates : Sema.Symbol.t String_map.t;
@@ -366,6 +368,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     calls_rev = [];
     next_condition = 0;
     conditions_rev = [];
+    next_selector = 0;
+    selectors_rev = [];
     next_return = 0;
     returns_rev = [];
     visible_aggregates;
@@ -1005,6 +1009,47 @@ let record_condition role keyword location state value =
                     conditions_rev = condition :: state.conditions_rev;
                   }))
 
+let record_selector mode keyword location state value =
+  let first_occurrence = state.next_occurrence in
+  let visible = state.visible_aggregates in
+  let locals = state.typed_values in
+  let globals = state.global_values in
+  let occurrences = state.occurrences in
+  match expression state value with
+  | Error _ as error -> error
+  | Ok state -> (
+      let cursor = ref first_occurrence in
+      match
+        argument_expression visible locals globals occurrences cursor value
+      with
+      | Error _ as error -> error
+      | Ok _ when !cursor <> state.next_occurrence ->
+          Error
+            "function switch selector traversal disagrees with ordinary \
+             expression binding"
+      | Ok expression -> (
+          match
+            Sema.Function_call_resolution.make_selector
+              ~index:state.next_selector ~mode ~keyword_origin:(origin keyword)
+              ~expression ~origin:(origin location)
+          with
+          | Error _ as error -> error
+          | Ok selector ->
+              if state.next_selector = max_int then
+                Error "function switch selector space is exhausted"
+              else
+                Ok
+                  {
+                    state with
+                    next_selector = state.next_selector + 1;
+                    selectors_rev = selector :: state.selectors_rev;
+                  }))
+
+let selector_mode = function
+  | Frontend.Ast.Bounded_switch -> Sema.Function_call_resolution.Bounded_switch
+  | Frontend.Ast.No_bound_switch ->
+      Sema.Function_call_resolution.No_bound_switch
+
 let rec statement state = function
   | Frontend.Ast.Block_statement block ->
       statements state block.block_statements
@@ -1055,7 +1100,12 @@ let rec statement state = function
   | Frontend.Ast.Sequence_statement sequence ->
       sequence_elements state sequence.sequence_elements
   | Frontend.Ast.Switch_statement switch -> (
-      match expression state switch.switch_expression with
+      match
+        record_selector
+          (selector_mode switch.switch_mode)
+          switch.switch_keyword switch.switch_location state
+          switch.switch_expression
+      with
       | Error _ as error -> error
       | Ok state -> switch_elements state switch.switch_elements)
   | Frontend.Ast.Try_catch_statement try_catch -> (
@@ -1160,6 +1210,7 @@ let function_input table visible_aggregates global_values expected typed locals
               Sema.Function_call_resolution.make_function ~symbol ~scope
                 ~item_index
                 ~conditions:(List.rev state.conditions_rev)
+                ~selectors:(List.rev state.selectors_rev)
                 ~returns:(List.rev state.returns_rev)
                 (List.rev state.calls_rev))
 

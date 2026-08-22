@@ -94,6 +94,11 @@ type condition_result = {
   condition_value : expression_result;
 }
 
+type selector_result = {
+  selector_source : Function_call_resolution.selector_input;
+  selector_value : expression_result;
+}
+
 type return_result = {
   return_source : Function_call_resolution.return_input;
   return_declared_type : Type.t;
@@ -109,6 +114,7 @@ type resolved_function = {
   item_index : int;
   calls : call_result list;
   conditions : condition_result list;
+  selectors : selector_result list;
   returns : return_result list;
 }
 
@@ -139,6 +145,9 @@ let function_calls (function_ : resolved_function) = function_.calls
 let function_conditions (function_ : resolved_function) = function_.conditions
 let condition_source result = result.condition_source
 let condition_value result = result.condition_value
+let function_selectors (function_ : resolved_function) = function_.selectors
+let selector_source result = result.selector_source
+let selector_value result = result.selector_value
 let function_returns (function_ : resolved_function) = function_.returns
 let return_source result = result.return_source
 let return_declared_type result = result.return_declared_type
@@ -214,6 +223,10 @@ let condition_role_name = function
   | Function_call_resolution.While_condition -> "while"
   | Function_call_resolution.Do_while_condition -> "do-while"
   | Function_call_resolution.For_condition -> "for"
+
+let selector_mode_name = function
+  | Function_call_resolution.Bounded_switch -> "bounded"
+  | Function_call_resolution.No_bound_switch -> "no-bound"
 
 let return_presence_name = function
   | Matching_value -> "matching-value"
@@ -1299,6 +1312,16 @@ let type_condition table members policies ~before_item_index state source =
   | Ok (condition_value, state) ->
       Ok ({ condition_source = source; condition_value }, state)
 
+let type_selector table members policies ~before_item_index state source =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Function_call_resolution.selector_expression source)
+  with
+  | Error _ as error -> error
+  | Ok (selector_value, state) ->
+      Ok ({ selector_source = source; selector_value }, state)
+
 let type_return table members policies ~before_item_index ~declared_type state
     source =
   match known_type table declared_type with
@@ -1368,31 +1391,41 @@ let type_function table members policies state source =
       with
       | Error _ as error -> error
       | Ok (conditions, state) -> (
-          let declared_type =
-            source |> Function_call_conversion_policy.function_return_type
-            |> Type_reference.resolved_type
-          in
           match
-            source |> Function_call_conversion_policy.function_returns
+            source |> Function_call_conversion_policy.function_selectors
             |> map_state
-                 (type_return table members policies
-                    ~before_item_index:item_index ~declared_type)
+                 (type_selector table members policies
+                    ~before_item_index:item_index)
                  state
           with
           | Error _ as error -> error
-          | Ok (returns, state) ->
-              Ok
-                ( {
-                    symbol =
-                      Function_call_conversion_policy.function_symbol source;
-                    scope =
-                      Function_call_conversion_policy.function_scope source;
-                    item_index;
-                    calls;
-                    conditions;
-                    returns;
-                  },
-                  state )))
+          | Ok (selectors, state) -> (
+              let declared_type =
+                source |> Function_call_conversion_policy.function_return_type
+                |> Type_reference.resolved_type
+              in
+              match
+                source |> Function_call_conversion_policy.function_returns
+                |> map_state
+                     (type_return table members policies
+                        ~before_item_index:item_index ~declared_type)
+                     state
+              with
+              | Error _ as error -> error
+              | Ok (returns, state) ->
+                  Ok
+                    ( {
+                        symbol =
+                          Function_call_conversion_policy.function_symbol source;
+                        scope =
+                          Function_call_conversion_policy.function_scope source;
+                        item_index;
+                        calls;
+                        conditions;
+                        selectors;
+                        returns;
+                      },
+                      state ))))
 
 let analyze ~table ~members policies =
   if not (Function_call_conversion_policy.owns_table policies table) then

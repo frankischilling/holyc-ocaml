@@ -29,6 +29,7 @@ type resolved_function = {
   item_index : int;
   return_type : Type_reference.t;
   conditions : Function_call_resolution.condition_input list;
+  selectors : Function_call_resolution.selector_input list;
   returns : Function_call_resolution.return_input list;
   calls : call_policy list;
 }
@@ -57,6 +58,7 @@ let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_return_type (function_ : resolved_function) = function_.return_type
 let function_conditions (function_ : resolved_function) = function_.conditions
+let function_selectors (function_ : resolved_function) = function_.selectors
 let function_returns (function_ : resolved_function) = function_.returns
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
@@ -317,6 +319,7 @@ let resolve_function headers source =
     item_index;
     return_type = Function_call_resolution.function_return_type source;
     conditions = Function_call_resolution.function_conditions source;
+    selectors = Function_call_resolution.function_selectors source;
     returns = Function_call_resolution.function_returns source;
     calls =
       source |> Function_call_resolution.function_calls

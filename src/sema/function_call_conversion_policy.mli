@@ -43,6 +43,9 @@ val function_return_type : resolved_function -> Type_reference.t
 val function_conditions :
   resolved_function -> Function_call_resolution.condition_input list
 
+val function_selectors :
+  resolved_function -> Function_call_resolution.selector_input list
+
 val function_returns :
   resolved_function -> Function_call_resolution.return_input list
 

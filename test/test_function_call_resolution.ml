@@ -1126,6 +1126,64 @@ let index_expression_constructors_validate_bracket_origins () =
     (Semantic_function_call_resolution.make_index_argument_expression ~base
        ~opening_origin ~index ~closing_origin:(Semantic_symbol.Synthesized ""))
 
+let switch_selector_constructors_validate_identity_and_origins () =
+  let keyword_origin = Semantic_symbol.Synthesized "switch keyword" in
+  let expression_origin = Semantic_symbol.Synthesized "switch expression" in
+  let statement_origin = Semantic_symbol.Synthesized "switch statement" in
+  let expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:expression_origin
+  in
+  let make ?(index = 0)
+      ?(mode = Semantic_function_call_resolution.Bounded_switch)
+      ?(keyword_origin = keyword_origin) ?(origin = statement_origin) () =
+    Semantic_function_call_resolution.make_selector ~index ~mode ~keyword_origin
+      ~expression ~origin
+  in
+  let retained = checked (make ()) in
+  Alcotest.(check int)
+    "selector constructor retains its identity" 0
+    (Semantic_function_call_resolution.selector_index retained);
+  Alcotest.(check bool)
+    "selector constructor retains its mode" true
+    (Semantic_function_call_resolution.selector_mode retained
+    = Semantic_function_call_resolution.Bounded_switch);
+  Alcotest.(check bool)
+    "selector constructor retains its expression" true
+    (Semantic_function_call_resolution.selector_expression retained
+    == expression);
+  Alcotest.(check (result reject string))
+    "a negative selector identity is rejected"
+    (Error "function switch selector index cannot be negative")
+    (make ~index:(-1) ());
+  Alcotest.(check (result reject string))
+    "an empty switch keyword origin is rejected"
+    (Error "function switch keyword has an invalid source origin")
+    (make ~keyword_origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "an empty switch statement origin is rejected"
+    (Error "function switch statement has an invalid source origin")
+    (make ~origin:(Semantic_symbol.Synthesized "") ());
+  let prepared =
+    prepare ~path:"function-switch-selector-constructor.HC"
+      "I64 Caller(){switch(0){case 0:break;}return 0;}"
+  in
+  let owner =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd
+  in
+  let noncontiguous = checked (make ~index:1 ()) in
+  Alcotest.(check (result reject string))
+    "a function rejects noncontiguous selector identities"
+    (Error "function switch selector indexes are not contiguous")
+    (Semantic_function_call_resolution.make_function
+       ~symbol:(Semantic_module_expression_binding.function_symbol owner)
+       ~scope:(Semantic_module_expression_binding.function_scope owner)
+       ~item_index:
+         (Semantic_module_expression_binding.function_item_index owner)
+       ~selectors:[ noncontiguous ] [])
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -1148,4 +1206,6 @@ let tests =
       named_cast_targets_validate_source_identity;
     Alcotest.test_case "index expression constructor validation" `Quick
       index_expression_constructors_validate_bracket_origins;
+    Alcotest.test_case "switch selector constructor validation" `Quick
+      switch_selector_constructors_validate_identity_and_origins;
   ]

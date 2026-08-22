@@ -48,6 +48,7 @@ type return_presence =
   | Missing_value
 
 type condition_result
+type selector_result
 type return_result
 type resolved_function
 type t
@@ -59,18 +60,19 @@ val analyze :
   members:Aggregate_member_index.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
-(** Derive immutable source-expression results for call arguments and function
-    conditions, and returns. Each checked expression has a deterministic
-    identity, source origin, semantic type, value category, remaining array
-    rank, conversion intent, forwarded result class, and any separate execution
-    class needed by later lowering. A selected default has a result with its
-    exact source and parameter, semantic parameter type, forwarded class, kind,
-    and JIT or AOT materialization path; it does not receive an expression
-    identity. A selected [lastclass] default also retains the previous provided
-    result and derived base spelling. Function conditions retain their statement
-    role without an invented Boolean conversion. Function returns retain the
-    declared type, integer or F64 conversion intent, and warning facts for
-    missing or unexpected values. *)
+(** Derive immutable source-expression results for call arguments, function
+    conditions, switch selectors, and returns. Each checked expression has a
+    deterministic identity, source origin, semantic type, value category,
+    remaining array rank, conversion intent, forwarded result class, and any
+    separate execution class needed by later lowering. A selected default has a
+    result with its exact source and parameter, semantic parameter type,
+    forwarded class, kind, and JIT or AOT materialization path; it does not
+    receive an expression identity. A selected [lastclass] default also retains
+    the previous provided result and derived base spelling. Function conditions
+    retain their statement role without an invented Boolean conversion. Switch
+    selectors retain their bounded or no-bound mode without applying range
+    arithmetic. Function returns retain the declared type, integer or F64
+    conversion intent, and warning facts for missing or unexpected values. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -88,6 +90,9 @@ val condition_source :
   condition_result -> Function_call_resolution.condition_input
 
 val condition_value : condition_result -> expression_result
+val function_selectors : resolved_function -> selector_result list
+val selector_source : selector_result -> Function_call_resolution.selector_input
+val selector_value : selector_result -> expression_result
 val function_returns : resolved_function -> return_result list
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t
@@ -155,6 +160,7 @@ val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string
 val condition_role_name : Function_call_resolution.condition_role -> string
+val selector_mode_name : Function_call_resolution.selector_mode -> string
 val return_presence_name : return_presence -> string
 val declared_default_kind_name : declared_default_kind -> string
 

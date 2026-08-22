@@ -122,12 +122,17 @@ let conditions_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_conditions
 
+let selectors_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_selectors
+
 let return_value result =
   match Semantic_function_call_expression_result.return_value result with
   | Some value -> value
   | None -> Alcotest.fail "expected a typed return value"
 
 let condition_value = Semantic_function_call_expression_result.condition_value
+let selector_value = Semantic_function_call_expression_result.selector_value
 
 let direct = function
   | Semantic_function_call_expression_result.Direct_call_result call -> call
@@ -3816,6 +3821,162 @@ let included_conditions_replay_without_mutation () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected included condition value provenance")
 
+let switch_selectors_keep_modes_types_and_calls () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-switch-selector-results.HC"
+          "class Box {I64 value;I64 (*callback)();};\n\
+           I64 Direct(){return 1;}\n\
+           I64 Caller(I64 integer,F64 floating,U8 *pointer,Box box){\n\
+           I64 array[1];\n\
+           switch(integer){case 0:switch[floating]{case 0:break;}break;}\n\
+           switch(pointer){case 0:break;}\n\
+           switch[box.value]{case 0:break;}\n\
+           switch(array[0]){case 0:break;}\n\
+           switch(Direct()){case 0:break;}\n\
+           switch(box.callback()){case 0:break;}\n\
+           return 0;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let selectors = selectors_named results "Caller" in
+      Alcotest.(check int)
+        "every function switch selector is retained" 7 (List.length selectors);
+      Alcotest.(check (list string))
+        "selector modes follow bounded and no-bound source syntax"
+        [
+          "bounded";
+          "no-bound";
+          "bounded";
+          "no-bound";
+          "bounded";
+          "bounded";
+          "bounded";
+        ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.selector_source
+             |> Semantic_function_call_resolution.selector_mode
+             |> Semantic_function_call_expression_result.selector_mode_name)
+           selectors);
+      Alcotest.(check (list int))
+        "selector identities are contiguous" [ 0; 1; 2; 3; 4; 5; 6 ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.selector_source
+             |> Semantic_function_call_resolution.selector_index)
+           selectors);
+      Alcotest.(check (list string))
+        "selector values retain source-visible types"
+        [ "I64"; "F64"; "U8*"; "I64"; "I64"; "I64"; "I64" ]
+        (List.map
+           (fun result -> result |> selector_value |> type_name)
+           selectors);
+      Alcotest.(check (list string))
+        "selector typing does not apply range or Boolean conversions"
+        [ "none"; "none"; "none"; "none"; "none"; "none"; "none" ]
+        (List.map
+           (fun result ->
+             result |> selector_value
+             |> Semantic_function_call_expression_result
+                .result_intrinsic_conversion
+             |> Semantic_function_call_expression_result
+                .intrinsic_conversion_name)
+           selectors);
+      let call_kind result =
+        match
+          result |> selector_value
+          |> Semantic_function_call_expression_result.result_call_resolution
+        with
+        | Some (Semantic_function_call_resolution.Direct_call _) -> "direct"
+        | Some (Semantic_function_call_resolution.Indirect_call call) ->
+            Alcotest.(check bool)
+              "member callback selector keeps its member lookup" true
+              (call |> Semantic_function_call_resolution.indirect_member_lookup
+             |> Option.is_some);
+            "callback"
+        | Some (Semantic_function_call_resolution.Deferred_call _) -> "deferred"
+        | None -> "none"
+      in
+      Alcotest.(check (list string))
+        "nested selector calls keep their resolution identity"
+        [ "direct"; "callback" ]
+        (selectors |> List.rev
+        |> List.filteri (fun index _ -> index < 2)
+        |> List.rev |> List.map call_kind))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_switch_selectors_replay_without_mutation () =
+  with_included_source
+    "#define PICK value\n\
+     I64 Caller(F64 value){switch[PICK]{case 0:break;}return 0;}"
+    (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        let selector = selectors_named results "Caller" |> List.hd in
+        let source =
+          Semantic_function_call_expression_result.selector_source selector
+        in
+        let value = selector_value selector in
+        Printf.sprintf "%d:%s:%s:%d"
+          (source |> Semantic_function_call_resolution.selector_index)
+          (source |> Semantic_function_call_resolution.selector_mode
+         |> Semantic_function_call_expression_result.selector_mode_name)
+          (value |> type_name)
+          (value |> Semantic_function_call_expression_result.result_id
+         |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check string)
+        "included selector typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "selector typing leaves the semantic table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let selector = selectors_named first "Caller" |> List.hd in
+      let source =
+        Semantic_function_call_expression_result.selector_source selector
+      in
+      (match
+         Semantic_function_call_resolution.selector_keyword_origin source
+       with
+      | Semantic_symbol.Source_location location ->
+          let source_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included switch keywords keep their include source" "calls.HC"
+            (Source_file.path source_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included switch keyword provenance");
+      match
+        selector |> selector_value
+        |> Semantic_function_call_expression_result.result_origin
+      with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed selectors keep their definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included switch selector provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -3977,6 +4138,10 @@ let tests =
       control_flow_conditions_keep_roles_and_types;
     Alcotest.test_case "included function condition replay" `Quick
       included_conditions_replay_without_mutation;
+    Alcotest.test_case "function switch selectors" `Quick
+      switch_selectors_keep_modes_types_and_calls;
+    Alcotest.test_case "included function switch selector replay" `Quick
+      included_switch_selectors_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]
