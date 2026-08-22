@@ -70,6 +70,14 @@ and argument_expression
 type argument
 type call
 type callable
+
+type condition_role =
+  | If_condition
+  | While_condition
+  | Do_while_condition
+  | For_condition
+
+type condition_input
 type return_input
 type function_input
 
@@ -152,10 +160,19 @@ val make_return :
   origin:Symbol.origin ->
   (return_input, string) result
 
+val make_condition :
+  index:int ->
+  role:condition_role ->
+  keyword_origin:Symbol.origin ->
+  expression:argument_expression ->
+  origin:Symbol.origin ->
+  (condition_input, string) result
+
 val make_function :
   symbol:Symbol.t ->
   scope:Symbol_table.scope ->
   item_index:int ->
+  ?conditions:condition_input list ->
   ?returns:return_input list ->
   call list ->
   (function_input, string) result
@@ -230,6 +247,7 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_return_type : resolved_function -> Type_reference.t
 val function_calls : resolved_function -> call_resolution list
+val function_conditions : resolved_function -> condition_input list
 val function_returns : resolved_function -> return_input list
 val call_index : call -> int
 val call_callee_occurrence_index : call -> int
@@ -241,6 +259,11 @@ val call_computed_callee : call -> argument_expression option
 val call_origin : call -> Symbol.origin
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
+val condition_index : condition_input -> int
+val condition_role : condition_input -> condition_role
+val condition_keyword_origin : condition_input -> Symbol.origin
+val condition_expression : condition_input -> argument_expression
+val condition_origin : condition_input -> Symbol.origin
 val return_index : return_input -> int
 val return_keyword_origin : return_input -> Symbol.origin
 val return_expression : return_input -> argument_expression option

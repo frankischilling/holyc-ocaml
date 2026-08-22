@@ -118,10 +118,16 @@ let returns_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_returns
 
+let conditions_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_conditions
+
 let return_value result =
   match Semantic_function_call_expression_result.return_value result with
   | Some value -> value
   | None -> Alcotest.fail "expected a typed return value"
+
+let condition_value = Semantic_function_call_expression_result.condition_value
 
 let direct = function
   | Semantic_function_call_expression_result.Direct_call_result call -> call
@@ -3660,6 +3666,156 @@ let included_return_values_replay_without_mutation () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected included return provenance")
 
+let control_flow_conditions_keep_roles_and_types () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-condition-results.HC"
+          "class Box {I64 value;I64 (*callback)();};\n\
+           I64 Caller(I64 flag,F64 ratio,U8 *ptr,Box box){\n\
+           if(flag);\n\
+           while(ratio)break;\n\
+           do ;while(ptr);\n\
+           for(flag=0;box.value;flag++);\n\
+           if(box.callback());\n\
+           return 0;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let conditions = conditions_named results "Caller" in
+      Alcotest.(check int)
+        "every function condition is retained" 5 (List.length conditions);
+      Alcotest.(check (list string))
+        "condition roles follow source order"
+        [ "if"; "while"; "do-while"; "for"; "if" ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.condition_source
+             |> Semantic_function_call_resolution.condition_role
+             |> Semantic_function_call_expression_result.condition_role_name)
+           conditions);
+      Alcotest.(check (list int))
+        "condition identities are contiguous" [ 0; 1; 2; 3; 4 ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.condition_source
+             |> Semantic_function_call_resolution.condition_index)
+           conditions);
+      Alcotest.(check (list string))
+        "condition values retain their semantic types"
+        [ "I64"; "F64"; "U8*"; "I64"; "I64" ]
+        (List.map
+           (fun result -> result |> condition_value |> type_name)
+           conditions);
+      Alcotest.(check (list string))
+        "condition values retain integer and F64 result classes"
+        [
+          "integer-result";
+          "f64-result";
+          "integer-result";
+          "integer-result";
+          "integer-result";
+        ]
+        (List.map
+           (fun result ->
+             result |> condition_value
+             |> Semantic_function_call_expression_result.result_class
+             |> Semantic_function_call_expression_result.result_class_name)
+           conditions);
+      Alcotest.(check (list string))
+        "condition typing does not invent Boolean conversions"
+        [ "none"; "none"; "none"; "none"; "none" ]
+        (List.map
+           (fun result ->
+             result |> condition_value
+             |> Semantic_function_call_expression_result
+                .result_intrinsic_conversion
+             |> Semantic_function_call_expression_result
+                .intrinsic_conversion_name)
+           conditions);
+      let callback = List.nth conditions 4 |> condition_value in
+      match
+        Semantic_function_call_expression_result.result_call_resolution callback
+      with
+      | Some (Semantic_function_call_resolution.Indirect_call call) ->
+          Alcotest.(check bool)
+            "callback conditions keep their member lookup" true
+            (call |> Semantic_function_call_resolution.indirect_member_lookup
+           |> Option.is_some)
+      | Some (Semantic_function_call_resolution.Direct_call _)
+      | Some (Semantic_function_call_resolution.Deferred_call _)
+      | None -> Alcotest.fail "expected a member callback condition")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_conditions_replay_without_mutation () =
+  with_included_source
+    "#define CHECK ratio\nI64 Caller(F64 ratio){if(CHECK)return 1;return 0;}"
+    (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        let condition = conditions_named results "Caller" |> List.hd in
+        let source =
+          Semantic_function_call_expression_result.condition_source condition
+        in
+        let value = condition_value condition in
+        Printf.sprintf "%d:%s:%s:%d"
+          (source |> Semantic_function_call_resolution.condition_index)
+          (source |> Semantic_function_call_resolution.condition_role
+         |> Semantic_function_call_expression_result.condition_role_name)
+          (value |> type_name)
+          (value |> Semantic_function_call_expression_result.result_id
+         |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check string)
+        "included condition typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "condition typing leaves the semantic table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let condition = conditions_named first "Caller" |> List.hd in
+      let source =
+        Semantic_function_call_expression_result.condition_source condition
+      in
+      (match
+         Semantic_function_call_resolution.condition_keyword_origin source
+       with
+      | Semantic_symbol.Source_location location ->
+          let source_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included condition keywords keep their include source" "calls.HC"
+            (Source_file.path source_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included condition keyword provenance");
+      match
+        condition |> condition_value
+        |> Semantic_function_call_expression_result.result_origin
+      with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed conditions keep their definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included condition value provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -3817,6 +3973,10 @@ let tests =
       nested_return_calls_keep_exact_call_identity;
     Alcotest.test_case "included function return replay" `Quick
       included_return_values_replay_without_mutation;
+    Alcotest.test_case "function control-flow conditions" `Quick
+      control_flow_conditions_keep_roles_and_types;
+    Alcotest.test_case "included function condition replay" `Quick
+      included_conditions_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]
