@@ -1,6 +1,6 @@
 type member_input = {
   member_type : Type.t;
-  member_is_function_pointer : bool;
+  member_function_pointer : Function_type_resolution.function_pointer option;
   member_layout : Aggregate_layout.member_layout;
 }
 
@@ -15,6 +15,7 @@ type member = private {
   declaring_aggregate : Symbol.t;
   member_type : Type.t;
   is_function_pointer : bool;
+  function_pointer : Function_type_resolution.function_pointer option;
   layout : Aggregate_layout.member_layout;
 }
 
@@ -75,6 +76,10 @@ val lookup_member : lookup -> member
 val member_symbol : member -> Symbol.t
 val member_type : member -> Type.t
 val member_is_function_pointer : member -> bool
+
+val member_function_pointer :
+  member -> Function_type_resolution.function_pointer option
+
 val member_layout : member -> Aggregate_layout.member_layout
 val error_code : error -> string
 val error_kind : error -> error_kind
