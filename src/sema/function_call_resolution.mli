@@ -70,6 +70,7 @@ and argument_expression
 type argument
 type call
 type callable
+type return_input
 type function_input
 
 val make_callable :
@@ -144,10 +145,18 @@ val make_call :
   argument list ->
   (call, string) result
 
+val make_return :
+  index:int ->
+  keyword_origin:Symbol.origin ->
+  expression:argument_expression option ->
+  origin:Symbol.origin ->
+  (return_input, string) result
+
 val make_function :
   symbol:Symbol.t ->
   scope:Symbol_table.scope ->
   item_index:int ->
+  ?returns:return_input list ->
   call list ->
   (function_input, string) result
 
@@ -219,7 +228,9 @@ val owns_table : t -> Symbol_table.t -> bool
 val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
+val function_return_type : resolved_function -> Type_reference.t
 val function_calls : resolved_function -> call_resolution list
+val function_returns : resolved_function -> return_input list
 val call_index : call -> int
 val call_callee_occurrence_index : call -> int
 val call_callee_name : call -> string
@@ -230,6 +241,10 @@ val call_computed_callee : call -> argument_expression option
 val call_origin : call -> Symbol.origin
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
+val return_index : return_input -> int
+val return_keyword_origin : return_input -> Symbol.origin
+val return_expression : return_input -> argument_expression option
+val return_origin : return_input -> Symbol.origin
 val argument_index : argument -> int
 val argument_kind : argument -> argument_kind
 val argument_expression : argument -> argument_expression option

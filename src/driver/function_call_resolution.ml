@@ -349,6 +349,8 @@ type state = {
   next_occurrence : int;
   next_call : int;
   calls_rev : Sema.Function_call_resolution.call list;
+  next_return : int;
+  returns_rev : Sema.Function_call_resolution.return_input list;
   visible_aggregates : Sema.Symbol.t String_map.t;
   typed_values : typed_environment;
   global_values : typed_environment;
@@ -360,6 +362,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     next_occurrence = 0;
     next_call = 0;
     calls_rev = [];
+    next_return = 0;
+    returns_rev = [];
     visible_aggregates;
     typed_values;
     global_values;
@@ -918,6 +922,48 @@ let case_pattern state = function
       | Error _ as error -> error
       | Ok state -> expression state range.case_range_end)
 
+let record_return state (return_ : Frontend.Ast.return_statement) =
+  if state.next_return = max_int then
+    Error "function return identity space is exhausted"
+  else
+    let finish state expression =
+      match
+        Sema.Function_call_resolution.make_return ~index:state.next_return
+          ~keyword_origin:(origin return_.return_keyword) ~expression
+          ~origin:(origin return_.return_location)
+      with
+      | Error _ as error -> error
+      | Ok return_input ->
+          Ok
+            {
+              state with
+              next_return = state.next_return + 1;
+              returns_rev = return_input :: state.returns_rev;
+            }
+    in
+    match return_.return_value with
+    | None -> finish state None
+    | Some value ->
+        let first_occurrence = state.next_occurrence in
+        let visible = state.visible_aggregates in
+        let locals = state.typed_values in
+        let globals = state.global_values in
+        let occurrences = state.occurrences in
+        (match expression state value with
+        | Error _ as error -> error
+        | Ok state ->
+            let cursor = ref first_occurrence in
+            (match
+               argument_expression visible locals globals occurrences cursor
+                 value
+             with
+            | Error _ as error -> error
+            | Ok _ when !cursor <> state.next_occurrence ->
+                Error
+                  "function return expression traversal disagrees with ordinary \
+                   expression binding"
+            | Ok expression -> finish state (Some expression)))
+
 let rec statement state = function
   | Frontend.Ast.Block_statement block ->
       statements state block.block_statements
@@ -955,10 +1001,7 @@ let rec statement state = function
   | Frontend.Ast.Local_declaration_statement declaration ->
       local_declaration state declaration
   | Frontend.Ast.Lock_statement lock -> statement state lock.lock_body
-  | Frontend.Ast.Return_statement return -> (
-      match return.return_value with
-      | None -> Ok state
-      | Some value -> expression state value)
+  | Frontend.Ast.Return_statement return -> record_return state return
   | Frontend.Ast.Sequence_statement sequence ->
       sequence_elements state sequence.sequence_elements
   | Frontend.Ast.Switch_statement switch -> (
@@ -1061,7 +1104,8 @@ let function_input table visible_aggregates global_values expected typed locals
                  binding"
             else
               Sema.Function_call_resolution.make_function ~symbol ~scope
-                ~item_index (List.rev state.calls_rev))
+                ~item_index ~returns:(List.rev state.returns_rev)
+                (List.rev state.calls_rev))
 
 let publish_aggregates_before visible publications item_index =
   let rec loop visible = function

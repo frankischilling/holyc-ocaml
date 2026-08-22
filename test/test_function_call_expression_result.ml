@@ -93,10 +93,35 @@ let analyze prepared =
   (policies, results)
 
 let function_named results name =
-  Semantic_function_call_expression_result.functions results
-  |> List.find (fun function_ ->
-      function_ |> Semantic_function_call_expression_result.function_symbol
-      |> Semantic_symbol.name |> String.equal name)
+  let functions = Semantic_function_call_expression_result.functions results in
+  match
+    List.find_opt
+      (fun function_ ->
+        function_ |> Semantic_function_call_expression_result.function_symbol
+        |> Semantic_symbol.name |> String.equal name)
+      functions
+  with
+  | Some function_ -> function_
+  | None ->
+      let available =
+        functions
+        |> List.map (fun function_ ->
+            function_
+            |> Semantic_function_call_expression_result.function_symbol
+            |> Semantic_symbol.name)
+        |> String.concat ", "
+      in
+      Alcotest.failf "expected function %s; available functions: %s" name
+        available
+
+let returns_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_returns
+
+let return_value result =
+  match Semantic_function_call_expression_result.return_value result with
+  | Some value -> value
+  | None -> Alcotest.fail "expected a typed return value"
 
 let direct = function
   | Semantic_function_call_expression_result.Direct_call_result call -> call
@@ -267,6 +292,15 @@ let semantic_type_name type_ =
     | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
   in
   base ^ String.make (Semantic_type.pointer_depth type_) '*'
+
+let return_descriptor result =
+  ( ( result |> Semantic_function_call_expression_result.return_declared_type
+      |> semantic_type_name,
+      result |> return_value |> type_name ),
+    ( result |> Semantic_function_call_expression_result.return_conversion
+      |> Semantic_function_call_expression_result.intrinsic_conversion_name,
+      result |> Semantic_function_call_expression_result.return_presence
+      |> Semantic_function_call_expression_result.return_presence_name ) )
 
 let member_lookup result =
   match
@@ -789,7 +823,7 @@ let nested_results_have_stable_value_contexts () =
   let all = Semantic_function_call_expression_result.all_results results in
   Alcotest.(check (list int))
     "expression identities are contiguous and source ordered"
-    (List.init 9 Fun.id)
+    (List.init 10 Fun.id)
     (List.map
        (fun result ->
          result |> Semantic_function_call_expression_result.result_id
@@ -802,6 +836,7 @@ let nested_results_have_stable_value_contexts () =
       "lvalue";
       "object-value";
       "lvalue";
+      "object-value";
       "object-value";
       "object-value";
       "object-value";
@@ -971,6 +1006,7 @@ let dereference_lvalues_follow_the_parent_context () =
       "address-value";
       "address-value";
       "lvalue";
+      "object-value";
     ]
     (results |> Semantic_function_call_expression_result.all_results
    |> category_names);
@@ -3468,6 +3504,160 @@ let invalid_member_callees_report_the_access_site () =
         "HCSEMA0039: aggregate member index belongs to another symbol table"
         message
 
+let return_values_follow_declared_result_classes () =
+  let prepared =
+    prepare ~path:"function-return-classes.HC"
+      "class Box {I64 value;};\n\
+       F64 FloatFromInt(){return 3;}\n\
+       I64 IntFromFloat(){return 3.5;}\n\
+       I64 SameInt(){return 3;}\n\
+       F64 SameFloat(){return 3.5;}\n\
+       U64 SameUnsigned(U64 value){return value;}\n\
+       U8 *Pointer(U8 *value){return value;}\n\
+       Box SameAggregate(Box value){return value;}"
+  in
+  let _, results = analyze prepared in
+  let descriptor name =
+    match returns_named results name with
+    | [ result ] -> return_descriptor result
+    | returns ->
+        Alcotest.failf "expected one return in %s, got %d" name
+          (List.length returns)
+  in
+  let check message function_name expected =
+    Alcotest.(check (pair (pair string string) (pair string string))) message
+      expected
+      (descriptor function_name)
+  in
+  check "integer return converts to F64" "FloatFromInt"
+    (("F64", "I64"), ("ICF_RES_TO_F64", "matching-value"));
+  check "F64 return converts to integer" "IntFromFloat"
+    (("I64", "F64"), ("ICF_RES_TO_INT", "matching-value"));
+  check "integer return needs no conversion" "SameInt"
+    (("I64", "I64"), ("none", "matching-value"));
+  check "F64 return needs no conversion" "SameFloat"
+    (("F64", "F64"), ("none", "matching-value"));
+  check "unsigned return needs no conversion" "SameUnsigned"
+    (("U64", "U64"), ("none", "matching-value"));
+  check "pointer return remains on the integer path" "Pointer"
+    (("U8*", "U8*"), ("none", "matching-value"));
+  check "aggregate return remains on the integer path" "SameAggregate"
+    (("Box", "Box"), ("none", "matching-value"))
+
+let return_value_presence_keeps_warning_facts () =
+  let prepared =
+    prepare ~path:"function-return-presence.HC"
+      "U0 Empty(){return;}I64 Missing(){return;}U0 Unexpected(){return 1;}"
+  in
+  let _, results = analyze prepared in
+  let presence name =
+    match returns_named results name with
+    | [ result ] ->
+        result |> Semantic_function_call_expression_result.return_presence
+        |> Semantic_function_call_expression_result.return_presence_name
+    | returns ->
+        Alcotest.failf "expected one return in %s, got %d" name
+          (List.length returns)
+  in
+  Alcotest.(check string)
+    "U0 accepts a valueless return" "matching-no-value" (presence "Empty");
+  Alcotest.(check string)
+    "nonzero return types retain a missing-value warning fact" "missing-value"
+    (presence "Missing");
+  Alcotest.(check string)
+    "U0 retains an unexpected-value warning fact" "unexpected-value"
+    (presence "Unexpected");
+  let unexpected = returns_named results "Unexpected" |> List.hd in
+  Alcotest.(check string)
+    "an unexpected value still keeps its checked source type" "I64"
+    (unexpected |> return_value |> type_name)
+
+let nested_return_calls_keep_exact_call_identity () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-return-calls.HC"
+          "class Box {I64 (*callback)();};\n\
+           I64 Direct(){return 1;}\n\
+           I64 Caller(I64 (*local)(),Box box,I64 flag){\n\
+             if(flag)return Direct();\n\
+             if(flag-1)return local();\n\
+             return box.callback();\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let returns = returns_named results "Caller" in
+      Alcotest.(check int)
+        "all nested control-flow returns are retained" 3 (List.length returns);
+      let call_kind result =
+        match
+          result |> return_value
+          |> Semantic_function_call_expression_result.result_call_resolution
+        with
+        | Some (Semantic_function_call_resolution.Direct_call _) -> "direct"
+        | Some (Semantic_function_call_resolution.Indirect_call call) ->
+            if
+              call |> Semantic_function_call_resolution.indirect_member_lookup
+              |> Option.is_some
+            then "member-indirect"
+            else "named-indirect"
+        | Some (Semantic_function_call_resolution.Deferred_call _) -> "deferred"
+        | None -> "none"
+      in
+      Alcotest.(check (list string))
+        "return values keep direct, named callback, and member callback calls"
+        [ "direct"; "named-indirect"; "member-indirect" ]
+        (List.map call_kind returns);
+      Alcotest.(check (list int))
+        "return identities follow source order" [ 0; 1; 2 ]
+        (List.map
+           (fun result ->
+             result |> Semantic_function_call_expression_result.return_source
+             |> Semantic_function_call_resolution.return_index)
+           returns))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_return_values_replay_without_mutation () =
+  with_included_source
+    "#define VALUE 3.5\nF64 Caller(){return VALUE;}" (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        let return_ = returns_named results "Caller" |> List.hd in
+        let value = return_value return_ in
+        ( value |> type_name,
+          value
+          |> Semantic_function_call_expression_result.result_intrinsic_conversion
+          |> Semantic_function_call_expression_result.intrinsic_conversion_name,
+          value |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int )
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check (triple string string int))
+        "included return typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "return typing leaves the semantic table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let value = returns_named first "Caller" |> List.hd |> return_value in
+      match Semantic_function_call_expression_result.result_origin value with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed return values keep their definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included return provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -3617,6 +3807,14 @@ let tests =
       included_definition_member_calls_replay_without_mutation;
     Alcotest.test_case "invalid member callback callees" `Quick
       invalid_member_callees_report_the_access_site;
+    Alcotest.test_case "function return result classes" `Quick
+      return_values_follow_declared_result_classes;
+    Alcotest.test_case "function return value presence" `Quick
+      return_value_presence_keeps_warning_facts;
+    Alcotest.test_case "nested calls in function returns" `Quick
+      nested_return_calls_keep_exact_call_identity;
+    Alcotest.test_case "included function return replay" `Quick
+      included_return_values_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

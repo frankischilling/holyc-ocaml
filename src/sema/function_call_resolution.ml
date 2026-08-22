@@ -132,11 +132,19 @@ type call = {
   arguments : argument list;
 }
 
+type return_input = {
+  index : int;
+  keyword_origin : Symbol.origin;
+  expression : argument_expression option;
+  origin : Symbol.origin;
+}
+
 type function_input = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
   item_index : int;
   calls : call list;
+  returns : return_input list;
 }
 
 type default_use = {
@@ -193,7 +201,9 @@ type resolved_function = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
   item_index : int;
+  return_type : Type_reference.t;
   calls : call_resolution list;
+  returns : return_input list;
 }
 
 module Int_map = Map.Make (Int)
@@ -229,7 +239,9 @@ let owns_table (result : t) table = result.table == table
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
+let function_return_type (function_ : resolved_function) = function_.return_type
 let function_calls (function_ : resolved_function) = function_.calls
+let function_returns (function_ : resolved_function) = function_.returns
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
@@ -240,6 +252,10 @@ let call_computed_callee (call : call) = call.computed_callee
 let call_origin (call : call) = call.origin
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
+let return_index (return_ : return_input) = return_.index
+let return_keyword_origin (return_ : return_input) = return_.keyword_origin
+let return_expression (return_ : return_input) = return_.expression
+let return_origin (return_ : return_input) = return_.origin
 let argument_index (argument : argument) = argument.index
 let argument_kind (argument : argument) = argument.kind
 let argument_expression (argument : argument) = argument.expression
@@ -710,7 +726,26 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
             arguments;
           }
 
-let make_function ~symbol ~scope ~item_index (calls : call list) :
+let make_return ~index ~keyword_origin ~expression ~origin =
+  if index < 0 then Error "function return index cannot be negative"
+  else if not (valid_origin keyword_origin) then
+    Error "function return keyword has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "function return statement has an invalid source origin"
+  else Ok { index; keyword_origin; expression; origin }
+
+let validate_return_indexes returns =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (return_ : return_input) :: rest ->
+        if return_.index <> expected then
+          Error "function return indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 returns
+
+let make_function ~symbol ~scope ~item_index ?(returns = [])
+    (calls : call list) :
     (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
@@ -718,7 +753,10 @@ let make_function ~symbol ~scope ~item_index (calls : call list) :
     Error "function call owner does not use a function scope"
   else if item_index < 0 then
     Error "function call owner item index cannot be negative"
-  else Ok ({ symbol; scope; item_index; calls } : function_input)
+  else
+    match validate_return_indexes returns with
+    | Error _ as error -> error
+    | Ok () -> Ok ({ symbol; scope; item_index; calls; returns } : function_input)
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -973,7 +1011,8 @@ let validate_callable table parent callable =
 
 let validate_argument_expressions table parent visible declarations
     compilation_mode calls =
-  let rec arguments = function
+  let rec arguments (values : argument list) =
+    match values with
     | [] -> Ok ()
     | argument :: rest -> (
         match argument.expression with
@@ -1118,7 +1157,7 @@ let validate_calls calls occurrences =
   in
   let rec loop expected_call previous_occurrence = function
     | [] -> Ok ()
-    | call :: rest -> (
+    | (call : call) :: rest -> (
         if call.index <> expected_call then
           Error (invalid_input "function call indexes are not contiguous")
         else if call.callee_occurrence_index <= previous_occurrence then
@@ -1206,7 +1245,8 @@ let validate_call_bound_occurrences calls occurrences =
           occurrence map)
       Int_map.empty occurrences
   in
-  let rec arguments = function
+  let rec arguments (values : argument list) =
+    match values with
     | [] -> Ok ()
     | argument :: rest -> (
         match argument.expression with
@@ -1232,6 +1272,39 @@ let validate_call_bound_occurrences calls occurrences =
             | Ok () -> loop rest))
   in
   loop calls
+
+let validate_returns table parent visible declarations compilation_mode returns
+    occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (return_ : return_input) :: rest ->
+        if return_.index <> expected then
+          Error (invalid_input "function return indexes are not contiguous")
+        else
+          match return_.expression with
+          | None -> loop (expected + 1) rest
+          | Some expression -> (
+              match
+                validate_argument_expression table parent visible declarations
+                  compilation_mode expression
+              with
+              | Error _ as error -> error
+              | Ok () -> (
+                  match
+                    validate_bound_occurrences occurrence_by_index expression
+                  with
+                  | Error _ as error -> error
+                  | Ok () -> loop (expected + 1) rest))
+  in
+  loop 0 returns
 
 let validate_function_input table parent visible declarations compilation_mode
     expected (input : function_input) =
@@ -1267,7 +1340,12 @@ let validate_function_input table parent visible declarations compilation_mode
         in
         match validate_call_bound_occurrences input.calls occurrences with
         | Error _ as error -> error
-        | Ok () -> validate_calls input.calls occurrences)
+        | Ok () -> (
+            match validate_calls input.calls occurrences with
+            | Error _ as error -> error
+            | Ok () ->
+                validate_returns table parent visible declarations
+                  compilation_mode input.returns occurrences))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =
@@ -1671,15 +1749,25 @@ let resolve_function ?members types declarations expected
           occurrence map)
       Int_map.empty occurrences
   in
+  let typed_function = Int_map.find_opt (symbol_number input.symbol) types in
   let rec calls rev = function
     | [] ->
-        Ok
-          {
-            symbol = input.symbol;
-            scope = input.scope;
-            item_index = input.item_index;
-            calls = List.rev rev;
-          }
+        (match typed_function with
+        | None ->
+            Error
+              (invalid_input
+                 "function return input has no matching typed declaration")
+        | Some typed ->
+            Ok
+              {
+                symbol = input.symbol;
+                scope = input.scope;
+                item_index = input.item_index;
+                return_type =
+                  Function_type_resolution.function_return_type typed;
+                calls = List.rev rev;
+                returns = input.returns;
+              })
     | call :: rest -> (
         match
           Int_map.find_opt call.callee_occurrence_index occurrence_by_index

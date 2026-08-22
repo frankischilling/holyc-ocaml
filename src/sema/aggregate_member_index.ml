@@ -476,6 +476,7 @@ let aggregates result = result.aggregates
 let owns_table result table = result.table == table
 let aggregate_symbol (aggregate : aggregate) = aggregate.symbol
 let aggregate_item_index (aggregate : aggregate) = aggregate.item_index
+let aggregate_size (aggregate : aggregate) = aggregate.layout.size
 let lookup_queried_aggregate (lookup : lookup) = lookup.queried_aggregate
 let lookup_declaring_aggregate (lookup : lookup) = lookup.declaring_aggregate
 let lookup_inheritance_depth (lookup : lookup) = lookup.inheritance_depth
