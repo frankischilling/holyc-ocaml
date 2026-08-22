@@ -602,9 +602,6 @@ let rec type_expression table members policies ~before_item_index ~context
       | Function_call_resolution.Index_expression index ->
           type_index table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source index
-      | Function_call_resolution.Member_access_expression _
-        when Option.is_some state.top_level_identifier_batch ->
-          finish Unavailable Unresolved_actual_class state
       | Function_call_resolution.Member_access_expression member ->
           type_member table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source member

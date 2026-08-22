@@ -104,10 +104,10 @@ val analyze_top_level :
   identifiers:Top_level_identifier_resolution.t ->
   Top_level_expression_tree.t ->
   (top_level_t, error) result
-(** Type scalar roots in executable top-level statements through the same
-    expression engine used for function bodies. Aggregate offset bases, outer
-    records without type payloads, member paths, and calls stay explicitly
-    unavailable until their dedicated semantic inputs exist. *)
+(** Type scalar roots and aggregate member paths in executable top-level
+    statements through the same expression engine used for function bodies.
+    Aggregate offset bases, outer records without type payloads, and calls stay
+    explicitly unavailable until their dedicated semantic inputs exist. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool

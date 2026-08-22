@@ -137,6 +137,20 @@ let descriptor result =
    |> Semantic_function_call_expression_result.result_class_name)
     (Semantic_function_call_expression_result.result_array_rank result)
 
+let lookup_description result =
+  match Semantic_function_call_expression_result.result_member_lookup result with
+  | None -> Alcotest.fail "expected a resolved aggregate member lookup"
+  | Some lookup ->
+      let member = Semantic_aggregate_member_index.lookup_member lookup in
+      let layout = Semantic_aggregate_member_index.member_layout member in
+      Printf.sprintf "%s:%s:depth-%d:offset-%Ld"
+        (member |> Semantic_aggregate_member_index.member_symbol
+       |> Semantic_symbol.name)
+        (lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+       |> Semantic_symbol.name)
+        (Semantic_aggregate_member_index.lookup_inheritance_depth lookup)
+        layout.offset
+
 let literals_and_module_values () =
   List.iter
     (fun mode ->
@@ -303,6 +317,89 @@ let indexes_casts_and_conversions () =
         |> Semantic_function_call_expression_result.result_intrinsic_conversion
         |> Semantic_function_call_expression_result.intrinsic_conversion_name))
 
+let aggregate_member_paths () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-member-paths.HC"
+          "F64 class FloatBox {};
+           class Base {I8 inherited;};
+           class Box : Base {I64 matrix[2][3];F64 (*callback)(I64);FloatBox \
+           floating;I64 value;};
+           Box box;Box *pointer;
+           box.inherited;box.matrix;box.matrix[0];box.callback;box.floating;
+           pointer->value;++box.value;box.value=3;"
+      in
+      let _, _, _, result = analyze source in
+      let values = root_values result in
+      Alcotest.(check (list string))
+        "member paths retain scalar, array, callback, and backing classes"
+        [
+          "I8:object-value:integer-result:rank-0";
+          "I64:array-value:integer-result:rank-2";
+          "I64:array-value:integer-result:rank-1";
+          "F64:callback-value:integer-result:rank-0";
+          "FloatBox:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (List.map descriptor values);
+      Alcotest.(check string)
+        "inherited lookup retains its declaring aggregate and depth"
+        "inherited:Base:depth-1:offset-0"
+        (List.hd values |> lookup_description);
+      Alcotest.(check string)
+        "pointer lookup retains the direct member layout"
+        "value:Box:depth-0:offset-57"
+        (List.nth values 5 |> lookup_description))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_aggregate_member_paths () =
+  [
+    ( "scalar",
+      "I64 value;value.missing;",
+      "member access base is not an aggregate" );
+    ( "direct pointer",
+      "class Box {I64 value;};Box *box;box.value;",
+      "direct member access requires an aggregate object, not a pointer" );
+    ( "pointer object",
+      "class Box {I64 value;};Box box;box->value;",
+      "pointer member access requires a pointer to an aggregate" );
+    ( "missing member",
+      "class Box {I64 value;};Box box;box.missing;",
+      "aggregate `Box` has no member `missing`" );
+    ( "incomplete aggregate",
+      "extern class Later;Later *later;later->value;class Later {I64 value;};",
+      "aggregate `Later` is not complete before this member access" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared ~path:("top-level-invalid-member-" ^ label ^ ".HC") contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s member path to fail" label
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location _) -> ()
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected a member source location")
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
@@ -310,8 +407,8 @@ let unavailable_boundaries_and_checked_ownership () =
   in
   let expressions, identifiers, policies, result = analyze source in
   Alcotest.(check (list string))
-    "member and call roots remain explicit boundaries"
-    [ "unavailable"; "unavailable" ]
+    "member roots type while calls remain an explicit boundary"
+    [ "object-value"; "unavailable" ]
     (root_values result
     |> List.map (fun value ->
         value |> Semantic_function_call_expression_result.result_category
@@ -397,7 +494,7 @@ let stale_batches_and_mode_mismatch () =
 let generated_provenance_and_purity () =
   let source =
     prepared ~path:"top-level-generated-results.HC"
-      "#define VALUE scalar\nI64 scalar;VALUE+1;"
+      "#define VALUE box.value\nclass Box {I64 value;};Box box;VALUE+1;"
   in
   let table = Session.semantic_symbols source.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
@@ -424,6 +521,21 @@ let generated_provenance_and_purity () =
             _ -> true
         | _ -> false)
   in
+  let generated_member =
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        match
+          result |> Semantic_function_call_expression_result.result_source
+          |> Semantic_function_call_resolution.argument_expression_kind
+        with
+        | Semantic_function_call_resolution.Member_access_expression _ -> true
+        | _ -> false)
+  in
+  Alcotest.(check bool)
+    "generated member retains its checked lookup" true
+    (Option.is_some
+       (Semantic_function_call_expression_result.result_member_lookup
+          generated_member));
   match
     Semantic_function_call_expression_result.result_origin generated_identifier
   with
@@ -442,6 +554,9 @@ let tests =
       updates_assignments_and_invalid_lvalues;
     Alcotest.test_case "indexes, casts, and conversions" `Quick
       indexes_casts_and_conversions;
+    Alcotest.test_case "aggregate member paths" `Quick aggregate_member_paths;
+    Alcotest.test_case "invalid aggregate member paths" `Quick
+      invalid_aggregate_member_paths;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick
