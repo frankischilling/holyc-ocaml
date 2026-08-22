@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Typed implicit `Print` and `PutChars` statement expressions while preserving their target, marker-backed or following-expression fixed slot, ordered `Print` arguments, and discarded-result intent. Runtime header lookup, formatting, output, and IR remain unimplemented.
+- Resolved implicit `Print` and `PutChars` targets through source-visible module function headers and supplied JIT or AOT outer-table snapshots. The typed lookup skips same-name records of other kinds, retains module header and identity facts or the exact outer entry, and reports `HCSEMA0048` when no function header is visible.
+- Typed implicit `Print` and `PutChars` statement expressions while preserving their target, marker-backed or following-expression fixed slot, ordered `Print` arguments, and discarded-result intent. Fixed-slot conversion, formatting, output, and IR remain unimplemented.
 - Retained ordinary function expression statements as checked semantic results with explicit `ICF_RES_NOT_USED` intent. Nested calls keep their resolved identity. This boundary does not lower `IC_END_EXP`, discard a runtime value, execute side effects, or include implicit `Print` and `PutChars` statements.
 - Retained implicit, single, and ranged function switch cases as immutable semantic patterns. Explicit values keep their checked type and nested call identity; an `F64` value records the integer conversion used by `LexExpressionI64`. This boundary does not evaluate a case, assign an implicit value, calculate a range, detect duplicates, or build a jump table.
 - Typed bounded and no-bound function switch selectors through the shared expression-result model. Each selector keeps its syntax mode, source identity, checked type, result class, and nested call resolution without claiming range adjustment, a jump table, or switch IR.
