@@ -2355,11 +2355,11 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
                 (fun left right ->
                   Int.compare
                     (left.top_level_direct_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index)
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index)
                     (right.top_level_direct_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index))
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index))
                 state.top_level_direct_calls_rev;
             top_level_all_results =
               List.sort
