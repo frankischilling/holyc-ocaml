@@ -37,6 +37,10 @@ val create :
 val owns_table : t -> Symbol_table.t -> bool
 val source : t -> Top_level_expression_tree.t
 val leaves : t -> leaf list
+
+val find_leaf :
+  t -> Top_level_outer_expression_binding.occurrence -> leaf option
+
 val leaf_node : leaf -> Top_level_expression_tree.expression_node
 val leaf_occurrence : leaf -> Top_level_outer_expression_binding.occurrence
 val leaf_resolution : leaf -> resolution

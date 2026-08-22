@@ -33,6 +33,7 @@
   test_top_level_outer_expression_binding
   test_top_level_expression_tree
   test_top_level_identifier_resolution
+  test_top_level_expression_result
   test_outer_expression_binding
   test_global_initializer_binding
   test_global_dimension_binding

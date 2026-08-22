@@ -47,6 +47,7 @@ type lookup = {
 
 type t = {
   table : Symbol_table.t;
+  parent : Symbol_table.scope;
   aggregates : aggregate list;
   by_symbol : indexed_aggregate Int_map.t;
 }
@@ -460,7 +461,9 @@ let build_aggregate table by_symbol input =
 let build ~table ~parent inputs =
   Result.bind (validate_inputs table parent inputs) (fun () ->
       let rec loop by_symbol aggregates_rev = function
-        | [] -> Ok { table; aggregates = List.rev aggregates_rev; by_symbol }
+        | [] ->
+            Ok
+              { table; parent; aggregates = List.rev aggregates_rev; by_symbol }
         | input :: rest ->
             Result.bind (build_aggregate table by_symbol input) (fun indexed ->
                 loop
@@ -474,6 +477,8 @@ let build ~table ~parent inputs =
 
 let aggregates result = result.aggregates
 let owns_table result table = result.table == table
+let owns_parent result parent = result.parent == parent
+let parent_scope result = result.parent
 let aggregate_symbol (aggregate : aggregate) = aggregate.symbol
 let aggregate_item_index (aggregate : aggregate) = aggregate.item_index
 let aggregate_size (aggregate : aggregate) = aggregate.layout.size

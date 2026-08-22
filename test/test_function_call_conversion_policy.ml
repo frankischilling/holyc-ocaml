@@ -25,11 +25,17 @@ let config ?working_directory mode =
     (Preprocessor.Config.create ?working_directory ~compilation_mode:mode ())
 
 type prepared = {
+  mode : Preprocessor.compilation_mode;
   session : Session.t;
+  ast : Ast.module_;
   declarations : Semantic_declaration_collection.t;
+  aggregates : Semantic_aggregate_resolution.t;
   headers : Semantic_aggregate_header_resolution.t;
   members : Semantic_aggregate_member_index.t;
   function_types : Semantic_function_type_resolution.t;
+  local_types : Semantic_local_type_resolution.t;
+  expressions : Semantic_function_expression_binding.t;
+  global_types : Semantic_global_type_resolution.t;
   functions : Semantic_function_resolution.t;
   module_expressions : Semantic_module_expression_binding.t;
   calls : Semantic_function_call_resolution.t;
@@ -111,11 +117,17 @@ let finish_prepare mode session ast =
          ~expressions:module_expressions ast)
   in
   {
+    mode;
     session;
+    ast;
     declarations;
+    aggregates;
     headers;
     members;
     function_types;
+    local_types;
+    expressions;
+    global_types;
     functions;
     module_expressions;
     calls;

@@ -44,6 +44,7 @@ val publications : t -> publication list
 val functions : t -> resolved_function list
 val compilation_mode : t -> Function_resolution.compilation_mode
 val owns_table : t -> Symbol_table.t -> bool
+val parent_scope : t -> Symbol_table.scope
 val find_function : t -> Symbol.t -> resolved_function option
 val publication_kind : publication -> publication_kind
 val publication_source_symbol : publication -> Symbol.t

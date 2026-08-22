@@ -160,6 +160,12 @@ Three top-level identifier-classification cases consume those trees and follow t
 dune exec test/test_main.exe -- test '^semantic top-level identifier resolution$'
 ```
 
+Six top-level expression-result cases consume those classified leaves and reuse the function expression engine. They cover JIT and AOT literal classes, object, array, callback, callback-array, and direct-function address shapes, result-use roles, indexing, primitive postfix casts, comparisons, logical operators, updates, assignments, integer and `F64` conversion flags, invalid lvalues, generated provenance, purity, deterministic replay, foreign-session rejection, same-session stale batches, and mode mismatches. Calls and member roots remain explicit unavailable boundaries. `HCSEMA0057` reports mismatched semantic batches; operator errors retain the shared `HCSEMA0046` code. These tests do not resolve top-level call slots, type aggregate member paths or outer records, evaluate side effects, lower IR, execute statements, or emit `IET_MAIN`. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test '^semantic top-level expression results$'
+```
+
 Seven outer expression-binding cases follow the explicit `CHashTable.next` field, single-table and chained lookup in `Kernel/KHashA.HC`, task-parent links in `Kernel/KTask.HC`, compiler-chain selection in `Compiler/CMain.HC`, and the final assembler link in `Compiler/AsmInit.HC`. They cover current and parent JIT tasks, nested and top-level AOT, assembler fallback, newest-record selection across all four supported record kinds, local and module precedence, generated-source failure provenance, deterministic replay, unchanged symbol counts, repeated identities, role and index errors, foreign sessions, and mode mismatches. `HCSEMA0022` through `HCSEMA0024` report validation and unresolved-name failures. The tests use supplied immutable table snapshots; they do not claim live task construction, addresses, imports, fixups, loader records, use counts, typing, storage, or lowering. Run only this group with:
 
 ```text

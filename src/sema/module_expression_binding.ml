@@ -30,6 +30,7 @@ module String_map = Map.Make (String)
 
 type t = {
   table : Symbol_table.t;
+  parent : Symbol_table.scope;
   compilation_mode : Function_resolution.compilation_mode;
   publications : publication list;
   functions : resolved_function list;
@@ -46,6 +47,7 @@ let publications result = result.publications
 let functions result = result.functions
 let compilation_mode result = result.compilation_mode
 let owns_table result table = result.table == table
+let parent_scope result = result.parent
 let publication_kind publication = publication.publication_kind
 let publication_source_symbol publication = publication.source_symbol
 let publication_canonical_symbol publication = publication.canonical_symbol
@@ -361,7 +363,15 @@ let resolve ~table ~parent ~compilation_mode ~expressions publications =
             let functions, by_symbol =
               resolve_validated expressions publications
             in
-            Ok { table; compilation_mode; publications; functions; by_symbol })
+            Ok
+              {
+                table;
+                parent;
+                compilation_mode;
+                publications;
+                functions;
+                by_symbol;
+              })
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

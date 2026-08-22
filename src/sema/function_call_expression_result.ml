@@ -170,10 +170,37 @@ type t = {
   all_results : expression_result list;
 }
 
+type top_level_root_result = {
+  top_level_root_source : Top_level_expression_tree.root;
+  top_level_root_value : expression_result;
+  top_level_root_result_use : result_use option;
+}
+
+type top_level_statement_result = {
+  top_level_statement_source : Top_level_expression_tree.statement;
+  top_level_statement_roots : top_level_root_result list;
+}
+
+type top_level_t = {
+  top_level_table : Symbol_table.t;
+  top_level_members : Aggregate_member_index.t;
+  top_level_policies : Function_call_conversion_policy.t;
+  top_level_identifiers : Top_level_identifier_resolution.t;
+  top_level_source : Top_level_expression_tree.t;
+  top_level_compilation_mode : Function_resolution.compilation_mode;
+  top_level_statements : top_level_statement_result list;
+  top_level_all_results : expression_result list;
+}
+
 type error_kind = Invalid_input of string
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 type expression_context = Value_context | Lvalue_context
-type build_state = { next_id : int; results_rev : expression_result list }
+
+type build_state = {
+  next_id : int;
+  results_rev : expression_result list;
+  top_level_identifier_batch : Top_level_identifier_resolution.t option;
+}
 
 let owns_table result table = result.table == table
 let owns_members result members = result.members == members
@@ -181,6 +208,24 @@ let owns_policies result policies = result.policies == policies
 let compilation_mode result = result.compilation_mode
 let functions result = result.functions
 let all_results result = result.all_results
+let top_level_owns_table result table = result.top_level_table == table
+let top_level_owns_members result members = result.top_level_members == members
+
+let top_level_owns_policies result policies =
+  result.top_level_policies == policies
+
+let top_level_owns_identifiers result identifiers =
+  result.top_level_identifiers == identifiers
+
+let top_level_source result = result.top_level_source
+let top_level_compilation_mode result = result.top_level_compilation_mode
+let top_level_statements result = result.top_level_statements
+let top_level_all_results result = result.top_level_all_results
+let top_level_statement_source result = result.top_level_statement_source
+let top_level_statement_roots result = result.top_level_statement_roots
+let top_level_root_source result = result.top_level_root_source
+let top_level_root_value result = result.top_level_root_value
+let top_level_root_result_use result = result.top_level_root_result_use
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
@@ -272,7 +317,21 @@ let result_is_direct_function (result : expression_result) =
   | Function_call_resolution.Bound_identifier_expression identifier ->
       Function_call_resolution.bound_identifier_shape identifier
       = Function_call_resolution.Direct_function_value
+  | Function_call_resolution.Top_level_bound_identifier_expression _ ->
+      result.category = Function_value
+      && Option.is_some result.function_declaration
   | _ -> false
+
+let result_direct_function_name (result : expression_result) =
+  match Function_call_resolution.argument_expression_kind result.source with
+  | Function_call_resolution.Bound_identifier_expression identifier ->
+      identifier |> Function_call_resolution.bound_identifier_occurrence
+      |> Module_expression_binding.occurrence_name
+  | Function_call_resolution.Top_level_bound_identifier_expression identifier ->
+      identifier
+      |> Function_call_resolution.top_level_bound_identifier_occurrence
+      |> Top_level_outer_expression_binding.occurrence_name
+  | _ -> "<function>"
 
 let value_category_name = function
   | Object_value -> "object-value"
@@ -322,6 +381,10 @@ let declared_default_materialization_name = function
 let invalid_input ?origin message =
   let kind = Invalid_input message in
   { code = "HCSEMA0046"; kind; origin }
+
+let invalid_top_level_input ?origin message =
+  let kind = Invalid_input message in
+  { code = "HCSEMA0057"; kind; origin }
 
 let error_code error = error.code
 let error_kind error = error.kind
@@ -539,6 +602,9 @@ let rec type_expression table members policies ~before_item_index ~context
       | Function_call_resolution.Index_expression index ->
           type_index table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source index
+      | Function_call_resolution.Member_access_expression _
+        when Option.is_some state.top_level_identifier_batch ->
+          finish Unavailable Unresolved_actual_class state
       | Function_call_resolution.Member_access_expression member ->
           type_member table members policies ~before_item_index ~context
             ~intrinsic_conversion state id source member
@@ -593,8 +659,74 @@ let rec type_expression table members policies ~before_item_index ~context
                   (Function_call_resolution
                    .bound_identifier_function_address_path identifier)
                 category result_class state)
-      | Function_call_resolution.Top_level_bound_identifier_expression _ ->
-          finish Unavailable Unresolved_actual_class state
+      | Function_call_resolution.Top_level_bound_identifier_expression
+          identifier -> (
+          let occurrence =
+            Function_call_resolution.top_level_bound_identifier_occurrence
+              identifier
+          in
+          match state.top_level_identifier_batch with
+          | None -> finish Unavailable Unresolved_actual_class state
+          | Some identifiers -> (
+              match
+                Top_level_identifier_resolution.find_leaf identifiers occurrence
+              with
+              | None ->
+                  Error
+                    (invalid_top_level_input
+                       ~origin:
+                         (Top_level_outer_expression_binding.occurrence_origin
+                            occurrence)
+                       "top-level identifier result is absent from its checked \
+                        batch")
+              | Some leaf -> (
+                  match
+                    Top_level_identifier_resolution.leaf_resolution leaf
+                  with
+                  | Top_level_identifier_resolution.Outer_type_required _
+                  | Top_level_identifier_resolution.Module_value
+                      (Top_level_identifier_resolution.Aggregate_offset_base _)
+                    -> finish Unavailable Unresolved_actual_class state
+                  | Top_level_identifier_resolution.Module_value
+                      (Top_level_identifier_resolution.Global_value { value; _ })
+                  | Top_level_identifier_resolution.Module_value
+                      (Top_level_identifier_resolution.Direct_function_value
+                         { value; _ }) -> (
+                      let source_type =
+                        Function_call_resolution.identifier_value_type value
+                      in
+                      match known_type table source_type with
+                      | Error _ as error -> error
+                      | Ok source_type ->
+                          let category, result_class =
+                            match
+                              Function_call_resolution.identifier_value_shape
+                                value
+                            with
+                            | Function_call_resolution.Array_value ->
+                                (Array_value, Integer_result)
+                            | Function_call_resolution.Function_pointer_value ->
+                                (Callback_value, Integer_result)
+                            | Function_call_resolution.Direct_function_value ->
+                                (Function_value, Integer_result)
+                            | Function_call_resolution.Object_value ->
+                                ( (match context with
+                                  | Value_context -> Object_value
+                                  | Lvalue_context -> Lvalue),
+                                  forwarded_class policies ~before_item_index
+                                    source_type )
+                          in
+                          finish ~source_type:(Some source_type)
+                            ~array_rank:
+                              (Function_call_resolution
+                               .identifier_value_array_rank value)
+                            ?function_declaration:
+                              (Function_call_resolution
+                               .identifier_value_function_declaration value)
+                            ?function_address_path:
+                              (Function_call_resolution
+                               .identifier_value_function_address_path value)
+                            category result_class state))))
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
@@ -605,6 +737,9 @@ let rec type_expression table members policies ~before_item_index ~context
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression
           | Function_call_resolution.Postfix_cast_expression ->
+              finish Unavailable Unresolved_actual_class state
+          | Function_call_resolution.Call_expression
+            when Option.is_some state.top_level_identifier_batch ->
               finish Unavailable Unresolved_actual_class state
           | Function_call_resolution.Call_expression -> (
               match
@@ -694,18 +829,7 @@ and type_prefix table members policies ~before_item_index ~context
       | Function_call_resolution.Address_of -> (
           match (operand.source_type, result_is_direct_function operand) with
           | Some source_type, true -> (
-              let name =
-                match
-                  Function_call_resolution.argument_expression_kind
-                    operand.source
-                with
-                | Function_call_resolution.Bound_identifier_expression
-                    identifier ->
-                    identifier
-                    |> Function_call_resolution.bound_identifier_occurrence
-                    |> Module_expression_binding.occurrence_name
-                | _ -> "<function>"
-              in
+              let name = result_direct_function_name operand in
               match operand.function_address_path with
               | Some Function_call_resolution.Jit_extern_slot
               | Some Function_call_resolution.Jit_immediate
@@ -1677,12 +1801,21 @@ let analyze ~table ~members policies =
   else if not (Aggregate_member_index.owns_table members table) then
     Error
       (invalid_input "aggregate member index belongs to another symbol table")
+  else if
+    not
+      (Function_call_conversion_policy.owns_parent policies
+         (Aggregate_member_index.parent_scope members))
+  then
+    Error
+      (invalid_input
+         "aggregate member index and conversion policies describe different \
+          modules")
   else
     match
       policies |> Function_call_conversion_policy.functions
       |> map_state
            (type_function table members policies)
-           { next_id = 0; results_rev = [] }
+           { next_id = 0; results_rev = []; top_level_identifier_batch = None }
     with
     | Error _ as error -> error
     | Ok (functions, state) ->
@@ -1695,6 +1828,133 @@ let analyze ~table ~members policies =
               Function_call_conversion_policy.compilation_mode policies;
             functions;
             all_results =
+              List.sort
+                (fun left right -> Id.compare left.id right.id)
+                state.results_rev;
+          }
+
+let type_top_level_root table members policies ~before_item_index state source =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Top_level_expression_tree.root_expression source)
+  with
+  | Error _ as error -> error
+  | Ok (top_level_root_value, state) ->
+      let top_level_root_result_use =
+        match Top_level_expression_tree.root_role source with
+        | Top_level_expression_tree.Expression_statement _ ->
+            Some Result_not_used
+        | Top_level_expression_tree.Implicit_output_fixed _
+        | Top_level_expression_tree.Implicit_output_argument _
+        | Top_level_expression_tree.Condition _
+        | Top_level_expression_tree.Switch_selector _
+        | Top_level_expression_tree.Switch_case_value _
+        | Top_level_expression_tree.Local_array_dimension _
+        | Top_level_expression_tree.Local_initializer _
+        | Top_level_expression_tree.Return_value _ -> None
+      in
+      Ok
+        ( {
+            top_level_root_source = source;
+            top_level_root_value;
+            top_level_root_result_use;
+          },
+          state )
+
+let type_top_level_statement table members policies state source =
+  let before_item_index =
+    source |> Top_level_expression_tree.statement_source
+    |> Top_level_outer_expression_binding.statement_item_index
+  in
+  match
+    source |> Top_level_expression_tree.statement_roots
+    |> map_state
+         (type_top_level_root table members policies ~before_item_index)
+         state
+  with
+  | Error _ as error -> error
+  | Ok (top_level_statement_roots, state) ->
+      Ok
+        ( { top_level_statement_source = source; top_level_statement_roots },
+          state )
+
+let function_mode_of_outer_mode = function
+  | Outer_environment.Jit -> Function_resolution.Jit
+  | Outer_environment.Aot -> Function_resolution.Aot
+
+let analyze_top_level ~table ~members ~policies ~identifiers source =
+  let module_parent =
+    source |> Top_level_expression_tree.source
+    |> Top_level_outer_expression_binding.source
+    |> Top_level_expression_binding.module_expressions
+    |> Module_expression_binding.parent_scope
+  in
+  let source_mode =
+    source |> Top_level_expression_tree.source
+    |> Top_level_outer_expression_binding.environment
+    |> Outer_environment.compilation_mode |> function_mode_of_outer_mode
+  in
+  if not (Top_level_expression_tree.owns_table source table) then
+    Error
+      (invalid_top_level_input
+         "top-level expression tree belongs to another symbol table")
+  else if not (Top_level_identifier_resolution.owns_table identifiers table)
+  then
+    Error
+      (invalid_top_level_input
+         "top-level identifier results belong to another symbol table")
+  else if Top_level_identifier_resolution.source identifiers != source then
+    Error
+      (invalid_top_level_input
+         "top-level identifier results describe another expression tree")
+  else if not (Aggregate_member_index.owns_table members table) then
+    Error
+      (invalid_top_level_input
+         "aggregate member index belongs to another symbol table")
+  else if not (Function_call_conversion_policy.owns_table policies table) then
+    Error
+      (invalid_top_level_input
+         "call conversion policies belong to another symbol table")
+  else if not (Aggregate_member_index.owns_parent members module_parent) then
+    Error
+      (invalid_top_level_input "aggregate member index describes another module")
+  else if
+    not (Function_call_conversion_policy.owns_parent policies module_parent)
+  then
+    Error
+      (invalid_top_level_input
+         "call conversion policies describe another module")
+  else if
+    Function_call_conversion_policy.compilation_mode policies <> source_mode
+  then
+    Error
+      (invalid_top_level_input
+         "top-level expressions and conversion policies use different \
+          compilation modes")
+  else
+    match
+      source |> Top_level_expression_tree.statements
+      |> map_state
+           (type_top_level_statement table members policies)
+           {
+             next_id = 0;
+             results_rev = [];
+             top_level_identifier_batch = Some identifiers;
+           }
+    with
+    | Error _ as error -> error
+    | Ok (top_level_statements, state) ->
+        Ok
+          {
+            top_level_table = table;
+            top_level_members = members;
+            top_level_policies = policies;
+            top_level_identifiers = identifiers;
+            top_level_source = source;
+            top_level_compilation_mode = source_mode;
+            top_level_statements;
+            top_level_all_results =
               List.sort
                 (fun left right -> Id.compare left.id right.id)
                 state.results_rev;

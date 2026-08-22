@@ -460,6 +460,19 @@ val type_function_call_expressions :
     Known source types and value categories stay separate from the
     target-specific conversion intent selected by the next pass. *)
 
+val type_top_level_expressions :
+  Session.t ->
+  members:Semantic_aggregate_member_index.t ->
+  policies:Semantic_function_call_conversion_policy.t ->
+  identifiers:Semantic_top_level_identifier_resolution.t ->
+  Semantic_top_level_expression_tree.t ->
+  ( Semantic_function_call_expression_result.top_level_t,
+    Semantic_function_call_expression_result.error )
+  result
+(** Type scalar roots in executable top-level statements through the function
+    expression engine. Results retain their statement and root roles while
+    unsupported aggregate, outer, member, and call boundaries stay explicit. *)
+
 val resolve_implicit_output_targets :
   Session.t ->
   environment:Semantic_outer_environment.t ->

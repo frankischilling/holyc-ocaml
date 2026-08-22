@@ -317,6 +317,12 @@ let type_function_call_expressions session ~members ~policies =
     ~table:(Session.semantic_symbols session)
     ~members policies
 
+let type_top_level_expressions session ~members ~policies ~identifiers
+    expressions =
+  Sema.Function_call_expression_result.analyze_top_level
+    ~table:(Session.semantic_symbols session)
+    ~members ~policies ~identifiers expressions
+
 let resolve_implicit_output_targets session ~environment ~module_expressions
     ~function_types ~functions ~expressions =
   Sema.Implicit_output_target_resolution.resolve
