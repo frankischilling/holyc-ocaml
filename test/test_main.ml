@@ -38,6 +38,8 @@ let () =
         Test_top_level_outer_expression_binding.tests );
       ( "semantic top-level expression tree",
         Test_top_level_expression_tree.tests );
+      ( "semantic top-level identifier resolution",
+        Test_top_level_identifier_resolution.tests );
       ("semantic outer expression binding", Test_outer_expression_binding.tests);
       ( "semantic global initializer binding",
         Test_global_initializer_binding.tests );

@@ -32,6 +32,18 @@ let same_scope left right =
     (Sema.Symbol_table.scope_id left)
     (Sema.Symbol_table.scope_id right)
 
+let typed_value_of_identifier ?callable value =
+  {
+    resolved_type = Sema.Function_call_resolution.identifier_value_type value;
+    shape = Sema.Function_call_resolution.identifier_value_shape value;
+    array_rank = Sema.Function_call_resolution.identifier_value_array_rank value;
+    callable;
+    function_declaration =
+      Sema.Function_call_resolution.identifier_value_function_declaration value;
+    function_address_path =
+      Sema.Function_call_resolution.identifier_value_function_address_path value;
+  }
+
 let object_value reference =
   {
     resolved_type = Sema.Type_reference.resolved_type reference;
@@ -56,22 +68,9 @@ let callback_value reference pointer =
   }
 
 let direct_function_value declaration function_address_path =
-  let resolved_type =
-    match
-      Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
-        ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
-    with
-    | Ok type_ -> type_
-    | Error message -> invalid_arg message
-  in
-  {
-    resolved_type;
-    shape = Sema.Function_call_resolution.Direct_function_value;
-    array_rank = 0;
-    callable = None;
-    function_declaration = Some declaration;
-    function_address_path = Some function_address_path;
-  }
+  Sema.Function_call_resolution.direct_function_identifier_value ~declaration
+    ~address_path:function_address_path
+  |> Result.map typed_value_of_identifier
 
 let parameter_value parameter =
   match Sema.Function_type_resolution.parameter_declarator_kind parameter with
@@ -129,28 +128,18 @@ let local_value local =
 let global_value global =
   let dimensions = Sema.Global_type_resolution.global_array_dimensions global in
   let reference = Sema.Global_type_resolution.global_type_reference global in
-  let shape, callable =
+  let callable =
     match Sema.Global_type_resolution.global_declarator_kind global with
     | Sema.Global_type_resolution.Function_pointer pointer ->
-        ( Sema.Function_call_resolution.Function_pointer_value,
-          if dimensions = [] then
-            Some
-              (Sema.Function_call_resolution.make_callable
-                 ~return_type:reference ~function_pointer:pointer)
-          else None )
-    | Sema.Global_type_resolution.Object ->
-        ( (if dimensions = [] then Sema.Function_call_resolution.Object_value
-           else Sema.Function_call_resolution.Array_value),
-          None )
+        if dimensions = [] then
+          Some
+            (Sema.Function_call_resolution.make_callable ~return_type:reference
+               ~function_pointer:pointer)
+        else None
+    | Sema.Global_type_resolution.Object -> None
   in
-  {
-    resolved_type = Sema.Type_reference.resolved_type reference;
-    shape;
-    array_rank = List.length dimensions;
-    callable;
-    function_declaration = None;
-    function_address_path = None;
-  }
+  Sema.Function_call_resolution.global_identifier_value global
+  |> Result.map (typed_value_of_identifier ?callable)
 
 let add_typed_value symbol value values =
   Int_map.add (symbol_number symbol) value values
@@ -256,13 +245,16 @@ let function_typed_environment table expected typed locals =
 let global_typed_environment table globals =
   let rec loop values = function
     | [] -> Ok values
-    | global :: rest ->
+    | global :: rest -> (
         let symbol = Sema.Global_type_resolution.global_symbol global in
         if not (Sema.Symbol_table.owns_symbol table symbol) then
           Error "call argument global type belongs to another symbol table"
         else if Int_map.mem (symbol_number symbol) values then
           Error "call argument global type symbol is repeated"
-        else loop (add_typed_value symbol (global_value global) values) rest
+        else
+          match global_value global with
+          | Error _ as error -> error
+          | Ok value -> loop (add_typed_value symbol value values) rest)
   in
   loop Int_map.empty (Sema.Global_type_resolution.globals globals)
 
@@ -289,12 +281,10 @@ let add_function_typed_environment table functions values =
               compilation_mode declaration
           with
           | Error _ as error -> error
-          | Ok path ->
-              loop
-                (add_typed_value symbol
-                   (direct_function_value declaration path)
-                   values)
-                rest)
+          | Ok path -> (
+              match direct_function_value declaration path with
+              | Error _ as error -> error
+              | Ok value -> loop (add_typed_value symbol value values) rest))
   in
   loop values (Sema.Function_resolution.declarations functions)
 

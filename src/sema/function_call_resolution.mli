@@ -40,6 +40,8 @@ type identifier_value_shape =
   | Function_pointer_value
   | Direct_function_value
 
+type identifier_value
+
 type direct_function_address_path =
   | Jit_extern_slot
   | Jit_immediate
@@ -163,6 +165,33 @@ val make_top_level_bound_identifier_argument_expression :
 (** Retain the exact module or outer binding selected for an identifier in an
     executable top-level statement. Type and value-shape analysis follows in a
     later pass. *)
+
+val make_identifier_value :
+  resolved_type:Type.t ->
+  shape:identifier_value_shape ->
+  array_rank:int ->
+  ?function_declaration:Function_resolution.resolved_declaration ->
+  ?function_address_path:direct_function_address_path ->
+  unit ->
+  (identifier_value, string) result
+
+val global_identifier_value :
+  Global_type_resolution.global -> (identifier_value, string) result
+
+val direct_function_identifier_value :
+  declaration:Function_resolution.resolved_declaration ->
+  address_path:direct_function_address_path ->
+  (identifier_value, string) result
+
+val identifier_value_type : identifier_value -> Type.t
+val identifier_value_shape : identifier_value -> identifier_value_shape
+val identifier_value_array_rank : identifier_value -> int
+
+val identifier_value_function_declaration :
+  identifier_value -> Function_resolution.resolved_declaration option
+
+val identifier_value_function_address_path :
+  identifier_value -> direct_function_address_path option
 
 val make_argument :
   index:int ->

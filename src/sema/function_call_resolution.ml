@@ -43,6 +43,15 @@ type direct_function_address_path =
   | Reject_aot_import
   | Reject_internal
 
+type identifier_value = {
+  identifier_value_type_ : Type.t;
+  identifier_value_shape_ : identifier_value_shape;
+  identifier_value_array_rank_ : int;
+  identifier_value_function_declaration_ :
+    Function_resolution.resolved_declaration option;
+  identifier_value_function_address_path_ : direct_function_address_path option;
+}
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -471,6 +480,16 @@ let bound_identifier_function_address_path identifier =
 let top_level_bound_identifier_occurrence identifier =
   identifier.top_level_bound_identifier_occurrence_
 
+let identifier_value_type value = value.identifier_value_type_
+let identifier_value_shape value = value.identifier_value_shape_
+let identifier_value_array_rank value = value.identifier_value_array_rank_
+
+let identifier_value_function_declaration value =
+  value.identifier_value_function_declaration_
+
+let identifier_value_function_address_path value =
+  value.identifier_value_function_address_path_
+
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -779,6 +798,60 @@ let function_declaration_matches_publication declaration publication =
        (publication |> Module_expression_binding.publication_canonical_symbol
       |> Symbol.id)
 
+let make_identifier_value ~resolved_type ~shape ~array_rank
+    ?function_declaration ?function_address_path () =
+  if array_rank < 0 then Error "identifier value array rank cannot be negative"
+  else if shape = Array_value && array_rank = 0 then
+    Error "array identifier value has no array dimensions"
+  else if shape <> Array_value && array_rank <> 0 then
+    Error "nonarray identifier value has array dimensions"
+  else if
+    shape = Direct_function_value
+    && (Option.is_none function_declaration
+       || Option.is_none function_address_path)
+  then Error "direct function identifier has no checked address path"
+  else if
+    shape <> Direct_function_value
+    && (Option.is_some function_declaration
+       || Option.is_some function_address_path)
+  then Error "nonfunction identifier has a function address path"
+  else
+    Ok
+      {
+        identifier_value_type_ = resolved_type;
+        identifier_value_shape_ = shape;
+        identifier_value_array_rank_ = array_rank;
+        identifier_value_function_declaration_ = function_declaration;
+        identifier_value_function_address_path_ = function_address_path;
+      }
+
+let global_identifier_value global =
+  let dimensions = Global_type_resolution.global_array_dimensions global in
+  let resolved_type =
+    global |> Global_type_resolution.global_type_reference
+    |> Type_reference.resolved_type
+  in
+  let shape =
+    if dimensions <> [] then Array_value
+    else
+      match Global_type_resolution.global_declarator_kind global with
+      | Global_type_resolution.Function_pointer _ -> Function_pointer_value
+      | Global_type_resolution.Object -> Object_value
+  in
+  make_identifier_value ~resolved_type ~shape
+    ~array_rank:(List.length dimensions) ()
+
+let direct_function_identifier_value ~declaration ~address_path =
+  match
+    Type.make_primitive ~form:Type.Internal_storage
+      ~primitive:Primitive_type.I64 ~pointer_depth:0
+  with
+  | Error _ as error -> error
+  | Ok resolved_type ->
+      make_identifier_value ~resolved_type ~shape:Direct_function_value
+        ~array_rank:0 ~function_declaration:declaration
+        ~function_address_path:address_path ()
+
 let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
     ~array_rank ?function_declaration ?function_address_path () =
   let name = Module_expression_binding.occurrence_name occurrence in
@@ -799,22 +872,6 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
         <> Module_expression_binding.Global_variable
     | Module_expression_binding.Outer_candidate, _ -> true
   then Error "bound call argument occurrence is not a typed value binding"
-  else if array_rank < 0 then
-    Error "bound call argument array rank cannot be negative"
-  else if shape = Array_value && array_rank = 0 then
-    Error "bound array call argument has no array dimensions"
-  else if shape <> Array_value && array_rank <> 0 then
-    Error "bound nonarray call argument has array dimensions"
-  else if
-    shape = Direct_function_value
-    && (Option.is_none function_declaration
-       || Option.is_none function_address_path)
-  then Error "bound direct function has no checked address path"
-  else if
-    shape <> Direct_function_value
-    && (Option.is_some function_declaration
-       || Option.is_some function_address_path)
-  then Error "bound nonfunction call argument has a function address path"
   else if
     match
       ( Module_expression_binding.occurrence_resolution occurrence,
@@ -825,16 +882,24 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
     | _, _ -> false
   then Error "bound direct function declaration does not match its publication"
   else
-    Ok
-      (Bound_identifier_expression
-         {
-           bound_identifier_occurrence_ = occurrence;
-           bound_identifier_type_ = resolved_type;
-           bound_identifier_shape_ = shape;
-           bound_identifier_array_rank_ = array_rank;
-           bound_identifier_function_declaration_ = function_declaration;
-           bound_identifier_function_address_path_ = function_address_path;
-         })
+    match
+      make_identifier_value ~resolved_type ~shape ~array_rank
+        ?function_declaration ?function_address_path ()
+    with
+    | Error _ as error -> error
+    | Ok value ->
+        Ok
+          (Bound_identifier_expression
+             {
+               bound_identifier_occurrence_ = occurrence;
+               bound_identifier_type_ = value.identifier_value_type_;
+               bound_identifier_shape_ = value.identifier_value_shape_;
+               bound_identifier_array_rank_ = value.identifier_value_array_rank_;
+               bound_identifier_function_declaration_ =
+                 value.identifier_value_function_declaration_;
+               bound_identifier_function_address_path_ =
+                 value.identifier_value_function_address_path_;
+             })
 
 let make_top_level_bound_identifier_argument_expression ~occurrence =
   if
