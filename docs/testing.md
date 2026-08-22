@@ -136,6 +136,12 @@ Seven module expression-binding cases follow `HashAdd`, the newest-first hash lo
 dune exec test/test_main.exe -- test '^semantic module expression binding$'
 ```
 
+Five top-level expression-binding cases follow `CmpJoin`, `LexStmt2Bin`, the recursive `PrsStmt` routes, and ordinary identifier lookup in `PrsExp.HC`. They cover JIT and AOT source-order replacement, earlier global and function publications, outer candidates, recursive statement order, contiguous identities, aggregate publications through the low-level API, definition-generated provenance, deterministic replay, unchanged symbol counts, foreign ownership, and invalid statement order. `HCSEMA0052` reports validation failures. These tests establish module binding only; they do not perform outer lookup, type expressions, check calls, lower IR, execute statements, or emit `IET_MAIN`. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test '^semantic top-level expression binding$'
+```
+
 Seven outer expression-binding cases follow the explicit `CHashTable.next` field, single-table and chained lookup in `Kernel/KHashA.HC`, task-parent links in `Kernel/KTask.HC`, compiler-chain selection in `Compiler/CMain.HC`, and the final assembler link in `Compiler/AsmInit.HC`. They cover current and parent JIT tasks, nested and top-level AOT, assembler fallback, newest-record selection across all four supported record kinds, local and module precedence, generated-source failure provenance, deterministic replay, unchanged symbol counts, repeated identities, role and index errors, foreign sessions, and mode mismatches. `HCSEMA0022` through `HCSEMA0024` report validation and unresolved-name failures. The tests use supplied immutable table snapshots; they do not claim live task construction, addresses, imports, fixups, loader records, use counts, typing, storage, or lowering. Run only this group with:
 
 ```text

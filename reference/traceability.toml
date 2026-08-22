@@ -4125,6 +4125,46 @@ compilation_modes = ["jit", "aot"]
 native_oracle_status = "not required for this lookup boundary; the pinned hash insertion, table-chain lookup, parser publication, and expression dispatch paths state the order directly"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-EXPRESSION-BINDINGS"
+description = "Ordinary identifier expressions under executable top-level statements bind to the newest module publication visible before each statement."
+sources = [
+  "Compiler/CMain.HC:CmpJoin source-ordered JIT statement compilation",
+  "Compiler/CMain.HC:LexStmt2Bin source-ordered AOT statement compilation and IET_MAIN boundary",
+  "Compiler/PrsStmt.HC:904-1218 recursive statement compilation",
+  "Compiler/PrsExp.HC:761-907 ordinary identifier lookup",
+  "Compiler/Lex.HC:493-509 active hash-table lookup",
+  "Kernel/KHashA.HC:29-106 newest-first bucket and table-chain lookup",
+  "Doc/ScopingLinkage.DD"
+]
+implementation = [
+  "src/sema/top_level_expression_binding.ml",
+  "src/driver/top_level_expression_binding.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_top_level_expression_binding.ml"
+]
+status = "implemented"
+issue = 308
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary identifier occurrences below executable top-level statement items"
+publication_stream = ["aggregate declaration sites", "function declaration sites", "global records"]
+publication_boundary = "only publications at module item indexes before the owning statement are visible"
+lookup_rule = "the newest visible same-name publication wins across aggregate, function, and global kinds"
+outer_candidate = "a name absent from the visible module prefix remains explicit for a later outer-environment pass"
+statement_routes = ["block", "do-while", "expression", "for", "if and else", "implicit output", "local declaration initializer", "lock", "return", "sequence", "switch and sub-switch", "try and catch", "while"]
+excluded_identifier_roles = ["type syntax", "member suffix names", "sizeof", "offset", "defined", "labels", "assembly tokens"]
+identity = "statement indexes, module item indexes, and occurrence indexes are contiguous and deterministic"
+provenance = ["statement origin", "identifier origin", "generated invocation", "definition origin", "selected publication"]
+validation = "table ownership, module scope, publication ownership and order, symbol scope, statement order, and identity ranges"
+diagnostic = "HCSEMA0052"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 5
+outer_lookup_type_checking_call_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this binding boundary; CmpJoin, LexStmt2Bin, PrsStmt, PrsExp, Lex, and the hash routines state the source order and lookup rule directly"
+
+[[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
 description = "Ordinary identifier candidates bind through explicit JIT task-parent or AOT enclosing-compilation tables before the assembler table."
 sources = [
