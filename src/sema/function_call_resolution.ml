@@ -30,6 +30,14 @@ type identifier_value_shape =
   | Function_pointer_value
   | Direct_function_value
 
+type direct_function_address_path =
+  | Jit_extern_slot
+  | Jit_immediate
+  | Aot_absolute
+  | Reject_aot_extern
+  | Reject_aot_import
+  | Reject_internal
+
 type argument_expression_kind =
   | Integer_literal
   | Float_literal
@@ -89,6 +97,9 @@ and bound_identifier = {
   bound_identifier_type_ : Type.t;
   bound_identifier_shape_ : identifier_value_shape;
   bound_identifier_array_rank_ : int;
+  bound_identifier_function_declaration_ :
+    Function_resolution.resolved_declaration option;
+  bound_identifier_function_address_path_ : direct_function_address_path option;
 }
 
 type argument = {
@@ -265,6 +276,12 @@ let bound_identifier_shape identifier = identifier.bound_identifier_shape_
 let bound_identifier_array_rank identifier =
   identifier.bound_identifier_array_rank_
 
+let bound_identifier_function_declaration identifier =
+  identifier.bound_identifier_function_declaration_
+
+let bound_identifier_function_address_path identifier =
+  identifier.bound_identifier_function_address_path_
+
 let default_parameter_default (use : default_use) = use.default
 let default_omission (use : default_use) = use.omission
 let fixed_parameter (fixed : fixed_argument) = fixed.parameter
@@ -333,6 +350,35 @@ let identifier_value_shape_name = function
   | Array_value -> "array"
   | Function_pointer_value -> "function-pointer"
   | Direct_function_value -> "direct-function"
+
+let direct_function_address_path_name = function
+  | Jit_extern_slot -> "jit-extern-slot"
+  | Jit_immediate -> "jit-immediate"
+  | Aot_absolute -> "aot-absolute"
+  | Reject_aot_extern -> "reject-aot-extern"
+  | Reject_aot_import -> "reject-aot-import"
+  | Reject_internal -> "reject-internal"
+
+let direct_function_address_path compilation_mode declaration =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  if
+    Function_resolution.declaration_site_source_kind site
+    = Function_resolution.Intern
+  then Ok Reject_internal
+  else
+    match
+      (compilation_mode, Function_resolution.declaration_site_state site)
+    with
+    | Function_resolution.Jit, Function_resolution.Unresolved_extern ->
+        Ok Jit_extern_slot
+    | Function_resolution.Jit, Function_resolution.Resolved -> Ok Jit_immediate
+    | Function_resolution.Aot, Function_resolution.Resolved -> Ok Aot_absolute
+    | Function_resolution.Aot, Function_resolution.Unresolved_extern ->
+        Ok Reject_aot_extern
+    | Function_resolution.Aot, Function_resolution.Imported ->
+        Ok Reject_aot_import
+    | Function_resolution.Jit, Function_resolution.Imported ->
+        Error "JIT function resolution contains an imported declaration"
 
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
@@ -516,8 +562,21 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
            member_origin;
          })
 
+let function_declaration_matches_publication declaration publication =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  let function_ = Function_resolution.declaration_site_function site in
+  Symbol.Id.equal
+    (function_ |> Function_type_resolution.function_symbol |> Symbol.id)
+    (publication |> Module_expression_binding.publication_source_symbol
+   |> Symbol.id)
+  && Symbol.Id.equal
+       (declaration |> Function_resolution.resolved_declaration_identity_symbol
+      |> Symbol.id)
+       (publication |> Module_expression_binding.publication_canonical_symbol
+      |> Symbol.id)
+
 let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
-    ~array_rank =
+    ~array_rank ?function_declaration ?function_address_path () =
   let name = Module_expression_binding.occurrence_name occurrence in
   if String.equal name "" then
     Error "bound call argument identifier cannot have an empty name"
@@ -542,6 +601,25 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
     Error "bound array call argument has no array dimensions"
   else if shape <> Array_value && array_rank <> 0 then
     Error "bound nonarray call argument has array dimensions"
+  else if
+    shape = Direct_function_value
+    && (Option.is_none function_declaration
+       || Option.is_none function_address_path)
+  then Error "bound direct function has no checked address path"
+  else if
+    shape <> Direct_function_value
+    && (Option.is_some function_declaration
+       || Option.is_some function_address_path)
+  then Error "bound nonfunction call argument has a function address path"
+  else if
+    match
+      ( Module_expression_binding.occurrence_resolution occurrence,
+        function_declaration )
+    with
+    | Module_expression_binding.Module_binding publication, Some declaration ->
+        not (function_declaration_matches_publication declaration publication)
+    | _, _ -> false
+  then Error "bound direct function declaration does not match its publication"
   else
     Ok
       (Bound_identifier_expression
@@ -550,6 +628,8 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
            bound_identifier_type_ = resolved_type;
            bound_identifier_shape_ = shape;
            bound_identifier_array_rank_ = array_rank;
+           bound_identifier_function_declaration_ = function_declaration;
+           bound_identifier_function_address_path_ = function_address_path;
          })
 
 let argument_expression_kind expression = expression.expression_kind
@@ -674,34 +754,45 @@ let validate_cast_target table parent visible target =
                  "function call cast target does not match the source-visible \
                   aggregate identity"))
 
-let rec validate_argument_expression table parent visible expression =
+let rec validate_argument_expression table parent visible declarations
+    compilation_mode expression =
   match argument_expression_kind expression with
   | Parenthesized_expression grouped ->
-      validate_argument_expression table parent visible grouped
+      validate_argument_expression table parent visible declarations
+        compilation_mode grouped
   | Prefix_expression prefix ->
-      validate_argument_expression table parent visible prefix.prefix_operand
+      validate_argument_expression table parent visible declarations
+        compilation_mode prefix.prefix_operand
   | Postfix_expression postfix ->
-      validate_argument_expression table parent visible postfix.postfix_operand
+      validate_argument_expression table parent visible declarations
+        compilation_mode postfix.postfix_operand
   | Binary_expression binary -> (
       match
-        validate_argument_expression table parent visible binary.binary_left
+        validate_argument_expression table parent visible declarations
+          compilation_mode binary.binary_left
       with
       | Error _ as error -> error
       | Ok () ->
-          validate_argument_expression table parent visible binary.binary_right)
+          validate_argument_expression table parent visible declarations
+            compilation_mode binary.binary_right)
   | Index_expression index -> (
       match
-        validate_argument_expression table parent visible index.index_base
+        validate_argument_expression table parent visible declarations
+          compilation_mode index.index_base
       with
       | Error _ as error -> error
       | Ok () ->
-          validate_argument_expression table parent visible index.index_value)
+          validate_argument_expression table parent visible declarations
+            compilation_mode index.index_value)
   | Member_access_expression member ->
-      validate_argument_expression table parent visible member.member_base
+      validate_argument_expression table parent visible declarations
+        compilation_mode member.member_base
   | Postfix_cast_expression (operand, target) -> (
       match validate_cast_target table parent visible target with
       | Error _ as error -> error
-      | Ok () -> validate_argument_expression table parent visible operand)
+      | Ok () ->
+          validate_argument_expression table parent visible declarations
+            compilation_mode operand)
   | Bound_identifier_expression identifier -> (
       let occurrence = bound_identifier_occurrence identifier in
       let resolved_type = bound_identifier_type identifier in
@@ -745,6 +836,47 @@ let rec validate_argument_expression table parent visible expression =
         identifier.bound_identifier_shape_ <> Array_value
         && identifier.bound_identifier_array_rank_ <> 0
       then Error (invalid_input "bound nonarray call argument has dimensions")
+      else if identifier.bound_identifier_shape_ = Direct_function_value then
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Module_binding publication -> (
+            let source =
+              Module_expression_binding.publication_source_symbol publication
+            in
+            let expected =
+              Int_map.find_opt (symbol_number source) declarations
+            in
+            match
+              ( expected,
+                identifier.bound_identifier_function_declaration_,
+                identifier.bound_identifier_function_address_path_ )
+            with
+            | Some expected, Some declaration, Some path
+              when expected == declaration -> (
+                match
+                  direct_function_address_path compilation_mode declaration
+                with
+                | Ok expected_path when expected_path = path -> Ok ()
+                | Ok _ ->
+                    Error
+                      (invalid_input
+                         "bound direct function has the wrong address path")
+                | Error message -> Error (invalid_input message))
+            | Some _, Some _, Some _ ->
+                Error
+                  (invalid_input
+                     "bound direct function uses a foreign resolved declaration")
+            | None, _, _ ->
+                Error
+                  (invalid_input
+                     "bound direct function has no resolved declaration")
+            | _, _, _ ->
+                Error
+                  (invalid_input
+                     "bound direct function has incomplete address metadata"))
+        | Module_expression_binding.Local_binding _
+        | Module_expression_binding.Outer_candidate ->
+            Error
+              (invalid_input "bound direct function has no module publication")
       else
         match Type.base resolved_type with
         | Type.Primitive _ -> Ok ()
@@ -815,7 +947,8 @@ let validate_callable table parent callable =
   | Error _ as error -> error
   | Ok () -> validate_signature (callable_signature callable)
 
-let validate_argument_expressions table parent visible calls =
+let validate_argument_expressions table parent visible declarations
+    compilation_mode calls =
   let rec arguments = function
     | [] -> Ok ()
     | argument :: rest -> (
@@ -823,7 +956,8 @@ let validate_argument_expressions table parent visible calls =
         | None -> arguments rest
         | Some expression -> (
             match
-              validate_argument_expression table parent visible expression
+              validate_argument_expression table parent visible declarations
+                compilation_mode expression
             with
             | Error _ as error -> error
             | Ok () -> arguments rest))
@@ -1058,8 +1192,8 @@ let validate_call_bound_occurrences calls occurrences =
   in
   loop calls
 
-let validate_function_input table parent visible expected
-    (input : function_input) =
+let validate_function_input table parent visible declarations compilation_mode
+    expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
   let scope = Module_expression_binding.function_scope expected in
   let item_index = Module_expression_binding.function_item_index expected in
@@ -1081,7 +1215,10 @@ let validate_function_input table parent visible expected
   else if not (symbol_in_scope input.symbol parent) then
     Error (invalid_input "function call owner has the wrong module scope")
   else
-    match validate_argument_expressions table parent visible input.calls with
+    match
+      validate_argument_expressions table parent visible declarations
+        compilation_mode input.calls
+    with
     | Error _ as error -> error
     | Ok () -> (
         let occurrences =
@@ -1091,7 +1228,8 @@ let validate_function_input table parent visible expected
         | Error _ as error -> error
         | Ok () -> validate_calls input.calls occurrences)
 
-let validate_function_inputs table parent expressions inputs =
+let validate_function_inputs table parent expressions declarations
+    compilation_mode inputs =
   let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
@@ -1099,7 +1237,10 @@ let validate_function_inputs table parent expressions inputs =
         let visible, publications =
           publish_aggregates_before visible publications input.item_index
         in
-        match validate_function_input table parent visible expected input with
+        match
+          validate_function_input table parent visible declarations
+            compilation_mode expected input
+        with
         | Error _ as error -> error
         | Ok () -> pair visible publications expected_rest input_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -1192,14 +1333,7 @@ let bind_indirect_arguments call callable =
          (Function_type_resolution.signature_variadic_origin signature))
 
 let same_publication_target publication declaration =
-  let site = Function_resolution.resolved_declaration_site declaration in
-  let function_ = Function_resolution.declaration_site_function site in
-  same_symbol
-    (Module_expression_binding.publication_source_symbol publication)
-    (Function_type_resolution.function_symbol function_)
-  && same_symbol
-       (Module_expression_binding.publication_canonical_symbol publication)
-       (Function_resolution.resolved_declaration_identity_symbol declaration)
+  function_declaration_matches_publication declaration publication
 
 let resolve_call types declarations occurrence (call : call) =
   let indirect_or_deferred reason =
@@ -1352,7 +1486,11 @@ let resolve ~table ~parent ~function_types ~functions ~expressions inputs =
         match validate_resolved_declarations table parent types functions with
         | Error _ as error -> error
         | Ok declarations -> (
-            match validate_function_inputs table parent expressions inputs with
+            match
+              validate_function_inputs table parent expressions declarations
+                (Function_resolution.compilation_mode functions)
+                inputs
+            with
             | Error _ as error -> error
             | Ok () -> (
                 match

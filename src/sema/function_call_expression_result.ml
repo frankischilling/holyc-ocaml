@@ -34,6 +34,9 @@ type expression_result = {
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
   call_resolution : Function_call_resolution.call_resolution option;
+  function_declaration : Function_resolution.resolved_declaration option;
+  function_address_path :
+    Function_call_resolution.direct_function_address_path option;
 }
 
 type declared_default_kind = Expression_default_kind | Lastclass_default_kind
@@ -145,6 +148,8 @@ let result_intrinsic_conversion (result : expression_result) =
 
 let result_member_lookup (result : expression_result) = result.member_lookup
 let result_call_resolution (result : expression_result) = result.call_resolution
+let result_function_declaration result = result.function_declaration
+let result_function_address_path result = result.function_address_path
 
 let result_is_direct_function (result : expression_result) =
   match Function_call_resolution.argument_expression_kind result.source with
@@ -225,8 +230,9 @@ let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?call_resolution ?(intrinsic_conversion = No_intrinsic_conversion) state ~id
-    ~source ~source_type ~category ~result_class =
+    ?call_resolution ?function_declaration ?function_address_path
+    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
+    ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -240,6 +246,8 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       intrinsic_conversion;
       member_lookup;
       call_resolution;
+      function_declaration;
+      function_address_path;
     }
 
 let known_type table type_ =
@@ -360,10 +368,12 @@ let rec type_expression table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (id, state) -> (
       let finish ?(source_type = None) ?(array_rank = 0) ?call_resolution
-          category result_class state =
+          ?function_declaration ?function_address_path category result_class
+          state =
         Ok
-          (make_result ~array_rank ?call_resolution ~intrinsic_conversion state
-             ~id ~source ~source_type ~category ~result_class)
+          (make_result ~array_rank ?call_resolution ?function_declaration
+             ?function_address_path ~intrinsic_conversion state ~id ~source
+             ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal
@@ -441,8 +451,14 @@ let rec type_expression table members policies ~before_item_index ~context
               let array_rank =
                 Function_call_resolution.bound_identifier_array_rank identifier
               in
-              finish ~source_type:(Some source_type) ~array_rank category
-                result_class state)
+              finish ~source_type:(Some source_type) ~array_rank
+                ?function_declaration:
+                  (Function_call_resolution
+                   .bound_identifier_function_declaration identifier)
+                ?function_address_path:
+                  (Function_call_resolution
+                   .bound_identifier_function_address_path identifier)
+                category result_class state)
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
@@ -524,10 +540,12 @@ and type_prefix table members policies ~before_item_index ~context
   with
   | Error _ as error -> error
   | Ok (operand, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) category result_class =
+      let finish ?(source_type = None) ?(array_rank = 0) ?function_declaration
+          ?function_address_path category result_class =
         Ok
-          (make_result ~array_rank ~intrinsic_conversion state ~id ~source
-             ~source_type ~category ~result_class)
+          (make_result ~array_rank ?function_declaration ?function_address_path
+             ~intrinsic_conversion state ~id ~source ~source_type ~category
+             ~result_class)
       in
       match operator with
       | Function_call_resolution.Unary_plus
@@ -539,9 +557,61 @@ and type_prefix table members policies ~before_item_index ~context
           finish ~source_type:integer_type Object_value Integer_result
       | Function_call_resolution.Address_of -> (
           match (operand.source_type, result_is_direct_function operand) with
-          | Some source_type, true ->
-              finish ~source_type:(Some source_type) Address_value
-                Integer_result
+          | Some source_type, true -> (
+              let name =
+                match
+                  Function_call_resolution.argument_expression_kind
+                    operand.source
+                with
+                | Function_call_resolution.Bound_identifier_expression
+                    identifier ->
+                    identifier
+                    |> Function_call_resolution.bound_identifier_occurrence
+                    |> Module_expression_binding.occurrence_name
+                | _ -> "<function>"
+              in
+              match operand.function_address_path with
+              | Some Function_call_resolution.Jit_extern_slot
+              | Some Function_call_resolution.Jit_immediate
+              | Some Function_call_resolution.Aot_absolute ->
+                  finish ~source_type:(Some source_type)
+                    ?function_declaration:operand.function_declaration
+                    ?function_address_path:operand.function_address_path
+                    Address_value Integer_result
+              | Some Function_call_resolution.Reject_aot_extern ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.prefix_operator_origin prefix)
+                       (Printf.sprintf
+                          "cannot take the address of unresolved AOT function \
+                           %S outside assembly"
+                          name))
+              | Some Function_call_resolution.Reject_aot_import ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.prefix_operator_origin prefix)
+                       (Printf.sprintf
+                          "cannot take the address of imported AOT function %S \
+                           outside assembly"
+                          name))
+              | Some Function_call_resolution.Reject_internal ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.prefix_operator_origin prefix)
+                       (Printf.sprintf
+                          "cannot use internal compiler function %S as a \
+                           direct function address"
+                          name))
+              | None ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.prefix_operator_origin prefix)
+                       "direct function address has no checked JIT or AOT path")
+              )
           | None, _ -> finish Address_value Integer_result
           | Some source_type, false -> (
               match Type.pointer_to source_type with

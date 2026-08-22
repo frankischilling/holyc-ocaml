@@ -5517,8 +5517,8 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 46
-unimplemented = ["assignment execution", "module function value typing", "member and computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
+focused_expression_result_tests = 48
+unimplemented = ["assignment execution", "standalone module function values outside address-of", "member and computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5843,7 +5843,7 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
 focused_conversion_policy_tests = 7
-focused_expression_result_tests = 46
+focused_expression_result_tests = 48
 focused_conversion_decision_tests = 34
 unsupported_callees = ["function-pointer arrays without an index", "aggregate member callbacks", "arbitrary computed callback expressions", "untyped outer callback values"]
 callback_storage_reads_default_evaluation_member_and_computed_calls_abi_lowering_and_execution = "not implemented"
@@ -5884,7 +5884,7 @@ call_forms = ["direct", "typed indirect"]
 provenance = ["previous source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 46
+focused_expression_result_tests = 48
 ordinary_default_evaluation_string_allocation_aot_fixups_ir_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and OptClassFwd directly define the state transition and class spelling"
 
@@ -5921,7 +5921,7 @@ call_forms = ["direct", "typed indirect", "parenthesized", "parenthesis-free"]
 provenance = ["selected parameter", "default expression or keyword", "included source", "definition expansion"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 46
+focused_expression_result_tests = 48
 default_evaluation_payload_copy_string_allocation_ic_emission_fixups_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall directly distinguishes immediate and AOT string construction"
 
@@ -5959,6 +5959,47 @@ validation = ["function publication cannot be forged as object storage", "local 
 provenance = ["function occurrence", "source publication", "canonical function", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 46
-jit_executable_address_extern_slot_aot_absolute_address_import_relocation_ic_emission_lowering_abi_and_execution = "not implemented"
+focused_expression_result_tests = 48
+numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
 native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
+
+[[feature]]
+id = "HC-SEMA-DIRECT-FUNCTION-ADDRESS-PATHS"
+description = "Direct function addresses retain the mode-sensitive JIT or AOT path selected from the exact resolved declaration state."
+sources = [
+  "Compiler/PrsExp.HC:620-655 direct function address branch, Cf_EXTERN test, JIT slot load, JIT immediate, AOT rejection, and IC_ABS_ADDR",
+  "Compiler/PrsStmt.HC:62-110 initial exe_addr and Cf_EXTERN state",
+  "Compiler/PrsStmt.HC:235-276 _intern, _extern, extern, import, Ff_INTERNAL, and Cf_EXTERN transitions",
+  "Compiler/PrsExp.HC:535-578 matching direct-call extern, import, and resolved branches"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 288
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct function identifiers immediately below address-of in provided fixed and variadic arguments on resolved function-body calls"
+identity_rule = "the retained declaration must be the exact checked declaration for the source-visible publication and canonical joined identity"
+jit_unresolved_extern = "extern-slot load intent"
+jit_resolved = "immediate-address intent"
+aot_resolved = "absolute-address input intent"
+aot_unresolved_extern = "HCSEMA0046 at address-of"
+aot_import = "HCSEMA0046 at address-of"
+bound_extern = "resolved path because _extern clears Cf_EXTERN"
+internal_function = "explicit HCSEMA0046 because the pinned noninternal direct-address branch does not apply"
+validation = ["exact declaration ownership", "source and canonical publication match", "compilation-mode path match", "occurrence ownership", "symbol-table ownership"]
+provenance = ["address operator", "function occurrence", "source publication", "resolved declaration", "canonical function", "included source", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_call_resolution_tests = 10
+focused_expression_result_tests = 48
+numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; the audited parser branches directly select or reject each retained path"
