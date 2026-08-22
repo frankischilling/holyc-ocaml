@@ -94,9 +94,7 @@ val analyze :
     implicit-output function statements, conditions, switch selectors, case
     values, and returns. When [outer] is supplied, it must be the exact
     outer-expression batch for this policy traversal; checked global metadata
-    supplies the type, value shape, array rank, and recursive callback signature
-    of the selected outer leaf. A rank-zero outer callback binds arguments through
-    that signature and keeps its exact occurrence and table record.
+    supplies the type, value shape, and array rank of the selected outer leaf.
     Each checked expression has a deterministic identity, source origin,
     semantic type, value category, remaining array rank, conversion intent,
     forwarded result class, and any separate execution class needed by later
@@ -185,6 +183,9 @@ val function_calls : resolved_function -> call_result list
 
 val function_outer_callback_calls :
   resolved_function -> outer_callback_call list
+(** Source-ordered calls through scalar outer callbacks. Each record keeps its
+    recursive signature, exact outer occurrence, and selected table entry. This
+    analysis does not read or invoke the stored callback address. *)
 
 val function_expression_statements :
   resolved_function -> expression_statement_result list
