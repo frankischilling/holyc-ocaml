@@ -258,7 +258,10 @@ val aggregate_offset_base :
   aggregate_offset_path -> Module_expression_binding.publication
 
 val aggregate_offset_current_type : aggregate_offset_path -> Type.t
-val aggregate_offset_segments : aggregate_offset_path -> aggregate_offset_segment list
+
+val aggregate_offset_segments :
+  aggregate_offset_path -> aggregate_offset_segment list
+
 val aggregate_offset_value : aggregate_offset_path -> int64
 
 val aggregate_offset_segment_lookup :

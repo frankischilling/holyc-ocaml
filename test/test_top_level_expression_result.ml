@@ -181,7 +181,8 @@ let offset_description result =
               (Semantic_function_call_expression_result
                .aggregate_offset_segment_cumulative_offset segment))
       in
-      Printf.sprintf "%s[%s]=%Ld" base (String.concat "/" segments)
+      Printf.sprintf "%s[%s]=%Ld" base
+        (String.concat "/" segments)
         (Semantic_function_call_expression_result.aggregate_offset_value path)
 
 let completed_offsets result =
@@ -452,12 +453,14 @@ let aggregate_offset_paths () =
     (fun mode ->
       let source =
         prepared ~mode ~path:"top-level-offset-paths.HC"
-          "F64 class FloatBox {};
-           class Inner {I8 head;I64 value;};
-           class Base {I8 inherited;};
-           class Box : Base {I16 prefix;Inner inner;FloatBox floating;};
-           0+Box.prefix;0+Box.inner.value;0+Box.inherited;0+Box.floating;
-           0+Box.inner.value;"
+          "F64 class FloatBox {};\n\
+          \           class Inner {I8 head;I64 value;};\n\
+          \           class Base {I8 inherited;};\n\
+          \           class Box : Base {I16 prefix;Inner inner;FloatBox \
+           floating;};\n\
+          \           \
+           0+Box.prefix;0+Box.inner.value;0+Box.inherited;0+Box.floating;\n\
+          \           0+Box.inner.value;"
       in
       let _, _, _, result = analyze source in
       let values = root_values result in
@@ -471,9 +474,7 @@ let aggregate_offset_paths () =
           "I64:object-value:integer-result:rank-0";
         ]
         (List.map descriptor values);
-      let offsets =
-        completed_offsets result
-      in
+      let offsets = completed_offsets result in
       Alcotest.(check (list string))
         "offset paths retain ordered segments and cumulative values"
         [
@@ -488,19 +489,18 @@ let aggregate_offset_paths () =
         (List.map offset_description offsets);
       let float_path =
         List.nth offsets 4
-        |> Semantic_function_call_expression_result
-           .result_aggregate_offset_path
+        |> Semantic_function_call_expression_result.result_aggregate_offset_path
         |> Option.get
       in
       Alcotest.(check string)
         "a backed member keeps its path type without changing the I64 result"
         "FloatBox"
-        (float_path
-        |> Semantic_function_call_expression_result.aggregate_offset_current_type
-        |> Semantic_type.base
+        ( float_path
+          |> Semantic_function_call_expression_result
+             .aggregate_offset_current_type |> Semantic_type.base
         |> function
-        | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
-        | Semantic_type.Primitive _ -> "primitive"))
+          | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+          | Semantic_type.Primitive _ -> "primitive" ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let invalid_aggregate_offset_paths () =
@@ -535,7 +535,7 @@ let invalid_aggregate_offset_paths () =
           ~members:source.members ~policies ~identifiers expressions
       with
       | Ok _ -> Alcotest.failf "expected %s offset path to fail" label
-      | Error error ->
+      | Error error -> (
           Alcotest.(check string)
             (label ^ " code") "HCSEMA0046"
             (Semantic_function_call_expression_result.error_code error);
@@ -546,7 +546,7 @@ let invalid_aggregate_offset_paths () =
           | Some (Semantic_symbol.Source_location _) -> ()
           | Some
               (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
-          | None -> Alcotest.fail "expected an offset-path source location")
+          | None -> Alcotest.fail "expected an offset-path source location"))
 
 let unavailable_boundaries_and_checked_ownership () =
   let source =
@@ -642,7 +642,8 @@ let stale_batches_and_mode_mismatch () =
 let generated_provenance_and_purity () =
   let source =
     prepared ~path:"top-level-generated-results.HC"
-      "#define VALUE box.value\n#define OFFSET Box.value\n\
+      "#define VALUE box.value\n\
+       #define OFFSET Box.value\n\
        class Box {I64 value;};Box box;VALUE+1;0+OFFSET;"
   in
   let table = Session.semantic_symbols source.session in

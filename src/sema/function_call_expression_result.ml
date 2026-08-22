@@ -456,9 +456,8 @@ let record state result =
 
 let make_result ?(array_rank = 0) ?execution_class ?member_lookup
     ?aggregate_offset_path ?call_resolution ?function_declaration
-    ?function_address_path
-    ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
-    ~source_type ~category ~result_class =
+    ?function_address_path ?(intrinsic_conversion = No_intrinsic_conversion)
+    state ~id ~source ~source_type ~category ~result_class =
   record state
     {
       id;
@@ -619,7 +618,8 @@ let resolve_member_lookup members ~before_item_index ~aggregate_symbol
           Error
             (invalid_input ~origin:member_origin
                (Printf.sprintf "aggregate `%s` has no member `%s`"
-                  (Symbol.name aggregate_symbol) member_name))
+                  (Symbol.name aggregate_symbol)
+                  member_name))
       | Ok (Some lookup) -> Ok lookup)
 
 let rec type_expression table members policies ~before_item_index ~context
@@ -628,9 +628,9 @@ let rec type_expression table members policies ~before_item_index ~context
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0)
-          ?aggregate_offset_path ?call_resolution ?function_declaration
-          ?function_address_path category result_class state =
+      let finish ?(source_type = None) ?(array_rank = 0) ?aggregate_offset_path
+          ?call_resolution ?function_declaration ?function_address_path category
+          result_class state =
         Ok
           (make_result ~array_rank ?aggregate_offset_path ?call_resolution
              ?function_declaration ?function_address_path ~intrinsic_conversion
@@ -759,17 +759,17 @@ let rec type_expression table members policies ~before_item_index ~context
                              "aggregate offset base requires a member path")
                       else
                         let symbol =
-                          Module_expression_binding
-                          .publication_canonical_symbol publication
+                          Module_expression_binding.publication_canonical_symbol
+                            publication
                         in
                         match Type.make_aggregate ~symbol ~pointer_depth:0 with
                         | Error message ->
-                          Error
-                            (invalid_top_level_input
-                               ~origin:
-                                 (Top_level_outer_expression_binding
-                                  .occurrence_origin occurrence)
-                               message)
+                            Error
+                              (invalid_top_level_input
+                                 ~origin:
+                                   (Top_level_outer_expression_binding
+                                    .occurrence_origin occurrence)
+                                 message)
                         | Ok offset_current_type ->
                             let aggregate_offset_path =
                               {
@@ -1200,9 +1200,8 @@ and type_member table members policies ~before_item_index ~context
                         offset_value;
                       }
                     in
-                    finish ~source_type:integer_type
-                      ~member_lookup ~aggregate_offset_path Offset_value
-                      Integer_result))
+                    finish ~source_type:integer_type ~member_lookup
+                      ~aggregate_offset_path Offset_value Integer_result))
       | None -> (
           match base.source_type with
           | None -> finish Unavailable Unresolved_actual_class
@@ -1228,8 +1227,7 @@ and type_member table members policies ~before_item_index ~context
                           Aggregate_member_index.member_is_function_pointer
                             indexed_member
                         then (Callback_value, Integer_result)
-                        else if array_rank > 0 then
-                          (Array_value, Integer_result)
+                        else if array_rank > 0 then (Array_value, Integer_result)
                         else
                           ( (match context with
                             | Value_context -> Object_value
@@ -1982,19 +1980,19 @@ let type_top_level_root table members policies ~before_item_index state source =
           (invalid_input ~origin:top_level_root_value.origin
              "aggregate offset base requires a member path")
       else
-      let top_level_root_result_use =
-        match Top_level_expression_tree.root_role source with
-        | Top_level_expression_tree.Expression_statement _ ->
-            Some Result_not_used
-        | Top_level_expression_tree.Implicit_output_fixed _
-        | Top_level_expression_tree.Implicit_output_argument _
-        | Top_level_expression_tree.Condition _
-        | Top_level_expression_tree.Switch_selector _
-        | Top_level_expression_tree.Switch_case_value _
-        | Top_level_expression_tree.Local_array_dimension _
-        | Top_level_expression_tree.Local_initializer _
-        | Top_level_expression_tree.Return_value _ -> None
-      in
+        let top_level_root_result_use =
+          match Top_level_expression_tree.root_role source with
+          | Top_level_expression_tree.Expression_statement _ ->
+              Some Result_not_used
+          | Top_level_expression_tree.Implicit_output_fixed _
+          | Top_level_expression_tree.Implicit_output_argument _
+          | Top_level_expression_tree.Condition _
+          | Top_level_expression_tree.Switch_selector _
+          | Top_level_expression_tree.Switch_case_value _
+          | Top_level_expression_tree.Local_array_dimension _
+          | Top_level_expression_tree.Local_initializer _
+          | Top_level_expression_tree.Return_value _ -> None
+        in
         Ok
           ( {
               top_level_root_source = source;
