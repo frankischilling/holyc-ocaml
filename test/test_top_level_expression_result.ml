@@ -64,8 +64,7 @@ let outer_global_metadata source template_name =
      |> List.length)
   |> checked_outer
 
-let make_outer_global_entry
-    (source : prepared_source) ~entry_index ~name ?metadata () =
+let make_outer_entry (source : prepared_source) ~entry_index ~name ?metadata () =
   let table = Session.semantic_symbols source.session in
   let symbol =
     Semantic_symbol_table.add table
@@ -405,7 +404,7 @@ let top_level_outer_globals_retain_checked_shapes () =
       let entries =
         specifications
         |> List.mapi (fun entry_index (name, template_name) ->
-            make_outer_global_entry source ~entry_index ~name
+            make_outer_entry source ~entry_index ~name
               ~metadata:(outer_global_metadata source template_name)
               ())
       in
@@ -473,7 +472,7 @@ let top_level_outer_globals_retain_checked_shapes () =
 
 let metadata_free_top_level_outer_stays_unavailable () =
   let source = prepared ~path:"top-level-untyped-outer-result.HC" "(Outer);" in
-  let entry = make_outer_global_entry source ~entry_index:0 ~name:"Outer" () in
+  let entry = make_outer_entry source ~entry_index:0 ~name:"Outer" () in
   let environment = outer_environment source [ entry ] in
   let _, _, _, result = analyze ~environment source in
   match root_values result with

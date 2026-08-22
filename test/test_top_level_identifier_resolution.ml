@@ -197,11 +197,11 @@ let typed_environment prepared specifications =
     |> List.mapi (fun entry_index (name, template_name) ->
         let symbol =
           let origin = Semantic_symbol.Synthesized ("typed outer " ^ name) in
+          let kind = Semantic_symbol.Global_variable in
           checked
             (Semantic_symbol_table.add table
                ~scope:(Semantic_symbol_table.root table)
-               ~name ~kind:Semantic_symbol.Global_variable
-               ~origin)
+               ~name ~kind ~origin)
         in
         Semantic_outer_environment.make_global_entry ~symbol ~entry_index
           ~global_metadata:(global_metadata prepared template_name)
@@ -407,10 +407,11 @@ let typed_outer_globals_become_values () =
       in
       let expressions =
         let compilation_mode = prepared.mode in
+        let declarations = prepared.declarations in
+        let build = Holyc_lib.build_top_level_expression_trees in
         checked
-          (Holyc_lib.build_top_level_expression_trees prepared.session
-             ~declarations:prepared.declarations
-             ~compilation_mode ~expressions:outer_bound prepared.ast)
+          (build prepared.session ~declarations ~compilation_mode
+             ~expressions:outer_bound prepared.ast)
       in
       let result = classify prepared expressions |> checked in
       let describe leaf =
