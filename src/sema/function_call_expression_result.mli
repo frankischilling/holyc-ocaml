@@ -39,6 +39,7 @@ type lastclass_substitution
 type fixed_result
 type top_level_fixed_result
 type top_level_direct_call
+type top_level_global_callback_call
 type direct_call
 type indirect_call
 
@@ -136,6 +137,10 @@ val top_level_compilation_mode :
 
 val top_level_statements : top_level_t -> top_level_statement_result list
 val top_level_direct_calls : top_level_t -> top_level_direct_call list
+
+val top_level_global_callback_calls :
+  top_level_t -> top_level_global_callback_call list
+
 val top_level_all_results : top_level_t -> expression_result list
 
 val top_level_statement_source :
@@ -249,6 +254,30 @@ val top_level_direct_variadic_results :
 
 val top_level_direct_variadic_count : top_level_direct_call -> int64
 val top_level_direct_result_id : top_level_direct_call -> Id.t
+
+val top_level_global_callback_source :
+  top_level_global_callback_call -> Top_level_expression_tree.call
+
+val top_level_global_callback_global :
+  top_level_global_callback_call -> Global_type_resolution.global
+
+val top_level_global_callback_value :
+  top_level_global_callback_call -> Function_call_resolution.identifier_value
+
+val top_level_global_callback_callable :
+  top_level_global_callback_call -> Function_call_resolution.callable
+
+val top_level_global_callback_fixed_results :
+  top_level_global_callback_call -> top_level_fixed_result list
+
+val top_level_global_callback_variadic_results :
+  top_level_global_callback_call -> expression_result list
+
+val top_level_global_callback_variadic_count :
+  top_level_global_callback_call -> int64
+
+val top_level_global_callback_result_id :
+  top_level_global_callback_call -> Id.t
 
 val declared_default_source :
   declared_default_result -> Function_call_resolution.default_use
