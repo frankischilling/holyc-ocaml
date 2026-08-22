@@ -40,6 +40,9 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_return_type : resolved_function -> Type_reference.t
 
+val function_expression_statements :
+  resolved_function -> Function_call_resolution.expression_statement_input list
+
 val function_conditions :
   resolved_function -> Function_call_resolution.condition_input list
 

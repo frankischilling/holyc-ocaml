@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retained ordinary function expression statements as checked semantic results with explicit `ICF_RES_NOT_USED` intent. Nested calls keep their resolved identity. This boundary does not lower `IC_END_EXP`, discard a runtime value, execute side effects, or include implicit `Print` and `PutChars` statements.
 - Retained implicit, single, and ranged function switch cases as immutable semantic patterns. Explicit values keep their checked type and nested call identity; an `F64` value records the integer conversion used by `LexExpressionI64`. This boundary does not evaluate a case, assign an implicit value, calculate a range, detect duplicates, or build a jump table.
 - Typed bounded and no-bound function switch selectors through the shared expression-result model. Each selector keeps its syntax mode, source identity, checked type, result class, and nested call resolution without claiming range adjustment, a jump table, or switch IR.
 - Typed `if`, `while`, `do while`, and `for` conditions through the shared immutable expression-result model. Each result keeps its statement role, source identity, integer or `F64` class, and nested call resolution without claiming a Boolean conversion or branch IR.
