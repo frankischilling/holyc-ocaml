@@ -100,6 +100,17 @@ type top_level_direct_call = {
   top_level_direct_result_id : Id.t;
 }
 
+type top_level_global_callback_call = {
+  top_level_global_callback_source : Top_level_expression_tree.call;
+  top_level_global_callback_global : Global_type_resolution.global;
+  top_level_global_callback_value : Function_call_resolution.identifier_value;
+  top_level_global_callback_callable : Function_call_resolution.callable;
+  top_level_global_callback_fixed_results : top_level_fixed_result list;
+  top_level_global_callback_variadic_results : expression_result list;
+  top_level_global_callback_variadic_count : int64;
+  top_level_global_callback_result_id : Id.t;
+}
+
 type direct_call = {
   source : Function_call_conversion_policy.direct_call;
   fixed_results : fixed_result list;
@@ -222,6 +233,7 @@ type top_level_t = {
   top_level_compilation_mode : Function_resolution.compilation_mode;
   top_level_statements : top_level_statement_result list;
   top_level_direct_calls : top_level_direct_call list;
+  top_level_global_callback_calls : top_level_global_callback_call list;
   top_level_all_results : expression_result list;
 }
 
@@ -234,6 +246,7 @@ type build_state = {
   results_rev : expression_result list;
   top_level_identifier_batch : Top_level_identifier_resolution.t option;
   top_level_direct_calls_rev : top_level_direct_call list;
+  top_level_global_callback_calls_rev : top_level_global_callback_call list;
 }
 
 let owns_table result table = result.table == table
@@ -255,6 +268,10 @@ let top_level_source result = result.top_level_source
 let top_level_compilation_mode result = result.top_level_compilation_mode
 let top_level_statements result = result.top_level_statements
 let top_level_direct_calls result = result.top_level_direct_calls
+
+let top_level_global_callback_calls result =
+  result.top_level_global_callback_calls
+
 let top_level_all_results result = result.top_level_all_results
 let top_level_statement_source result = result.top_level_statement_source
 let top_level_statement_roots result = result.top_level_statement_roots
@@ -363,6 +380,34 @@ let top_level_direct_variadic_count (call : top_level_direct_call) =
 
 let top_level_direct_result_id (call : top_level_direct_call) =
   call.top_level_direct_result_id
+
+let top_level_global_callback_source (call : top_level_global_callback_call) =
+  call.top_level_global_callback_source
+
+let top_level_global_callback_global (call : top_level_global_callback_call) =
+  call.top_level_global_callback_global
+
+let top_level_global_callback_value (call : top_level_global_callback_call) =
+  call.top_level_global_callback_value
+
+let top_level_global_callback_callable (call : top_level_global_callback_call) =
+  call.top_level_global_callback_callable
+
+let top_level_global_callback_fixed_results
+    (call : top_level_global_callback_call) =
+  call.top_level_global_callback_fixed_results
+
+let top_level_global_callback_variadic_results
+    (call : top_level_global_callback_call) =
+  call.top_level_global_callback_variadic_results
+
+let top_level_global_callback_variadic_count
+    (call : top_level_global_callback_call) =
+  call.top_level_global_callback_variadic_count
+
+let top_level_global_callback_result_id (call : top_level_global_callback_call)
+    =
+  call.top_level_global_callback_result_id
 
 let lastclass_previous_result substitution = substitution.previous_result_
 let lastclass_class_name substitution = substitution.class_name_
@@ -1608,6 +1653,16 @@ and type_top_level_call table members policies ~before_item_index
                 ~before_item_index ~intrinsic_conversion state id source call
                 declaration
           | Top_level_identifier_resolution.Module_value
+              (Top_level_identifier_resolution.Global_value { global; value })
+            when Function_call_resolution.identifier_value_shape value
+                 = Function_call_resolution.Function_pointer_value
+                 && Function_call_resolution.call_callee_form
+                      (Top_level_expression_tree.call_source call)
+                    = Function_call_resolution.Identifier_callee ->
+              type_top_level_global_callback_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                global value
+          | Top_level_identifier_resolution.Module_value
               ( Top_level_identifier_resolution.Global_value _
               | Top_level_identifier_resolution.Aggregate_offset_base _ )
           | Top_level_identifier_resolution.Outer_type_required _ ->
@@ -1637,76 +1692,86 @@ and type_top_level_direct_call table members policies ~before_item_index
              ?origin:(Function_call_resolution.error_origin error)
              (Function_call_resolution.error_message error))
     | Ok (fixed_arguments, variadic_arguments, variadic_count) -> (
-        let rec type_fixed previous state rev = function
-          | [] -> Ok (List.rev rev, state)
-          | fixed :: rest -> (
-              let parameter = Function_call_resolution.fixed_parameter fixed in
-              let target_class =
-                Function_call_conversion_policy.parameter_target_class policies
-                  ~before_item_index parameter
-                |> result_class_of_target
-              in
-              match Function_call_resolution.fixed_value fixed with
-              | Function_call_resolution.Declared_default default ->
-                  let result =
-                    {
-                      top_level_fixed_source = fixed;
-                      top_level_fixed_target_class = target_class;
-                      top_level_fixed_path =
-                        Declared_default_result
-                          (declared_default_result policies ~before_item_index
-                             fixed default);
-                      top_level_fixed_lastclass_substitution =
-                        lastclass_substitution policies ~before_item_index
-                          previous default;
-                    }
-                  in
-                  type_fixed previous state (result :: rev) rest
-              | Function_call_resolution.Provided_argument argument -> (
-                  match
-                    Function_call_resolution.argument_expression argument
-                  with
-                  | None -> invalid "provided fixed argument has no expression"
-                  | Some expression -> (
-                      match
-                        type_expression table members policies
-                          ~before_item_index ~context:Value_context state
-                          expression
-                      with
-                      | Error _ as error -> error
-                      | Ok (value, state) ->
-                          let result =
-                            {
-                              top_level_fixed_source = fixed;
-                              top_level_fixed_target_class = target_class;
-                              top_level_fixed_path = Provided_result value;
-                              top_level_fixed_lastclass_substitution = None;
-                            }
-                          in
-                          type_fixed (Some value) state (result :: rev) rest)))
-        in
-        let rec type_variadic state rev = function
-          | [] -> Ok (List.rev rev, state)
-          | argument :: rest -> (
-              match Function_call_resolution.argument_expression argument with
-              | None -> invalid "provided variadic argument has no expression"
-              | Some expression -> (
-                  match
-                    type_expression table members policies ~before_item_index
-                      ~context:Value_context state expression
-                  with
-                  | Error _ as error -> error
-                  | Ok (value, state) -> type_variadic state (value :: rev) rest
-                  ))
-        in
-        match type_fixed None state [] fixed_arguments with
+        match
+          type_top_level_bound_arguments table members policies
+            ~before_item_index ~origin state fixed_arguments variadic_arguments
+        with
         | Error _ as error -> error
-        | Ok (fixed_results, state) -> (
-            match type_variadic state [] variadic_arguments with
+        | Ok (fixed_results, variadic_results, state) -> (
+            let source_type =
+              header |> Function_type_resolution.function_return_type
+              |> Type_reference.resolved_type
+            in
+            match known_type table source_type with
             | Error _ as error -> error
-            | Ok (variadic_results, state) -> (
+            | Ok source_type ->
+                let category =
+                  if Type.pointer_depth source_type > 0 then Address_value
+                  else Object_value
+                in
+                let direct_call =
+                  {
+                    top_level_direct_source = call;
+                    top_level_direct_declaration = declaration;
+                    top_level_direct_header = header;
+                    top_level_direct_target_symbol =
+                      Function_resolution.resolved_declaration_identity_symbol
+                        declaration;
+                    top_level_direct_fixed_results = fixed_results;
+                    top_level_direct_variadic_results = variadic_results;
+                    top_level_direct_variadic_count = variadic_count;
+                    top_level_direct_result_id = id;
+                  }
+                in
+                let state =
+                  {
+                    state with
+                    top_level_direct_calls_rev =
+                      direct_call :: state.top_level_direct_calls_rev;
+                  }
+                in
+                Ok
+                  (make_result ~intrinsic_conversion state ~id ~source
+                     ~source_type:(Some source_type) ~category
+                     ~result_class:
+                       (forwarded_class policies ~before_item_index source_type))
+            ))
+
+and type_top_level_global_callback_call table members policies
+    ~before_item_index ~intrinsic_conversion state id source call global value =
+  let source_call = Top_level_expression_tree.call_source call in
+  let origin = Function_call_resolution.call_origin source_call in
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  if Global_type_resolution.global_array_dimensions global <> [] then
+    invalid "top-level scalar callback unexpectedly has array dimensions"
+  else
+    match Global_type_resolution.global_declarator_kind global with
+    | Global_type_resolution.Object ->
+        invalid "top-level callback global has no function-pointer signature"
+    | Global_type_resolution.Function_pointer function_pointer -> (
+        let callable =
+          Function_call_resolution.make_callable
+            ~return_type:(Global_type_resolution.global_type_reference global)
+            ~function_pointer
+        in
+        match
+          Function_call_resolution.bind_indirect_arguments source_call callable
+        with
+        | Error error ->
+            Error
+              (invalid_top_level_input
+                 ?origin:(Function_call_resolution.error_origin error)
+                 (Function_call_resolution.error_message error))
+        | Ok (fixed_arguments, variadic_arguments, variadic_count) -> (
+            match
+              type_top_level_bound_arguments table members policies
+                ~before_item_index ~origin state fixed_arguments
+                variadic_arguments
+            with
+            | Error _ as error -> error
+            | Ok (fixed_results, variadic_results, state) -> (
                 let source_type =
-                  header |> Function_type_resolution.function_return_type
+                  callable |> Function_call_resolution.callable_return_type
                   |> Type_reference.resolved_type
                 in
                 match known_type table source_type with
@@ -1716,25 +1781,26 @@ and type_top_level_direct_call table members policies ~before_item_index
                       if Type.pointer_depth source_type > 0 then Address_value
                       else Object_value
                     in
-                    let direct_call =
+                    let callback_call =
                       {
-                        top_level_direct_source = call;
-                        top_level_direct_declaration = declaration;
-                        top_level_direct_header = header;
-                        top_level_direct_target_symbol =
-                          Function_resolution
-                          .resolved_declaration_identity_symbol declaration;
-                        top_level_direct_fixed_results = fixed_results;
-                        top_level_direct_variadic_results = variadic_results;
-                        top_level_direct_variadic_count = variadic_count;
-                        top_level_direct_result_id = id;
+                        top_level_global_callback_source = call;
+                        top_level_global_callback_global = global;
+                        top_level_global_callback_value = value;
+                        top_level_global_callback_callable = callable;
+                        top_level_global_callback_fixed_results = fixed_results;
+                        top_level_global_callback_variadic_results =
+                          variadic_results;
+                        top_level_global_callback_variadic_count =
+                          variadic_count;
+                        top_level_global_callback_result_id = id;
                       }
                     in
                     let state =
                       {
                         state with
-                        top_level_direct_calls_rev =
-                          direct_call :: state.top_level_direct_calls_rev;
+                        top_level_global_callback_calls_rev =
+                          callback_call
+                          :: state.top_level_global_callback_calls_rev;
                       }
                     in
                     Ok
@@ -1743,6 +1809,75 @@ and type_top_level_direct_call table members policies ~before_item_index
                          ~result_class:
                            (forwarded_class policies ~before_item_index
                               source_type)))))
+
+and type_top_level_bound_arguments table members policies ~before_item_index
+    ~origin state fixed_arguments variadic_arguments =
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  let rec type_fixed previous state rev = function
+    | [] -> Ok (List.rev rev, state)
+    | fixed :: rest -> (
+        let parameter = Function_call_resolution.fixed_parameter fixed in
+        let target_class =
+          Function_call_conversion_policy.parameter_target_class policies
+            ~before_item_index parameter
+          |> result_class_of_target
+        in
+        match Function_call_resolution.fixed_value fixed with
+        | Function_call_resolution.Declared_default default ->
+            let result =
+              {
+                top_level_fixed_source = fixed;
+                top_level_fixed_target_class = target_class;
+                top_level_fixed_path =
+                  Declared_default_result
+                    (declared_default_result policies ~before_item_index fixed
+                       default);
+                top_level_fixed_lastclass_substitution =
+                  lastclass_substitution policies ~before_item_index previous
+                    default;
+              }
+            in
+            type_fixed previous state (result :: rev) rest
+        | Function_call_resolution.Provided_argument argument -> (
+            match Function_call_resolution.argument_expression argument with
+            | None -> invalid "provided fixed argument has no expression"
+            | Some expression -> (
+                match
+                  type_expression table members policies ~before_item_index
+                    ~context:Value_context state expression
+                with
+                | Error _ as error -> error
+                | Ok (value, state) ->
+                    let result =
+                      {
+                        top_level_fixed_source = fixed;
+                        top_level_fixed_target_class = target_class;
+                        top_level_fixed_path = Provided_result value;
+                        top_level_fixed_lastclass_substitution = None;
+                      }
+                    in
+                    type_fixed (Some value) state (result :: rev) rest)))
+  in
+  let rec type_variadic state rev = function
+    | [] -> Ok (List.rev rev, state)
+    | argument :: rest -> (
+        match Function_call_resolution.argument_expression argument with
+        | None -> invalid "provided variadic argument has no expression"
+        | Some expression -> (
+            match
+              type_expression table members policies ~before_item_index
+                ~context:Value_context state expression
+            with
+            | Error _ as error -> error
+            | Ok (value, state) -> type_variadic state (value :: rev) rest))
+  in
+  match type_fixed None state [] fixed_arguments with
+  | Error _ as error -> error
+  | Ok (fixed_results, state) -> (
+      match type_variadic state [] variadic_arguments with
+      | Error _ as error -> error
+      | Ok (variadic_results, state) ->
+          Ok (fixed_results, variadic_results, state))
 
 let map_state apply state values =
   let rec loop state rev = function
@@ -2201,6 +2336,7 @@ let analyze ~table ~members policies =
              results_rev = [];
              top_level_identifier_batch = None;
              top_level_direct_calls_rev = [];
+             top_level_global_callback_calls_rev = [];
            }
     with
     | Error _ as error -> error
@@ -2337,6 +2473,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
              results_rev = [];
              top_level_identifier_batch = Some identifiers;
              top_level_direct_calls_rev = [];
+             top_level_global_callback_calls_rev = [];
            }
     with
     | Error _ as error -> error
@@ -2361,6 +2498,17 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
                    |> Top_level_expression_tree.call_source
                    |> Function_call_resolution.call_index))
                 state.top_level_direct_calls_rev;
+            top_level_global_callback_calls =
+              List.sort
+                (fun left right ->
+                  Int.compare
+                    (left.top_level_global_callback_source
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index)
+                    (right.top_level_global_callback_source
+                   |> Top_level_expression_tree.call_source
+                   |> Function_call_resolution.call_index))
+                state.top_level_global_callback_calls_rev;
             top_level_all_results =
               List.sort
                 (fun left right -> Id.compare left.id right.id)

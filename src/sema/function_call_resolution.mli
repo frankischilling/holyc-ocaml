@@ -354,6 +354,14 @@ val bind_direct_arguments :
     call and one source-visible header. This pure seam is shared by function
     bodies and executable top-level statements. *)
 
+val bind_indirect_arguments :
+  call ->
+  callable ->
+  (fixed_argument list * argument list * int64, error) result
+(** Apply the checked [PrsFunCall] fixed-slot and variadic rules to one indirect
+    call and its stored function-pointer signature. This pure seam is shared by
+    function bodies and executable top-level statements. *)
+
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode
