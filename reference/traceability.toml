@@ -4280,8 +4280,50 @@ diagnostic = "HCSEMA0056"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 3
-operator_typing_outer_type_payloads_call_argument_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+scalar_operator_typing = "implemented downstream by HC-SEMA-TOP-LEVEL-SCALAR-RESULTS"
+outer_type_payloads_call_argument_resolution_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this record-classification boundary; PrsTerm and PrsGlblVarLst state the source record and value-shape routes directly"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-SCALAR-RESULTS"
+description = "Executable top-level scalar roots reuse the function expression result engine."
+sources = [
+  "Compiler/PrsExp.HC:PrsExpression source result and discarded-expression handling",
+  "Compiler/PrsExp.HC:PrsExpression2 prefix, postfix, index, cast, and binary forms",
+  "Compiler/PrsExp.HC:PrsUnaryTerm literal classes",
+  "Compiler/PrsExp.HC:PrsTerm module object, array, callback, function, and class record routes",
+  "Compiler/OptLib.HC:OptClassFwd forwarded result classes",
+  "Compiler/OptPass012.HC integer and F64 normalization and conversion flags",
+  "Compiler/CompilerA.HH intermediate-code and result-flag identities",
+  "Compiler/CInit.HC primitive raw-class records",
+  "Doc/HolyC.DD expression syntax and postfix casts"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/top_level_identifier_resolution.ml",
+  "src/sema/top_level_identifier_resolution.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 316
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP-LEVEL-IDENTIFIER-TYPES"
+supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
+result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
+result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
+unsupported_roots = ["top-level calls", "aggregate member paths", "aggregate offset bases", "outer records without type payloads"]
+diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 5
+top_level_call_resolution_aggregate_member_typing_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this source-stated scalar classification boundary; PrsExp, OptClassFwd, and OptPass012 directly define the retained result facts"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
