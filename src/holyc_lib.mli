@@ -60,6 +60,7 @@ module Semantic_top_level_expression_binding = Sema.Top_level_expression_binding
 module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
+module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
@@ -307,6 +308,16 @@ val resolve_top_level_outer_expressions :
   (Semantic_top_level_outer_expression_binding.t, string) result
 (** Preserve source-visible top-level module bindings, then resolve every outer
     candidate through the complete JIT or AOT table chain. *)
+
+val build_top_level_expression_trees :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  compilation_mode:Preprocessor.compilation_mode ->
+  expressions:Semantic_top_level_outer_expression_binding.t ->
+  Ast.module_ ->
+  (Semantic_top_level_expression_tree.t, string) result
+(** Build immutable semantic expression trees for executable top-level
+    statements while retaining their complete module and outer bindings. *)
 
 val create_outer_environment :
   Session.t ->

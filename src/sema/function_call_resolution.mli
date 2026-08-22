@@ -49,6 +49,7 @@ type direct_function_address_path =
   | Reject_internal
 
 type bound_identifier
+type top_level_bound_identifier
 
 type argument_expression_kind =
   | Integer_literal
@@ -63,6 +64,7 @@ type argument_expression_kind =
   | Index_expression of index_expression
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
+  | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression
@@ -154,6 +156,13 @@ val make_bound_identifier_argument_expression :
   ?function_address_path:direct_function_address_path ->
   unit ->
   (argument_expression_kind, string) result
+
+val make_top_level_bound_identifier_argument_expression :
+  occurrence:Top_level_outer_expression_binding.occurrence ->
+  (argument_expression_kind, string) result
+(** Retain the exact module or outer binding selected for an identifier in an
+    executable top-level statement. Type and value-shape analysis follows in a
+    later pass. *)
 
 val make_argument :
   index:int ->
@@ -421,6 +430,9 @@ val bound_identifier_function_declaration :
 
 val bound_identifier_function_address_path :
   bound_identifier -> direct_function_address_path option
+
+val top_level_bound_identifier_occurrence :
+  top_level_bound_identifier -> Top_level_outer_expression_binding.occurrence
 
 val identifier_value_shape_name : identifier_value_shape -> string
 val direct_function_address_path_name : direct_function_address_path -> string
