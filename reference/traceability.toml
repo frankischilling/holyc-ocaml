@@ -5517,8 +5517,8 @@ provenance = ["source expression", "included source", "generated invocation", "d
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 existing_conversion_regression_cases = 34
-focused_expression_result_tests = 48
-unimplemented = ["assignment execution", "standalone module function values outside address-of", "member and computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
+focused_expression_result_tests = 52
+unimplemented = ["assignment execution", "standalone module function values outside address-of", "arbitrary computed callback-call checking", "ordinary default evaluation", "lastclass string allocation", "variadic promotion and ABI placement", "IR lowering"]
 native_oracle_status = "not required for this structural extraction; the source parser, pointer-class records, and conversion branch state the checked result"
 
 [[feature]]
@@ -5794,13 +5794,13 @@ category_rule = "a pointer return is an address value; a zero-depth return is an
 class_rule = "forward the return type through aggregate backing headers published before the owning function item"
 replacement_rule = "a later same-name function header does not change an earlier nested call result"
 variadic_rule = "a nested direct call in a variadic position retains its actual class without a fixed target or conversion"
-deferred_rule = "retain a deferred callback-call record while leaving its type unavailable and class unresolved"
+deferred_rule = "retain an arbitrary computed callback-call record while leaving its type unavailable and class unresolved"
 uncollected_rule = "a call shape absent from the function call-resolution traversal remains unavailable and unresolved"
 diagnostic = "HCSEMA0046 rejects a missing or ambiguous owning function and duplicate nested-call matches"
 provenance = ["direct or deferred call identity", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-member_and_computed_callback_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
+arbitrary_computed_callback_checking_default_evaluation_abi_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this checked result-class boundary; PrsFunCall assigns tmpf->return_class directly to the call and cleanup IC sequence"
 
 [[feature]]
@@ -5843,11 +5843,58 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
 focused_conversion_policy_tests = 7
-focused_expression_result_tests = 48
+focused_expression_result_tests = 52
 focused_conversion_decision_tests = 34
-unsupported_callees = ["function-pointer arrays without an index", "aggregate member callbacks", "arbitrary computed callback expressions", "untyped outer callback values"]
-callback_storage_reads_default_evaluation_member_and_computed_calls_abi_lowering_and_execution = "not implemented"
+unsupported_callees = ["function-pointer arrays without an index", "arbitrary computed callback expressions", "untyped outer callback values"]
+callback_storage_reads_default_evaluation_arbitrary_computed_calls_abi_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this structural semantic boundary; PrsVar and PrsExp directly retain the callback header and pass it to PrsFunCall"
+
+[[feature]]
+id = "HC-SEMA-MEMBER-CALLBACK-CALLS"
+description = "Direct and pointer aggregate-member callback calls retain the exact indexed member signature, argument mapping, conversion policy, and return type."
+sources = [
+  "Compiler/PrsExp.HC:763-804 named local callback metadata and CCF_FUN_EXP",
+  "Compiler/PrsExp.HC:862-914 global callback metadata and GVF_FUN",
+  "Compiler/PrsExp.HC:998-1038 direct and pointer MemberFind, MLF_FUN, PrsPopDeref, and stored fun_ptr",
+  "Compiler/PrsExp.HC:1039-1045 function-expression dispatch to indirect PrsFunCall",
+  "Compiler/PrsExp.HC:412-578 indirect argument slots, return class, and call shape",
+  "Compiler/LexLib.HC:67-118 MemberFind inheritance order and MemberAdd duplicate rule",
+  "Compiler/PrsVar.HC:490-528 callback member fun_ptr and MLF_FUN assignment"
+]
+implementation = [
+  "src/driver/aggregate_member_index.ml",
+  "src/driver/function_call_resolution.ml",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_conversion_decision.ml",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_aggregate_member_index.ml",
+  "test/test_function_call_conversion_policy.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 290
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "parenthesized or unparenthesized direct and pointer calls whose terminal member has checked MLF_FUN metadata in a completed aggregate index"
+callee_identity = "retain the complete computed member expression, exact Aggregate_member_index.lookup, base occurrence, access kind, call syntax, and source origins"
+signature_rule = "use the indexed member return Type_reference and recursive function-pointer signature without reconstructing either from spelling or storage size"
+argument_rule = "reuse the named indirect binder for fixed provided values, explicit holes, trailing absence, non-trailing defaults, and variadic values"
+conversion_rule = "reuse the indirect fixed-target policy and typed expression decisions; variadic values keep only their actual class"
+return_rule = "primitive and aggregate values remain objects, pointer values remain addresses, and by-value aggregates follow headers visible before the caller"
+inheritance_rule = "MemberFind checks the current aggregate before its base; MemberAdd rejects ordinary direct or inherited duplicate names, so accepted member calls cannot silently shadow a base callback"
+validation = ["member-index ownership", "function and occurrence ownership", "callback signature aggregate ownership", "completed aggregate visibility", "direct or pointer access shape", "MLF_FUN-equivalent callback metadata"]
+diagnostic = "HCSEMA0039 rejects a noncallable member, invalid direct or pointer access, incomplete aggregate, missing member, or foreign member index at the retained source site"
+provenance = ["object expression", "member operator", "member name", "call punctuation", "included source", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_aggregate_member_index_tests = 8
+focused_expression_result_tests = 52
+native_oracle_status = "not required for this structural semantic boundary; the pinned member branch explicitly transfers CMemberLst.fun_ptr to PrsFunCall after checking MLF_FUN"
+callback_storage_reads_default_evaluation_abi_lowering_and_execution = "not implemented"
 
 [[feature]]
 id = "HC-SEMA-LASTCLASS-CALL-SUBSTITUTION"
@@ -5884,7 +5931,7 @@ call_forms = ["direct", "typed indirect"]
 provenance = ["previous source expression", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 48
+focused_expression_result_tests = 52
 ordinary_default_evaluation_string_allocation_aot_fixups_ir_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall and OptClassFwd directly define the state transition and class spelling"
 
@@ -5921,7 +5968,7 @@ call_forms = ["direct", "typed indirect", "parenthesized", "parenthesis-free"]
 provenance = ["selected parameter", "default expression or keyword", "included source", "definition expansion"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 48
+focused_expression_result_tests = 52
 default_evaluation_payload_copy_string_allocation_ic_emission_fixups_lowering_abi_placement_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsFunCall directly distinguishes immediate and AOT string construction"
 
@@ -5959,7 +6006,7 @@ validation = ["function publication cannot be forged as object storage", "local 
 provenance = ["function occurrence", "source publication", "canonical function", "included source", "generated invocation", "definition origin"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-focused_expression_result_tests = 48
+focused_expression_result_tests = 52
 numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
 native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
 
@@ -6000,6 +6047,6 @@ provenance = ["address operator", "function occurrence", "source publication", "
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
-focused_expression_result_tests = 48
+focused_expression_result_tests = 52
 numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the audited parser branches directly select or reject each retained path"
