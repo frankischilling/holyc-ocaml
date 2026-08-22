@@ -6,6 +6,8 @@ module Id = struct
   let to_int value = value
 end
 
+module Top_level_id = Top_level_identifier_resolution
+
 type value_category =
   | Object_value
   | Address_value
@@ -1133,19 +1135,20 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_identifier_resolution.Outer_type_required binding ->
+                  | Top_level_id.Outer_type_required binding ->
                       finish ~top_level_outer_occurrence:occurrence
                         ~outer_binding:binding Unavailable
                         Unresolved_actual_class state
-                  | Top_level_identifier_resolution.Outer_value binding -> (
+                  | Top_level_id.Outer_value binding -> (
                       let entry = Outer_environment.binding_entry binding in
                       match Outer_environment.entry_global_metadata entry with
                       | None ->
+                          let origin =
+                            Top_level_outer_expression_binding.occurrence_origin
+                              occurrence
+                          in
                           Error
-                            (invalid_top_level_input
-                               ~origin:
-                                 (Top_level_outer_expression_binding
-                                  .occurrence_origin occurrence)
+                            (invalid_top_level_input ~origin
                                "typed top-level outer global has no checked metadata")
                       | Some metadata -> (
                           match
@@ -1178,9 +1181,8 @@ let rec type_expression table members policies ~before_item_index ~context
                                 ~top_level_outer_occurrence:occurrence
                                 ~outer_binding:binding category result_class
                                 state))
-                  | Top_level_identifier_resolution.Module_value
-                      (Top_level_identifier_resolution.Aggregate_offset_base
-                         publication) -> (
+                  | Top_level_id.Module_value
+                      (Top_level_id.Aggregate_offset_base publication) -> (
                       if not allow_aggregate_offset_base then
                         Error
                           (invalid_input

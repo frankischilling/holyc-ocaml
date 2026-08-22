@@ -32,9 +32,9 @@ val create :
   (t, error) result
 (** Freeze one checked classification for every bound identifier leaf in an
     executable top-level expression tree. Module globals and functions retain
-    source-derived value facts. Aggregate records remain offset bases. An outer
-    global becomes a value only when its immutable snapshot carries checked
-    type metadata; all other outer records stay explicitly unavailable. *)
+    source-derived value facts. Aggregate records remain offset bases. Checked
+    outer global metadata creates a value. Other outer records stay
+    unavailable. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val source : t -> Top_level_expression_tree.t

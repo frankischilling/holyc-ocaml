@@ -12,6 +12,8 @@ let checked_result = function
 
 let prepared = Test_function_call_conversion_policy.prepare
 
+type prepared_source = Test_function_call_conversion_policy.prepared
+
 let empty_environment (source : Test_function_call_conversion_policy.prepared) =
   let make_table table_kind table_index =
     Semantic_outer_environment.make_table ~table_kind ~table_index []
@@ -38,8 +40,7 @@ let checked_outer = function
   | Error error ->
       error |> Semantic_outer_environment.error_to_string |> Alcotest.fail
 
-let typed_global_named
-    (source : Test_function_call_conversion_policy.prepared) name =
+let typed_global_named (source : prepared_source) name =
   source.global_types |> Semantic_global_type_resolution.globals
   |> List.find (fun global ->
       global |> Semantic_global_type_resolution.global_symbol
@@ -64,8 +65,7 @@ let outer_global_metadata source template_name =
   |> checked_outer
 
 let make_outer_global_entry
-    (source : Test_function_call_conversion_policy.prepared) ~entry_index ~name
-    ?metadata () =
+    (source : prepared_source) ~entry_index ~name ?metadata () =
   let table = Session.semantic_symbols source.session in
   let symbol =
     Semantic_symbol_table.add table
@@ -74,17 +74,18 @@ let make_outer_global_entry
       ~origin:(Semantic_symbol.Synthesized ("top-level outer " ^ name))
     |> checked
   in
-  (match metadata with
-  | None ->
-      Semantic_outer_environment.make_entry ~symbol
-        ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
-  | Some global_metadata ->
-      Semantic_outer_environment.make_global_entry ~symbol ~entry_index
-        ~global_metadata)
-  |> checked_outer
+  let entry =
+    match metadata with
+    | None ->
+        Semantic_outer_environment.make_entry ~symbol
+          ~record_kind:Semantic_outer_environment.Global_variable ~entry_index
+    | Some global_metadata ->
+        Semantic_outer_environment.make_global_entry ~symbol ~entry_index
+          ~global_metadata
+  in
+  checked_outer entry
 
-let outer_environment
-    (source : Test_function_call_conversion_policy.prepared) entries =
+let outer_environment (source : prepared_source) entries =
   let make_table table_kind table_index entries =
     Semantic_outer_environment.make_table ~table_kind ~table_index entries
     |> checked_outer
@@ -424,10 +425,8 @@ let top_level_outer_globals_retain_checked_shapes () =
         root_values result
         |> List.map (fun value ->
             let occurrence =
-              value
-              |> Semantic_function_call_expression_result
-                 .result_top_level_outer_occurrence
-              |> Option.get
+              let open Semantic_function_call_expression_result in
+              value |> result_top_level_outer_occurrence |> Option.get
             in
             let binding =
               value
@@ -443,10 +442,12 @@ let top_level_outer_globals_retain_checked_shapes () =
               Semantic_top_level_outer_expression_binding.occurrence_name
                 occurrence
             in
+            let selected_name =
+              binding |> Semantic_outer_environment.binding_entry
+              |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name
+            in
             Alcotest.(check string)
-              "the result retains the selected outer record" name
-              (binding |> Semantic_outer_environment.binding_entry
-             |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name);
+              "the result retains the selected outer record" name selected_name;
             let leaf =
               Semantic_top_level_identifier_resolution.find_leaf identifiers
                 occurrence
