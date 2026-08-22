@@ -29,6 +29,7 @@
   test_function_expression_binding
   test_local_warning_analysis
   test_module_expression_binding
+  test_top_level_expression_binding
   test_outer_expression_binding
   test_global_initializer_binding
   test_global_dimension_binding

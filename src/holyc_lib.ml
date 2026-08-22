@@ -55,6 +55,7 @@ module Semantic_function_binding_index = Sema.Function_binding_index
 module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_local_warning_analysis = Sema.Local_warning_analysis
 module Semantic_module_expression_binding = Sema.Module_expression_binding
+module Semantic_top_level_expression_binding = Sema.Top_level_expression_binding
 module Semantic_outer_environment = Sema.Outer_environment
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
@@ -216,6 +217,12 @@ let resolve_module_expressions session ~declarations ~aggregates ~functions
   Driver.Module_expression_binding.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions ~globals ~expressions
+
+let resolve_top_level_expressions session ~declarations ~module_expressions
+    module_ =
+  Driver.Top_level_expression_binding.resolve
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~module_expressions module_
 
 let create_outer_environment session ~compilation_mode tables =
   Driver.Outer_expression_binding.create_environment
