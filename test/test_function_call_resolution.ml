@@ -1177,6 +1177,105 @@ let expression_statement_constructors_validate_identity_and_origin () =
          (Semantic_module_expression_binding.function_item_index owner)
        ~expression_statements:[ noncontiguous ] [])
 
+let implicit_output_constructors_validate_source_shape () =
+  let marker_origin = Semantic_symbol.Synthesized "output marker" in
+  let fixed_origin = Semantic_symbol.Synthesized "fixed output expression" in
+  let comma_origin = Semantic_symbol.Synthesized "output argument comma" in
+  let argument_origin = Semantic_symbol.Synthesized "output argument" in
+  let statement_origin = Semantic_symbol.Synthesized "output statement" in
+  let fixed_expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.String_literal
+      ~origin:fixed_origin
+  in
+  let argument_expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:argument_origin
+  in
+  let make_argument ?(index = 0) ?(leading_comma_origin = comma_origin)
+      ?(origin = argument_origin) () =
+    Semantic_function_call_resolution.make_implicit_output_argument ~index
+      ~leading_comma_origin ~expression:argument_expression ~origin
+  in
+  let argument = checked (make_argument ()) in
+  Alcotest.(check int)
+    "implicit output argument retains its identity" 0
+    (Semantic_function_call_resolution.implicit_output_argument_index argument);
+  Alcotest.(check bool)
+    "implicit output argument retains its comma" true
+    (Semantic_function_call_resolution
+     .implicit_output_argument_leading_comma_origin argument
+    = comma_origin);
+  let make ?(index = 0)
+      ?(target = Semantic_function_call_resolution.Print_output)
+      ?(marker_origin = marker_origin)
+      ?(fixed_source = Semantic_function_call_resolution.Marker_fixed_output)
+      ?(arguments = [ argument ]) ?(origin = statement_origin) () =
+    Semantic_function_call_resolution.make_implicit_output ~index ~target
+      ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin
+  in
+  let retained = checked (make ()) in
+  Alcotest.(check string)
+    "implicit output retains its target" "Print"
+    (retained |> Semantic_function_call_resolution.implicit_output_target
+   |> Semantic_function_call_resolution.implicit_output_target_name);
+  Alcotest.(check string)
+    "implicit output retains its fixed source" "marker"
+    (retained |> Semantic_function_call_resolution.implicit_output_fixed_source
+   |> Semantic_function_call_resolution.implicit_output_fixed_source_name);
+  Alcotest.(check (result reject string))
+    "a negative output argument identity is rejected"
+    (Error "implicit output argument index cannot be negative")
+    (make_argument ~index:(-1) ());
+  Alcotest.(check (result reject string))
+    "an empty output argument comma origin is rejected"
+    (Error "implicit output argument comma has an invalid source origin")
+    (make_argument ~leading_comma_origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "an empty output argument origin is rejected"
+    (Error "implicit output argument has an invalid source origin")
+    (make_argument ~origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "a negative implicit output identity is rejected"
+    (Error "function implicit output index cannot be negative")
+    (make ~index:(-1) ());
+  Alcotest.(check (result reject string))
+    "an empty output marker origin is rejected"
+    (Error "function implicit output marker has an invalid source origin")
+    (make ~marker_origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "an empty output statement origin is rejected"
+    (Error "function implicit output statement has an invalid source origin")
+    (make ~origin:(Semantic_symbol.Synthesized "") ());
+  Alcotest.(check (result reject string))
+    "PutChars rejects a variadic output argument"
+    (Error "implicit PutChars output cannot have variadic arguments")
+    (make ~target:Semantic_function_call_resolution.Put_chars_output ());
+  let skipped_argument = checked (make_argument ~index:1 ()) in
+  Alcotest.(check (result reject string))
+    "implicit output rejects noncontiguous argument identities"
+    (Error "implicit output argument indexes are not contiguous")
+    (make ~arguments:[ skipped_argument ] ());
+  let prepared =
+    prepare ~path:"function-implicit-output-constructor.HC"
+      "I64 Caller(){\"value\";return 0;}"
+  in
+  let owner =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd
+  in
+  let noncontiguous = checked (make ~index:1 ()) in
+  Alcotest.(check (result reject string))
+    "a function rejects noncontiguous implicit output identities"
+    (Error "function implicit output indexes are not contiguous")
+    (Semantic_function_call_resolution.make_function
+       ~symbol:(Semantic_module_expression_binding.function_symbol owner)
+       ~scope:(Semantic_module_expression_binding.function_scope owner)
+       ~item_index:
+         (Semantic_module_expression_binding.function_item_index owner)
+       ~implicit_outputs:[ noncontiguous ] [])
+
 let switch_selector_constructors_validate_identity_and_origins () =
   let keyword_origin = Semantic_symbol.Synthesized "switch keyword" in
   let expression_origin = Semantic_symbol.Synthesized "switch expression" in
@@ -1347,6 +1446,8 @@ let tests =
       index_expression_constructors_validate_bracket_origins;
     Alcotest.test_case "expression statement constructor validation" `Quick
       expression_statement_constructors_validate_identity_and_origin;
+    Alcotest.test_case "implicit output constructor validation" `Quick
+      implicit_output_constructors_validate_source_shape;
     Alcotest.test_case "switch selector constructor validation" `Quick
       switch_selector_constructors_validate_identity_and_origins;
     Alcotest.test_case "switch case constructor validation" `Quick

@@ -81,6 +81,14 @@ type condition_input
 type selector_mode = Bounded_switch | No_bound_switch
 type selector_input
 type expression_statement_input
+type implicit_output_target = Print_output | Put_chars_output
+
+type implicit_output_fixed_source =
+  | Marker_fixed_output
+  | Following_expression_output
+
+type implicit_output_argument
+type implicit_output_input
 
 type switch_case_pattern =
   | Implicit_case
@@ -196,6 +204,23 @@ val make_expression_statement :
   origin:Symbol.origin ->
   (expression_statement_input, string) result
 
+val make_implicit_output_argument :
+  index:int ->
+  leading_comma_origin:Symbol.origin ->
+  expression:argument_expression ->
+  origin:Symbol.origin ->
+  (implicit_output_argument, string) result
+
+val make_implicit_output :
+  index:int ->
+  target:implicit_output_target ->
+  marker_origin:Symbol.origin ->
+  fixed_source:implicit_output_fixed_source ->
+  fixed_expression:argument_expression ->
+  arguments:implicit_output_argument list ->
+  origin:Symbol.origin ->
+  (implicit_output_input, string) result
+
 val make_ranged_case_pattern :
   start_expression:argument_expression ->
   ellipsis_origin:Symbol.origin ->
@@ -214,6 +239,7 @@ val make_function :
   scope:Symbol_table.scope ->
   item_index:int ->
   ?expression_statements:expression_statement_input list ->
+  ?implicit_outputs:implicit_output_input list ->
   ?conditions:condition_input list ->
   ?selectors:selector_input list ->
   ?switch_cases:switch_case_input list ->
@@ -295,6 +321,7 @@ val function_calls : resolved_function -> call_resolution list
 val function_expression_statements :
   resolved_function -> expression_statement_input list
 
+val function_implicit_outputs : resolved_function -> implicit_output_input list
 val function_conditions : resolved_function -> condition_input list
 val function_selectors : resolved_function -> selector_input list
 val function_switch_cases : resolved_function -> switch_case_input list
@@ -325,6 +352,29 @@ val expression_statement_expression :
   expression_statement_input -> argument_expression
 
 val expression_statement_origin : expression_statement_input -> Symbol.origin
+val implicit_output_index : implicit_output_input -> int
+val implicit_output_target : implicit_output_input -> implicit_output_target
+val implicit_output_marker_origin : implicit_output_input -> Symbol.origin
+
+val implicit_output_fixed_source :
+  implicit_output_input -> implicit_output_fixed_source
+
+val implicit_output_fixed_expression :
+  implicit_output_input -> argument_expression
+
+val implicit_output_arguments :
+  implicit_output_input -> implicit_output_argument list
+
+val implicit_output_origin : implicit_output_input -> Symbol.origin
+val implicit_output_argument_index : implicit_output_argument -> int
+
+val implicit_output_argument_leading_comma_origin :
+  implicit_output_argument -> Symbol.origin
+
+val implicit_output_argument_expression :
+  implicit_output_argument -> argument_expression
+
+val implicit_output_argument_origin : implicit_output_argument -> Symbol.origin
 val switch_case_index : switch_case_input -> int
 val switch_case_keyword_origin : switch_case_input -> Symbol.origin
 val switch_case_pattern : switch_case_input -> switch_case_pattern
@@ -417,6 +467,8 @@ val argument_kind_name : argument_kind -> string
 val prefix_operator_name : prefix_operator -> string
 val postfix_operator_name : postfix_operator -> string
 val member_access_kind_name : member_access_kind -> string
+val implicit_output_target_name : implicit_output_target -> string
+val implicit_output_fixed_source_name : implicit_output_fixed_source -> string
 val binary_operator_name : Generated.Intermediate_codes.t -> string
 val unresolved_expression_kind_name : unresolved_expression_kind -> string
 val argument_expression_kind_name : argument_expression_kind -> string
