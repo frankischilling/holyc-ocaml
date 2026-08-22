@@ -146,6 +146,16 @@ type condition_input = {
   origin : Symbol.origin;
 }
 
+type selector_mode = Bounded_switch | No_bound_switch
+
+type selector_input = {
+  index : int;
+  mode : selector_mode;
+  keyword_origin : Symbol.origin;
+  expression : argument_expression;
+  origin : Symbol.origin;
+}
+
 type return_input = {
   index : int;
   keyword_origin : Symbol.origin;
@@ -159,6 +169,7 @@ type function_input = {
   item_index : int;
   calls : call list;
   conditions : condition_input list;
+  selectors : selector_input list;
   returns : return_input list;
 }
 
@@ -219,6 +230,7 @@ type resolved_function = {
   return_type : Type_reference.t;
   calls : call_resolution list;
   conditions : condition_input list;
+  selectors : selector_input list;
   returns : return_input list;
 }
 
@@ -258,6 +270,7 @@ let function_item_index (function_ : resolved_function) = function_.item_index
 let function_return_type (function_ : resolved_function) = function_.return_type
 let function_calls (function_ : resolved_function) = function_.calls
 let function_conditions (function_ : resolved_function) = function_.conditions
+let function_selectors (function_ : resolved_function) = function_.selectors
 let function_returns (function_ : resolved_function) = function_.returns
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
@@ -277,6 +290,14 @@ let condition_keyword_origin (condition : condition_input) =
 
 let condition_expression (condition : condition_input) = condition.expression
 let condition_origin (condition : condition_input) = condition.origin
+let selector_index (selector : selector_input) = selector.index
+let selector_mode (selector : selector_input) = selector.mode
+
+let selector_keyword_origin (selector : selector_input) =
+  selector.keyword_origin
+
+let selector_expression (selector : selector_input) = selector.expression
+let selector_origin (selector : selector_input) = selector.origin
 let return_index (return_ : return_input) = return_.index
 let return_keyword_origin (return_ : return_input) = return_.keyword_origin
 let return_expression (return_ : return_input) = return_.expression
@@ -767,6 +788,14 @@ let make_condition ~index ~role ~keyword_origin ~expression ~origin =
     Error "function condition statement has an invalid source origin"
   else Ok { index; role; keyword_origin; expression; origin }
 
+let make_selector ~index ~mode ~keyword_origin ~expression ~origin =
+  if index < 0 then Error "function switch selector index cannot be negative"
+  else if not (valid_origin keyword_origin) then
+    Error "function switch keyword has an invalid source origin"
+  else if not (valid_origin origin) then
+    Error "function switch statement has an invalid source origin"
+  else Ok { index; mode; keyword_origin; expression; origin }
+
 let validate_condition_indexes conditions =
   let rec loop expected = function
     | [] -> Ok ()
@@ -776,6 +805,16 @@ let validate_condition_indexes conditions =
         else loop (expected + 1) rest
   in
   loop 0 conditions
+
+let validate_selector_indexes selectors =
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (selector : selector_input) :: rest ->
+        if selector.index <> expected then
+          Error "function switch selector indexes are not contiguous"
+        else loop (expected + 1) rest
+  in
+  loop 0 selectors
 
 let validate_return_indexes returns =
   let rec loop expected = function
@@ -787,8 +826,9 @@ let validate_return_indexes returns =
   in
   loop 0 returns
 
-let make_function ~symbol ~scope ~item_index ?(conditions = []) ?(returns = [])
-    (calls : call list) : (function_input, string) result =
+let make_function ~symbol ~scope ~item_index ?(conditions = [])
+    ?(selectors = []) ?(returns = []) (calls : call list) :
+    (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -799,12 +839,23 @@ let make_function ~symbol ~scope ~item_index ?(conditions = []) ?(returns = [])
     match validate_condition_indexes conditions with
     | Error _ as error -> error
     | Ok () -> (
-        match validate_return_indexes returns with
+        match validate_selector_indexes selectors with
         | Error _ as error -> error
-        | Ok () ->
-            Ok
-              ({ symbol; scope; item_index; calls; conditions; returns }
-                : function_input))
+        | Ok () -> (
+            match validate_return_indexes returns with
+            | Error _ as error -> error
+            | Ok () ->
+                Ok
+                  ({
+                     symbol;
+                     scope;
+                     item_index;
+                     calls;
+                     conditions;
+                     selectors;
+                     returns;
+                   }
+                    : function_input)))
 
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
@@ -1385,6 +1436,38 @@ let validate_conditions table parent visible declarations compilation_mode
   in
   loop 0 conditions
 
+let validate_selectors table parent visible declarations compilation_mode
+    selectors occurrences =
+  let occurrence_by_index =
+    List.fold_left
+      (fun map occurrence ->
+        Int_map.add
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence map)
+      Int_map.empty occurrences
+  in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (selector : selector_input) :: rest -> (
+        if selector.index <> expected then
+          Error
+            (invalid_input "function switch selector indexes are not contiguous")
+        else
+          match
+            validate_argument_expression table parent visible declarations
+              compilation_mode selector.expression
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              match
+                validate_bound_occurrences occurrence_by_index
+                  selector.expression
+              with
+              | Error _ as error -> error
+              | Ok () -> loop (expected + 1) rest))
+  in
+  loop 0 selectors
+
 let validate_function_input table parent visible declarations compilation_mode
     expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
@@ -1428,9 +1511,15 @@ let validate_function_input table parent visible declarations compilation_mode
                     compilation_mode input.conditions occurrences
                 with
                 | Error _ as error -> error
-                | Ok () ->
-                    validate_returns table parent visible declarations
-                      compilation_mode input.returns occurrences)))
+                | Ok () -> (
+                    match
+                      validate_selectors table parent visible declarations
+                        compilation_mode input.selectors occurrences
+                    with
+                    | Error _ as error -> error
+                    | Ok () ->
+                        validate_returns table parent visible declarations
+                          compilation_mode input.returns occurrences))))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =
@@ -1852,6 +1941,7 @@ let resolve_function ?members types declarations expected
                   Function_type_resolution.function_return_type typed;
                 calls = List.rev rev;
                 conditions = input.conditions;
+                selectors = input.selectors;
                 returns = input.returns;
               })
     | call :: rest -> (
