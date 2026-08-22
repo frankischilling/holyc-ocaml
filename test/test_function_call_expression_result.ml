@@ -118,6 +118,10 @@ let returns_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_returns
 
+let expression_statements_named results name =
+  function_named results name
+  |> Semantic_function_call_expression_result.function_expression_statements
+
 let conditions_named results name =
   function_named results name
   |> Semantic_function_call_expression_result.function_conditions
@@ -2928,7 +2932,7 @@ let selected_defaults_retain_semantic_results () =
                  result))
         (direct_defaults "Target" @ indirect_defaults);
       Alcotest.(check int)
-        "selected defaults do not manufacture expression identities" 0
+        "selected defaults add no identities beyond the three statement calls" 3
         (results |> Semantic_function_call_expression_result.all_results
        |> List.length))
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -4155,6 +4159,169 @@ let included_switch_cases_replay_without_mutation () =
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected included case value provenance")
 
+let function_expression_statements_keep_results_and_discard_intent () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-expression-statement-results.HC"
+          "extern I64 Direct(I64 value);\n\
+           class Box {I64 value;};\n\
+           I64 Caller(I64 value,F64 ratio,U8 *ptr,Box box){\n\
+           value;ratio;ptr;box.value;value++;value=ratio;Direct(value);\n\
+           if(value){ratio;}\n\
+           for(value=0;value;value++){ptr;}\n\
+           switch(value){case 0:box.value;}\n\
+           lock value;\n\
+           try value;catch ratio;\n\
+           return 0;\n\
+           }"
+      in
+      let _, results = analyze prepared in
+      let statements = expression_statements_named results "Caller" in
+      Alcotest.(check int)
+        "every ordinary expression statement is retained" 15
+        (List.length statements);
+      Alcotest.(check (list int))
+        "statement identities follow recursive source traversal"
+        (List.init 15 Fun.id)
+        (List.map
+           (fun result ->
+             result
+             |> Semantic_function_call_expression_result
+                .expression_statement_source
+             |> Semantic_function_call_resolution.expression_statement_index)
+           statements);
+      let values =
+        List.map
+          Semantic_function_call_expression_result.expression_statement_value
+          statements
+      in
+      Alcotest.(check (list string))
+        "statement values retain their semantic types"
+        [
+          "I64";
+          "F64";
+          "U8*";
+          "I64";
+          "I64";
+          "I64";
+          "I64";
+          "F64";
+          "I64";
+          "I64";
+          "U8*";
+          "I64";
+          "I64";
+          "I64";
+          "F64";
+        ]
+        (List.map type_name values);
+      Alcotest.(check (list string))
+        "every statement records the TempleOS discarded-result intent"
+        (List.init 15 (fun _ -> "ICF_RES_NOT_USED"))
+        (List.map
+           (fun result ->
+             result
+             |> Semantic_function_call_expression_result
+                .expression_statement_result_use
+             |> Semantic_function_call_expression_result.result_use_name)
+           statements);
+      match
+        List.nth values 6
+        |> Semantic_function_call_expression_result.result_call_resolution
+      with
+      | Some (Semantic_function_call_resolution.Direct_call call) ->
+          Alcotest.(check string)
+            "a statement call keeps its resolved target" "Direct"
+            (call |> Semantic_function_call_resolution.direct_source
+           |> Semantic_function_call_resolution.call_callee_name)
+      | Some (Semantic_function_call_resolution.Indirect_call _)
+      | Some (Semantic_function_call_resolution.Deferred_call _)
+      | None -> Alcotest.fail "expected a resolved direct statement call")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_expression_statements_replay_without_mutation () =
+  with_included_source
+    "#define VALUE ratio\nI64 Caller(F64 ratio){VALUE;return 0;}"
+    (fun prepared ->
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+        |> checked_results
+      in
+      let describe results =
+        let statement =
+          expression_statements_named results "Caller" |> List.hd
+        in
+        let source =
+          Semantic_function_call_expression_result.expression_statement_source
+            statement
+        in
+        let value =
+          Semantic_function_call_expression_result.expression_statement_value
+            statement
+        in
+        ( ( source
+            |> Semantic_function_call_resolution.expression_statement_index,
+            value |> type_name ),
+          ( value |> Semantic_function_call_expression_result.result_id
+            |> Semantic_function_call_expression_result.Id.to_int,
+            statement
+            |> Semantic_function_call_expression_result
+               .expression_statement_result_use
+            |> Semantic_function_call_expression_result.result_use_name ) )
+      in
+      let first = run () in
+      let second = run () in
+      Alcotest.(check (pair (pair int string) (pair int string)))
+        "included statement typing replays identically" (describe first)
+        (describe second);
+      Alcotest.(check int)
+        "statement typing leaves the semantic table unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let statement = expression_statements_named first "Caller" |> List.hd in
+      let source =
+        Semantic_function_call_expression_result.expression_statement_source
+          statement
+      in
+      (match
+         Semantic_function_call_resolution.expression_statement_origin source
+       with
+      | Semantic_symbol.Source_location location ->
+          let definition = Option.get location.defined_at in
+          let definition_file =
+            Source_manager.find
+              (Session.sources prepared.session)
+              definition.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "definition-backed statements retain their included definition"
+            "calls.HC"
+            (Source_file.path definition_file |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included statement provenance");
+      match
+        statement
+        |> Semantic_function_call_expression_result.expression_statement_value
+        |> Semantic_function_call_expression_result.result_origin
+      with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "definition-backed statement values keep their definition origin"
+            true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected included statement value provenance")
+
 let foreign_session_and_traversal_are_rejected () =
   let prepared =
     prepare ~path:"call-expression-ownership.HC"
@@ -4324,6 +4491,10 @@ let tests =
       switch_cases_keep_patterns_types_conversions_and_calls;
     Alcotest.test_case "included function switch case replay" `Quick
       included_switch_cases_replay_without_mutation;
+    Alcotest.test_case "function expression statement results" `Quick
+      function_expression_statements_keep_results_and_discard_intent;
+    Alcotest.test_case "included expression statement replay" `Quick
+      included_expression_statements_replay_without_mutation;
     Alcotest.test_case "ownership validation" `Quick
       foreign_session_and_traversal_are_rejected;
   ]

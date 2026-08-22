@@ -22,6 +22,7 @@ type intrinsic_conversion =
   | Result_to_f64
   | Result_to_int
 
+type result_use = Result_not_used
 type expression_result
 type declared_default_kind = Expression_default_kind | Lastclass_default_kind
 type declared_default_materialization = Immediate_default | Aot_string_default
@@ -48,6 +49,7 @@ type return_presence =
   | Missing_value
 
 type condition_result
+type expression_statement_result
 type selector_result
 type switch_case_value
 
@@ -71,22 +73,24 @@ val analyze :
   members:Aggregate_member_index.t ->
   Function_call_conversion_policy.t ->
   (t, error) result
-(** Derive immutable source-expression results for call arguments, function
-    conditions, switch selectors, case values, and returns. Each checked
-    expression has a deterministic identity, source origin, semantic type, value
-    category, remaining array rank, conversion intent, forwarded result class,
-    and any separate execution class needed by later lowering. A selected
-    default has a result with its exact source and parameter, semantic parameter
-    type, forwarded class, kind, and JIT or AOT materialization path; it does
-    not receive an expression identity. A selected [lastclass] default also
-    retains the previous provided result and derived base spelling. Function
-    conditions retain their statement role without an invented Boolean
-    conversion. Switch selectors retain their bounded or no-bound mode without
-    applying range arithmetic. Switch cases retain implicit, single, or ranged
-    structure; explicit F64 values carry the conversion performed by
-    [LexExpressionI64] without being evaluated. Function returns retain the
-    declared type, integer or F64 conversion intent, and warning facts for
-    missing or unexpected values. *)
+(** Derive immutable source-expression results for call arguments, ordinary
+    function expression statements, conditions, switch selectors, case values,
+    and returns. Each checked expression has a deterministic identity, source
+    origin, semantic type, value category, remaining array rank, conversion
+    intent, forwarded result class, and any separate execution class needed by
+    later lowering. A selected default has a result with its exact source and
+    parameter, semantic parameter type, forwarded class, kind, and JIT or AOT
+    materialization path; it does not receive an expression identity. A selected
+    [lastclass] default also retains the previous provided result and derived
+    base spelling. Each function expression statement records the
+    [ICF_RES_NOT_USED] intent emitted by [PrsExpression] without mutating the
+    parser AST. Function conditions retain their statement role without an
+    invented Boolean conversion. Switch selectors retain their bounded or
+    no-bound mode without applying range arithmetic. Switch cases retain
+    implicit, single, or ranged structure; explicit F64 values carry the
+    conversion performed by [LexExpressionI64] without being evaluated. Function
+    returns retain the declared type, integer or F64 conversion intent, and
+    warning facts for missing or unexpected values. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
@@ -98,6 +102,18 @@ val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
+
+val function_expression_statements :
+  resolved_function -> expression_statement_result list
+
+val expression_statement_source :
+  expression_statement_result ->
+  Function_call_resolution.expression_statement_input
+
+val expression_statement_value :
+  expression_statement_result -> expression_result
+
+val expression_statement_result_use : expression_statement_result -> result_use
 val function_conditions : resolved_function -> condition_result list
 
 val condition_source :
@@ -181,6 +197,7 @@ val result_function_address_path :
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string
+val result_use_name : result_use -> string
 val condition_role_name : Function_call_resolution.condition_role -> string
 val selector_mode_name : Function_call_resolution.selector_mode -> string
 val return_presence_name : return_presence -> string

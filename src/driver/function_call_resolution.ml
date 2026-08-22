@@ -349,6 +349,9 @@ type state = {
   next_occurrence : int;
   next_call : int;
   calls_rev : Sema.Function_call_resolution.call list;
+  next_expression_statement : int;
+  expression_statements_rev :
+    Sema.Function_call_resolution.expression_statement_input list;
   next_condition : int;
   conditions_rev : Sema.Function_call_resolution.condition_input list;
   next_selector : int;
@@ -368,6 +371,8 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     next_occurrence = 0;
     next_call = 0;
     calls_rev = [];
+    next_expression_statement = 0;
+    expression_statements_rev = [];
     next_condition = 0;
     conditions_rev = [];
     next_selector = 0;
@@ -934,6 +939,46 @@ let case_pattern state = function
       | Error _ as error -> error
       | Ok state -> expression state range.case_range_end)
 
+let record_expression_statement state
+    (statement : Frontend.Ast.expression_statement) =
+  let first_occurrence = state.next_occurrence in
+  let visible = state.visible_aggregates in
+  let locals = state.typed_values in
+  let globals = state.global_values in
+  let occurrences = state.occurrences in
+  let value = statement.expression_statement_expression in
+  match expression state value with
+  | Error _ as error -> error
+  | Ok state -> (
+      let cursor = ref first_occurrence in
+      match
+        argument_expression visible locals globals occurrences cursor value
+      with
+      | Error _ as error -> error
+      | Ok _ when !cursor <> state.next_occurrence ->
+          Error
+            "function expression statement traversal disagrees with ordinary \
+             expression binding"
+      | Ok expression -> (
+          match
+            Sema.Function_call_resolution.make_expression_statement
+              ~index:state.next_expression_statement ~expression
+              ~origin:(origin statement.expression_statement_location)
+          with
+          | Error _ as error -> error
+          | Ok input ->
+              if state.next_expression_statement = max_int then
+                Error "function expression statement space is exhausted"
+              else
+                Ok
+                  {
+                    state with
+                    next_expression_statement =
+                      state.next_expression_statement + 1;
+                    expression_statements_rev =
+                      input :: state.expression_statements_rev;
+                  }))
+
 let record_return state (return_ : Frontend.Ast.return_statement) =
   if state.next_return = max_int then
     Error "function return identity space is exhausted"
@@ -1125,7 +1170,7 @@ let rec statement state = function
             do_while.do_while_keyword do_while.do_while_location state
             do_while.do_while_condition)
   | Frontend.Ast.Expression_statement statement ->
-      expression state statement.expression_statement_expression
+      record_expression_statement state statement
   | Frontend.Ast.For_statement for_ -> (
       match statement state for_.for_initializer with
       | Error _ as error -> error
@@ -1272,6 +1317,8 @@ let function_input table visible_aggregates global_values expected typed locals
             else
               Sema.Function_call_resolution.make_function ~symbol ~scope
                 ~item_index
+                ~expression_statements:
+                  (List.rev state.expression_statements_rev)
                 ~conditions:(List.rev state.conditions_rev)
                 ~selectors:(List.rev state.selectors_rev)
                 ~switch_cases:(List.rev state.switch_cases_rev)

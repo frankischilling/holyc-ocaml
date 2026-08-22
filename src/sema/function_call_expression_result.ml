@@ -22,6 +22,8 @@ type intrinsic_conversion =
   | Result_to_f64
   | Result_to_int
 
+type result_use = Result_not_used
+
 type expression_result = {
   id : Id.t;
   source : Function_call_resolution.argument_expression;
@@ -94,6 +96,13 @@ type condition_result = {
   condition_value : expression_result;
 }
 
+type expression_statement_result = {
+  expression_statement_source :
+    Function_call_resolution.expression_statement_input;
+  expression_statement_value : expression_result;
+  expression_statement_result_use : result_use;
+}
+
 type selector_result = {
   selector_source : Function_call_resolution.selector_input;
   selector_value : expression_result;
@@ -131,6 +140,7 @@ type resolved_function = {
   scope : Symbol_table.scope;
   item_index : int;
   calls : call_result list;
+  expression_statements : expression_statement_result list;
   conditions : condition_result list;
   selectors : selector_result list;
   switch_cases : switch_case_result list;
@@ -161,6 +171,16 @@ let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
 let function_calls (function_ : resolved_function) = function_.calls
+
+let function_expression_statements (function_ : resolved_function) =
+  function_.expression_statements
+
+let expression_statement_source result = result.expression_statement_source
+let expression_statement_value result = result.expression_statement_value
+
+let expression_statement_result_use result =
+  result.expression_statement_result_use
+
 let function_conditions (function_ : resolved_function) = function_.conditions
 let condition_source result = result.condition_source
 let condition_value result = result.condition_value
@@ -244,6 +264,8 @@ let intrinsic_conversion_name = function
   | No_intrinsic_conversion -> "none"
   | Result_to_f64 -> "ICF_RES_TO_F64"
   | Result_to_int -> "ICF_RES_TO_INT"
+
+let result_use_name Result_not_used = "ICF_RES_NOT_USED"
 
 let condition_role_name = function
   | Function_call_resolution.If_condition -> "if"
@@ -1339,6 +1361,23 @@ let type_condition table members policies ~before_item_index state source =
   | Ok (condition_value, state) ->
       Ok ({ condition_source = source; condition_value }, state)
 
+let type_expression_statement table members policies ~before_item_index state
+    source =
+  match
+    type_expression table members policies ~before_item_index
+      ~context:Value_context state
+      (Function_call_resolution.expression_statement_expression source)
+  with
+  | Error _ as error -> error
+  | Ok (expression_statement_value, state) ->
+      Ok
+        ( {
+            expression_statement_source = source;
+            expression_statement_value;
+            expression_statement_result_use = Result_not_used;
+          },
+          state )
+
 let type_selector table members policies ~before_item_index state source =
   match
     type_expression table members policies ~before_item_index
@@ -1516,23 +1555,35 @@ let type_function table members policies state source =
                          state
                   with
                   | Error _ as error -> error
-                  | Ok (returns, state) ->
-                      Ok
-                        ( {
-                            symbol =
-                              Function_call_conversion_policy.function_symbol
-                                source;
-                            scope =
-                              Function_call_conversion_policy.function_scope
-                                source;
-                            item_index;
-                            calls;
-                            conditions;
-                            selectors;
-                            switch_cases;
-                            returns;
-                          },
-                          state )))))
+                  | Ok (returns, state) -> (
+                      match
+                        source
+                        |> Function_call_conversion_policy
+                           .function_expression_statements
+                        |> map_state
+                             (type_expression_statement table members policies
+                                ~before_item_index:item_index)
+                             state
+                      with
+                      | Error _ as error -> error
+                      | Ok (expression_statements, state) ->
+                          Ok
+                            ( {
+                                symbol =
+                                  Function_call_conversion_policy
+                                  .function_symbol source;
+                                scope =
+                                  Function_call_conversion_policy.function_scope
+                                    source;
+                                item_index;
+                                calls;
+                                expression_statements;
+                                conditions;
+                                selectors;
+                                switch_cases;
+                                returns;
+                              },
+                              state ))))))
 
 let analyze ~table ~members policies =
   if not (Function_call_conversion_policy.owns_table policies table) then

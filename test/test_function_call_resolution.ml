@@ -1126,6 +1126,57 @@ let index_expression_constructors_validate_bracket_origins () =
     (Semantic_function_call_resolution.make_index_argument_expression ~base
        ~opening_origin ~index ~closing_origin:(Semantic_symbol.Synthesized ""))
 
+let expression_statement_constructors_validate_identity_and_origin () =
+  let expression_origin = Semantic_symbol.Synthesized "statement expression" in
+  let statement_origin = Semantic_symbol.Synthesized "expression statement" in
+  let expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~origin:expression_origin
+  in
+  let make ?(index = 0) ?(origin = statement_origin) () =
+    Semantic_function_call_resolution.make_expression_statement ~index
+      ~expression ~origin
+  in
+  let retained = checked (make ()) in
+  Alcotest.(check int)
+    "expression statement constructor retains its identity" 0
+    (Semantic_function_call_resolution.expression_statement_index retained);
+  Alcotest.(check bool)
+    "expression statement constructor retains its expression" true
+    (Semantic_function_call_resolution.expression_statement_expression retained
+    == expression);
+  Alcotest.(check bool)
+    "expression statement constructor retains its origin" true
+    (Semantic_function_call_resolution.expression_statement_origin retained
+    = statement_origin);
+  Alcotest.(check (result reject string))
+    "a negative expression statement identity is rejected"
+    (Error "function expression statement index cannot be negative")
+    (make ~index:(-1) ());
+  Alcotest.(check (result reject string))
+    "an empty expression statement origin is rejected"
+    (Error "function expression statement has an invalid source origin")
+    (make ~origin:(Semantic_symbol.Synthesized "") ());
+  let prepared =
+    prepare ~path:"function-expression-statement-constructor.HC"
+      "I64 Caller(){0;return 0;}"
+  in
+  let owner =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd
+  in
+  let noncontiguous = checked (make ~index:1 ()) in
+  Alcotest.(check (result reject string))
+    "a function rejects noncontiguous expression statement identities"
+    (Error "function expression statement indexes are not contiguous")
+    (Semantic_function_call_resolution.make_function
+       ~symbol:(Semantic_module_expression_binding.function_symbol owner)
+       ~scope:(Semantic_module_expression_binding.function_scope owner)
+       ~item_index:
+         (Semantic_module_expression_binding.function_item_index owner)
+       ~expression_statements:[ noncontiguous ] [])
+
 let switch_selector_constructors_validate_identity_and_origins () =
   let keyword_origin = Semantic_symbol.Synthesized "switch keyword" in
   let expression_origin = Semantic_symbol.Synthesized "switch expression" in
@@ -1294,6 +1345,8 @@ let tests =
       named_cast_targets_validate_source_identity;
     Alcotest.test_case "index expression constructor validation" `Quick
       index_expression_constructors_validate_bracket_origins;
+    Alcotest.test_case "expression statement constructor validation" `Quick
+      expression_statement_constructors_validate_identity_and_origin;
     Alcotest.test_case "switch selector constructor validation" `Quick
       switch_selector_constructors_validate_identity_and_origins;
     Alcotest.test_case "switch case constructor validation" `Quick
