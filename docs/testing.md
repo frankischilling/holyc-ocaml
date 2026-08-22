@@ -148,6 +148,12 @@ Four top-level outer-expression cases consume that source-ordered batch and foll
 dune exec test/test_main.exe -- test '^semantic top-level outer expression binding$'
 ```
 
+Three top-level semantic-tree cases consume those exact bindings and follow `LexStmt2Bin`, `PrsStmt`, `PrsExpression`, and `PrsFunCall`. They cover every expression constructor accepted by the current parser, executable root roles, source-order IDs, parenthesized call holes, callee identity, module and outer bindings, generated provenance, JIT/AOT equality, deterministic replay, purity, mode mismatch, and foreign ownership. `HCSEMA0055` reports an inconsistent statement, binding, index, or source association. The tests do not assign value types, resolve callable signatures or defaults, lower IR, execute statements, or emit `IET_MAIN`. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test '^semantic top-level expression tree$'
+```
+
 Seven outer expression-binding cases follow the explicit `CHashTable.next` field, single-table and chained lookup in `Kernel/KHashA.HC`, task-parent links in `Kernel/KTask.HC`, compiler-chain selection in `Compiler/CMain.HC`, and the final assembler link in `Compiler/AsmInit.HC`. They cover current and parent JIT tasks, nested and top-level AOT, assembler fallback, newest-record selection across all four supported record kinds, local and module precedence, generated-source failure provenance, deterministic replay, unchanged symbol counts, repeated identities, role and index errors, foreign sessions, and mode mismatches. `HCSEMA0022` through `HCSEMA0024` report validation and unresolved-name failures. The tests use supplied immutable table snapshots; they do not claim live task construction, addresses, imports, fixups, loader records, use counts, typing, storage, or lowering. Run only this group with:
 
 ```text

@@ -4203,6 +4203,45 @@ expression_role_filtering_type_checking_call_resolution_evaluation_ir_lowering_e
 native_oracle_status = "not required for this lookup boundary; CmpJoin, SYS_HASH_FIND, and ScopingLinkage.DD state the chain and shadowing order directly"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-EXPRESSION-TREES"
+description = "Accepted executable top-level statements receive immutable source-shaped semantic expression trees with exact identifier bindings."
+sources = [
+  "Compiler/CMain.HC:1-32 LexStmt2Bin executable statement boundary",
+  "Compiler/CMain.HC:35-95 CmpJoin source-order compilation",
+  "Compiler/PrsStmt.HC:904-1218 recursive executable statement routes",
+  "Compiler/PrsExp.HC:PrsExpression expression shapes",
+  "Compiler/PrsExp.HC:PrsFunCall call arguments and omitted positions"
+]
+implementation = [
+  "src/driver/top_level_expression_tree.ml",
+  "src/driver/top_level_expression_tree.mli",
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_expression_tree.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_top_level_expression_tree.ml"
+]
+status = "implemented"
+issue = 312
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "accepted executable module statements after HC-SEMA-TOP-LEVEL-OUTER-EXPRESSION-BINDINGS"
+root_roles = ["expression statement", "implicit output fixed value", "implicit output argument", "condition", "switch selector", "switch case value", "local array dimension", "local initializer", "return value"]
+expression_shape = "all expression constructors accepted by the current parser use the shared semantic argument-expression representation"
+calls = "callee expression, callee occurrence and binding, syntax, provided arguments, and omitted slots remain explicit"
+identity = "root, call, expression-node, statement, module-item, and ordinary-occurrence indexes are deterministic and source ordered"
+diagnostic = "HCSEMA0055"
+provenance = ["statement origin", "expression origin", "operator and punctuation origins", "identifier binding", "generated invocation", "definition origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+value_typing_callable_resolution_default_materialization_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this structural boundary; LexStmt2Bin, PrsStmt, PrsExpression, and PrsFunCall state the accepted source shapes directly"
+
+[[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
 description = "Ordinary identifier candidates bind through explicit JIT task-parent or AOT enclosing-compilation tables before the assembler table."
 sources = [
