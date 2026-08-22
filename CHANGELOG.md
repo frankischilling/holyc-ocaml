@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Typed bounded and no-bound function switch selectors through the shared expression-result model. Each selector keeps its syntax mode, source identity, checked type, result class, and nested call resolution without claiming range adjustment, a jump table, or switch IR.
 - Typed `if`, `while`, `do while`, and `for` conditions through the shared immutable expression-result model. Each result keeps its statement role, source identity, integer or `F64` class, and nested call resolution without claiming a Boolean conversion or branch IR.
 - Typed function return expressions against their declared result types. Each return keeps its source identity, checked expression result, declared type, integer or `F64` conversion intent, and a warning fact for missing or unexpected values. This semantic boundary does not emit `IC_RETURN_VAL`, build leave-label control flow, unwind `try` regions, assign RAX, or execute the function.
 - Typed direct function addresses as source-ordered function publications. `&Function` now retains the exact replacement or recursive function identity and uses TempleOS's internal `RT_PTR`/`RT_I64` result without adding an object-pointer layer. The semantic record distinguishes a JIT extern-slot load, JIT immediate, and AOT absolute-address input. Ordinary AOT externs and imports fail at `&`, and internal compiler functions remain outside this noninternal path. Numeric addresses, IC instructions, imports, relocations, and lowering are still deferred.
