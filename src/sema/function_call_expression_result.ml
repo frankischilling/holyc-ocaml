@@ -506,6 +506,10 @@ let top_level_outer_callback_variadic_count
 let top_level_outer_callback_result_id (call : top_level_outer_callback_call) =
   call.top_level_outer_callback_result_id
 
+let top_level_outer_callback_call_index (call : top_level_outer_callback_call) =
+  call.top_level_outer_callback_source |> Top_level_expression_tree.call_source
+  |> Function_call_resolution.call_index
+
 let top_level_indexed_global_callback_source
     (call : top_level_indexed_global_callback_call) =
   call.top_level_indexed_global_callback_source
@@ -2205,9 +2209,9 @@ and type_top_level_global_callback_call table members policies
                            (forwarded_class policies ~before_item_index
                               source_type)))))
 
-and type_top_level_outer_callback_call table members policies
-    ~before_item_index ~intrinsic_conversion state id source call occurrence
-    binding =
+and type_top_level_outer_callback_call table members policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding ->
   let source_call = Top_level_expression_tree.call_source call in
   let origin = Function_call_resolution.call_origin source_call in
   let invalid message = Error (invalid_top_level_input ~origin message) in
@@ -2233,80 +2237,102 @@ and type_top_level_outer_callback_call table members policies
       match Outer_environment.entry_global_metadata entry with
       | None -> invalid "top-level outer callback has no checked metadata"
       | Some metadata ->
-          if Outer_environment.global_array_rank metadata <> 0 then
-            invalid "top-level outer callback unexpectedly has array dimensions"
-          else
-            match Outer_environment.global_declarator_kind metadata with
-            | Outer_environment.Object_global ->
-                invalid "top-level outer global has no function-pointer signature"
-            | Outer_environment.Function_pointer_global function_pointer -> (
-                let callable =
-                  Function_call_resolution.make_callable
-                    ~return_type:
-                      (Outer_environment.global_type_reference metadata)
-                    ~function_pointer
-                in
-                match
-                  Function_call_resolution.bind_indirect_arguments source_call
-                    callable
-                with
-                | Error error ->
-                    Error
-                      (invalid_top_level_input
-                         ?origin:(Function_call_resolution.error_origin error)
-                         (Function_call_resolution.error_message error))
-                | Ok (fixed_arguments, variadic_arguments, variadic_count) -> (
-                    match
-                      type_top_level_bound_arguments table members policies
-                        ~before_item_index ~origin state fixed_arguments
-                        variadic_arguments
-                    with
-                    | Error _ as error -> error
-                    | Ok (fixed_results, variadic_results, state) -> (
-                        let source_type =
-                          callable
-                          |> Function_call_resolution.callable_return_type
-                          |> Type_reference.resolved_type
-                        in
-                        match known_type table source_type with
-                        | Error _ as error -> error
-                        | Ok source_type ->
-                            let category =
-                              if Type.pointer_depth source_type > 0 then
-                                Address_value
-                              else Object_value
-                            in
-                            let callback_call =
-                              {
-                                top_level_outer_callback_source = call;
-                                top_level_outer_callback_occurrence = occurrence;
-                                top_level_outer_callback_binding = binding;
-                                top_level_outer_callback_callable = callable;
-                                top_level_outer_callback_fixed_results =
-                                  fixed_results;
-                                top_level_outer_callback_variadic_results =
-                                  variadic_results;
-                                top_level_outer_callback_variadic_count =
-                                  variadic_count;
-                                top_level_outer_callback_result_id = id;
-                              }
-                            in
-                            let state =
-                              {
-                                state with
-                                top_level_outer_callback_calls_rev =
-                                  callback_call
-                                  :: state.top_level_outer_callback_calls_rev;
-                              }
-                            in
-                            Ok
-                              (make_result ~intrinsic_conversion state ~id
-                                 ~source ~source_type:(Some source_type) ~category
-                                 ~top_level_outer_occurrence:occurrence
-                                 ~outer_binding:binding
-                                 ~result_class:
-                                   (forwarded_class policies ~before_item_index
-                                      source_type)))))
+          type_top_level_outer_callback_metadata table members policies
+            ~before_item_index ~intrinsic_conversion state id source call
+            occurrence binding source_call origin metadata
+
+and type_top_level_outer_callback_metadata table members policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding source_call origin metadata ->
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  if Outer_environment.global_array_rank metadata <> 0 then
+    invalid "top-level outer callback unexpectedly has array dimensions"
+  else
+    match Outer_environment.global_declarator_kind metadata with
+    | Outer_environment.Object_global ->
+        invalid "top-level outer global has no function-pointer signature"
+    | Outer_environment.Function_pointer_global function_pointer ->
+        let callable =
+          Function_call_resolution.make_callable
+            ~return_type:(Outer_environment.global_type_reference metadata)
+            ~function_pointer
+        in
+        type_top_level_outer_callback_arguments table members policies
+          ~before_item_index ~intrinsic_conversion state id source call
+          occurrence binding source_call origin callable
+
+and type_top_level_outer_callback_arguments table members policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding source_call origin callable ->
+  match
+    Function_call_resolution.bind_indirect_arguments source_call callable
+  with
+  | Error error ->
+      Error
+        (invalid_top_level_input
+           ?origin:(Function_call_resolution.error_origin error)
+           (Function_call_resolution.error_message error))
+  | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+      type_top_level_outer_callback_argument_results table members policies
+        ~before_item_index ~intrinsic_conversion state id source call occurrence
+        binding origin callable fixed_arguments variadic_arguments
+        variadic_count
+
+and type_top_level_outer_callback_argument_results table members policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding origin callable fixed_arguments variadic_arguments
+     variadic_count ->
+  match
+    type_top_level_bound_arguments table members policies ~before_item_index
+      ~origin state fixed_arguments variadic_arguments
+  with
+  | Error _ as error -> error
+  | Ok (fixed_results, variadic_results, state) ->
+      type_top_level_outer_callback_result table policies ~before_item_index
+        ~intrinsic_conversion state id source call occurrence binding callable
+        fixed_results variadic_results variadic_count
+
+and type_top_level_outer_callback_result table policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding callable fixed_results variadic_results variadic_count ->
+  let unresolved_source_type =
+    callable |> Function_call_resolution.callable_return_type
+    |> Type_reference.resolved_type
+  in
+  match known_type table unresolved_source_type with
+  | Error _ as error -> error
+  | Ok source_type ->
+      let category =
+        if Type.pointer_depth source_type > 0 then Address_value
+        else Object_value
+      in
+      let callback_call =
+        {
+          top_level_outer_callback_source = call;
+          top_level_outer_callback_occurrence = occurrence;
+          top_level_outer_callback_binding = binding;
+          top_level_outer_callback_callable = callable;
+          top_level_outer_callback_fixed_results = fixed_results;
+          top_level_outer_callback_variadic_results = variadic_results;
+          top_level_outer_callback_variadic_count = variadic_count;
+          top_level_outer_callback_result_id = id;
+        }
+      in
+      let state =
+        {
+          state with
+          top_level_outer_callback_calls_rev =
+            callback_call :: state.top_level_outer_callback_calls_rev;
+        }
+      in
+      let result_class =
+        forwarded_class policies ~before_item_index source_type
+      in
+      Ok
+        (make_result ~intrinsic_conversion state ~id ~source
+           ~source_type:(Some source_type) ~category
+           ~top_level_outer_occurrence:occurrence ~outer_binding:binding
+           ~result_class)
 
 and type_top_level_indexed_global_callback_call table members policies
     ~before_item_index ~intrinsic_conversion state id source call global value =
@@ -3322,12 +3348,8 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
               List.sort
                 (fun left right ->
                   Int.compare
-                    (left.top_level_outer_callback_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index)
-                    (right.top_level_outer_callback_source
-                    |> Top_level_expression_tree.call_source
-                    |> Function_call_resolution.call_index))
+                    (top_level_outer_callback_call_index left)
+                    (top_level_outer_callback_call_index right))
                 state.top_level_outer_callback_calls_rev;
             top_level_indexed_global_callback_calls =
               List.sort
