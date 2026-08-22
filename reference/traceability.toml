@@ -4320,13 +4320,14 @@ scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP
 supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
 result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
-unsupported_roots = ["top-level calls", "outer records without type payloads"]
+unsupported_roots = ["indirect top-level calls", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
 validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 10
-top_level_call_resolution_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
+direct_top_level_calls = "implemented downstream by HC-SEMA-TOP-LEVEL-DIRECT-CALLS"
+top_level_indirect_call_resolution_outer_type_payloads_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated scalar classification boundary; PrsExp, OptClassFwd, and OptPass012 directly define the retained result facts"
 
 [[feature]]
@@ -4405,6 +4406,48 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 2
 outer_type_payloads_use_counting_runtime_address_calculation_general_constant_evaluation_ir_lowering_execution_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf directly defines path accumulation and its intrinsic I64 result"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-DIRECT-CALLS"
+description = "Executable top-level direct calls bind source-visible function slots and receive checked return results."
+sources = [
+  "Compiler/PrsExp.HC:PrsFunCall fixed-slot, non-trailing default, parenthesis-free, and variadic rules",
+  "Compiler/PrsExp.HC:PrsTerm direct function record route",
+  "Compiler/PrsExp.HC:477-484 OptClassFwd conversion and return-result flags",
+  "Compiler/PrsStmt.HC:PrsStmt executable top-level statement route",
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin source-order compilation",
+  "Doc/HolyC.DD parenthesis-free and default-argument syntax",
+  "Doc/ScopingLinkage.DD source-visible publication and linkage rules"
+]
+implementation = [
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_identifier_resolution.ml"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/fixtures/top-level-direct-call-header.HH"
+]
+status = "implemented"
+issue = 322
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct module function calls in accepted executable top-level expressions"
+callee_rule = "the identifier callee must resolve to the source-visible Direct_function_value publication; the canonical joined symbol remains separate"
+slot_rule = "reuse Function_call_resolution.bind_direct_arguments for provided, omitted, defaulted, and variadic slots"
+supported_syntax = ["parenthesized calls", "parenthesis-free calls", "explicit non-trailing holes", "trailing absent fixed slots", "variadic tails", "nested direct calls"]
+retained_call_facts = ["exact source call", "visible function declaration and header", "canonical target symbol", "typed provided fixed results", "declared default and lastclass substitution records", "typed variadic results", "provided variadic count", "exact expression-result ID"]
+return_rule = "use the source-visible header; pointers remain address values, zero-depth values remain objects, and by-value aggregates follow the existing source-visible backing policy"
+replacement_rule = "a replacement header visible before the statement changes its slots and return type without changing the canonical joined target"
+diagnostics = ["HCSEMA0057 missing required fixed argument", "HCSEMA0057 extra fixed argument", "HCSEMA0057 omitted variadic argument", "HCSEMA0057 inconsistent call ownership or semantic batch"]
+provenance = ["callee invocation and definition origins", "included declaration origin", "generated call origin", "fixed and variadic expression origins"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 4
+top_level_indirect_and_outer_calls_default_evaluation_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsFunCall and the checked parenthesis-free fixture already establish the shared slot semantics"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"

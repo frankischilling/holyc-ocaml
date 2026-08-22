@@ -198,6 +198,43 @@ let completed_offsets result =
           <> []
       | None -> false)
 
+let top_level_call_name call =
+  call |> Semantic_function_call_expression_result.top_level_direct_source
+  |> Semantic_top_level_expression_tree.call_source
+  |> Semantic_function_call_resolution.call_callee_name
+
+let top_level_fixed_description fixed =
+  let target =
+    fixed
+    |> Semantic_function_call_expression_result.top_level_fixed_target_class
+    |> Semantic_function_call_expression_result.result_class_name
+  in
+  let path =
+    match
+      Semantic_function_call_expression_result.top_level_fixed_path fixed
+    with
+    | Semantic_function_call_expression_result.Provided_result value ->
+        "provided:" ^ descriptor value
+    | Semantic_function_call_expression_result.Declared_default_result value ->
+        Printf.sprintf "default:%s:%s:%s"
+          ( value
+            |> Semantic_function_call_expression_result.declared_default_type
+            |> Semantic_type.base
+          |> function
+            | Semantic_type.Primitive (_, primitive) ->
+                Primitive_type.to_string primitive
+            | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol )
+          (value
+         |> Semantic_function_call_expression_result.declared_default_class
+         |> Semantic_function_call_expression_result.result_class_name)
+          (value
+         |> Semantic_function_call_expression_result
+            .declared_default_materialization
+         |> Semantic_function_call_expression_result
+            .declared_default_materialization_name)
+  in
+  target ^ ":" ^ path
+
 let literals_and_module_values () =
   List.iter
     (fun mode ->
@@ -548,14 +585,195 @@ let invalid_aggregate_offset_paths () =
               (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
           | None -> Alcotest.fail "expected an offset-path source location"))
 
+let top_level_direct_calls () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-direct-calls.HC"
+          "F64 class FloatBox {};\n\
+          \           I64 Int(I64 left,I64 middle=2,I64 right);\n\
+          \           F64 Float();I64 *Pointer();FloatBox Make();\n\
+          \           I64 Variadic(I64 first,...);\n\
+          \           Int(1,,3);Float;Pointer();Make();Variadic(1,2,3);\n\
+          \           Int(Float(),,3);"
+      in
+      let _, _, _, result = analyze source in
+      Alcotest.(check (list string))
+        "direct call roots keep their source-visible return types"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "I64*:address-value:integer-result:rank-0";
+          "FloatBox:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      let calls =
+        Semantic_function_call_expression_result.top_level_direct_calls result
+      in
+      Alcotest.(check (list string))
+        "direct and nested calls retain source order"
+        [ "Int"; "Float"; "Pointer"; "Make"; "Variadic"; "Int"; "Float" ]
+        (List.map top_level_call_name calls);
+      let first = List.hd calls in
+      Alcotest.(check (list string))
+        "non-trailing defaults stay distinct from provided arguments"
+        [
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+          "integer-result:default:I64:integer-result:immediate";
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+        ]
+        (first
+       |> Semantic_function_call_expression_result
+          .top_level_direct_fixed_results
+        |> List.map top_level_fixed_description);
+      let variadic = List.nth calls 4 in
+      Alcotest.(check int64)
+        "variadic count uses target I64" 2L
+        (Semantic_function_call_expression_result
+         .top_level_direct_variadic_count variadic);
+      Alcotest.(check (list string))
+        "variadic expressions retain source order and actual classes"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (variadic
+       |> Semantic_function_call_expression_result
+          .top_level_direct_variadic_results |> List.map descriptor);
+      let outer = List.nth calls 5 in
+      let nested_first =
+        outer
+        |> Semantic_function_call_expression_result
+           .top_level_direct_fixed_results |> List.hd
+      in
+      Alcotest.(check string)
+        "nested F64 result remains distinct from its integer target"
+        "integer-result:provided:F64:object-value:f64-result:rank-0"
+        (top_level_fixed_description nested_first);
+      let all =
+        Semantic_function_call_expression_result.top_level_all_results result
+      in
+      List.iter
+        (fun call ->
+          let id =
+            Semantic_function_call_expression_result.top_level_direct_result_id
+              call
+          in
+          Alcotest.(check int)
+            "each direct call links to one expression result" 1
+            (List.length
+               (List.filter
+                  (fun value ->
+                    Semantic_function_call_expression_result.Id.equal id
+                      (Semantic_function_call_expression_result.result_id value))
+                  all)))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_direct_call_replacement_headers () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-call-replacements.HC"
+          "I64 F(I64 value=1);F();F64 F(F64 value=1.0);F();"
+      in
+      let _, _, _, result = analyze source in
+      Alcotest.(check (list string))
+        "each call uses the header visible at its statement"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      Alcotest.(check (list int))
+        "replacement headers retain distinct source item indexes" [ 0; 2 ]
+        (result
+       |> Semantic_function_call_expression_result.top_level_direct_calls
+        |> List.map (fun call ->
+            call
+            |> Semantic_function_call_expression_result.top_level_direct_header
+            |> Semantic_function_type_resolution.function_item_index)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let included_top_level_direct_call () =
+  let include_path =
+    if Sys.file_exists "test/fixtures/top-level-direct-call-header.HH" then
+      "test/fixtures/top-level-direct-call-header.HH"
+    else "fixtures/top-level-direct-call-header.HH"
+  in
+  let source =
+    prepared ~path:"top-level-direct-call-use.HC"
+      (Printf.sprintf "#include \"%s\"\nIncludedCall(1);" include_path)
+  in
+  let _, _, _, result = analyze source in
+  let calls =
+    Semantic_function_call_expression_result.top_level_direct_calls result
+  in
+  Alcotest.(check (list string))
+    "an included header supplies the exact visible call declaration"
+    [ "IncludedCall" ]
+    (List.map top_level_call_name calls);
+  let call = List.hd calls in
+  let header =
+    Semantic_function_call_expression_result.top_level_direct_header call
+  in
+  match Semantic_function_type_resolution.function_return_type header with
+  | type_reference -> (
+      match Semantic_type_reference.spelling_origin type_reference with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "included call header keeps an include backtrace" true
+            (location.source_segments <> [])
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected an included call header source location")
+
+let invalid_top_level_direct_calls () =
+  [
+    ( "missing",
+      "I64 F(I64 value);F();",
+      "call to \"F\" is missing required argument 1 (value)" );
+    ( "extra",
+      "I64 F(I64 value);F(1,2);",
+      "call to \"F\" provides argument 2, but its active header has 1 fixed \
+       parameter" );
+    ( "omitted variadic",
+      "I64 F(I64 value,...);F(1,,2);",
+      "call to \"F\" omits variadic argument 2; variadic positions require an \
+       expression" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared ~path:("top-level-invalid-call-" ^ label ^ ".HC") contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s direct call to fail" label
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0057"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error))
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
-      "class Box{I64 member;};Box box;I64 F(I64 value);box.member;F(1);"
+      "class Box{I64 member;};Box box;I64 (*callback)(I64 value);\n\
+       box.member;callback(1);"
   in
   let expressions, identifiers, policies, result = analyze source in
   Alcotest.(check (list string))
-    "member roots type while calls remain an explicit boundary"
+    "member roots type while indirect calls remain an explicit boundary"
     [ "object-value"; "unavailable" ]
     (root_values result
     |> List.map (fun value ->
@@ -644,7 +862,9 @@ let generated_provenance_and_purity () =
     prepared ~path:"top-level-generated-results.HC"
       "#define VALUE box.value\n\
        #define OFFSET Box.value\n\
-       class Box {I64 value;};Box box;VALUE+1;0+OFFSET;"
+       #define CALL F(1)\n\
+       class Box {I64 value;};I64 F(I64 value);Box box;\n\
+       VALUE+1;0+OFFSET;CALL;"
   in
   let table = Session.semantic_symbols source.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
@@ -663,6 +883,33 @@ let generated_provenance_and_purity () =
     "generated offset paths replay deterministically"
     (first |> completed_offsets |> List.map offset_description)
     (second |> completed_offsets |> List.map offset_description);
+  let direct_calls =
+    Semantic_function_call_expression_result.top_level_direct_calls first
+  in
+  Alcotest.(check (list string))
+    "generated direct calls retain deterministic identity" [ "F" ]
+    (List.map top_level_call_name direct_calls);
+  let generated_call = List.hd direct_calls in
+  let generated_call_result =
+    let id =
+      Semantic_function_call_expression_result.top_level_direct_result_id
+        generated_call
+    in
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        Semantic_function_call_expression_result.Id.equal id
+          (Semantic_function_call_expression_result.result_id result))
+  in
+  (match
+     Semantic_function_call_expression_result.result_origin
+       generated_call_result
+   with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated call keeps its definition origin" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a generated call source location");
   let generated_identifier =
     first |> Semantic_function_call_expression_result.top_level_all_results
     |> List.find (fun result ->
@@ -732,6 +979,13 @@ let tests =
     Alcotest.test_case "aggregate offset paths" `Quick aggregate_offset_paths;
     Alcotest.test_case "invalid aggregate offset paths" `Quick
       invalid_aggregate_offset_paths;
+    Alcotest.test_case "top-level direct calls" `Quick top_level_direct_calls;
+    Alcotest.test_case "top-level direct call replacement headers" `Quick
+      top_level_direct_call_replacement_headers;
+    Alcotest.test_case "included top-level direct call" `Quick
+      included_top_level_direct_call;
+    Alcotest.test_case "invalid top-level direct calls" `Quick
+      invalid_top_level_direct_calls;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick
