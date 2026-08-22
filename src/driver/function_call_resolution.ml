@@ -270,7 +270,7 @@ let add_function_typed_environment table functions values =
   let compilation_mode = Sema.Function_resolution.compilation_mode functions in
   let rec loop values = function
     | [] -> Ok values
-    | declaration :: rest ->
+    | declaration :: rest -> (
         let site =
           Sema.Function_resolution.resolved_declaration_site declaration
         in
@@ -279,14 +279,15 @@ let add_function_typed_environment table functions values =
           |> Sema.Function_type_resolution.function_symbol
         in
         if not (Sema.Symbol_table.owns_symbol table symbol) then
-          Error "call argument function declaration belongs to another symbol table"
+          Error
+            "call argument function declaration belongs to another symbol table"
         else if Int_map.mem (symbol_number symbol) values then
           Error "call argument module value symbol is repeated"
         else
-          (match
-             Sema.Function_call_resolution.direct_function_address_path
-               compilation_mode declaration
-           with
+          match
+            Sema.Function_call_resolution.direct_function_address_path
+              compilation_mode declaration
+          with
           | Error _ as error -> error
           | Ok path ->
               loop
@@ -1064,7 +1065,9 @@ let resolve ~table ~declarations ~function_types ~local_types ~global_types
       match global_typed_environment table global_types with
       | Error _ as error -> error
       | Ok global_values -> (
-          match add_function_typed_environment table functions global_values with
+          match
+            add_function_typed_environment table functions global_values
+          with
           | Error _ as error -> error
           | Ok module_values -> (
               match

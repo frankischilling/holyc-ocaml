@@ -773,8 +773,9 @@ let invalid_inputs_are_stable_and_pure () =
        ());
   let wrong_path_expression =
     checked
-      (Semantic_function_call_resolution.make_bound_identifier_argument_expression
-         ~occurrence:handler_occurrence ~resolved_type:address_type
+      (Semantic_function_call_resolution
+       .make_bound_identifier_argument_expression ~occurrence:handler_occurrence
+         ~resolved_type:address_type
          ~shape:Semantic_function_call_resolution.Direct_function_value
          ~array_rank:0 ~function_declaration:handler_declaration
          ~function_address_path:Semantic_function_call_resolution.Aot_absolute
@@ -782,8 +783,7 @@ let invalid_inputs_are_stable_and_pure () =
     |> fun kind ->
     Semantic_function_call_resolution.make_argument_expression ~kind
       ~origin:
-        (Semantic_module_expression_binding.occurrence_origin
-           handler_occurrence)
+        (Semantic_module_expression_binding.occurrence_origin handler_occurrence)
   in
   let wrong_path_argument =
     checked
@@ -821,8 +821,7 @@ let invalid_inputs_are_stable_and_pure () =
              ~scope:
                (Semantic_module_expression_binding.function_scope function_)
              ~item_index:
-               (Semantic_module_expression_binding.function_item_index
-                  function_)
+               (Semantic_module_expression_binding.function_item_index function_)
              (if String.equal (Semantic_symbol.name symbol) "Caller" then
                 [ wrong_path_call ]
               else [])))
@@ -831,8 +830,7 @@ let invalid_inputs_are_stable_and_pure () =
      Semantic_function_call_resolution.resolve
        ~table:(Session.semantic_symbols address_prepared.session)
        ~parent:
-         (Semantic_declaration_collection.scope
-            address_prepared.declarations)
+         (Semantic_declaration_collection.scope address_prepared.declarations)
        ~function_types:address_prepared.function_types
        ~functions:address_prepared.functions
        ~expressions:address_prepared.module_expressions wrong_path_inputs

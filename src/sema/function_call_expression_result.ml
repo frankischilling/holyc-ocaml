@@ -453,8 +453,8 @@ let rec type_expression table members policies ~before_item_index ~context
               in
               finish ~source_type:(Some source_type) ~array_rank
                 ?function_declaration:
-                  (Function_call_resolution.bound_identifier_function_declaration
-                     identifier)
+                  (Function_call_resolution
+                   .bound_identifier_function_declaration identifier)
                 ?function_address_path:
                   (Function_call_resolution
                    .bound_identifier_function_address_path identifier)
@@ -602,15 +602,16 @@ and type_prefix table members policies ~before_item_index ~context
                        ~origin:
                          (Function_call_resolution.prefix_operator_origin prefix)
                        (Printf.sprintf
-                          "cannot use internal compiler function %S as a direct \
-                           function address"
+                          "cannot use internal compiler function %S as a \
+                           direct function address"
                           name))
               | None ->
                   Error
                     (invalid_input
                        ~origin:
                          (Function_call_resolution.prefix_operator_origin prefix)
-                       "direct function address has no checked JIT or AOT path"))
+                       "direct function address has no checked JIT or AOT path")
+              )
           | None, _ -> finish Address_value Integer_result
           | Some source_type, false -> (
               match Type.pointer_to source_type with

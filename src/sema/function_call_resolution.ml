@@ -99,8 +99,7 @@ and bound_identifier = {
   bound_identifier_array_rank_ : int;
   bound_identifier_function_declaration_ :
     Function_resolution.resolved_declaration option;
-  bound_identifier_function_address_path_ :
-    direct_function_address_path option;
+  bound_identifier_function_address_path_ : direct_function_address_path option;
 }
 
 type argument = {
@@ -368,8 +367,7 @@ let direct_function_address_path compilation_mode declaration =
   then Ok Reject_internal
   else
     match
-      ( compilation_mode,
-        Function_resolution.declaration_site_state site )
+      (compilation_mode, Function_resolution.declaration_site_state site)
     with
     | Function_resolution.Jit, Function_resolution.Unresolved_extern ->
         Ok Jit_extern_slot
@@ -572,9 +570,8 @@ let function_declaration_matches_publication declaration publication =
     (publication |> Module_expression_binding.publication_source_symbol
    |> Symbol.id)
   && Symbol.Id.equal
-       (declaration
-       |> Function_resolution.resolved_declaration_identity_symbol
-       |> Symbol.id)
+       (declaration |> Function_resolution.resolved_declaration_identity_symbol
+      |> Symbol.id)
        (publication |> Module_expression_binding.publication_canonical_symbol
       |> Symbol.id)
 
@@ -840,19 +837,19 @@ let rec validate_argument_expression table parent visible declarations
         && identifier.bound_identifier_array_rank_ <> 0
       then Error (invalid_input "bound nonarray call argument has dimensions")
       else if identifier.bound_identifier_shape_ = Direct_function_value then
-        (match Module_expression_binding.occurrence_resolution occurrence with
-        | Module_expression_binding.Module_binding publication ->
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Module_binding publication -> (
             let source =
               Module_expression_binding.publication_source_symbol publication
             in
             let expected =
               Int_map.find_opt (symbol_number source) declarations
             in
-            (match
-               ( expected,
-                 identifier.bound_identifier_function_declaration_,
-                 identifier.bound_identifier_function_address_path_ )
-             with
+            match
+              ( expected,
+                identifier.bound_identifier_function_declaration_,
+                identifier.bound_identifier_function_address_path_ )
+            with
             | Some expected, Some declaration, Some path
               when expected == declaration -> (
                 match
@@ -879,8 +876,7 @@ let rec validate_argument_expression table parent visible declarations
         | Module_expression_binding.Local_binding _
         | Module_expression_binding.Outer_candidate ->
             Error
-              (invalid_input
-                 "bound direct function has no module publication"))
+              (invalid_input "bound direct function has no module publication")
       else
         match Type.base resolved_type with
         | Type.Primitive _ -> Ok ()
@@ -1197,8 +1193,7 @@ let validate_call_bound_occurrences calls occurrences =
   loop calls
 
 let validate_function_input table parent visible declarations compilation_mode
-    expected
-    (input : function_input) =
+    expected (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
   let scope = Module_expression_binding.function_scope expected in
   let item_index = Module_expression_binding.function_item_index expected in
@@ -1493,7 +1488,8 @@ let resolve ~table ~parent ~function_types ~functions ~expressions inputs =
         | Ok declarations -> (
             match
               validate_function_inputs table parent expressions declarations
-                (Function_resolution.compilation_mode functions) inputs
+                (Function_resolution.compilation_mode functions)
+                inputs
             with
             | Error _ as error -> error
             | Ok () -> (

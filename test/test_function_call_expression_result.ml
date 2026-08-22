@@ -539,7 +539,8 @@ let direct_function_addresses_keep_publication_identity () =
         (Semantic_function_call_resolution
          .make_bound_identifier_argument_expression
            ~occurrence:handler_occurrence ~resolved_type:handler_type
-           ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0 ());
+           ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0
+           ());
       List.iter
         (fun result ->
           match Semantic_function_call_expression_result.result_type result with
@@ -596,17 +597,16 @@ let direct_function_addresses_keep_publication_identity () =
         true
         (Semantic_symbol.Id.equal
            (selected_site
-           |> Semantic_function_resolution.declaration_site_function
-           |> Semantic_function_type_resolution.function_symbol
-           |> Semantic_symbol.id)
+          |> Semantic_function_resolution.declaration_site_function
+          |> Semantic_function_type_resolution.function_symbol
+          |> Semantic_symbol.id)
            (Semantic_symbol.id source_symbol));
       Alcotest.(check bool)
         "the address declaration keeps the joined canonical identity" true
         (Semantic_symbol.Id.equal
            (selected_declaration
-           |> Semantic_function_resolution
-              .resolved_declaration_identity_symbol
-           |> Semantic_symbol.id)
+          |> Semantic_function_resolution.resolved_declaration_identity_symbol
+          |> Semantic_symbol.id)
            (Semantic_symbol.id canonical_symbol));
       let recursive = List.nth operands 1 |> bound_publication in
       Alcotest.(check string)
@@ -651,7 +651,9 @@ let function_address_paths_follow_extern_state () =
       aot_root
     |> Option.get
   in
-  let site = Semantic_function_resolution.resolved_declaration_site declaration in
+  let site =
+    Semantic_function_resolution.resolved_declaration_site declaration
+  in
   Alcotest.(check bool)
     "the AOT path follows the checked bound-extern declaration" true
     (Semantic_function_resolution.declaration_site_source_kind site
@@ -671,7 +673,7 @@ let rejected_function_address_path expected_message source =
       ~members:prepared.members ~policies
   with
   | Ok _ -> Alcotest.fail "expected the AOT function address to be rejected"
-  | Error error ->
+  | Error error -> (
       Alcotest.(check string)
         "function address rejection has a stable diagnostic" "HCSEMA0046"
         (Semantic_function_call_expression_result.error_code error);
@@ -687,7 +689,7 @@ let rejected_function_address_path expected_message source =
             location.span.start
       | Some (Semantic_symbol.Pinned_source _)
       | Some (Semantic_symbol.Synthesized _)
-      | None -> Alcotest.fail "expected a source-positioned address diagnostic"
+      | None -> Alcotest.fail "expected a source-positioned address diagnostic")
 
 let aot_and_internal_function_addresses_fail_explicitly () =
   rejected_function_address_path
