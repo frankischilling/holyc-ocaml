@@ -38,6 +38,8 @@ type fixed_path =
 type lastclass_substitution
 type fixed_result
 type top_level_fixed_result
+type outer_callback_fixed_result
+type outer_callback_call
 type top_level_direct_call
 type top_level_global_callback_call
 type top_level_outer_callback_call
@@ -179,6 +181,12 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
 
+val function_outer_callback_calls :
+  resolved_function -> outer_callback_call list
+(** Source-ordered calls through scalar outer callbacks. Each record keeps its
+    recursive signature, exact outer occurrence, and selected table entry. This
+    analysis does not read or invoke the stored callback address. *)
+
 val function_expression_statements :
   resolved_function -> expression_statement_result list
 
@@ -254,6 +262,36 @@ val top_level_fixed_path : top_level_fixed_result -> fixed_path
 
 val top_level_fixed_lastclass_substitution :
   top_level_fixed_result -> lastclass_substitution option
+
+val outer_callback_fixed_source :
+  outer_callback_fixed_result -> Function_call_resolution.fixed_argument
+
+val outer_callback_fixed_target_class :
+  outer_callback_fixed_result -> result_class
+
+val outer_callback_fixed_path : outer_callback_fixed_result -> fixed_path
+
+val outer_callback_fixed_lastclass_substitution :
+  outer_callback_fixed_result -> lastclass_substitution option
+
+val outer_callback_source : outer_callback_call -> Function_call_resolution.call
+
+val outer_callback_occurrence :
+  outer_callback_call -> Outer_expression_binding.occurrence
+
+val outer_callback_binding : outer_callback_call -> Outer_environment.binding
+
+val outer_callback_callable :
+  outer_callback_call -> Function_call_resolution.callable
+
+val outer_callback_fixed_results :
+  outer_callback_call -> outer_callback_fixed_result list
+
+val outer_callback_variadic_results :
+  outer_callback_call -> expression_result list
+
+val outer_callback_variadic_count : outer_callback_call -> int64
+val outer_callback_result_id : outer_callback_call -> Id.t
 
 val top_level_direct_source :
   top_level_direct_call -> Top_level_expression_tree.call
