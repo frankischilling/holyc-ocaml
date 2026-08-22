@@ -10,7 +10,7 @@ type conversion =
   | Unresolved_conversion
 
 type default_materialization =
-  Function_call_expression_result.declared_default_materialization =
+      Function_call_expression_result.declared_default_materialization =
   | Immediate_default
   | Aot_string_default
 
@@ -42,7 +42,9 @@ type default_binding = {
   materialization : default_materialization;
 }
 
-type fixed_path = Provided_path of provided_binding | Defaulted_path of default_binding
+type fixed_path =
+  | Provided_path of provided_binding
+  | Defaulted_path of default_binding
 
 type fixed_slot = {
   parameter : Function_type_resolution.parameter;
@@ -170,7 +172,8 @@ let missing_required_parameter omission =
   }
 
 let provided_origin = function
-  | Fixed_expression result -> Function_call_expression_result.result_origin result
+  | Fixed_expression result ->
+      Function_call_expression_result.result_origin result
   | Following_argument argument ->
       argument |> Function_call_expression_result.implicit_output_argument_value
       |> Function_call_expression_result.result_origin
@@ -202,7 +205,8 @@ let error_message error =
         (parameter_display omission.parameter)
   | Extra_nonvariadic_argument { output; position; fixed_count; _ } ->
       Printf.sprintf
-        "implicit output call to %S provides argument %d, but its selected header has %d fixed %s"
+        "implicit output call to %S provides argument %d, but its selected \
+         header has %d fixed %s"
         (Implicit_output_target_resolution.output_target_name output)
         (position + 1) fixed_count
         (if fixed_count = 1 then "parameter" else "parameters")
@@ -236,7 +240,9 @@ let result_of_source = function
 
 let provided_values output =
   let source = Implicit_output_target_resolution.output_source output in
-  let fixed = Function_call_expression_result.implicit_output_fixed_value source in
+  let fixed =
+    Function_call_expression_result.implicit_output_fixed_value source
+  in
   let following =
     source |> Function_call_expression_result.implicit_output_arguments
     |> List.map (fun argument -> Following_argument argument)
@@ -244,8 +250,8 @@ let provided_values output =
   Fixed_expression fixed :: following
 
 let default_contains_string = function
-  | Function_type_resolution.Expression_default { contains_string_literal; _ } ->
-      contains_string_literal
+  | Function_type_resolution.Expression_default { contains_string_literal; _ }
+    -> contains_string_literal
   | Function_type_resolution.Lastclass_default _ -> true
 
 let materialization mode default =
@@ -362,23 +368,21 @@ let bind_output policies mode outer_headers ~before_item_index output =
   | Implicit_output_target_resolution.Module_function target ->
       bind_header policies mode ~before_item_index output
         (Implicit_output_target_resolution.module_header target)
-  | Implicit_output_target_resolution.Outer_function outer_binding ->
+  | Implicit_output_target_resolution.Outer_function outer_binding -> (
       let symbol =
         outer_binding |> Outer_environment.binding_entry
         |> Outer_environment.entry_symbol
       in
-      (match Int_map.find_opt (symbol_number symbol) outer_headers with
+      match Int_map.find_opt (symbol_number symbol) outer_headers with
       | Some header
-        when same_symbol symbol (Function_type_resolution.function_symbol header)
-        -> bind_header policies mode ~before_item_index output header
+        when same_symbol symbol
+               (Function_type_resolution.function_symbol header) ->
+          bind_header policies mode ~before_item_index output header
       | Some _ ->
           Error
             (invalid_input
                "implicit output outer header does not match its resolved symbol")
-      | None ->
-          Ok
-            (Deferred_outer_output
-               { source = output; outer_binding }))
+      | None -> Ok (Deferred_outer_output { source = output; outer_binding }))
 
 let map_result apply values =
   let rec loop rev = function
@@ -399,8 +403,7 @@ let bind_function policies mode outer_headers source =
   in
   match
     source |> Implicit_output_target_resolution.function_outputs
-    |> map_result
-         (bind_output policies mode outer_headers ~before_item_index)
+    |> map_result (bind_output policies mode outer_headers ~before_item_index)
   with
   | Error _ as error -> error
   | Ok outputs -> Ok { source; outputs }
@@ -410,8 +413,7 @@ let bind ~table ~policies ?(outer_headers = []) targets =
   let mode = Implicit_output_target_resolution.compilation_mode targets in
   if not (Implicit_output_target_resolution.owns_table targets table) then
     Error
-      (invalid_input
-         "implicit output targets belong to another symbol table")
+      (invalid_input "implicit output targets belong to another symbol table")
   else if not (Function_call_conversion_policy.owns_table policies table) then
     Error
       (invalid_input
@@ -421,11 +423,13 @@ let bind ~table ~policies ?(outer_headers = []) targets =
   then
     Error
       (invalid_input
-         "implicit output expressions belong to another conversion-policy traversal")
+         "implicit output expressions belong to another conversion-policy \
+          traversal")
   else if Function_call_conversion_policy.compilation_mode policies <> mode then
     Error
       (invalid_input
-         "implicit output targets and conversion policies use different compilation modes")
+         "implicit output targets and conversion policies use different \
+          compilation modes")
   else
     match outer_header_map table outer_headers with
     | Error _ as error -> error

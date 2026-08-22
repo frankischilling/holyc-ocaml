@@ -2,6 +2,7 @@ open Holyc_lib
 
 let checked = Test_function_call_conversion_policy.checked
 let prepare = Test_function_call_conversion_policy.prepare
+
 type prepared = Test_function_call_conversion_policy.prepared
 
 let checked_policy = Test_function_call_conversion_policy.checked_policy
@@ -42,7 +43,8 @@ let add_outer_symbol (prepared : prepared) name record_kind =
   checked
     (Semantic_symbol_table.add table
        ~scope:(Semantic_symbol_table.root table)
-       ~name ~kind:(semantic_kind record_kind)
+       ~name
+       ~kind:(semantic_kind record_kind)
        ~origin:(Semantic_symbol.Synthesized ("outer output fixture " ^ name)))
 
 let make_table ~table_kind ~table_index entries =
@@ -145,27 +147,32 @@ let ordinary_print_and_putchars () =
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
   in
-  let outputs = bind inputs |> checked_bindings |> fun result -> outputs_named result "Caller" in
+  let outputs =
+    bind inputs |> checked_bindings |> fun result ->
+    outputs_named result "Caller"
+  in
   match outputs with
   | [ print; put_chars ] ->
       let print = bound print in
       let put_chars = bound put_chars in
       Alcotest.(check (list string))
-        "Print fixed slot" [ "provided:integer-result:none" ]
+        "Print fixed slot"
+        [ "provided:integer-result:none" ]
         (fixed_path_names print);
       Alcotest.(check int)
         "Print variadic tail" 1
         (print
-        |> Semantic_implicit_output_argument_binding.bound_variadic_values
-        |> List.length);
+       |> Semantic_implicit_output_argument_binding.bound_variadic_values
+       |> List.length);
       Alcotest.(check (list string))
-        "PutChars fixed slot" [ "provided:integer-result:none" ]
+        "PutChars fixed slot"
+        [ "provided:integer-result:none" ]
         (fixed_path_names put_chars);
       Alcotest.(check int)
         "PutChars has no tail" 0
         (put_chars
-        |> Semantic_implicit_output_argument_binding.bound_variadic_values
-        |> List.length)
+       |> Semantic_implicit_output_argument_binding.bound_variadic_values
+       |> List.length)
   | outputs ->
       Alcotest.failf "expected Print and PutChars outputs, got %d"
         (List.length outputs)
@@ -186,8 +193,8 @@ let selected_header_drives_conversions () =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
   in
   let output =
-    bind inputs |> checked_bindings |> fun result -> outputs_named result "Caller"
-    |> List.hd |> bound
+    bind inputs |> checked_bindings |> fun result ->
+    outputs_named result "Caller" |> List.hd |> bound
   in
   Alcotest.(check (list string))
     "fixed conversions follow the replacement header"
@@ -204,8 +211,7 @@ let selected_header_drives_conversions () =
   Alcotest.(check string)
     "tail class" "integer-result"
     (tail |> List.hd |> Semantic_function_call_expression_result.result_class
-    |> Semantic_function_call_expression_result.result_class_name)
-  ;
+   |> Semantic_function_call_expression_result.result_class_name);
   let first_slot =
     output |> Semantic_implicit_output_argument_binding.bound_fixed_slots
     |> List.hd
@@ -223,8 +229,8 @@ let selected_header_drives_conversions () =
   List.iter
     (fun name ->
       let output =
-        bind inputs |> checked_bindings |> fun result -> outputs_named result name
-        |> List.hd |> bound
+        bind inputs |> checked_bindings |> fun result ->
+        outputs_named result name |> List.hd |> bound
       in
       Alcotest.(check (list string))
         (name ^ " integer callback or pointer path")
@@ -242,8 +248,8 @@ let defaults_keep_omissions_and_mode_materialization () =
       in
       let inputs = semantic_inputs prepared (environment prepared mode []) in
       let output =
-        bind inputs |> checked_bindings |> fun result -> outputs_named result "Caller"
-        |> List.hd |> bound
+        bind inputs |> checked_bindings |> fun result ->
+        outputs_named result "Caller" |> List.hd |> bound
       in
       let slots =
         Semantic_implicit_output_argument_binding.bound_fixed_slots output
@@ -253,8 +259,8 @@ let defaults_keep_omissions_and_mode_materialization () =
         |> List.filter_map (fun slot ->
             match Semantic_implicit_output_argument_binding.fixed_path slot with
             | Semantic_implicit_output_argument_binding.Provided_path _ -> None
-            | Semantic_implicit_output_argument_binding.Defaulted_path binding ->
-                Some binding)
+            | Semantic_implicit_output_argument_binding.Defaulted_path binding
+              -> Some binding)
       in
       Alcotest.(check (list int))
         "default omissions retain their fixed positions" [ 1; 2 ]
@@ -272,7 +278,8 @@ let defaults_keep_omissions_and_mode_materialization () =
         (List.map
            (fun binding ->
              binding
-             |> Semantic_implicit_output_argument_binding.default_materialization
+             |> Semantic_implicit_output_argument_binding
+                .default_materialization
              |> Semantic_implicit_output_argument_binding
                 .default_materialization_name)
            defaults))
@@ -281,8 +288,7 @@ let defaults_keep_omissions_and_mode_materialization () =
 let missing_required_parameter () =
   let prepared =
     prepare ~path:"implicit-output-missing-fixed.HC"
-      "extern U0 Print(U8 *fmt,I64 value);\n\
-       I64 Caller(){\"value\";return 0;}"
+      "extern U0 Print(U8 *fmt,I64 value);\nI64 Caller(){\"value\";return 0;}"
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
@@ -295,7 +301,8 @@ let missing_required_parameter () =
         (Semantic_implicit_output_argument_binding.error_code error);
       Alcotest.(check string)
         "missing message"
-        "implicit output call to \"Print\" is missing required argument 2 (value)"
+        "implicit output call to \"Print\" is missing required argument 2 \
+         (value)"
         (Semantic_implicit_output_argument_binding.error_message error);
       Alcotest.(check bool)
         "missing origin" true
@@ -305,8 +312,7 @@ let missing_required_parameter () =
 let nonvariadic_extra_argument () =
   let prepared =
     prepare ~path:"implicit-output-extra-fixed.HC"
-      "extern U0 Print(U8 *fmt);\n\
-       I64 Caller(){\"value\",1;return 0;}"
+      "extern U0 Print(U8 *fmt);\nI64 Caller(){\"value\",1;return 0;}"
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
@@ -319,7 +325,8 @@ let nonvariadic_extra_argument () =
         (Semantic_implicit_output_argument_binding.error_code error);
       Alcotest.(check string)
         "extra message"
-        "implicit output call to \"Print\" provides argument 2, but its selected header has 1 fixed parameter"
+        "implicit output call to \"Print\" provides argument 2, but its \
+         selected header has 1 fixed parameter"
         (Semantic_implicit_output_argument_binding.error_message error)
 
 let untyped_outer_target_is_deferred () =
@@ -335,8 +342,8 @@ let untyped_outer_target_is_deferred () =
              [ ("Print", Semantic_outer_environment.Function) ])
       in
       let output =
-        bind inputs |> checked_bindings |> fun result -> outputs_named result "Caller"
-        |> List.hd
+        bind inputs |> checked_bindings |> fun result ->
+        outputs_named result "Caller" |> List.hd
       in
       let deferred = deferred output in
       Alcotest.(check string)
@@ -345,9 +352,9 @@ let untyped_outer_target_is_deferred () =
       Alcotest.(check string)
         "exact outer symbol retained" "Print"
         (deferred
-        |> Semantic_implicit_output_argument_binding.deferred_outer_binding
-        |> Semantic_outer_environment.binding_entry
-        |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
+       |> Semantic_implicit_output_argument_binding.deferred_outer_binding
+       |> Semantic_outer_environment.binding_entry
+       |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let checked_outer_header_enables_binding () =
@@ -370,11 +377,12 @@ let checked_outer_header_enables_binding () =
         |> checked_environment
       in
       let inputs =
-        semantic_inputs prepared (environment_from_entries prepared mode [ entry ])
+        semantic_inputs prepared
+          (environment_from_entries prepared mode [ entry ])
       in
       let output =
-        bind ~outer_headers:[ header ] inputs |> checked_bindings |> fun result ->
-        outputs_named result "Caller" |> List.hd |> bound
+        bind ~outer_headers:[ header ] inputs |> checked_bindings
+        |> fun result -> outputs_named result "Caller" |> List.hd |> bound
       in
       Alcotest.(check (list string))
         "checked outer signature selects F64 conversion"
@@ -385,8 +393,7 @@ let checked_outer_header_enables_binding () =
 let replay_purity_and_foreign_batches () =
   let prepared =
     prepare ~path:"implicit-output-binding-replay.HC"
-      "extern U0 Print(U8 *fmt,...);\n\
-       I64 Caller(){\"%d\",1;return 0;}"
+      "extern U0 Print(U8 *fmt,...);\nI64 Caller(){\"%d\",1;return 0;}"
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])
@@ -417,8 +424,7 @@ let replay_purity_and_foreign_batches () =
 
 let included_provenance_survives () =
   Test_function_call_expression_result.with_included_source
-    "extern U0 Print(F64 fmt);I64 Caller(){\"\" 1;return 0;}"
-    (fun prepared ->
+    "extern U0 Print(F64 fmt);I64 Caller(){\"\" 1;return 0;}" (fun prepared ->
       let inputs =
         semantic_inputs prepared (environment prepared Preprocessor.Jit [])
       in
@@ -435,12 +441,14 @@ let included_provenance_survives () =
           Alcotest.fail "expected a provided included value"
       | Semantic_implicit_output_argument_binding.Provided_path provided -> (
           match
-            provided |> Semantic_implicit_output_argument_binding.provided_result
+            provided
+            |> Semantic_implicit_output_argument_binding.provided_result
             |> Semantic_function_call_expression_result.result_origin
           with
           | Semantic_symbol.Source_location location ->
               let source =
-                Source_manager.find (Session.sources prepared.session)
+                Source_manager.find
+                  (Session.sources prepared.session)
                   location.span.source
                 |> Option.get
               in
@@ -468,6 +476,5 @@ let tests =
       checked_outer_header_enables_binding;
     Alcotest.test_case "replay, purity, and ownership" `Quick
       replay_purity_and_foreign_batches;
-    Alcotest.test_case "included provenance" `Quick
-      included_provenance_survives;
+    Alcotest.test_case "included provenance" `Quick included_provenance_survives;
   ]

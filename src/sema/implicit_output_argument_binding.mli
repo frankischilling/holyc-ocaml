@@ -10,7 +10,7 @@ type conversion =
   | Unresolved_conversion
 
 type default_materialization =
-  Function_call_expression_result.declared_default_materialization =
+      Function_call_expression_result.declared_default_materialization =
   | Immediate_default
   | Aot_string_default
 
@@ -22,7 +22,11 @@ type provided_source =
 type omission
 type provided_binding
 type default_binding
-type fixed_path = Provided_path of provided_binding | Defaulted_path of default_binding
+
+type fixed_path =
+  | Provided_path of provided_binding
+  | Defaulted_path of default_binding
+
 type fixed_slot
 type bound_output
 type deferred_output
@@ -52,8 +56,8 @@ val bind :
   ?outer_headers:Function_type_resolution.resolved_function list ->
   Implicit_output_target_resolution.t ->
   (t, error) result
-(** Bind implicit output values against each selected source-visible header.
-    A module target always has a checked header. An outer target is bound only
+(** Bind implicit output values against each selected source-visible header. A
+    module target always has a checked header. An outer target is bound only
     when [outer_headers] contains a checked header for the exact resolved outer
     symbol; otherwise the result remains explicitly deferred. *)
 
@@ -77,7 +81,9 @@ val bound_fixed_slots : bound_output -> fixed_slot list
 val bound_variadic_values :
   bound_output -> Function_call_expression_result.expression_result list
 
-val deferred_source : deferred_output -> Implicit_output_target_resolution.output
+val deferred_source :
+  deferred_output -> Implicit_output_target_resolution.output
+
 val deferred_outer_binding : deferred_output -> Outer_environment.binding
 val fixed_parameter : fixed_slot -> Function_type_resolution.parameter
 val fixed_path : fixed_slot -> fixed_path
@@ -86,14 +92,25 @@ val omission_parameter : omission -> Function_type_resolution.parameter
 val omission_position : omission -> int
 val provided_source : provided_binding -> provided_source
 val provided_position : provided_binding -> int
-val provided_result : provided_binding -> Function_call_expression_result.expression_result
-val provided_target : provided_binding -> Function_call_conversion_policy.target_class
+
+val provided_result :
+  provided_binding -> Function_call_expression_result.expression_result
+
+val provided_target :
+  provided_binding -> Function_call_conversion_policy.target_class
+
 val provided_actual : provided_binding -> actual_class
 val provided_conversion : provided_binding -> conversion
 val default_parameter : default_binding -> Function_type_resolution.parameter
-val default_source : default_binding -> Function_type_resolution.parameter_default
+
+val default_source :
+  default_binding -> Function_type_resolution.parameter_default
+
 val default_omission : default_binding -> omission
-val default_target : default_binding -> Function_call_conversion_policy.target_class
+
+val default_target :
+  default_binding -> Function_call_conversion_policy.target_class
+
 val default_materialization : default_binding -> default_materialization
 val actual_class_name : actual_class -> string
 val conversion_name : conversion -> string
