@@ -4320,7 +4320,7 @@ scope = "scalar roots in accepted executable module statements after HC-SEMA-TOP
 supported_roots = ["integer, character, string, and F64 literals", "module objects, arrays, callbacks, callback arrays, and direct-function addresses", "grouping", "indexing", "audited prefix and postfix operators", "primitive postfix casts", "scalar binary operations", "updates and assignments"]
 result_facts = ["statement and root identity", "source origin", "semantic type", "value category", "array rank", "integer or F64 result class", "execution class", "intrinsic conversion", "direct-function declaration and address policy"]
 result_use_rule = "ordinary expression-statement roots retain ICF_RES_NOT_USED"
-unsupported_roots = ["partial callback arrays, member callbacks, and unrelated computed callback callees", "outer records without type payloads"]
+unsupported_roots = ["partial callback arrays, unindexed callback-member arrays, and unrelated computed callback callees", "outer records without type payloads"]
 diagnostics = ["HCSEMA0057 invalid or mismatched top-level result inputs", "HCSEMA0046 shared operand and lvalue failures"]
 validation = ["symbol-table ownership", "exact expression-tree and identifier batch", "module-scope identity for member and policy batches", "JIT or AOT mode agreement", "stable identifier occurrence identity"]
 mutation = "none"
@@ -4446,7 +4446,8 @@ provenance = ["callee invocation and definition origins", "included declaration 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 4
-top_level_member_computed_and_outer_calls_default_evaluation_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+top_level_member_calls = "implemented downstream by HC-SEMA-TOP-LEVEL-MEMBER-CALLBACKS"
+top_level_unrelated_computed_and_outer_calls_default_evaluation_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunCall and the checked parenthesis-free fixture already establish the shared slot semantics"
 
 [[feature]]
@@ -4487,7 +4488,8 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
 indexed_global_callback_arrays = "implemented downstream by HC-SEMA-TOP-LEVEL-INDEXED-GLOBAL-CALLBACK-ARRAYS"
-member_callbacks_computed_callbacks_outer_callbacks_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+member_callbacks = "implemented downstream by HC-SEMA-TOP-LEVEL-MEMBER-CALLBACKS"
+computed_callbacks_outer_callbacks_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsTerm and PrsFunCall state the global callback and slot routes directly"
 
 [[feature]]
@@ -4528,8 +4530,48 @@ provenance = ["callee invocation and global declaration origins", "included call
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
-partial_arrays_member_callbacks_unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+member_callbacks = "implemented downstream by HC-SEMA-TOP-LEVEL-MEMBER-CALLBACKS"
+partial_arrays_unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsTerm, PrsUnaryModifier, and PrsFunCall directly state the array, index, and call routes"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-MEMBER-CALLBACKS"
+description = "Executable top-level calls through direct or pointer aggregate members retain the exact indexed member signature and checked arguments."
+sources = [
+  "Compiler/PrsExp.HC:998-1038 direct and pointer MemberFind, MLF_FUN, PrsPopDeref, and stored fun_ptr",
+  "Compiler/PrsExp.HC:1039-1045 function-expression dispatch to indirect PrsFunCall",
+  "Compiler/PrsExp.HC:412-578 indirect argument slots, return class, and call shape",
+  "Compiler/LexLib.HC:67-118 MemberFind inheritance order and MemberAdd duplicate rule",
+  "Compiler/PrsVar.HC:490-528 callback member fun_ptr and MLF_FUN assignment"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/sema/aggregate_member_index.ml",
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_identifier_resolution.ml"
+]
+tests = [
+  "test/test_top_level_expression_result.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_aggregate_member_index.ml"
+]
+status = "implemented"
+issue = 328
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "parenthesized or unparenthesized direct and pointer member calls rooted in a source-visible global aggregate object or pointer"
+callee_rule = "type the complete computed callee, retain its exact Aggregate_member_index.lookup through grouping, require zero remaining array rank and MLF_FUN-equivalent callback metadata, and use the stored recursive signature"
+slot_rule = "reuse Function_call_resolution.bind_indirect_arguments for provided values, explicit holes, trailing absence, declared defaults, and variadic values"
+supported_syntax = ["direct member calls", "pointer member calls", "parenthesized member callees", "inherited members", "explicit non-trailing holes", "declared defaults", "variadic tails", "nested member calls"]
+retained_call_facts = ["exact source call", "source-visible global base and identifier value", "completed computed callee result", "queried and declaring aggregate", "inheritance depth", "exact member symbol and layout", "stored callable signature", "typed fixed and variadic results", "provided variadic count", "exact expression-result ID"]
+return_rule = "use the member signature; pointers remain address values, zero-depth values remain objects, and by-value aggregates follow the source-visible backing policy"
+diagnostics = ["HCSEMA0057 ordinary member is not callable", "HCSEMA0057 callback member retains array rank", "HCSEMA0057 invalid direct or pointer access", "HCSEMA0057 missing required, extra fixed, or omitted variadic argument", "HCSEMA0057 inconsistent callee ownership or semantic batch"]
+provenance = ["base occurrence", "member operator and name", "call punctuation", "generated invocation and definition origins", "fixed and variadic expression origins"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 4
+callback_member_arrays_unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this representation boundary; PrsTerm, MemberFind, MLF_FUN, and PrsFunCall directly state member selection and the shared indirect-call route"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"
