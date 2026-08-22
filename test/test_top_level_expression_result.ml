@@ -1268,6 +1268,106 @@ let invalid_top_level_member_callback_calls () =
             (label ^ " message") expected_message
             (Semantic_function_call_expression_result.error_message error))
 
+let top_level_indexed_member_callback_arrays () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-member-callback-arrays.HC"
+          "F64 class Product {};\n\
+          \           class Base {F64 (*Invoke)(I64 first=1,I64 required,F64 \
+           last=3,...)[2][3];};\n\
+          \           class Box:Base {I64 *(*Pointer)(I64 value)[2];Product \
+           (*Make)()[1];};\n\
+          \           Box box;Box *pointer;\n\
+          \           \
+           pointer->Invoke[1][2](,4,,5.0);(box.Pointer[0])(7);box.Make[0]();"
+      in
+      let _, _, _, result = analyze source in
+      Alcotest.(check (list string))
+        "indexed member callbacks use their stored return types"
+        [
+          "F64:object-value:f64-result:rank-0";
+          "I64*:address-value:integer-result:rank-0";
+          "Product:object-value:f64-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      let calls =
+        Semantic_function_call_expression_result.top_level_member_callback_calls
+          result
+      in
+      Alcotest.(check (list string))
+        "indexed member callbacks retain their global roots"
+        [ "pointer"; "box"; "box" ]
+        (List.map top_level_member_callback_name calls);
+      let inherited = List.hd calls in
+      let lookup =
+        Semantic_function_call_expression_result
+        .top_level_member_callback_lookup inherited
+      in
+      Alcotest.(check (triple string string int))
+        "the top-level array call keeps its inherited lookup"
+        ("Invoke", "Base", 1)
+        ( lookup |> Semantic_aggregate_member_index.lookup_member
+          |> Semantic_aggregate_member_index.member_symbol
+          |> Semantic_symbol.name,
+          lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth lookup );
+      Alcotest.(check string)
+        "the fully indexed callee keeps its member identity"
+        "Invoke:Base:depth-1:offset-0"
+        (inherited
+       |> Semantic_function_call_expression_result
+          .top_level_member_callback_callee_result |> lookup_description);
+      Alcotest.(check (list string))
+        "the array callback keeps defaults distinct from provided values"
+        [
+          "integer-result:default:I64:integer-result:immediate";
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+          "f64-result:default:F64:f64-result:immediate";
+        ]
+        (inherited
+       |> Semantic_function_call_expression_result
+          .top_level_member_callback_fixed_results
+        |> List.map top_level_fixed_description))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_top_level_indexed_member_callback_arrays () =
+  [
+    ( "partial",
+      "class Box {I64 (*callbacks)(I64 value)[2][3];};Box \
+       box;box.callbacks[0](1);",
+      "callback member `callbacks` retains 1 array dimension" );
+    ( "excessive",
+      "class Box {I64 (*callbacks)(I64 value)[2];};Box \
+       box;box.callbacks[0][1](1);",
+      "callback member `callbacks` has 1 array dimension, but the callee uses \
+       2 subscripts" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared
+          ~path:("top-level-invalid-member-callback-array-" ^ label ^ ".HC")
+          contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s callback array to fail" label
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0057"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error))
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
@@ -1368,8 +1468,8 @@ let generated_provenance_and_purity () =
        #define CALL F(1)\n\
        #define CALLBACK Callback(2)\n\
        #define INDEXED Indexed[0](3)\n\
-       #define MEMBER box.Member(4)\n\
-       class Box {I64 value;I64 (*Member)(I64 value);};I64 F(I64 value);\n\
+       #define MEMBER box.Member[0](4)\n\
+       class Box {I64 value;I64 (*Member)(I64 value)[1];};I64 F(I64 value);\n\
        I64 (*Callback)(I64 value);I64 (*Indexed)(I64 value)[1];Box box;\n\
        VALUE+1;0+OFFSET;CALL;CALLBACK;INDEXED;MEMBER;"
   in
@@ -1590,6 +1690,10 @@ let tests =
       top_level_member_callback_calls;
     Alcotest.test_case "invalid top-level member callback calls" `Quick
       invalid_top_level_member_callback_calls;
+    Alcotest.test_case "top-level indexed member callback arrays" `Quick
+      top_level_indexed_member_callback_arrays;
+    Alcotest.test_case "invalid indexed member callback arrays" `Quick
+      invalid_top_level_indexed_member_callback_arrays;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick

@@ -4570,8 +4570,49 @@ provenance = ["base occurrence", "member operator and name", "call punctuation",
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_tests = 4
-callback_member_arrays_unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+callback_member_arrays = "implemented downstream by HC-SEMA-INDEXED-MEMBER-CALLBACK-ARRAYS"
+unrelated_computed_callbacks_outer_callbacks_runtime_address_calculation_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsTerm, MemberFind, MLF_FUN, and PrsFunCall directly state member selection and the shared indirect-call route"
+
+[[feature]]
+id = "HC-SEMA-INDEXED-MEMBER-CALLBACK-ARRAYS"
+description = "Fully indexed aggregate callback-member arrays retain their exact member lookup and stored recursive signature in function and executable top-level calls."
+sources = [
+  "Compiler/PrsVar.HC:521-532 callback fun_ptr, MLF_FUN, dimensions, and total count",
+  "Compiler/PrsExp.HC:1002-1013 member dimensions, callback header, and CCF_FUN_EXP",
+  "Compiler/PrsExp.HC:1055-1100 subscript stepping and CCF_FUN_EXP preservation",
+  "Compiler/PrsExp.HC:1016-1020 indirect PrsFunCall dispatch",
+  "Compiler/PrsExp.HC:412-578 fixed slots, defaults, variadic tail, and return class"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 330
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "exact member-and-subscript callee chains in checked function bodies and executable top-level expressions"
+callee_rule = "resolve one direct, pointer, or inherited callback member, preserve parentheses, and require one source subscript for every declared member dimension"
+index_rule = "each subscript uses the shared expression engine with Result_to_int; the exact member lookup survives until the remaining rank reaches zero"
+slot_rule = "reuse the stored recursive callback signature and Function_call_resolution.bind_indirect_arguments"
+supported_syntax = ["direct member arrays", "pointer member arrays", "inherited member arrays", "multidimensional arrays", "parenthesized callees", "explicit non-trailing holes", "declared defaults", "variadic tails"]
+retained_call_facts = ["exact source call", "member-and-subscript callee", "queried and declaring aggregate", "inheritance depth", "member symbol and layout", "stored callable signature", "typed index, fixed, and variadic results", "return type", "exact expression-result identity"]
+return_rule = "callback array rank is independent of callback return-pointer depth; primitive, pointer, and by-value aggregate returns use the stored signature"
+diagnostics = ["HCSEMA0039 partial or excessive function-body member rank", "HCSEMA0057 partial or excessive top-level member rank", "existing access, ordinary-member, and slot diagnostics"]
+provenance = ["member base, operator, and name", "every subscript", "call punctuation", "included source", "definition invocation and origin"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_expression_result_tests = 67
+focused_top_level_expression_result_tests = 22
+runtime_address_calculation_bounds_checks_default_evaluation_storage_reads_payload_copying_side_effects_ir_lowering_execution_abi_and_iet_main_emission = "not implemented"
+native_oracle_status = "not required for this structural boundary; PrsVar and PrsExp directly show callback metadata coexisting with dimensions and CCF_FUN_EXP surviving each subscript"
 
 [[feature]]
 id = "HC-SEMA-OUTER-EXPRESSION-BINDINGS"

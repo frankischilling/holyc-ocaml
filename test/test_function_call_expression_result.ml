@@ -3359,6 +3359,61 @@ let inherited_pointer_callbacks_bind_defaults_and_varargs () =
        |> Semantic_type_reference.spelling))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let indexed_member_callback_arrays_keep_exact_headers () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-member-callback-array.HC"
+          "F64 class Product {};\n\
+          \           class Base {F64 (*Invoke)(I64 first=1,I64 required,F64 \
+           last=3,...)[2][3];};\n\
+          \           class Box:Base {I64 *(*Pointer)(I64 value)[2];Product \
+           (*Make)()[1];};\n\
+          \           F64 Inherited(Box *box){return \
+           box->Invoke[1][2](,4,,5.0);}\n\
+          \           I64 *Pointer(Box box){return (box.Pointer[0])(7);}\n\
+          \           Product Make(Box box){return box.Make[0]();}"
+      in
+      let _, results = analyze prepared in
+      let inherited = indirect_named results "Inherited" "box" in
+      let inherited_source =
+        inherited |> Semantic_function_call_expression_result.indirect_source
+        |> Semantic_function_call_conversion_policy.indirect_source
+      in
+      let lookup =
+        inherited_source
+        |> Semantic_function_call_resolution.indirect_member_lookup
+        |> Option.get
+      in
+      Alcotest.(check (triple string string int))
+        "the indexed callee keeps its inherited callback member"
+        ("Invoke", "Base", 1)
+        ( lookup |> Semantic_aggregate_member_index.lookup_member
+          |> Semantic_aggregate_member_index.member_symbol
+          |> Semantic_symbol.name,
+          lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+          |> Semantic_symbol.name,
+          Semantic_aggregate_member_index.lookup_inheritance_depth lookup );
+      Alcotest.(check (list string))
+        "indexed callbacks retain sparse defaults and the variadic tail"
+        [ "default"; "I64"; "default" ]
+        (inherited
+       |> Semantic_function_call_expression_result.indirect_fixed_results
+        |> List.map (fun fixed ->
+            match Semantic_function_call_expression_result.fixed_path fixed with
+            | Semantic_function_call_expression_result.Provided_result result ->
+                type_name result
+            | Semantic_function_call_expression_result.Declared_default_result _
+              -> "default"));
+      Alcotest.(check (list string))
+        "indexed callback return types stay separate from array rank"
+        [ "F64"; "I64*"; "Product" ]
+        (List.map
+           (fun name ->
+             returns_named results name |> List.hd |> return_value |> type_name)
+           [ "Inherited"; "Pointer"; "Make" ]))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let parenthesized_member_calls_keep_pointer_and_aggregate_returns () =
   List.iter
     (fun mode ->
@@ -3403,8 +3458,8 @@ let parenthesized_member_calls_keep_pointer_and_aggregate_returns () =
 
 let included_definition_member_calls_replay_without_mutation () =
   with_included_source
-    "#define RUN box.callback()\n\
-     class Box {F64 (*callback)();};extern I64 Target(I64 value);\n\
+    "#define RUN box.callback[0]()\n\
+     class Box {F64 (*callback)()[1];};extern I64 Target(I64 value);\n\
      I64 Caller(Box box){return Target(RUN);}" (fun prepared ->
       let policies =
         Test_function_call_conversion_policy.analyze prepared
@@ -3514,6 +3569,15 @@ let invalid_member_callees_report_the_access_site () =
     "class Box {I64 (*callback)();};I64 Caller(Box box){return \
      box->callback();}"
     "pointer member access requires a pointer to an aggregate";
+  invalid
+    "class Box {I64 (*callbacks)(I64 value)[2];};I64 Caller(Box box){return \
+     box.callbacks(1);}"
+    "callback member `callbacks` retains 1 array dimension";
+  invalid
+    "class Box {I64 (*callbacks)(I64 value)[2];};I64 Caller(Box box){return \
+     box.callbacks[0][1](1);}"
+    "callback member `callbacks` has 1 array dimension, but the callee uses 2 \
+     subscripts";
   invalid "I64 Caller(){return unknown.callback();}"
     "does not have a statically resolved source type";
   let first =
@@ -4659,6 +4723,8 @@ let tests =
       member_callback_calls_use_exact_headers;
     Alcotest.test_case "inherited member callback slots" `Quick
       inherited_pointer_callbacks_bind_defaults_and_varargs;
+    Alcotest.test_case "indexed member callback arrays" `Quick
+      indexed_member_callback_arrays_keep_exact_headers;
     Alcotest.test_case "member callback return shapes" `Quick
       parenthesized_member_calls_keep_pointer_and_aggregate_returns;
     Alcotest.test_case "member callback provenance and replay" `Quick

@@ -362,6 +362,28 @@ val bind_indirect_arguments :
     call and its stored function-pointer signature. This pure seam is shared by
     function bodies and executable top-level statements. *)
 
+val resolve_member_callable :
+  Aggregate_member_index.t ->
+  before_item_index:int ->
+  argument_expression ->
+  (Aggregate_member_index.lookup * callable, error) result
+(** Resolve an aggregate callback member and require its callee to consume every
+    declared array dimension exactly once. Parentheses do not change the member
+    or subscript chain. *)
+
+val validate_member_callable :
+  argument_expression ->
+  Aggregate_member_index.lookup ->
+  (callable, error) result
+(** Check an already resolved member lookup against the exact source subscript
+    chain. This keeps function-body and executable top-level calls on the same
+    array-dimension rule. *)
+
+val member_callable_base_expression :
+  argument_expression -> (argument_expression, error) result
+(** Return the member expression at the bottom of an exact parenthesized and
+    subscripted member-callee chain. *)
+
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode

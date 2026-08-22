@@ -166,6 +166,8 @@ Twenty top-level expression-result cases consume those classified leaves and reu
 dune exec test/test_main.exe -- test '^semantic top-level expression results$'
 ```
 
+Two additional cases cover fully indexed aggregate callback-member arrays. They exercise direct, pointer, inherited, multidimensional, parenthesized, sparse-default, variadic, pointer-return, and aggregate-return calls in JIT and AOT modes. They also fix partial and excessive rank diagnostics, preserve the exact member lookup through each subscript, and extend generated-source replay coverage. These checks establish semantic selection and typing only; they do not read callback storage or calculate an address.
+
 Seven outer expression-binding cases follow the explicit `CHashTable.next` field, single-table and chained lookup in `Kernel/KHashA.HC`, task-parent links in `Kernel/KTask.HC`, compiler-chain selection in `Compiler/CMain.HC`, and the final assembler link in `Compiler/AsmInit.HC`. They cover current and parent JIT tasks, nested and top-level AOT, assembler fallback, newest-record selection across all four supported record kinds, local and module precedence, generated-source failure provenance, deterministic replay, unchanged symbol counts, repeated identities, role and index errors, foreign sessions, and mode mismatches. `HCSEMA0022` through `HCSEMA0024` report validation and unresolved-name failures. The tests use supplied immutable table snapshots; they do not claim live task construction, addresses, imports, fixups, loader records, use counts, typing, storage, or lowering. Run only this group with:
 
 ```text
@@ -207,6 +209,8 @@ Sixty-six typed call expression-result cases cover deterministic expression IDs,
 ```text
 dune exec test/test_main.exe -- test '^semantic function call expression results$'
 ```
+
+A sixty-seventh case covers fully indexed callback-member arrays in function bodies. It verifies exact inherited lookup, every declared subscript, sparse defaults, a variadic tail, primitive, pointer, and by-value aggregate returns, both compilation modes, and included definition provenance. The call-resolution negative case also rejects partial and excessive indexing with `HCSEMA0039`.
 
 Two cases in this group exercise ordinary function expression statements across recursive statement positions and both compilation modes. They cover integer, `F64`, pointer, member, update, assignment, and direct-call values; `ICF_RES_NOT_USED`; included definition provenance; deterministic replay; and an unchanged semantic symbol table. The call-resolution group separately rejects invalid or noncontiguous statement identities. These tests do not claim `IC_END_EXP` lowering, runtime value disposal, side-effect execution, or implicit output typing.
 

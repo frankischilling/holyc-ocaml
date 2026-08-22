@@ -113,11 +113,12 @@ val analyze_top_level :
   Top_level_expression_tree.t ->
   (top_level_t, error) result
 (** Type scalar roots, aggregate object members, aggregate offset paths, direct
-    calls, scalar global callbacks, fully indexed global callback arrays, and
-    direct or pointer aggregate-member callbacks in executable top-level
-    statements through the same expression engine used for function bodies.
-    Partial callback arrays, unindexed callback-member arrays, unrelated
-    computed callees, and outer records without type payloads stay explicit. *)
+    calls, scalar global callbacks, fully indexed global callback arrays,
+    ordinary aggregate-member callbacks, and fully indexed aggregate
+    callback-member arrays in executable top-level statements through the same
+    expression engine used for function bodies. Partial callback arrays, partial
+    or unindexed callback-member arrays, unrelated computed callees, and outer
+    records without type payloads stay explicit. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
