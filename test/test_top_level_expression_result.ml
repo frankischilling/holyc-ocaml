@@ -209,6 +209,13 @@ let top_level_global_callback_name call =
   |> Semantic_top_level_expression_tree.call_source
   |> Semantic_function_call_resolution.call_callee_name
 
+let top_level_indexed_global_callback_name call =
+  call
+  |> Semantic_function_call_expression_result
+     .top_level_indexed_global_callback_source
+  |> Semantic_top_level_expression_tree.call_source
+  |> Semantic_function_call_resolution.call_callee_name
+
 let top_level_fixed_description fixed =
   let target =
     fixed
@@ -703,7 +710,7 @@ let top_level_direct_call_replacement_headers () =
             |> Semantic_function_type_resolution.function_item_index)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let included_top_level_direct_call () =
+let included_top_level_calls () =
   let include_path =
     if Sys.file_exists "test/fixtures/top-level-direct-call-header.HH" then
       "test/fixtures/top-level-direct-call-header.HH"
@@ -711,7 +718,9 @@ let included_top_level_direct_call () =
   in
   let source =
     prepared ~path:"top-level-direct-call-use.HC"
-      (Printf.sprintf "#include \"%s\"\nIncludedCall(1);IncludedCallback(2);"
+      (Printf.sprintf
+         "#include \"%s\"\n\
+          IncludedCall(1);IncludedCallback(2);IncludedCallbacks[0](3);"
          include_path)
   in
   let _, _, _, result = analyze source in
@@ -747,15 +756,37 @@ let included_top_level_direct_call () =
     callback_calls |> List.hd
     |> Semantic_function_call_expression_result.top_level_global_callback_global
   in
-  match
-    Semantic_global_type_resolution.global_declarator_origin callback_global
-  with
+  (match
+     Semantic_global_type_resolution.global_declarator_origin callback_global
+   with
   | Semantic_symbol.Source_location location ->
       Alcotest.(check bool)
         "included callback keeps an include backtrace" true
         (location.source_segments <> [])
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
-      Alcotest.fail "expected an included callback source location"
+      Alcotest.fail "expected an included callback source location");
+  let indexed_calls =
+    Semantic_function_call_expression_result
+    .top_level_indexed_global_callback_calls result
+  in
+  Alcotest.(check (list string))
+    "an included callback array keeps its source-visible global"
+    [ "IncludedCallbacks" ]
+    (List.map top_level_indexed_global_callback_name indexed_calls);
+  let indexed_global =
+    indexed_calls |> List.hd
+    |> Semantic_function_call_expression_result
+       .top_level_indexed_global_callback_global
+  in
+  match
+    Semantic_global_type_resolution.global_declarator_origin indexed_global
+  with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "included callback array keeps an include backtrace" true
+        (location.source_segments <> [])
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected an included callback-array source location"
 
 let invalid_top_level_direct_calls () =
   [
@@ -928,6 +959,145 @@ let invalid_top_level_global_callback_calls () =
             (label ^ " message") expected_message
             (Semantic_function_call_expression_result.error_message error))
 
+let top_level_indexed_global_callback_calls () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-indexed-global-callbacks.HC"
+          "F64 class CallbackBacked {};\n\
+           I64 (*CbInt)(I64 first,I64 second=2,I64 third)[2];\n\
+           F64 (*CbFloat)()[2][3];I64 *(*CbPointer)()[1];\n\
+           CallbackBacked (*CbMake)()[1];\n\
+           I64 (*CbVariadic)(I64 first,...)[2];\n\
+           CbInt[0](1,,3);CbFloat[1][2]();CbPointer[0]();CbMake[0]();\n\
+           CbVariadic[1](1,2,3);CbInt[0](CbFloat[0][0](),,3);"
+      in
+      let _, _, _, result = analyze source in
+      Alcotest.(check (list string))
+        "indexed callback returns use their stored signatures"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "I64*:address-value:integer-result:rank-0";
+          "CallbackBacked:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (root_values result |> List.map descriptor);
+      let calls =
+        Semantic_function_call_expression_result
+        .top_level_indexed_global_callback_calls result
+      in
+      Alcotest.(check (list string))
+        "indexed callback calls retain source order, including nested calls"
+        [
+          "CbInt";
+          "CbFloat";
+          "CbPointer";
+          "CbMake";
+          "CbVariadic";
+          "CbInt";
+          "CbFloat";
+        ]
+        (List.map top_level_indexed_global_callback_name calls);
+      let first = List.hd calls in
+      Alcotest.(check string)
+        "indexed callback keeps its array publication" "array"
+        (first
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_value
+       |> Semantic_function_call_resolution.identifier_value_shape
+       |> Semantic_function_call_resolution.identifier_value_shape_name);
+      Alcotest.(check string)
+        "indexed callback keeps its completed callee result"
+        "I64:object-value:integer-result:rank-0"
+        (first
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_callee_result |> descriptor);
+      Alcotest.(check (list string))
+        "indexed callback defaults stay separate from provided arguments"
+        [
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+          "integer-result:default:I64:integer-result:immediate";
+          "integer-result:provided:I64:object-value:integer-result:rank-0";
+        ]
+        (first
+       |> Semantic_function_call_expression_result
+          .top_level_indexed_global_callback_fixed_results
+        |> List.map top_level_fixed_description);
+      let variadic = List.nth calls 4 in
+      Alcotest.(check int64)
+        "indexed callback variadic count uses target I64" 2L
+        (Semantic_function_call_expression_result
+         .top_level_indexed_global_callback_variadic_count variadic);
+      let index_conversions =
+        result |> Semantic_function_call_expression_result.top_level_all_results
+        |> List.filter (fun value ->
+            Semantic_function_call_expression_result.result_intrinsic_conversion
+              value
+            = Semantic_function_call_expression_result.Result_to_int)
+      in
+      Alcotest.(check int)
+        "every retained callback-array index converts to target integer" 9
+        (List.length index_conversions);
+      let all =
+        Semantic_function_call_expression_result.top_level_all_results result
+      in
+      List.iter
+        (fun call ->
+          let id =
+            Semantic_function_call_expression_result
+            .top_level_indexed_global_callback_result_id call
+          in
+          Alcotest.(check int)
+            "each indexed callback links to one expression result" 1
+            (List.length
+               (List.filter
+                  (fun value ->
+                    Semantic_function_call_expression_result.Id.equal id
+                      (Semantic_function_call_expression_result.result_id value))
+                  all)))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_top_level_indexed_global_callback_calls () =
+  [
+    ( "partial rank",
+      "I64 (*Callback)(I64 value)[2][3];Callback[0](1);",
+      "indexed callback callee uses 1 bracket, but global `Callback` has 2 \
+       dimensions" );
+    ( "excess rank",
+      "I64 (*Callback)(I64 value)[2];Callback[0][1](1);",
+      "indexed callback callee uses 2 brackets, but global `Callback` has 1 \
+       dimension" );
+    ( "missing",
+      "I64 (*Callback)(I64 value)[2];Callback[0]();",
+      "call to \"Callback\" is missing required argument 1 (value)" );
+  ]
+  |> List.iter (fun (label, contents, expected_message) ->
+      let source =
+        prepared
+          ~path:("top-level-invalid-indexed-callback-" ^ label ^ ".HC")
+          contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Ok _ -> Alcotest.failf "expected %s indexed callback to fail" label
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0057"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " message") expected_message
+            (Semantic_function_call_expression_result.error_message error))
+
 let unavailable_boundaries_and_checked_ownership () =
   let source =
     prepared ~path:"top-level-boundaries.HC"
@@ -1027,9 +1197,10 @@ let generated_provenance_and_purity () =
        #define OFFSET Box.value\n\
        #define CALL F(1)\n\
        #define CALLBACK Callback(2)\n\
+       #define INDEXED Indexed[0](3)\n\
        class Box {I64 value;};I64 F(I64 value);\n\
-       I64 (*Callback)(I64 value);Box box;\n\
-       VALUE+1;0+OFFSET;CALL;CALLBACK;"
+       I64 (*Callback)(I64 value);I64 (*Indexed)(I64 value)[1];Box box;\n\
+       VALUE+1;0+OFFSET;CALL;CALLBACK;INDEXED;"
   in
   let table = Session.semantic_symbols source.session in
   let symbol_count = Semantic_symbol_table.all_symbols table |> List.length in
@@ -1103,6 +1274,35 @@ let generated_provenance_and_purity () =
         (Option.is_some location.defined_at)
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a generated callback source location");
+  let generated_indexed_callbacks =
+    Semantic_function_call_expression_result
+    .top_level_indexed_global_callback_calls first
+  in
+  Alcotest.(check (list string))
+    "generated indexed callback calls retain deterministic identity"
+    [ "Indexed" ]
+    (List.map top_level_indexed_global_callback_name generated_indexed_callbacks);
+  let generated_indexed_callback_result =
+    let id =
+      generated_indexed_callbacks |> List.hd
+      |> Semantic_function_call_expression_result
+         .top_level_indexed_global_callback_result_id
+    in
+    first |> Semantic_function_call_expression_result.top_level_all_results
+    |> List.find (fun result ->
+        Semantic_function_call_expression_result.Id.equal id
+          (Semantic_function_call_expression_result.result_id result))
+  in
+  (match
+     Semantic_function_call_expression_result.result_origin
+       generated_indexed_callback_result
+   with
+  | Semantic_symbol.Source_location location ->
+      Alcotest.(check bool)
+        "generated indexed callback call keeps its definition origin" true
+        (Option.is_some location.defined_at)
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a generated indexed callback source location");
   let generated_identifier =
     first |> Semantic_function_call_expression_result.top_level_all_results
     |> List.find (fun result ->
@@ -1175,14 +1375,18 @@ let tests =
     Alcotest.test_case "top-level direct calls" `Quick top_level_direct_calls;
     Alcotest.test_case "top-level direct call replacement headers" `Quick
       top_level_direct_call_replacement_headers;
-    Alcotest.test_case "included top-level direct call" `Quick
-      included_top_level_direct_call;
+    Alcotest.test_case "included top-level calls" `Quick
+      included_top_level_calls;
     Alcotest.test_case "invalid top-level direct calls" `Quick
       invalid_top_level_direct_calls;
     Alcotest.test_case "top-level global callback calls" `Quick
       top_level_global_callback_calls;
     Alcotest.test_case "invalid top-level global callback calls" `Quick
       invalid_top_level_global_callback_calls;
+    Alcotest.test_case "top-level indexed global callback calls" `Quick
+      top_level_indexed_global_callback_calls;
+    Alcotest.test_case "invalid top-level indexed global callback calls" `Quick
+      invalid_top_level_indexed_global_callback_calls;
     Alcotest.test_case "unavailable boundaries and checked ownership" `Quick
       unavailable_boundaries_and_checked_ownership;
     Alcotest.test_case "stale batches and mode mismatch" `Quick
