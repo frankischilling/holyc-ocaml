@@ -15,6 +15,9 @@ type typed_value = {
   shape : Sema.Function_call_resolution.identifier_value_shape;
   array_rank : int;
   callable : Sema.Function_call_resolution.callable option;
+  function_declaration : Sema.Function_resolution.resolved_declaration option;
+  function_address_path :
+    Sema.Function_call_resolution.direct_function_address_path option;
 }
 
 type typed_environment = typed_value Int_map.t
@@ -35,6 +38,8 @@ let object_value reference =
     shape = Sema.Function_call_resolution.Object_value;
     array_rank = 0;
     callable = None;
+    function_declaration = None;
+    function_address_path = None;
   }
 
 let callback_value reference pointer =
@@ -46,9 +51,11 @@ let callback_value reference pointer =
       Some
         (Sema.Function_call_resolution.make_callable ~return_type:reference
            ~function_pointer:pointer);
+    function_declaration = None;
+    function_address_path = None;
   }
 
-let direct_function_value =
+let direct_function_value declaration function_address_path =
   let resolved_type =
     match
       Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
@@ -62,6 +69,8 @@ let direct_function_value =
     shape = Sema.Function_call_resolution.Direct_function_value;
     array_rank = 0;
     callable = None;
+    function_declaration = Some declaration;
+    function_address_path = Some function_address_path;
   }
 
 let parameter_value parameter =
@@ -87,6 +96,8 @@ let synthetic_value binding =
     shape;
     array_rank;
     callable = None;
+    function_declaration = None;
+    function_address_path = None;
   }
 
 let local_value local =
@@ -111,6 +122,8 @@ let local_value local =
     shape;
     array_rank = List.length dimensions;
     callable;
+    function_declaration = None;
+    function_address_path = None;
   }
 
 let global_value global =
@@ -135,6 +148,8 @@ let global_value global =
     shape;
     array_rank = List.length dimensions;
     callable;
+    function_declaration = None;
+    function_address_path = None;
   }
 
 let add_typed_value symbol value values =
@@ -251,6 +266,37 @@ let global_typed_environment table globals =
   in
   loop Int_map.empty (Sema.Global_type_resolution.globals globals)
 
+let add_function_typed_environment table functions values =
+  let compilation_mode = Sema.Function_resolution.compilation_mode functions in
+  let rec loop values = function
+    | [] -> Ok values
+    | declaration :: rest ->
+        let site =
+          Sema.Function_resolution.resolved_declaration_site declaration
+        in
+        let symbol =
+          site |> Sema.Function_resolution.declaration_site_function
+          |> Sema.Function_type_resolution.function_symbol
+        in
+        if not (Sema.Symbol_table.owns_symbol table symbol) then
+          Error "call argument function declaration belongs to another symbol table"
+        else if Int_map.mem (symbol_number symbol) values then
+          Error "call argument module value symbol is repeated"
+        else
+          (match
+             Sema.Function_call_resolution.direct_function_address_path
+               compilation_mode declaration
+           with
+          | Error _ as error -> error
+          | Ok path ->
+              loop
+                (add_typed_value symbol
+                   (direct_function_value declaration path)
+                   values)
+                rest)
+  in
+  loop values (Sema.Function_resolution.declarations functions)
+
 let occurrence_map occurrences =
   List.fold_left
     (fun map occurrence ->
@@ -275,7 +321,7 @@ let occurrence_at occurrences index (identifier : Frontend.Ast.identifier) =
       then Error "call argument identifier origin does not match its occurrence"
       else Ok occurrence
 
-let typed_value_for_occurrence locals globals occurrence =
+let typed_value_for_occurrence locals module_values occurrence =
   match Sema.Module_expression_binding.occurrence_resolution occurrence with
   | Sema.Module_expression_binding.Local_binding binding ->
       Int_map.find_opt
@@ -287,10 +333,14 @@ let typed_value_for_occurrence locals globals occurrence =
       Int_map.find_opt
         (publication |> Sema.Module_expression_binding.publication_source_symbol
        |> symbol_number)
-        globals
+        module_values
   | Sema.Module_expression_binding.Module_binding publication
     when Sema.Module_expression_binding.publication_kind publication
-         = Sema.Module_expression_binding.Function -> Some direct_function_value
+         = Sema.Module_expression_binding.Function ->
+      Int_map.find_opt
+        (publication |> Sema.Module_expression_binding.publication_source_symbol
+       |> symbol_number)
+        module_values
   | Sema.Module_expression_binding.Module_binding _
   | Sema.Module_expression_binding.Outer_candidate -> None
 
@@ -479,7 +529,9 @@ let rec argument_expression visible locals globals occurrences cursor
                 Sema.Function_call_resolution
                 .make_bound_identifier_argument_expression ~occurrence
                   ~resolved_type:value.resolved_type ~shape:value.shape
-                  ~array_rank:value.array_rank))
+                  ~array_rank:value.array_rank
+                  ?function_declaration:value.function_declaration
+                  ?function_address_path:value.function_address_path ()))
     | Frontend.Ast.Current_position_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
@@ -1012,15 +1064,19 @@ let resolve ~table ~declarations ~function_types ~local_types ~global_types
       match global_typed_environment table global_types with
       | Error _ as error -> error
       | Ok global_values -> (
-          match
-            function_inputs table function_types local_types global_values
-              expressions module_
-          with
+          match add_function_typed_environment table functions global_values with
           | Error _ as error -> error
-          | Ok inputs ->
-              Sema.Function_call_resolution.resolve ~table ~parent
-                ~function_types ~functions ~expressions inputs
-              |> Result.map_error Sema.Function_call_resolution.error_to_string)
+          | Ok module_values -> (
+              match
+                function_inputs table function_types local_types module_values
+                  expressions module_
+              with
+              | Error _ as error -> error
+              | Ok inputs ->
+                  Sema.Function_call_resolution.resolve ~table ~parent
+                    ~function_types ~functions ~expressions inputs
+                  |> Result.map_error
+                       Sema.Function_call_resolution.error_to_string))
   in
   Result.map_error
     (fun message ->

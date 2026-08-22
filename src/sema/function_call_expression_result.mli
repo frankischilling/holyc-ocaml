@@ -120,6 +120,13 @@ val result_member_lookup :
 val result_call_resolution :
   expression_result -> Function_call_resolution.call_resolution option
 
+val result_function_declaration :
+  expression_result -> Function_resolution.resolved_declaration option
+
+val result_function_address_path :
+  expression_result ->
+  Function_call_resolution.direct_function_address_path option
+
 val value_category_name : value_category -> string
 val result_class_name : result_class -> string
 val intrinsic_conversion_name : intrinsic_conversion -> string

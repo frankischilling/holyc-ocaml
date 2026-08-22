@@ -35,6 +35,14 @@ type identifier_value_shape =
   | Function_pointer_value
   | Direct_function_value
 
+type direct_function_address_path =
+  | Jit_extern_slot
+  | Jit_immediate
+  | Aot_absolute
+  | Reject_aot_extern
+  | Reject_aot_import
+  | Reject_internal
+
 type bound_identifier
 
 type argument_expression_kind =
@@ -106,6 +114,9 @@ val make_bound_identifier_argument_expression :
   resolved_type:Type.t ->
   shape:identifier_value_shape ->
   array_rank:int ->
+  ?function_declaration:Function_resolution.resolved_declaration ->
+  ?function_address_path:direct_function_address_path ->
+  unit ->
   (argument_expression_kind, string) result
 
 val make_argument :
@@ -241,7 +252,22 @@ val bound_identifier_occurrence :
 val bound_identifier_type : bound_identifier -> Type.t
 val bound_identifier_shape : bound_identifier -> identifier_value_shape
 val bound_identifier_array_rank : bound_identifier -> int
+
+val bound_identifier_function_declaration :
+  bound_identifier -> Function_resolution.resolved_declaration option
+
+val bound_identifier_function_address_path :
+  bound_identifier -> direct_function_address_path option
+
 val identifier_value_shape_name : identifier_value_shape -> string
+val direct_function_address_path_name : direct_function_address_path -> string
+
+val direct_function_address_path :
+  Function_resolution.compilation_mode ->
+  Function_resolution.resolved_declaration ->
+  (direct_function_address_path, string) result
+(** Classify the source-visible address path selected by [PrsExp] for one
+    checked function declaration. *)
 
 val default_parameter_default :
   default_use -> Function_type_resolution.parameter_default

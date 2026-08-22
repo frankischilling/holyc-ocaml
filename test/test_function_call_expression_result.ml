@@ -241,6 +241,14 @@ let type_name result =
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
 
+let function_address_path_name result =
+  match
+    Semantic_function_call_expression_result.result_function_address_path result
+  with
+  | Some path ->
+      Semantic_function_call_resolution.direct_function_address_path_name path
+  | None -> "none"
+
 let semantic_type_name type_ =
   let base =
     match Semantic_type.base type_ with
@@ -495,6 +503,12 @@ let direct_function_addresses_keep_publication_identity () =
         "direct function addresses use integer result registers"
         [ "integer-result"; "integer-result" ]
         (class_names roots);
+      Alcotest.(check (list string))
+        "direct function addresses retain their compilation path"
+        (match mode with
+        | Preprocessor.Jit -> [ "jit-immediate"; "jit-immediate" ]
+        | Preprocessor.Aot -> [ "aot-absolute"; "aot-absolute" ])
+        (List.map function_address_path_name roots);
       let operands = List.map address_operand roots in
       let operand_results = List.map (result_for_source first) operands in
       Alcotest.(check (list string))
@@ -525,7 +539,7 @@ let direct_function_addresses_keep_publication_identity () =
         (Semantic_function_call_resolution
          .make_bound_identifier_argument_expression
            ~occurrence:handler_occurrence ~resolved_type:handler_type
-           ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0);
+           ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0 ());
       List.iter
         (fun result ->
           match Semantic_function_call_expression_result.result_type result with
@@ -568,6 +582,32 @@ let direct_function_addresses_keep_publication_identity () =
         (Semantic_symbol.Id.equal
            (Semantic_symbol.id source_symbol)
            (Semantic_symbol.id canonical_symbol));
+      let selected_declaration =
+        roots |> List.hd
+        |> Semantic_function_call_expression_result.result_function_declaration
+        |> Option.get
+      in
+      let selected_site =
+        Semantic_function_resolution.resolved_declaration_site
+          selected_declaration
+      in
+      Alcotest.(check bool)
+        "the address keeps the declaration for its exact source publication"
+        true
+        (Semantic_symbol.Id.equal
+           (selected_site
+           |> Semantic_function_resolution.declaration_site_function
+           |> Semantic_function_type_resolution.function_symbol
+           |> Semantic_symbol.id)
+           (Semantic_symbol.id source_symbol));
+      Alcotest.(check bool)
+        "the address declaration keeps the joined canonical identity" true
+        (Semantic_symbol.Id.equal
+           (selected_declaration
+           |> Semantic_function_resolution
+              .resolved_declaration_identity_symbol
+           |> Semantic_symbol.id)
+           (Semantic_symbol.id canonical_symbol));
       let recursive = List.nth operands 1 |> bound_publication in
       Alcotest.(check string)
         "the recursive address retains Caller publication identity" "Caller"
@@ -584,6 +624,88 @@ let direct_function_addresses_keep_publication_identity () =
         "typing function addresses leaves symbols unchanged" symbol_count
         (Semantic_symbol_table.all_symbols table |> List.length))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let function_address_paths_follow_extern_state () =
+  let jit =
+    prepare ~mode:Preprocessor.Jit ~path:"call-expression-jit-extern-address.HC"
+      "extern I64 External();extern I64 Target(I64 address);\n\
+       I64 Caller(){return Target(&External);}"
+  in
+  let _, jit_results = analyze jit in
+  let jit_root = root_results jit_results "Caller" |> List.hd in
+  Alcotest.(check string)
+    "a JIT extern address uses its executable-address slot" "jit-extern-slot"
+    (function_address_path_name jit_root);
+  let aot_bound =
+    prepare ~mode:Preprocessor.Aot ~path:"call-expression-aot-bound-address.HC"
+      "_extern REMOTE_BOUND I64 Bound();extern I64 Target(I64 address);\n\
+       I64 Caller(){return Target(&Bound);}"
+  in
+  let _, aot_results = analyze aot_bound in
+  let aot_root = root_results aot_results "Caller" |> List.hd in
+  Alcotest.(check string)
+    "a bound AOT function uses the absolute-address path" "aot-absolute"
+    (function_address_path_name aot_root);
+  let declaration =
+    Semantic_function_call_expression_result.result_function_declaration
+      aot_root
+    |> Option.get
+  in
+  let site = Semantic_function_resolution.resolved_declaration_site declaration in
+  Alcotest.(check bool)
+    "the AOT path follows the checked bound-extern declaration" true
+    (Semantic_function_resolution.declaration_site_source_kind site
+    = Semantic_function_resolution.Bound_extern)
+
+let rejected_function_address_path expected_message source =
+  let prepared =
+    prepare ~mode:Preprocessor.Aot ~path:"call-expression-aot-address-error.HC"
+      source
+  in
+  let policies =
+    Test_function_call_conversion_policy.analyze prepared
+    |> Test_function_call_conversion_policy.checked_policy
+  in
+  match
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+  with
+  | Ok _ -> Alcotest.fail "expected the AOT function address to be rejected"
+  | Error error ->
+      Alcotest.(check string)
+        "function address rejection has a stable diagnostic" "HCSEMA0046"
+        (Semantic_function_call_expression_result.error_code error);
+      Alcotest.(check string)
+        "function address rejection explains the unavailable path"
+        expected_message
+        (Semantic_function_call_expression_result.error_message error);
+      match Semantic_function_call_expression_result.error_origin error with
+      | Some (Semantic_symbol.Source_location location) ->
+          Alcotest.(check int)
+            "function address rejection points to address-of"
+            (substring_start source "&")
+            location.span.start
+      | Some (Semantic_symbol.Pinned_source _)
+      | Some (Semantic_symbol.Synthesized _)
+      | None -> Alcotest.fail "expected a source-positioned address diagnostic"
+
+let aot_and_internal_function_addresses_fail_explicitly () =
+  rejected_function_address_path
+    "cannot take the address of unresolved AOT function \"External\" outside \
+     assembly"
+    "extern I64 External();extern I64 Target(I64 address);\n\
+     I64 Caller(){return Target(&External);}";
+  rejected_function_address_path
+    "cannot take the address of imported AOT function \"Imported\" outside \
+     assembly"
+    "import I64 Imported();extern I64 Target(I64 address);\n\
+     I64 Caller(){return Target(&Imported);}";
+  rejected_function_address_path
+    "cannot use internal compiler function \"Internal\" as a direct function \
+     address"
+    "_intern IC_BSF I64 Internal(I64 value);\n\
+     extern I64 Target(I64 address);\n\
+     I64 Caller(){return Target(&Internal);}"
 
 let function_address_provenance_and_storage_shadowing () =
   with_included_source
@@ -643,7 +765,7 @@ let function_address_provenance_and_storage_shadowing () =
          (Semantic_function_call_resolution.bound_identifier_type
             local_identifier)
        ~shape:Semantic_function_call_resolution.Direct_function_value
-       ~array_rank:0)
+       ~array_rank:0 ())
 
 let nested_results_have_stable_value_contexts () =
   let prepared =
@@ -3080,6 +3202,10 @@ let tests =
       roots_retain_types_and_categories;
     Alcotest.test_case "direct function address identity" `Quick
       direct_function_addresses_keep_publication_identity;
+    Alcotest.test_case "function address extern paths" `Quick
+      function_address_paths_follow_extern_state;
+    Alcotest.test_case "rejected AOT function addresses" `Quick
+      aot_and_internal_function_addresses_fail_explicitly;
     Alcotest.test_case "function address provenance and shadowing" `Quick
       function_address_provenance_and_storage_shadowing;
     Alcotest.test_case "nested value contexts" `Quick

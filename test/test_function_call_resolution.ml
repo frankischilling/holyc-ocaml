@@ -613,7 +613,7 @@ let invalid_inputs_are_stable_and_pure () =
       (Semantic_function_call_resolution
        .make_bound_identifier_argument_expression ~occurrence:foreign_occurrence
          ~resolved_type:integer_type
-         ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0)
+         ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0 ())
     |> fun kind ->
     Semantic_function_call_resolution.make_argument_expression ~kind
       ~origin:
@@ -726,6 +726,123 @@ let invalid_inputs_are_stable_and_pure () =
               else [])))
   in
   expect_invalid "foreign bound occurrence" foreign_occurrence_inputs;
+  let address_prepared =
+    prepare ~path:"function-call-address-metadata.HC"
+      "extern I64 Target(I64 address);I64 Handler(){return 1;}\n\
+       I64 Caller(){return Target(&Handler);}"
+  in
+  let address_call =
+    resolve address_prepared |> checked |> fun result ->
+    only_direct result "Caller"
+    |> Semantic_function_call_resolution.direct_source
+  in
+  let handler_occurrence =
+    address_prepared.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.find (fun function_ ->
+        function_ |> Semantic_module_expression_binding.function_symbol
+        |> Semantic_symbol.name |> String.equal "Caller")
+    |> Semantic_module_expression_binding.function_occurrences
+    |> List.find (fun occurrence ->
+        occurrence |> Semantic_module_expression_binding.occurrence_name
+        |> String.equal "Handler")
+  in
+  let declaration_named name =
+    address_prepared.functions |> Semantic_function_resolution.declarations
+    |> List.find (fun declaration ->
+        declaration |> Semantic_function_resolution.resolved_declaration_site
+        |> Semantic_function_resolution.declaration_site_function
+        |> Semantic_function_type_resolution.function_symbol
+        |> Semantic_symbol.name |> String.equal name)
+  in
+  let handler_declaration = declaration_named "Handler" in
+  let target_declaration = declaration_named "Target" in
+  let address_type =
+    checked
+      (Semantic_type.make_primitive ~form:Semantic_type.Internal_storage
+         ~primitive:Primitive_type.I64 ~pointer_depth:0)
+  in
+  Alcotest.(check (result reject string))
+    "a declaration for another publication is rejected at construction"
+    (Error "bound direct function declaration does not match its publication")
+    (Semantic_function_call_resolution.make_bound_identifier_argument_expression
+       ~occurrence:handler_occurrence ~resolved_type:address_type
+       ~shape:Semantic_function_call_resolution.Direct_function_value
+       ~array_rank:0 ~function_declaration:target_declaration
+       ~function_address_path:Semantic_function_call_resolution.Jit_extern_slot
+       ());
+  let wrong_path_expression =
+    checked
+      (Semantic_function_call_resolution.make_bound_identifier_argument_expression
+         ~occurrence:handler_occurrence ~resolved_type:address_type
+         ~shape:Semantic_function_call_resolution.Direct_function_value
+         ~array_rank:0 ~function_declaration:handler_declaration
+         ~function_address_path:Semantic_function_call_resolution.Aot_absolute
+         ())
+    |> fun kind ->
+    Semantic_function_call_resolution.make_argument_expression ~kind
+      ~origin:
+        (Semantic_module_expression_binding.occurrence_origin
+           handler_occurrence)
+  in
+  let wrong_path_argument =
+    checked
+      (Semantic_function_call_resolution.make_argument ~index:0
+         ~kind:Semantic_function_call_resolution.Provided
+         ~expression:(Some wrong_path_expression)
+         ~origin:
+           (Semantic_module_expression_binding.occurrence_origin
+              handler_occurrence))
+  in
+  let wrong_path_call =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index address_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              address_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name address_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin address_call)
+         ~origin:(Semantic_function_call_resolution.call_origin address_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax address_call)
+         [ wrong_path_argument ])
+  in
+  let wrong_path_inputs =
+    address_prepared.module_expressions
+    |> Semantic_module_expression_binding.functions
+    |> List.map (fun function_ ->
+        let symbol =
+          Semantic_module_expression_binding.function_symbol function_
+        in
+        checked
+          (Semantic_function_call_resolution.make_function ~symbol
+             ~scope:
+               (Semantic_module_expression_binding.function_scope function_)
+             ~item_index:
+               (Semantic_module_expression_binding.function_item_index
+                  function_)
+             (if String.equal (Semantic_symbol.name symbol) "Caller" then
+                [ wrong_path_call ]
+              else [])))
+  in
+  (match
+     Semantic_function_call_resolution.resolve
+       ~table:(Session.semantic_symbols address_prepared.session)
+       ~parent:
+         (Semantic_declaration_collection.scope
+            address_prepared.declarations)
+       ~function_types:address_prepared.function_types
+       ~functions:address_prepared.functions
+       ~expressions:address_prepared.module_expressions wrong_path_inputs
+   with
+  | Ok _ -> Alcotest.fail "expected a forged function address path to fail"
+  | Error error ->
+      Alcotest.(check string)
+        "a forged function address path has a stable diagnostic"
+        "bound direct function has the wrong address path"
+        (Semantic_function_call_resolution.error_message error));
   let foreign = Session.create () in
   (match
      Holyc_lib.resolve_function_calls foreign
