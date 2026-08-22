@@ -12,6 +12,7 @@ type value_category =
   | Array_value
   | Callback_value
   | Function_value
+  | Offset_value
   | Lvalue
   | Unavailable
 
@@ -24,6 +25,8 @@ type intrinsic_conversion =
 
 type result_use = Result_not_used
 type expression_result
+type aggregate_offset_segment
+type aggregate_offset_path
 type declared_default_kind = Expression_default_kind | Lastclass_default_kind
 type declared_default_materialization = Immediate_default | Aot_string_default
 type declared_default_result
@@ -104,9 +107,9 @@ val analyze_top_level :
   identifiers:Top_level_identifier_resolution.t ->
   Top_level_expression_tree.t ->
   (top_level_t, error) result
-(** Type scalar roots and aggregate member paths in executable top-level
-    statements through the same expression engine used for function bodies.
-    Aggregate offset bases, outer records without type payloads, and calls stay
+(** Type scalar roots, aggregate object members, and aggregate offset paths in
+    executable top-level statements through the same expression engine used for
+    function bodies. Outer records without type payloads and calls stay
     explicitly unavailable until their dedicated semantic inputs exist. *)
 
 val owns_table : t -> Symbol_table.t -> bool
@@ -247,6 +250,22 @@ val result_intrinsic_conversion : expression_result -> intrinsic_conversion
 
 val result_member_lookup :
   expression_result -> Aggregate_member_index.lookup option
+
+val result_aggregate_offset_path :
+  expression_result -> aggregate_offset_path option
+
+val aggregate_offset_base :
+  aggregate_offset_path -> Module_expression_binding.publication
+
+val aggregate_offset_current_type : aggregate_offset_path -> Type.t
+val aggregate_offset_segments : aggregate_offset_path -> aggregate_offset_segment list
+val aggregate_offset_value : aggregate_offset_path -> int64
+
+val aggregate_offset_segment_lookup :
+  aggregate_offset_segment -> Aggregate_member_index.lookup
+
+val aggregate_offset_segment_cumulative_offset :
+  aggregate_offset_segment -> int64
 
 val result_call_resolution :
   expression_result -> Function_call_resolution.call_resolution option
