@@ -1,5 +1,6 @@
 type member_input = {
   member_type : Type.t;
+  member_type_reference : Type_reference.t;
   member_function_pointer : Function_type_resolution.function_pointer option;
   member_layout : Aggregate_layout.member_layout;
 }
@@ -14,6 +15,7 @@ type member = private {
   symbol : Symbol.t;
   declaring_aggregate : Symbol.t;
   member_type : Type.t;
+  member_type_reference : Type_reference.t;
   is_function_pointer : bool;
   function_pointer : Function_type_resolution.function_pointer option;
   layout : Aggregate_layout.member_layout;
@@ -75,6 +77,7 @@ val lookup_inheritance_depth : lookup -> int
 val lookup_member : lookup -> member
 val member_symbol : member -> Symbol.t
 val member_type : member -> Type.t
+val member_type_reference : member -> Type_reference.t
 val member_is_function_pointer : member -> bool
 
 val member_function_pointer :

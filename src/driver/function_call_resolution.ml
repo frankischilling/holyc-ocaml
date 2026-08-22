@@ -714,6 +714,46 @@ let rec identifier_callee dereference_depth = function
       identifier_callee (dereference_depth + 1) prefix.prefix_operand
   | _ -> None
 
+let rec member_callee = function
+  | Frontend.Ast.Member_expression _ -> true
+  | Frontend.Ast.Parenthesized_expression grouped ->
+      member_callee grouped.grouped_expression
+  | _ -> false
+
+let rec first_identifier = function
+  | Frontend.Ast.Identifier_expression identifier -> Some identifier
+  | Frontend.Ast.Parenthesized_expression grouped ->
+      first_identifier grouped.grouped_expression
+  | Frontend.Ast.Prefix_expression prefix ->
+      first_identifier prefix.prefix_operand
+  | Frontend.Ast.Postfix_expression postfix ->
+      first_identifier postfix.postfix_operand
+  | Frontend.Ast.Postfix_cast_expression cast ->
+      first_identifier cast.cast_operand
+  | Frontend.Ast.Index_expression index -> first_identifier index.index_base
+  | Frontend.Ast.Member_expression member -> first_identifier member.member_base
+  | Frontend.Ast.Call_expression _
+  | Frontend.Ast.Binary_expression _
+  | Frontend.Ast.Sizeof_expression _
+  | Frontend.Ast.Offset_expression _
+  | Frontend.Ast.Defined_expression _
+  | Frontend.Ast.Integer_literal _
+  | Frontend.Ast.Float_literal _
+  | Frontend.Ast.Character_literal _
+  | Frontend.Ast.String_literal _
+  | Frontend.Ast.Current_position_expression _ -> None
+
+let record_call state call =
+  if state.next_call = max_int then
+    Error "function call identity space is exhausted"
+  else
+    Ok
+      {
+        state with
+        next_call = state.next_call + 1;
+        calls_rev = call :: state.calls_rev;
+      }
+
 let collect_call visible locals globals occurrences state
     (call : Frontend.Ast.call_expression) =
   match identifier_callee 0 call.call_callee with
@@ -746,16 +786,42 @@ let collect_call visible locals globals occurrences state
                     ~syntax:(call_syntax call) arguments
                 with
                 | Error _ as error -> error
-                | Ok call ->
-                    if state.next_call = max_int then
-                      Error "function call identity space is exhausted"
-                    else
-                      Ok
-                        {
-                          state with
-                          next_call = state.next_call + 1;
-                          calls_rev = call :: state.calls_rev;
-                        })))
+                | Ok call -> record_call state call)))
+  | None when member_callee call.call_callee -> (
+      match first_identifier call.call_callee with
+      | None -> Error "member call callee has no bound base identifier"
+      | Some callee -> (
+          let cursor = ref state.next_occurrence in
+          match
+            argument_expression visible locals globals occurrences cursor
+              call.call_callee
+          with
+          | Error _ as error -> error
+          | Ok computed_callee -> (
+              match
+                call_arguments visible locals globals occurrences !cursor call
+              with
+              | Error _ as error -> error
+              | Ok arguments -> (
+                  match
+                    occurrence_at occurrences state.next_occurrence callee
+                  with
+                  | Error _ as error -> error
+                  | Ok _ -> (
+                      match
+                        Sema.Function_call_resolution.make_call
+                          ~index:state.next_call
+                          ~callee_occurrence_index:state.next_occurrence
+                          ~callee_name:callee.spelling
+                          ~callee_origin:(origin callee.location)
+                          ~callee_form:
+                            Sema.Function_call_resolution.Member_callee
+                          ~computed_callee
+                          ~origin:(origin call.call_location)
+                          ~syntax:(call_syntax call) arguments
+                      with
+                      | Error _ as error -> error
+                      | Ok call -> record_call state call)))))
   | None -> Ok state
 
 let rec expression state = function
@@ -1051,8 +1117,8 @@ let function_inputs table function_types local_types global_values expressions
     (Sema.Local_type_resolution.functions local_types)
     (ast_functions module_)
 
-let resolve ~table ~declarations ~function_types ~local_types ~global_types
-    ~functions ~expressions module_ =
+let resolve ~table ~declarations ?members ~function_types ~local_types
+    ~global_types ~functions ~expressions module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -1076,7 +1142,7 @@ let resolve ~table ~declarations ~function_types ~local_types ~global_types
               with
               | Error _ as error -> error
               | Ok inputs ->
-                  Sema.Function_call_resolution.resolve ~table ~parent
+                  Sema.Function_call_resolution.resolve ~table ~parent ?members
                     ~function_types ~functions ~expressions inputs
                   |> Result.map_error
                        Sema.Function_call_resolution.error_to_string))

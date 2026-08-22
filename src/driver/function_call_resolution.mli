@@ -1,6 +1,7 @@
 val resolve :
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
+  ?members:Sema.Aggregate_member_index.t ->
   function_types:Sema.Function_type_resolution.t ->
   local_types:Sema.Local_type_resolution.t ->
   global_types:Sema.Global_type_resolution.t ->

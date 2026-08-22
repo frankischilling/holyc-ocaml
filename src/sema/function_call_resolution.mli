@@ -1,5 +1,10 @@
 type call_syntax = Parenthesized | Parenthesis_free
-type callee_form = Identifier_callee | Dereferenced_identifier_callee of int
+
+type callee_form =
+  | Identifier_callee
+  | Dereferenced_identifier_callee of int
+  | Member_callee
+
 type argument_kind = Provided | Omitted
 
 type unresolved_expression_kind =
@@ -133,6 +138,7 @@ val make_call :
   callee_origin:Symbol.origin ->
   ?callee_form:callee_form ->
   ?callable:callable ->
+  ?computed_callee:argument_expression ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
   argument list ->
@@ -159,6 +165,7 @@ type deferred_reason =
   | Local_callee of Function_binding_index.binding
   | Global_callee of Module_expression_binding.publication
   | Aggregate_callee of Module_expression_binding.publication
+  | Computed_member_callee of argument_expression
   | Outer_callee
 
 type call_resolution =
@@ -192,16 +199,18 @@ type error
 val resolve :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
+  ?members:Aggregate_member_index.t ->
   function_types:Function_type_resolution.t ->
   functions:Function_resolution.t ->
   expressions:Module_expression_binding.t ->
   function_input list ->
   (t, error) result
-(** Resolve syntactically direct function-body calls. A module function target
-    receives the source header visible to the caller and its canonical joined
-    identity. Named aggregate cast targets must carry the exact identity visible
-    before the caller. Other callee categories remain explicit deferred calls.
-*)
+(** Resolve function-body calls. A module function receives the source header
+    visible to the caller and its canonical joined identity. A supplied member
+    index also resolves direct and pointer callbacks through their exact lookup
+    and stored signature. Named aggregate types must carry the identity visible
+    before the caller. Other computed callee categories remain explicit deferred
+    calls. *)
 
 val functions : t -> resolved_function list
 val find_function : t -> Symbol.t -> resolved_function option
@@ -217,6 +226,7 @@ val call_callee_name : call -> string
 val call_callee_origin : call -> Symbol.origin
 val call_callee_form : call -> callee_form
 val call_callable : call -> callable option
+val call_computed_callee : call -> argument_expression option
 val call_origin : call -> Symbol.origin
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
@@ -291,6 +301,10 @@ val callable_signature : callable -> Function_type_resolution.signature
 val indirect_source : indirect_call -> call
 val indirect_occurrence : indirect_call -> Module_expression_binding.occurrence
 val indirect_callable : indirect_call -> callable
+
+val indirect_member_lookup :
+  indirect_call -> Aggregate_member_index.lookup option
+
 val indirect_fixed_arguments : indirect_call -> fixed_argument list
 val indirect_variadic_arguments : indirect_call -> argument list
 val indirect_variadic_count : indirect_call -> int64

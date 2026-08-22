@@ -107,6 +107,7 @@ let member_input table fact layout =
       {
         Sema.Aggregate_member_index.member_type =
           Sema.Member_type_resolution.type_reference_type reference;
+        member_type_reference = reference;
         member_function_pointer;
         member_layout = layout;
       })

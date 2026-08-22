@@ -219,6 +219,13 @@ let ordinary_duplicates_are_rejected () =
       "class Base { I8 value; }; class Bad : Base { I16 value; };"
   in
   check_prefix "HCSEMA0012:" (index_error inherited_session inherited);
+  let callback_session = Session.create () in
+  let callback =
+    parse callback_session ~path:"inherited-callback-duplicate.HC"
+      "class Base { I64 (*callback)(); }; class Bad : Base { F64 \
+       (*callback)(); };"
+  in
+  check_prefix "HCSEMA0012:" (index_error callback_session callback);
   let case_session = Session.create () in
   let case_sensitive =
     parse case_session ~path:"padding-case-duplicate.HC"
@@ -273,6 +280,7 @@ let low_level_input aggregate layout =
         {
           member_type =
             Semantic_member_type_resolution.type_reference_type reference;
+          member_type_reference = reference;
           member_function_pointer;
           member_layout;
         })
