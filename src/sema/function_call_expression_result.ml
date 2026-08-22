@@ -1918,8 +1918,7 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
          "call conversion policies belong to another symbol table")
   else if not (Aggregate_member_index.owns_parent members module_parent) then
     Error
-      (invalid_top_level_input
-         "aggregate member index describes another module")
+      (invalid_top_level_input "aggregate member index describes another module")
   else if
     not (Function_call_conversion_policy.owns_parent policies module_parent)
   then
@@ -1935,28 +1934,28 @@ let analyze_top_level ~table ~members ~policies ~identifiers source =
           compilation modes")
   else
     match
-        source |> Top_level_expression_tree.statements
-        |> map_state
-             (type_top_level_statement table members policies)
-             {
-               next_id = 0;
-               results_rev = [];
-               top_level_identifier_batch = Some identifiers;
-             }
-      with
-      | Error _ as error -> error
-      | Ok (top_level_statements, state) ->
-          Ok
-            {
-              top_level_table = table;
-              top_level_members = members;
-              top_level_policies = policies;
-              top_level_identifiers = identifiers;
-              top_level_source = source;
-              top_level_compilation_mode = source_mode;
-              top_level_statements;
-              top_level_all_results =
-                List.sort
-                  (fun left right -> Id.compare left.id right.id)
-                  state.results_rev;
-            }
+      source |> Top_level_expression_tree.statements
+      |> map_state
+           (type_top_level_statement table members policies)
+           {
+             next_id = 0;
+             results_rev = [];
+             top_level_identifier_batch = Some identifiers;
+           }
+    with
+    | Error _ as error -> error
+    | Ok (top_level_statements, state) ->
+        Ok
+          {
+            top_level_table = table;
+            top_level_members = members;
+            top_level_policies = policies;
+            top_level_identifiers = identifiers;
+            top_level_source = source;
+            top_level_compilation_mode = source_mode;
+            top_level_statements;
+            top_level_all_results =
+              List.sort
+                (fun left right -> Id.compare left.id right.id)
+                state.results_rev;
+          }

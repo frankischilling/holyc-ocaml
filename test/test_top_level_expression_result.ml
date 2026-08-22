@@ -76,8 +76,8 @@ let analyze ?environment
   in
   (expressions, identifiers, policies, result)
 
-let policies_for_mode
-    (source : Test_function_call_conversion_policy.prepared) mode =
+let policies_for_mode (source : Test_function_call_conversion_policy.prepared)
+    mode =
   let functions =
     checked
       (Holyc_lib.resolve_function_identities source.session
@@ -350,13 +350,12 @@ let stale_batches_and_mode_mismatch () =
     let source = Session.add_source session ~path ~contents in
     let ast =
       Holyc_lib.parse_with_config session
-        ~config:
-          (Test_function_call_conversion_policy.config Preprocessor.Jit)
+        ~config:(Test_function_call_conversion_policy.config Preprocessor.Jit)
         ~source
       |> Test_function_call_conversion_policy.expect_ast
     in
-    Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
-      session ast
+    Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit session
+      ast
   in
   let first = prepare "top-level-batch-first.HC" "I64 first;first+1;" in
   let second = prepare "top-level-batch-second.HC" "I64 second;second+2;" in
@@ -392,8 +391,8 @@ let stale_batches_and_mode_mismatch () =
   Holyc_lib.type_top_level_expressions session ~members:first.members
     ~policies:aot_policies ~identifiers expressions
   |> expect_input_error "mode mismatch"
-       "top-level expressions and conversion policies use different compilation \
-        modes"
+       "top-level expressions and conversion policies use different \
+        compilation modes"
 
 let generated_provenance_and_purity () =
   let source =

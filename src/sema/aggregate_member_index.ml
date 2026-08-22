@@ -462,7 +462,8 @@ let build ~table ~parent inputs =
   Result.bind (validate_inputs table parent inputs) (fun () ->
       let rec loop by_symbol aggregates_rev = function
         | [] ->
-            Ok { table; parent; aggregates = List.rev aggregates_rev; by_symbol }
+            Ok
+              { table; parent; aggregates = List.rev aggregates_rev; by_symbol }
         | input :: rest ->
             Result.bind (build_aggregate table by_symbol input) (fun indexed ->
                 loop
