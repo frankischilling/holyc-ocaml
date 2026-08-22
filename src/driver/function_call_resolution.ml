@@ -734,6 +734,7 @@ let rec member_callee = function
   | Frontend.Ast.Member_expression _ -> true
   | Frontend.Ast.Parenthesized_expression grouped ->
       member_callee grouped.grouped_expression
+  | Frontend.Ast.Index_expression index -> member_callee index.index_base
   | _ -> false
 
 let rec first_identifier = function

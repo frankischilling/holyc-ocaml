@@ -2246,33 +2246,90 @@ and resolve_computed_member members ~before_item_index member =
                            (member_name member))
                   | Ok (Some lookup) -> Ok lookup))))
 
-let rec resolve_member_callable members ~before_item_index computed =
-  match argument_expression_kind computed with
-  | Member_access_expression member -> (
+let member_callable_chain computed =
+  let rec peel_indexes origins computed =
+    match argument_expression_kind computed with
+    | Parenthesized_expression grouped -> peel_indexes origins grouped
+    | Index_expression index ->
+        peel_indexes (index_opening_origin index :: origins) (index_base index)
+    | Member_access_expression member -> Ok (computed, member, origins)
+    | _ ->
+        Error
+          (invalid_input_at
+             (argument_expression_origin computed)
+             "member call callee is not an exact member-and-subscript chain")
+  in
+  peel_indexes [] computed
+
+let validate_member_callable computed lookup =
+  match member_callable_chain computed with
+  | Error _ as error -> error
+  | Ok (_, member, origins) -> (
+      let indexed = Aggregate_member_index.lookup_member lookup in
+      let name = member_name member in
+      let resolved_name =
+        indexed |> Aggregate_member_index.member_symbol |> Symbol.name
+      in
+      if not (String.equal name resolved_name) then
+        Error
+          (invalid_input_at (member_origin member)
+             "member call lookup disagrees with its source member")
+      else
+        match Aggregate_member_index.member_function_pointer indexed with
+        | None ->
+            Error
+              (invalid_input_at (member_origin member)
+                 (Printf.sprintf "member `%s` is not callable" name))
+        | Some function_pointer ->
+            let expected =
+              indexed |> Aggregate_member_index.member_layout |> fun layout ->
+              List.length layout.dimensions
+            in
+            let actual = List.length origins in
+            if actual < expected then
+              let remaining = expected - actual in
+              Error
+                (invalid_input_at (member_origin member)
+                   (Printf.sprintf
+                      "callback member `%s` retains %d array dimension%s" name
+                      remaining
+                      (if remaining = 1 then "" else "s")))
+            else if actual > expected then
+              let origin =
+                List.nth_opt origins expected
+                |> Option.value ~default:(argument_expression_origin computed)
+              in
+              Error
+                (invalid_input_at origin
+                   (Printf.sprintf
+                      "callback member `%s` has %d array dimension%s, but the \
+                       callee uses %d subscript%s"
+                      name expected
+                      (if expected = 1 then "" else "s")
+                      actual
+                      (if actual = 1 then "" else "s")))
+            else
+              Ok
+                (make_callable
+                   ~return_type:
+                     (Aggregate_member_index.member_type_reference indexed)
+                   ~function_pointer))
+
+let resolve_member_callable members ~before_item_index computed =
+  match member_callable_chain computed with
+  | Error _ as error -> error
+  | Ok (_, member, _) -> (
       match resolve_computed_member members ~before_item_index member with
       | Error _ as error -> error
       | Ok lookup -> (
-          let indexed = Aggregate_member_index.lookup_member lookup in
-          match Aggregate_member_index.member_function_pointer indexed with
-          | None ->
-              Error
-                (invalid_input_at (member_origin member)
-                   (Printf.sprintf "member `%s` is not callable"
-                      (member_name member)))
-          | Some function_pointer ->
-              Ok
-                ( lookup,
-                  make_callable
-                    ~return_type:
-                      (Aggregate_member_index.member_type_reference indexed)
-                    ~function_pointer )))
-  | Parenthesized_expression grouped ->
-      resolve_member_callable members ~before_item_index grouped
-  | _ ->
-      Error
-        (invalid_input_at
-           (argument_expression_origin computed)
-           "member call callee is not a member access expression")
+          match validate_member_callable computed lookup with
+          | Error _ as error -> error
+          | Ok callable -> Ok (lookup, callable)))
+
+let member_callable_base_expression computed =
+  match member_callable_chain computed with
+  | Error _ as error -> error
+  | Ok (base, _, _) -> Ok base
 
 let resolve_call ?members ~before_item_index types declarations occurrence
     (call : call) =
