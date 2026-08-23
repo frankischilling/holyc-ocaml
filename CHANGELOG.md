@@ -2,11 +2,13 @@
 
 ## Unreleased
 
+- Typed executable top-level calls through fully indexed callback arrays selected from JIT parent-task or AOT enclosing-compilation tables. Each call retains the exact outer occurrence and binding, checked recursive signature, completed callee result, integer-target indexes, fixed and variadic results, return type, and result identity. Zero, partial, and excessive ranks receive `HCSEMA0057`; runtime storage reads, address calculation, lowering, and execution remain separate work.
+
 - Typed ordinary `$$` expressions in function bodies and executable top-level statements as TempleOS `RT_PTR` addresses. Results keep the compiler's internal zero-depth `I64` representation, address value category, integer result class, and exact source origin in JIT and AOT modes. Assignment and update uses now fail the existing lvalue check. Concrete addresses, assembler fixups, aggregate-offset evaluation, IR, and execution remain separate work.
 
 - Typed function-body calls through fully indexed callback arrays stored in automatic or static locals, module globals, and checked outer globals. The call record keeps the recursive signature, typed base, ordered integer-target subscripts, arguments, return type, and exact outer binding when present. Partial and excessive ranks receive `HCSEMA0039` or `HCSEMA0046`; address calculation, storage reads, lowering, and execution remain separate work.
 
-- Typed calls through scalar, metadata-bearing outer callbacks in executable top-level expressions. The call record keeps the exact source occurrence, selected JIT task or AOT parent-table binding, recursive callback signature, fixed and defaulted slots, variadic tail, return type, and expression-result identity. Outer callback arrays, ordinary objects, and records without checked metadata remain unavailable. Runtime storage reads, address selection, lowering, and execution remain separate work.
+- Typed calls through scalar, metadata-bearing outer callbacks in executable top-level expressions. The call record keeps the exact source occurrence, selected JIT task or AOT parent-table binding, recursive callback signature, fixed and defaulted slots, variadic tail, return type, and expression-result identity. Ordinary objects and records without checked metadata remain unavailable; indexed arrays are covered by the newer entry above. Runtime storage reads, address selection, lowering, and execution remain separate work.
 
 - Typed metadata-bearing outer globals in executable top-level expressions. Primitive, pointer, aggregate, array, and callback records retain their exact source occurrence and JIT task or AOT parent-table binding. Metadata-free records remain unavailable, while storage access, lowering, and execution remain separate work.
 

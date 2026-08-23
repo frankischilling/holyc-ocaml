@@ -136,6 +136,7 @@ type top_level_outer_callback_call = {
   top_level_outer_callback_occurrence :
     Top_level_outer_expression_binding.occurrence;
   top_level_outer_callback_binding : Outer_environment.binding;
+  top_level_outer_callback_callee_result : expression_result option;
   top_level_outer_callback_callable : Function_call_resolution.callable;
   top_level_outer_callback_fixed_results : top_level_fixed_result list;
   top_level_outer_callback_variadic_results : expression_result list;
@@ -548,6 +549,10 @@ let top_level_outer_callback_occurrence (call : top_level_outer_callback_call) =
 
 let top_level_outer_callback_binding (call : top_level_outer_callback_call) =
   call.top_level_outer_callback_binding
+
+let top_level_outer_callback_callee_result
+    (call : top_level_outer_callback_call) =
+  call.top_level_outer_callback_callee_result
 
 let top_level_outer_callback_callable (call : top_level_outer_callback_call) =
   call.top_level_outer_callback_callable
@@ -1060,6 +1065,8 @@ let resolve_member_lookup members ~before_item_index ~aggregate_symbol
 
 let rec callback_array_index_depth ~callee expression =
   match Function_call_resolution.argument_expression_kind expression with
+  | Function_call_resolution.Parenthesized_expression grouped ->
+      callback_array_index_depth ~callee grouped
   | Function_call_resolution.Index_expression index ->
       Option.map Int.succ
         (callback_array_index_depth ~callee
@@ -1074,7 +1081,6 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Float_literal
   | Function_call_resolution.Character_literal
   | Function_call_resolution.String_literal
-  | Function_call_resolution.Parenthesized_expression _
   | Function_call_resolution.Prefix_expression _
   | Function_call_resolution.Postfix_expression _
   | Function_call_resolution.Postfix_cast_expression _
@@ -2335,11 +2341,11 @@ and type_top_level_call table members policies ~before_item_index
                     ( Outer_environment.global_array_rank metadata,
                       Outer_environment.global_declarator_kind metadata )
                   with
-                  | 0, Outer_environment.Function_pointer_global _ ->
+                  | _, Outer_environment.Function_pointer_global _ ->
                       type_top_level_outer_callback_call table members policies
                         ~before_item_index ~intrinsic_conversion state id source
                         call callee binding
-                  | _, _ ->
+                  | _, Outer_environment.Object_global ->
                       Ok
                         (make_result ~intrinsic_conversion state ~id ~source
                            ~source_type:None ~category:Unavailable
@@ -2493,10 +2499,6 @@ and type_top_level_outer_callback_call table members policies =
   let origin = Function_call_resolution.call_origin source_call in
   let invalid message = Error (invalid_top_level_input ~origin message) in
   if
-    Function_call_resolution.call_callee_form source_call
-    <> Function_call_resolution.Identifier_callee
-  then invalid "top-level outer callback does not use an identifier callee"
-  else if
     match
       Top_level_outer_expression_binding.occurrence_resolution occurrence
     with
@@ -2522,25 +2524,82 @@ and type_top_level_outer_callback_metadata table members policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
      binding source_call origin metadata ->
   let invalid message = Error (invalid_top_level_input ~origin message) in
-  if Outer_environment.global_array_rank metadata <> 0 then
-    invalid "top-level outer callback unexpectedly has array dimensions"
-  else
-    match Outer_environment.global_declarator_kind metadata with
-    | Outer_environment.Object_global ->
-        invalid "top-level outer global has no function-pointer signature"
-    | Outer_environment.Function_pointer_global function_pointer ->
-        let callable =
-          Function_call_resolution.make_callable
-            ~return_type:(Outer_environment.global_type_reference metadata)
-            ~function_pointer
-        in
-        type_top_level_outer_callback_arguments table members policies
+  match Outer_environment.global_declarator_kind metadata with
+  | Outer_environment.Object_global ->
+      invalid "top-level outer global has no function-pointer signature"
+  | Outer_environment.Function_pointer_global function_pointer ->
+      let callable =
+        Function_call_resolution.make_callable
+          ~return_type:(Outer_environment.global_type_reference metadata)
+          ~function_pointer
+      in
+      let expected_rank = Outer_environment.global_array_rank metadata in
+      if expected_rank = 0 then
+        if
+          Function_call_resolution.call_callee_form source_call
+          <> Function_call_resolution.Identifier_callee
+        then
+          invalid "top-level outer callback does not use an identifier callee"
+        else
+          type_top_level_outer_callback_arguments table members policies
+            ~before_item_index ~intrinsic_conversion state id source call
+            occurrence binding source_call origin callable ~callee_result:None
+      else
+        type_top_level_indexed_outer_callback_callee table members policies
           ~before_item_index ~intrinsic_conversion state id source call
-          occurrence binding source_call origin callable
+          occurrence binding source_call origin callable expected_rank
+
+and type_top_level_indexed_outer_callback_callee table members policies =
+ fun ~before_item_index ~intrinsic_conversion state id source call occurrence
+     binding source_call origin callable expected_rank ->
+  let invalid message = Error (invalid_top_level_input ~origin message) in
+  let callee_expression =
+    Top_level_expression_tree.call_callee_expression call
+  in
+  let callee = Top_level_expression_tree.call_callee call in
+  match callback_array_index_depth ~callee callee_expression with
+  | None ->
+      invalid
+        "indexed top-level outer callback callee is not an exact bracket chain"
+  | Some actual_rank when actual_rank <> expected_rank ->
+      invalid
+        (Printf.sprintf
+           "indexed top-level outer callback callee uses %d bracket%s, but \
+            `%s` has %d dimension%s"
+           actual_rank
+           (if actual_rank = 1 then "" else "s")
+           (Function_call_resolution.call_callee_name source_call)
+           expected_rank
+           (if expected_rank = 1 then "" else "s"))
+  | Some _ -> (
+      match Function_call_resolution.call_computed_callee source_call with
+      | Some computed when computed == callee_expression -> (
+          match
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state callee_expression
+          with
+          | Error _ as error -> error
+          | Ok (callee_result, state) ->
+              if callee_result.array_rank <> 0 then
+                invalid
+                  "indexed top-level outer callback callee retains an array \
+                   dimension"
+              else
+                type_top_level_outer_callback_arguments table members policies
+                  ~before_item_index ~intrinsic_conversion state id source call
+                  occurrence binding source_call origin callable
+                  ~callee_result:(Some callee_result))
+      | Some _ ->
+          invalid
+            "indexed top-level outer callback call carries another computed \
+             callee"
+      | None ->
+          invalid "indexed top-level outer callback call has no computed callee"
+      )
 
 and type_top_level_outer_callback_arguments table members policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
-     binding source_call origin callable ->
+     binding source_call origin callable ~callee_result ->
   match
     Function_call_resolution.bind_indirect_arguments source_call callable
   with
@@ -2552,12 +2611,12 @@ and type_top_level_outer_callback_arguments table members policies =
   | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
       type_top_level_outer_callback_argument_results table members policies
         ~before_item_index ~intrinsic_conversion state id source call occurrence
-        binding origin callable fixed_arguments variadic_arguments
-        variadic_count
+        binding origin callable ~callee_result fixed_arguments
+        variadic_arguments variadic_count
 
 and type_top_level_outer_callback_argument_results table members policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
-     binding origin callable fixed_arguments variadic_arguments
+     binding origin callable ~callee_result fixed_arguments variadic_arguments
      variadic_count ->
   match
     type_top_level_bound_arguments table members policies ~before_item_index
@@ -2567,11 +2626,12 @@ and type_top_level_outer_callback_argument_results table members policies =
   | Ok (fixed_results, variadic_results, state) ->
       type_top_level_outer_callback_result table policies ~before_item_index
         ~intrinsic_conversion state id source call occurrence binding callable
-        fixed_results variadic_results variadic_count
+        ~callee_result fixed_results variadic_results variadic_count
 
 and type_top_level_outer_callback_result table policies =
  fun ~before_item_index ~intrinsic_conversion state id source call occurrence
-     binding callable fixed_results variadic_results variadic_count ->
+     binding callable ~callee_result fixed_results variadic_results
+     variadic_count ->
   let unresolved_source_type =
     callable |> Function_call_resolution.callable_return_type
     |> Type_reference.resolved_type
@@ -2588,6 +2648,7 @@ and type_top_level_outer_callback_result table policies =
           top_level_outer_callback_source = call;
           top_level_outer_callback_occurrence = occurrence;
           top_level_outer_callback_binding = binding;
+          top_level_outer_callback_callee_result = callee_result;
           top_level_outer_callback_callable = callable;
           top_level_outer_callback_fixed_results = fixed_results;
           top_level_outer_callback_variadic_results = variadic_results;
