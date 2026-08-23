@@ -61,6 +61,10 @@ module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
 module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
+
+module Semantic_top_level_statement_validation =
+  Driver.Top_level_statement_validation
+
 module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 
 module Semantic_top_level_switch_selector_result =
@@ -324,6 +328,12 @@ val resolve_top_level_outer_expressions :
   (Semantic_top_level_outer_expression_binding.t, string) result
 (** Preserve source-visible top-level module bindings, then resolve every outer
     candidate through the complete JIT or AOT table chain. *)
+
+val validate_top_level_statements :
+  Ast.module_ -> (unit, Semantic_top_level_statement_validation.error) result
+(** Reject explicit [return] statements outside function definitions while
+    retaining the source keyword origin. The implicit final value returned by
+    TempleOS's top-level statement compiler is a separate lowering rule. *)
 
 val build_top_level_expression_trees :
   Session.t ->

@@ -61,6 +61,10 @@ module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
 module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
+
+module Semantic_top_level_statement_validation =
+  Driver.Top_level_statement_validation
+
 module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 
 module Semantic_top_level_switch_selector_result =
@@ -250,6 +254,9 @@ let resolve_top_level_outer_expressions session ~environment ~expressions =
     ~table:(Session.semantic_symbols session)
     ~environment ~expressions
   |> Result.map_error Sema.Top_level_outer_expression_binding.error_to_string
+
+let validate_top_level_statements =
+  Driver.Top_level_statement_validation.validate
 
 let build_top_level_expression_trees session ~declarations ~compilation_mode
     ~expressions module_ =

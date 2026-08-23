@@ -899,12 +899,17 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
         "top-level expression compilation mode does not match its outer \
          environment"
     else
-      match build_statements expressions module_ with
-      | Error _ as error -> error
-      | Ok statements ->
-          Sema.Top_level_expression_tree.create ~table ~source:expressions
-            statements
-          |> Result.map_error Sema.Top_level_expression_tree.error_to_string
+      match Top_level_statement_validation.validate module_ with
+      | Error error ->
+          Error (Top_level_statement_validation.error_to_string error)
+      | Ok () -> (
+          match build_statements expressions module_ with
+          | Error _ as error -> error
+          | Ok statements ->
+              Sema.Top_level_expression_tree.create ~table ~source:expressions
+                statements
+              |> Result.map_error Sema.Top_level_expression_tree.error_to_string
+          )
   in
   Result.map_error
     (fun message ->

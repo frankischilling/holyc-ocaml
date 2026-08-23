@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Rejected explicit `return` statements in executable top-level code before building semantic expression trees. `HCSEMA0066` points to the exact source keyword and retains include or definition provenance. Returns inside function definitions remain valid, and TempleOS's separate rule for returning the final ordinary top-level expression remains a lowering task.
 - Preserved implicit, single-value, and ranged `case` labels from executable top-level switches and joined every explicit bound to its exact typed expression root. `F64` bounds record `ICF_RES_TO_INT`; implicit cases remain expression-free. `HCSEMA0065` rejects foreign, discontinuous, missing, or excess metadata. Evaluation, implicit numbering, reversed-range normalization, duplicate checks, jump-table construction, IR, and execution remain unimplemented.
 - Collected bounded and no-bound switch selectors from executable top-level code. Each record keeps its containing statement, selector identity, keyword provenance, typed value, and source mode. `HCSEMA0064` rejects foreign or discontinuous input. The pass does not evaluate selectors, calculate ranges, construct a jump table, emit switch IR, or execute the statement.
 
