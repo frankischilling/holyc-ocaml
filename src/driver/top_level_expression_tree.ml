@@ -546,7 +546,12 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
       match
         add_root { state with next_output }
           (Sema.Top_level_expression_tree.Implicit_output_fixed
-             { output_index; target; source })
+             {
+               output_index;
+               target;
+               source;
+               marker_origin = origin output.marker.literal_location;
+             })
           fixed
       with
       | Error _ as error -> error

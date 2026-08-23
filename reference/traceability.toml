@@ -7102,3 +7102,37 @@ focused_function_expression_result_tests = 2
 parser_boundary = "an unknown callee at statement start requires explicit grouping until unresolved declaration disambiguation is implemented"
 storage_reads_runtime_addresses_default_evaluation_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this semantic binding boundary; the pinned record layout, table lookup, and PrsFunCall consumer directly define the retained fields"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-IMPLICIT-OUTPUT-TARGETS"
+description = "Executable top-level string and character statements retain the source-visible Print or PutChars function selected before argument binding."
+sources = [
+  "Compiler/PrsStmt.HC:1201-1203 top-level string and character statement dispatch",
+  "Compiler/PrsExp.HC:383-413 Print or PutChars selection and HTT_FUN lookup",
+  "Compiler/CMain.HC:35-89 JIT or AOT lookup context and source-ordered statement compilation",
+  "Kernel/KExts.HC:83-84 Print and PutChars declarations"
+]
+implementation = [
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_expression_tree.mli",
+  "src/driver/top_level_expression_tree.ml",
+  "src/sema/top_level_implicit_output_target_resolution.ml",
+  "src/sema/top_level_implicit_output_target_resolution.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_top_level_implicit_output_target_resolution.ml"]
+status = "implemented"
+issue = 346
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "implicit output roots in typed executable top-level statements"
+lookup_order = "replay function publications strictly before the containing statement, then search the exact retained JIT task-parent or AOT enclosing-compilation chain and assembler table"
+kind_filter = "same-name aggregates, globals, and nonfunction outer records do not hide a function"
+retained_identity = ["output index", "containing statement", "Print or PutChars target", "marker-backed or following-expression form", "literal marker origin", "typed fixed root", "ordered typed trailing roots", "module publication and canonical function identity or exact outer binding"]
+validation = ["same semantic table", "same compilation mode", "complete module function types and declarations", "contiguous output and argument identities"]
+diagnostics = ["HCSEMA0058 inconsistent semantic input", "HCSEMA0059 missing visible output function at the literal marker"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 5
+parameter_binding_default_selection_variadic_validation_format_parsing_lowering_ic_end_exp_and_output = "not implemented"
+native_oracle_status = "not required for this source-stated lookup boundary; the pinned statement branch, function mask, and compiler context directly define the selected record"

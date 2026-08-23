@@ -44,6 +44,7 @@
   test_function_call_conversion_policy
   test_function_call_expression_result
   test_implicit_output_target_resolution
+  test_top_level_implicit_output_target_resolution
   test_implicit_output_argument_binding
   test_function_call_conversion_decision
   test_externs_to_imports
