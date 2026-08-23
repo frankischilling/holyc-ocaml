@@ -6284,7 +6284,7 @@ category_rule = "a pointer return is an address value; a zero-depth return is an
 class_rule = "forward the return type through aggregate backing headers published before the owning function item"
 replacement_rule = "a later same-name function header does not change an earlier nested call result"
 variadic_rule = "a nested direct call in a variadic position retains its actual class without a fixed target or conversion"
-deferred_rule = "retain an arbitrary computed callback-call record while leaving its type unavailable and class unresolved"
+deferred_rule = "retain an unsupported computed callback-call record while leaving its type unavailable and class unresolved; exact indexed callback arrays are implemented by HC-SEMA-FUNCTION-INDEXED-CALLBACK-ARRAYS"
 uncollected_rule = "a call shape absent from the function call-resolution traversal remains unavailable and unresolved"
 diagnostic = "HCSEMA0046 rejects a missing or ambiguous owning function and duplicate nested-call matches"
 provenance = ["direct or deferred call identity", "included source", "generated invocation", "definition origin"]
@@ -6335,7 +6335,8 @@ focused_call_resolution_tests = 10
 focused_conversion_policy_tests = 7
 focused_expression_result_tests = 56
 focused_conversion_decision_tests = 34
-unsupported_callees = ["function-pointer arrays without an index", "arbitrary computed callback expressions", "untyped outer callback values"]
+unsupported_callees = ["function-pointer arrays without complete indexing", "unrelated computed callback expressions", "untyped outer callback values"]
+indexed_callback_arrays = "implemented downstream by HC-SEMA-FUNCTION-INDEXED-CALLBACK-ARRAYS"
 callback_storage_reads_default_evaluation_arbitrary_computed_calls_abi_lowering_and_execution = "not implemented"
 native_oracle_status = "not required for this structural semantic boundary; PrsVar and PrsExp directly retain the callback header and pass it to PrsFunCall"
 
@@ -6964,6 +6965,45 @@ storage_reads_runtime_addresses_default_evaluation_lowering_execution_and_iet_ma
 native_oracle_status = "not required for this semantic binding boundary; the pinned record layout, table lookup, and PrsFunCall consumer directly define the retained fields"
 
 [[feature]]
+id = "HC-SEMA-FUNCTION-INDEXED-CALLBACK-ARRAYS"
+description = "Function-body calls through fully indexed callback arrays retain their recursive signature, computed callee results, and exact source binding."
+sources = [
+  "Compiler/PrsExp.HC:420-530 indirect call argument binding",
+  "Compiler/PrsExp.HC:867-904 global variable shape, GVF_FUN, and callback signature selection",
+  "Compiler/PrsExp.HC:1016-1020 CCF_FUN_EXP call dispatch",
+  "Compiler/PrsExp.HC:1055-1100 subscript handling and callable-flag preservation",
+  "Compiler/PrsVar.HC:521-532 callback declarator array dimensions",
+  "Kernel/KernelA.HH:870-887 CHashGlblVar callback and dimension metadata"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_function_call_expression_result.ml"
+]
+status = "implemented"
+issue = 340
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "exact bracket chains rooted at automatic or static locals, module globals, or metadata-bearing outer globals in checked function bodies"
+callable_rule = "a callback array becomes callable only after the bracket count equals its declared rank; an ordinary array never gains a callback signature"
+argument_binding = "the selected recursive signature uses Sema.Function_call_resolution.bind_indirect_arguments for fixed values, explicit holes, defaults, and the variadic tail"
+return_typing = ["integer", "F64", "pointer", "backed aggregate"]
+retained_identity = ["typed base result", "ordered integer-target subscript results", "recursive callback signature", "exact local or module binding", "exact outer occurrence and table binding when present", "fixed and variadic result identity", "call result identity"]
+validation = ["same semantic table", "same function expression batch", "same compilation mode", "exact declared array rank", "callback signature present", "exact selected outer binding"]
+diagnostics = ["HCSEMA0039 invalid module or local callback-array rank or shape", "HCSEMA0046 invalid outer callback-array rank or expression input"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_call_resolution_tests = 2
+focused_function_expression_result_tests = 3
+unavailable_callee_shapes = ["function parameters with array declarators", "callback arrays at executable top level through outer lookup", "unrelated computed callback callees"]
+runtime_storage_reads_index_address_calculation_default_evaluation_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; the pinned parser and global metadata fields directly define callable rank preservation"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-TYPED-OUTER-CALLBACKS"
 description = "Scalar outer callback calls in function bodies retain the selected table record and use its checked recursive signature."
 sources = [
@@ -6986,7 +7026,8 @@ callable_rule = "the exact outer CHashGlblVar callback metadata supplies the ret
 argument_binding = "Sema.Function_call_resolution.bind_indirect_arguments retains provided fixed values, explicit holes, defaults, and the variadic tail"
 return_typing = ["integer", "F64", "pointer", "backed aggregate"]
 retained_identity = ["exact function source occurrence", "exact outer table binding", "fixed and variadic result identity", "call result identity"]
-unavailable_callee_shapes = ["metadata-free outer record", "ordinary outer object", "outer callback array"]
+unavailable_callee_shapes = ["metadata-free outer record", "ordinary outer object"]
+callback_array_extension = "HC-SEMA-FUNCTION-INDEXED-CALLBACK-ARRAYS accepts fully indexed outer callback arrays"
 validation = ["same semantic table", "same function expression batch", "same compilation mode", "rank-zero callback metadata", "exact selected outer binding"]
 diagnostics = ["HCSEMA0046 inconsistent function expression or call input"]
 mutation = "none"

@@ -2333,6 +2333,85 @@ let member_callable_base_expression computed =
   | Error _ as error -> error
   | Ok (base, _, _) -> Ok base
 
+type indexed_identifier_base =
+  | Bound_indexed_identifier of bound_identifier
+  | Unresolved_indexed_identifier
+
+let indexed_identifier_callee computed =
+  let rec peel depth expression =
+    match argument_expression_kind expression with
+    | Parenthesized_expression grouped -> peel depth grouped
+    | Index_expression index -> peel (depth + 1) (index_base index)
+    | Bound_identifier_expression identifier when depth > 0 ->
+        Some (Bound_indexed_identifier identifier, depth)
+    | Unresolved_expression Identifier_expression when depth > 0 ->
+        Some (Unresolved_indexed_identifier, depth)
+    | Integer_literal
+    | Float_literal
+    | Character_literal
+    | String_literal
+    | Prefix_expression _
+    | Postfix_expression _
+    | Postfix_cast_expression _
+    | Binary_expression _
+    | Member_access_expression _
+    | Bound_identifier_expression _
+    | Top_level_bound_identifier_expression _
+    | Unresolved_expression _ -> None
+  in
+  peel 0 computed
+
+let bind_indexed_identifier_call occurrence (call : call) computed base
+    actual_rank =
+  let deferred reason = Ok (Deferred_call { call; occurrence; reason }) in
+  match Module_expression_binding.occurrence_resolution occurrence with
+  | Module_expression_binding.Outer_candidate -> deferred Outer_callee
+  | Module_expression_binding.Local_binding _
+  | Module_expression_binding.Module_binding _ -> (
+      match base with
+      | Unresolved_indexed_identifier ->
+          Error
+            (invalid_input_at
+               (argument_expression_origin computed)
+               "indexed callback callee has no checked base value")
+      | Bound_indexed_identifier identifier -> (
+          let expected_rank = bound_identifier_array_rank identifier in
+          if actual_rank <> expected_rank then
+            Error
+              (invalid_input_at
+                 (argument_expression_origin computed)
+                 (Printf.sprintf
+                    "indexed callback callee uses %d bracket%s, but `%s` has \
+                     %d dimension%s"
+                    actual_rank
+                    (if actual_rank = 1 then "" else "s")
+                    call.callee_name expected_rank
+                    (if expected_rank = 1 then "" else "s")))
+          else
+            match call.callable with
+            | None ->
+                Error
+                  (invalid_input_at
+                     (argument_expression_origin computed)
+                     (Printf.sprintf
+                        "indexed value `%s` has no function-pointer signature"
+                        call.callee_name))
+            | Some callable -> (
+                match bind_indirect_arguments call callable with
+                | Error _ as error -> error
+                | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                    Ok
+                      (Indirect_call
+                         {
+                           source = call;
+                           occurrence;
+                           callable;
+                           member_lookup = None;
+                           fixed_arguments;
+                           variadic_arguments;
+                           variadic_count;
+                         }))))
+
 let resolve_call ?members ~before_item_index types declarations occurrence
     (call : call) =
   let indirect_or_deferred reason =
@@ -2356,28 +2435,42 @@ let resolve_call ?members ~before_item_index types declarations occurrence
   in
   if call.callee_form = Member_callee then
     match (call.computed_callee, members) with
-    | Some computed, None ->
-        Ok
-          (Deferred_call
-             { call; occurrence; reason = Computed_member_callee computed })
-    | Some computed, Some members -> (
-        match resolve_member_callable members ~before_item_index computed with
-        | Error _ as error -> error
-        | Ok (member_lookup, callable) -> (
-            match bind_indirect_arguments call callable with
-            | Error _ as error -> error
-            | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+    | Some computed, _ -> (
+        match indexed_identifier_callee computed with
+        | Some (base, actual_rank) ->
+            bind_indexed_identifier_call occurrence call computed base
+              actual_rank
+        | None -> (
+            match members with
+            | None ->
                 Ok
-                  (Indirect_call
+                  (Deferred_call
                      {
-                       source = call;
+                       call;
                        occurrence;
-                       callable;
-                       member_lookup = Some member_lookup;
-                       fixed_arguments;
-                       variadic_arguments;
-                       variadic_count;
-                     })))
+                       reason = Computed_member_callee computed;
+                     })
+            | Some members -> (
+                match
+                  resolve_member_callable members ~before_item_index computed
+                with
+                | Error _ as error -> error
+                | Ok (member_lookup, callable) -> (
+                    match bind_indirect_arguments call callable with
+                    | Error _ as error -> error
+                    | Ok (fixed_arguments, variadic_arguments, variadic_count)
+                      ->
+                        Ok
+                          (Indirect_call
+                             {
+                               source = call;
+                               occurrence;
+                               callable;
+                               member_lookup = Some member_lookup;
+                               fixed_arguments;
+                               variadic_arguments;
+                               variadic_count;
+                             })))))
     | None, _ -> Error (invalid_input "member call has no computed callee")
   else
     match Module_expression_binding.occurrence_resolution occurrence with

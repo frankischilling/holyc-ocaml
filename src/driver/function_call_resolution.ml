@@ -105,12 +105,12 @@ let local_value local =
   let shape, callable =
     match Sema.Local_type_resolution.local_declarator_kind local with
     | Sema.Local_type_resolution.Function_pointer pointer ->
-        ( Sema.Function_call_resolution.Function_pointer_value,
-          if dimensions = [] then
-            Some
-              (Sema.Function_call_resolution.make_callable
-                 ~return_type:reference ~function_pointer:pointer)
-          else None )
+        ( (if dimensions = [] then
+             Sema.Function_call_resolution.Function_pointer_value
+           else Sema.Function_call_resolution.Array_value),
+          Some
+            (Sema.Function_call_resolution.make_callable ~return_type:reference
+               ~function_pointer:pointer) )
     | Sema.Local_type_resolution.Object ->
         ( (if dimensions = [] then Sema.Function_call_resolution.Object_value
            else Sema.Function_call_resolution.Array_value),
@@ -126,16 +126,13 @@ let local_value local =
   }
 
 let global_value global =
-  let dimensions = Sema.Global_type_resolution.global_array_dimensions global in
   let reference = Sema.Global_type_resolution.global_type_reference global in
   let callable =
     match Sema.Global_type_resolution.global_declarator_kind global with
     | Sema.Global_type_resolution.Function_pointer pointer ->
-        if dimensions = [] then
-          Some
-            (Sema.Function_call_resolution.make_callable ~return_type:reference
-               ~function_pointer:pointer)
-        else None
+        Some
+          (Sema.Function_call_resolution.make_callable ~return_type:reference
+             ~function_pointer:pointer)
     | Sema.Global_type_resolution.Object -> None
   in
   Sema.Function_call_resolution.global_identifier_value global
@@ -730,11 +727,10 @@ let rec identifier_callee dereference_depth = function
       identifier_callee (dereference_depth + 1) prefix.prefix_operand
   | _ -> None
 
-let rec member_callee = function
-  | Frontend.Ast.Member_expression _ -> true
+let rec computed_callee = function
+  | Frontend.Ast.Member_expression _ | Frontend.Ast.Index_expression _ -> true
   | Frontend.Ast.Parenthesized_expression grouped ->
-      member_callee grouped.grouped_expression
-  | Frontend.Ast.Index_expression index -> member_callee index.index_base
+      computed_callee grouped.grouped_expression
   | _ -> false
 
 let rec first_identifier = function
@@ -791,7 +787,8 @@ let collect_call visible locals globals occurrences state
                 let callable =
                   Option.bind
                     (typed_value_for_occurrence locals globals occurrence)
-                    (fun value -> value.callable)
+                    (fun value ->
+                      if value.array_rank = 0 then value.callable else None)
                 in
                 match
                   Sema.Function_call_resolution.make_call ~index:state.next_call
@@ -804,9 +801,9 @@ let collect_call visible locals globals occurrences state
                 with
                 | Error _ as error -> error
                 | Ok call -> record_call state call)))
-  | None when member_callee call.call_callee -> (
+  | None when computed_callee call.call_callee -> (
       match first_identifier call.call_callee with
-      | None -> Error "member call callee has no bound base identifier"
+      | None -> Error "computed call callee has no bound base identifier"
       | Some callee -> (
           let cursor = ref state.next_occurrence in
           match
@@ -824,7 +821,12 @@ let collect_call visible locals globals occurrences state
                     occurrence_at occurrences state.next_occurrence callee
                   with
                   | Error _ as error -> error
-                  | Ok _ -> (
+                  | Ok occurrence -> (
+                      let callable =
+                        Option.bind
+                          (typed_value_for_occurrence locals globals occurrence)
+                          (fun value -> value.callable)
+                      in
                       match
                         Sema.Function_call_resolution.make_call
                           ~index:state.next_call
@@ -833,7 +835,7 @@ let collect_call visible locals globals occurrences state
                           ~callee_origin:(origin callee.location)
                           ~callee_form:
                             Sema.Function_call_resolution.Member_callee
-                          ~computed_callee
+                          ?callable ~computed_callee
                           ~origin:(origin call.call_location)
                           ~syntax:(call_syntax call) arguments
                       with

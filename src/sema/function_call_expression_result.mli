@@ -183,9 +183,10 @@ val function_calls : resolved_function -> call_result list
 
 val function_outer_callback_calls :
   resolved_function -> outer_callback_call list
-(** Source-ordered calls through scalar outer callbacks. Each record keeps its
-    recursive signature, exact outer occurrence, and selected table entry. This
-    analysis does not read or invoke the stored callback address. *)
+(** Source-ordered calls through scalar or fully indexed outer callbacks. Each
+    record keeps its recursive signature, exact outer occurrence, selected table
+    entry, and an optional completed callee result. This analysis does not read
+    or invoke the stored callback address. *)
 
 val function_expression_statements :
   resolved_function -> expression_statement_result list
@@ -248,6 +249,7 @@ val direct_variadic_results : direct_call -> expression_result list
 val indirect_source :
   indirect_call -> Function_call_conversion_policy.indirect_call
 
+val indirect_callee_result : indirect_call -> expression_result option
 val indirect_fixed_results : indirect_call -> fixed_result list
 val indirect_variadic_results : indirect_call -> expression_result list
 val fixed_source : fixed_result -> Function_call_conversion_policy.fixed_policy
@@ -280,6 +282,9 @@ val outer_callback_occurrence :
   outer_callback_call -> Outer_expression_binding.occurrence
 
 val outer_callback_binding : outer_callback_call -> Outer_environment.binding
+
+val outer_callback_callee_result :
+  outer_callback_call -> expression_result option
 
 val outer_callback_callable :
   outer_callback_call -> Function_call_resolution.callable
