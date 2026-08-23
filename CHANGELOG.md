@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Collected checked `if`, `while`, `do while`, and `for` conditions from executable top-level code. Each record keeps its containing statement, condition identity, keyword provenance, typed value, and the source-selected zero or nonzero branch test. `HCSEMA0063` rejects foreign or discontinuous input. The pass does not insert a Boolean conversion, create control-flow IR, or execute the statement.
+
 - Bound executable top-level `Print` and `PutChars` values against the exact header selected by target resolution. The result distinguishes provided and defaulted fixed slots, records integer and `F64` conversion intent, keeps JIT and AOT default materialization separate, and retains only the remaining `Print` roots as variadic values. Untyped outer targets stay deferred. `HCSEMA0061` and `HCSEMA0062` report missing required and excess nonvariadic values; format handling, evaluated defaults, vararg promotion, lowering, and output remain separate work.
 
 - Resolved implicit `Print` and `PutChars` targets for executable top-level statements. The pass groups each typed fixed value with its ordered trailing values, keeps the literal marker and statement identity, selects only module function headers visible before that statement, and then follows the retained JIT or AOT outer chain. Same-name objects do not hide functions. `HCSEMA0059` reports a missing target at the marker; the newer entry above covers slot binding, while format handling, lowering, and output remain separate work.

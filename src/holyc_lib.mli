@@ -61,6 +61,7 @@ module Semantic_top_level_outer_expression_binding =
   Sema.Top_level_outer_expression_binding
 
 module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
+module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 
 module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
@@ -489,6 +490,16 @@ val type_top_level_expressions :
 (** Type scalar roots in executable top-level statements through the function
     expression engine. Results retain their statement and root roles while
     unsupported aggregate, outer, member, and call boundaries stay explicit. *)
+
+val collect_top_level_conditions :
+  Session.t ->
+  Semantic_function_call_expression_result.top_level_t ->
+  ( Semantic_top_level_condition_result.t,
+    Semantic_top_level_condition_result.error )
+  result
+(** Collect the checked roots used by executable top-level [if], [while],
+    [do while], and [for] statements. Each record retains its source role and
+    zero or nonzero branch sense; no Boolean conversion or IR is created. *)
 
 val resolve_implicit_output_targets :
   Session.t ->
