@@ -4734,6 +4734,98 @@ let type_with_outer prepared entries =
   in
   (outer, results)
 
+let indexed_callback_arrays_keep_callee_results () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-indexed-callback-results.HC"
+          "F64 (*Global)(I64 first=1,I64 required,F64 last=3,...)[2][3];\n\
+           I64 Caller(){\n\
+           F64 (*automatic)(I64 first=1,I64 required,F64 last=3,...)[2];\n\
+           static F64 (*stored)(I64 first=1,I64 required,F64 last=3,...)[2][2];\n\
+           automatic[1](,2,,4);stored[0][1](,2,,4);\n\
+           return Global[1][2](,2,,4);}"
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () = analyze prepared |> snd in
+      let results = run () in
+      let calls =
+        function_named results "Caller"
+        |> Semantic_function_call_expression_result.function_calls
+        |> List.filter_map (function
+          | Semantic_function_call_expression_result.Indirect_call_result call
+            -> Some call
+          | Semantic_function_call_expression_result.Direct_call_result _
+          | Semantic_function_call_expression_result.Deferred_call_result _ ->
+              None)
+      in
+      let call_name call =
+        call |> Semantic_function_call_expression_result.indirect_source
+        |> Semantic_function_call_conversion_policy.indirect_source
+        |> Semantic_function_call_resolution.indirect_source
+        |> Semantic_function_call_resolution.call_callee_name
+      in
+      Alcotest.(check (list string))
+        "indexed callback calls retain local and module source order"
+        [ "automatic"; "stored"; "Global" ]
+        (List.map call_name calls);
+      Alcotest.(check (list string))
+        "each fully indexed callee has one checked value"
+        [
+          "F64:object-value:f64-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+        ]
+        (List.map
+           (fun call ->
+             call
+             |> Semantic_function_call_expression_result.indirect_callee_result
+             |> Option.map result_descriptor
+             |> Option.value ~default:"missing")
+           calls);
+      let first = List.hd calls in
+      let fixed =
+        first |> Semantic_function_call_expression_result.indirect_fixed_results
+      in
+      Alcotest.(check (list string))
+        "indexed callback holes keep their declared defaults"
+        [ "default"; "provided"; "default" ]
+        (List.map
+           (fun value ->
+             match
+               Semantic_function_call_expression_result.fixed_path value
+             with
+             | Semantic_function_call_expression_result.Provided_result _ ->
+                 "provided"
+             | Semantic_function_call_expression_result.Declared_default_result
+                 _ -> "default")
+           fixed);
+      Alcotest.(check int)
+        "five subscripts and the F64 return take the integer result path" 6
+        (results |> Semantic_function_call_expression_result.all_results
+        |> List.filter (fun result ->
+            Semantic_function_call_expression_result.result_intrinsic_conversion
+              result
+            = Semantic_function_call_expression_result.Result_to_int)
+        |> List.length);
+      let replay = run () in
+      let ids result =
+        result |> Semantic_function_call_expression_result.all_results
+        |> List.map (fun value ->
+            value |> Semantic_function_call_expression_result.result_id
+            |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      Alcotest.(check (list int))
+        "indexed callback typing replays deterministically" (ids results)
+        (ids replay);
+      Alcotest.(check int)
+        "indexed callback typing leaves symbols unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let outer_globals_retain_checked_expression_shapes () =
   List.iter
     (fun mode ->
@@ -4996,21 +5088,210 @@ let outer_callback_calls_use_checked_recursive_headers () =
         (Semantic_symbol_table.all_symbols table |> List.length))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let indexed_outer_callback_arrays_use_checked_headers () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-indexed-outer-callbacks.HC"
+          "F64 class CallbackBacked {};\n\
+           I64 (*TemplateInt)(I64 first,I64 second=2,I64 third)[2];\n\
+           F64 (*TemplateFloat)()[2][3];I64 *(*TemplatePointer)()[1];\n\
+           CallbackBacked (*TemplateMake)()[1];\n\
+           I64 (*TemplateVariadic)(I64 first,...)[2];\n\
+           I64 Caller(){\n\
+           (OuterInt)[0](1,,3);(OuterFloat)[1][2]();\n\
+           (OuterPointer)[0]();(OuterMake)[0]();\n\
+           (OuterVariadic)[1](1,2,3);\n\
+           (OuterInt)[0]((OuterFloat)[0][0](),,3);return 0;\n\
+           }"
+      in
+      let entries =
+        [
+          ("OuterInt", "TemplateInt");
+          ("OuterFloat", "TemplateFloat");
+          ("OuterPointer", "TemplatePointer");
+          ("OuterMake", "TemplateMake");
+          ("OuterVariadic", "TemplateVariadic");
+        ]
+        |> List.mapi (fun entry_index (name, template_name) ->
+            make_outer_global_entry prepared ~entry_index ~name
+              ~metadata:(outer_global_metadata prepared template_name)
+              ())
+      in
+      let outer = resolve_outer_batch prepared entries in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let run () =
+        Holyc_lib.type_function_call_expressions_with_outer prepared.session
+          ~members:prepared.members ~outer ~policies
+        |> checked_results
+      in
+      let results = run () in
+      let calls = outer_callback_calls_named results "Caller" in
+      let call_name call =
+        call |> Semantic_function_call_expression_result.outer_callback_source
+        |> Semantic_function_call_resolution.call_callee_name
+      in
+      Alcotest.(check (list string))
+        "indexed outer callbacks retain nested source order"
+        [
+          "OuterInt";
+          "OuterFloat";
+          "OuterPointer";
+          "OuterMake";
+          "OuterVariadic";
+          "OuterInt";
+          "OuterFloat";
+        ]
+        (List.map call_name calls);
+      Alcotest.(check (list string))
+        "indexed outer callback returns use their supplied signatures"
+        [ "I64"; "F64"; "I64*"; "CallbackBacked"; "I64"; "I64"; "F64" ]
+        (calls
+        |> List.map (fun call ->
+            let id =
+              Semantic_function_call_expression_result.outer_callback_result_id
+                call
+            in
+            results |> Semantic_function_call_expression_result.all_results
+            |> List.find (fun result ->
+                Semantic_function_call_expression_result.Id.equal id
+                  (Semantic_function_call_expression_result.result_id result))
+            |> type_name));
+      Alcotest.(check (list string))
+        "each indexed outer callee is fully selected before slot binding"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "I64*:object-value:integer-result:rank-0";
+          "CallbackBacked:object-value:f64-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+        ]
+        (calls
+        |> List.map (fun call ->
+            call
+            |> Semantic_function_call_expression_result
+               .outer_callback_callee_result
+            |> Option.map result_descriptor
+            |> Option.value ~default:"missing"));
+      let first = List.hd calls in
+      Alcotest.(check (list string))
+        "an indexed outer call preserves its middle default"
+        [ "provided"; "default"; "provided" ]
+        (first
+       |> Semantic_function_call_expression_result.outer_callback_fixed_results
+        |> List.map (fun fixed ->
+            match
+              Semantic_function_call_expression_result.outer_callback_fixed_path
+                fixed
+            with
+            | Semantic_function_call_expression_result.Provided_result _ ->
+                "provided"
+            | Semantic_function_call_expression_result.Declared_default_result _
+              -> "default"));
+      let variadic = List.nth calls 4 in
+      Alcotest.(check int64)
+        "the indexed outer variadic count uses target I64" 2L
+        (Semantic_function_call_expression_result.outer_callback_variadic_count
+           variadic);
+      Alcotest.(check int)
+        "the indexed outer fixture records nine integer-result conversions" 9
+        (results |> Semantic_function_call_expression_result.all_results
+        |> List.filter (fun result ->
+            Semantic_function_call_expression_result.result_intrinsic_conversion
+              result
+            = Semantic_function_call_expression_result.Result_to_int)
+        |> List.length);
+      List.iter
+        (fun call ->
+          let occurrence =
+            Semantic_function_call_expression_result.outer_callback_occurrence
+              call
+          in
+          let binding =
+            Semantic_function_call_expression_result.outer_callback_binding call
+          in
+          Alcotest.(check string)
+            "the indexed callback keeps its selected outer record"
+            (Semantic_outer_expression_binding.occurrence_name occurrence)
+            (binding |> Semantic_outer_environment.binding_entry
+           |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
+        calls;
+      let replay = run () in
+      let ids result =
+        result |> Semantic_function_call_expression_result.all_results
+        |> List.map (fun value ->
+            value |> Semantic_function_call_expression_result.result_id
+            |> Semantic_function_call_expression_result.Id.to_int)
+      in
+      Alcotest.(check (list int))
+        "indexed outer callback typing replays deterministically" (ids results)
+        (ids replay);
+      Alcotest.(check int)
+        "indexed outer callback typing leaves symbols unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_indexed_outer_callback_ranks_are_rejected () =
+  [
+    ( "unindexed",
+      "I64 (*Template)(I64 value)[2];I64 Caller(){(Outer)(1);return 0;}",
+      "indexed outer callback callee uses 0 brackets, but `Outer` has 1 \
+       dimension" );
+    ( "partial",
+      "I64 (*Template)(I64 value)[2][3];I64 Caller(){(Outer)[0](1);return 0;}",
+      "indexed outer callback callee uses 1 bracket, but `Outer` has 2 \
+       dimensions" );
+    ( "excess",
+      "I64 (*Template)(I64 value)[2];I64 Caller(){(Outer)[0][1](1);return 0;}",
+      "indexed outer callback callee uses 2 brackets, but `Outer` has 1 \
+       dimension" );
+  ]
+  |> List.iter (fun (label, source, expected) ->
+      let prepared =
+        prepare
+          ~path:("function-invalid-outer-callback-" ^ label ^ ".HC")
+          source
+      in
+      let entry =
+        make_outer_global_entry prepared ~entry_index:0 ~name:"Outer"
+          ~metadata:(outer_global_metadata prepared "Template")
+          ()
+      in
+      let outer = resolve_outer_batch prepared [ entry ] in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_function_call_expressions_with_outer prepared.session
+          ~members:prepared.members ~outer ~policies
+      with
+      | Error error ->
+          Alcotest.(check string)
+            label expected
+            (Semantic_function_call_expression_result.error_message error)
+      | Ok _ -> Alcotest.failf "expected %s outer rank to fail" label)
+
 let unsupported_outer_callback_shapes_stay_unavailable () =
   let prepared =
     prepare ~path:"function-unavailable-outer-calls.HC"
-      "I64 TemplateObject;I64 (*TemplateArray)(I64 value)[2];\n\
-       I64 Caller(){(OuterUntyped)(1);(OuterObject)(2);(OuterArray)(3);return \
-       0;}"
+      "I64 TemplateObject;\n\
+       I64 Caller(){(OuterUntyped)(1);(OuterObject)(2);return 0;}"
   in
   let entries =
     [
       make_outer_global_entry prepared ~entry_index:0 ~name:"OuterUntyped" ();
       make_outer_global_entry prepared ~entry_index:1 ~name:"OuterObject"
         ~metadata:(outer_global_metadata prepared "TemplateObject")
-        ();
-      make_outer_global_entry prepared ~entry_index:2 ~name:"OuterArray"
-        ~metadata:(outer_global_metadata prepared "TemplateArray")
         ();
     ]
   in
@@ -5022,7 +5303,7 @@ let unsupported_outer_callback_shapes_stay_unavailable () =
   in
   Alcotest.(check (list string))
     "unsupported outer call shapes remain unavailable"
-    [ "unavailable"; "unavailable"; "unavailable" ]
+    [ "unavailable"; "unavailable" ]
     (List.map type_name values);
   Alcotest.(check int)
     "unsupported outer calls do not create callback records" 0
@@ -5358,10 +5639,16 @@ let tests =
       function_implicit_outputs_keep_targets_values_and_calls;
     Alcotest.test_case "included implicit output replay" `Quick
       included_implicit_outputs_replay_without_mutation;
+    Alcotest.test_case "indexed callback-array results" `Quick
+      indexed_callback_arrays_keep_callee_results;
     Alcotest.test_case "typed outer global expression shapes" `Quick
       outer_globals_retain_checked_expression_shapes;
     Alcotest.test_case "typed outer callback calls" `Quick
       outer_callback_calls_use_checked_recursive_headers;
+    Alcotest.test_case "indexed outer callback arrays" `Quick
+      indexed_outer_callback_arrays_use_checked_headers;
+    Alcotest.test_case "invalid indexed outer callback ranks" `Quick
+      invalid_indexed_outer_callback_ranks_are_rejected;
     Alcotest.test_case "unsupported outer callback shapes" `Quick
       unsupported_outer_callback_shapes_stay_unavailable;
     Alcotest.test_case "missing outer global metadata" `Quick

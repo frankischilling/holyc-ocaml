@@ -101,6 +101,7 @@ type outer_callback_call = {
   outer_callback_source : Function_call_resolution.call;
   outer_callback_occurrence : Outer_expression_binding.occurrence;
   outer_callback_binding : Outer_environment.binding;
+  outer_callback_callee_result : expression_result option;
   outer_callback_callable : Function_call_resolution.callable;
   outer_callback_fixed_results : outer_callback_fixed_result list;
   outer_callback_variadic_results : expression_result list;
@@ -177,6 +178,7 @@ type direct_call = {
 
 type indirect_call = {
   source : Function_call_conversion_policy.indirect_call;
+  callee_result : expression_result option;
   fixed_results : fixed_result list;
   variadic_results : expression_result list;
 }
@@ -419,6 +421,7 @@ let direct_source (call : direct_call) = call.source
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
 let indirect_source (call : indirect_call) = call.source
+let indirect_callee_result (call : indirect_call) = call.callee_result
 let indirect_fixed_results (call : indirect_call) = call.fixed_results
 let indirect_variadic_results (call : indirect_call) = call.variadic_results
 let fixed_source (fixed : fixed_result) = fixed.source
@@ -466,6 +469,9 @@ let outer_callback_occurrence (call : outer_callback_call) =
 
 let outer_callback_binding (call : outer_callback_call) =
   call.outer_callback_binding
+
+let outer_callback_callee_result (call : outer_callback_call) =
+  call.outer_callback_callee_result
 
 let outer_callback_callable (call : outer_callback_call) =
   call.outer_callback_callable
@@ -1074,6 +1080,38 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Binary_expression _
   | Function_call_resolution.Member_access_expression _
   | Function_call_resolution.Bound_identifier_expression _
+  | Function_call_resolution.Unresolved_expression _ -> None
+
+let rec function_callback_array_index_depth ~callee expression =
+  match Function_call_resolution.argument_expression_kind expression with
+  | Function_call_resolution.Parenthesized_expression grouped ->
+      function_callback_array_index_depth ~callee grouped
+  | Function_call_resolution.Index_expression index ->
+      Option.map Int.succ
+        (function_callback_array_index_depth ~callee
+           (Function_call_resolution.index_base index))
+  | Function_call_resolution.Bound_identifier_expression identifier ->
+      let occurrence =
+        Function_call_resolution.bound_identifier_occurrence identifier
+      in
+      if occurrence == callee then Some 0 else None
+  | Function_call_resolution.Unresolved_expression
+      Function_call_resolution.Identifier_expression ->
+      if
+        Function_call_resolution.argument_expression_origin expression
+        = Module_expression_binding.occurrence_origin callee
+      then Some 0
+      else None
+  | Function_call_resolution.Integer_literal
+  | Function_call_resolution.Float_literal
+  | Function_call_resolution.Character_literal
+  | Function_call_resolution.String_literal
+  | Function_call_resolution.Prefix_expression _
+  | Function_call_resolution.Postfix_expression _
+  | Function_call_resolution.Postfix_cast_expression _
+  | Function_call_resolution.Binary_expression _
+  | Function_call_resolution.Member_access_expression _
+  | Function_call_resolution.Top_level_bound_identifier_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
 let outer_binding_for_expression state source =
@@ -2076,24 +2114,66 @@ and type_outer_callback_call table members policies ~before_item_index
     match Outer_environment.entry_global_metadata entry with
     | None -> unavailable state
     | Some metadata -> (
-        match
-          ( Outer_environment.global_array_rank metadata,
-            Outer_environment.global_declarator_kind metadata )
-        with
-        | 0, Outer_environment.Function_pointer_global function_pointer ->
-            let callable =
-              Function_call_resolution.make_callable
-                ~return_type:(Outer_environment.global_type_reference metadata)
-                ~function_pointer
+        match Outer_environment.global_declarator_kind metadata with
+        | Outer_environment.Object_global -> unavailable state
+        | Outer_environment.Function_pointer_global function_pointer -> (
+            let expected_rank = Outer_environment.global_array_rank metadata in
+            let computed = Function_call_resolution.call_computed_callee call in
+            let actual_rank =
+              match computed with
+              | None -> Some 0
+              | Some expression ->
+                  function_callback_array_index_depth
+                    ~callee:
+                      (Outer_expression_binding.occurrence_source occurrence)
+                    expression
             in
-            type_outer_callback_arguments table members policies
-              ~before_item_index ~intrinsic_conversion state id source
-              resolution call occurrence binding callable
-        | _, _ -> unavailable state)
+            match actual_rank with
+            | None -> unavailable state
+            | Some actual_rank when actual_rank <> expected_rank ->
+                Error
+                  (invalid_input
+                     ~origin:
+                       (match computed with
+                       | Some expression ->
+                           Function_call_resolution.argument_expression_origin
+                             expression
+                       | None -> Function_call_resolution.call_origin call)
+                     (Printf.sprintf
+                        "indexed outer callback callee uses %d bracket%s, but \
+                         `%s` has %d dimension%s"
+                        actual_rank
+                        (if actual_rank = 1 then "" else "s")
+                        (Function_call_resolution.call_callee_name call)
+                        expected_rank
+                        (if expected_rank = 1 then "" else "s")))
+            | Some _ -> (
+                let callee_result =
+                  match computed with
+                  | None -> Ok (None, state)
+                  | Some expression ->
+                      type_expression table members policies ~before_item_index
+                        ~context:Value_context state expression
+                      |> Result.map (fun (result, state) ->
+                          (Some result, state))
+                in
+                match callee_result with
+                | Error _ as error -> error
+                | Ok (callee_result, state) ->
+                    let callable =
+                      Function_call_resolution.make_callable
+                        ~return_type:
+                          (Outer_environment.global_type_reference metadata)
+                        ~function_pointer
+                    in
+                    type_outer_callback_arguments table members policies
+                      ~before_item_index ~intrinsic_conversion state id source
+                      resolution call occurrence binding callee_result callable)
+            ))
 
 and type_outer_callback_arguments table members policies ~before_item_index
     ~intrinsic_conversion state id source resolution call occurrence binding
-    callable =
+    callee_result callable =
   match Function_call_resolution.bind_indirect_arguments call callable with
   | Error error ->
       Error
@@ -2112,11 +2192,12 @@ and type_outer_callback_arguments table members policies ~before_item_index
       | Ok (fixed_results, variadic_results, state) ->
           type_outer_callback_result table policies ~before_item_index
             ~intrinsic_conversion state id source resolution call occurrence
-            binding callable fixed_results variadic_results variadic_count)
+            binding callee_result callable fixed_results variadic_results
+            variadic_count)
 
 and type_outer_callback_result table policies ~before_item_index
     ~intrinsic_conversion state id source resolution call occurrence binding
-    callable fixed_results variadic_results variadic_count =
+    callee_result callable fixed_results variadic_results variadic_count =
   let unresolved_source_type =
     callable |> Function_call_resolution.callable_return_type
     |> Type_reference.resolved_type
@@ -2133,6 +2214,7 @@ and type_outer_callback_result table policies ~before_item_index
           outer_callback_source = call;
           outer_callback_occurrence = occurrence;
           outer_callback_binding = binding;
+          outer_callback_callee_result = callee_result;
           outer_callback_callable = callable;
           outer_callback_fixed_results = fixed_results;
           outer_callback_variadic_results = variadic_results;
@@ -2937,25 +3019,47 @@ let type_call table members policies ~before_item_index state = function
                 ( Direct_call_result { source; fixed_results; variadic_results },
                   state )))
   | Function_call_conversion_policy.Indirect_call_policy source -> (
-      match
-        source |> Function_call_conversion_policy.indirect_fixed_policies
-        |> type_fixed_results table members policies ~before_item_index state
-      with
+      let resolution = Function_call_conversion_policy.indirect_source source in
+      let source_call = Function_call_resolution.indirect_source resolution in
+      let callee_result =
+        match
+          ( Function_call_resolution.indirect_member_lookup resolution,
+            Function_call_resolution.call_computed_callee source_call )
+        with
+        | None, Some computed ->
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state computed
+            |> Result.map (fun (result, state) -> (Some result, state))
+        | Some _, _ | None, None -> Ok (None, state)
+      in
+      match callee_result with
       | Error _ as error -> error
-      | Ok (fixed_results, state) -> (
+      | Ok (callee_result, state) -> (
           match
-            source
-            |> Function_call_conversion_policy.indirect_variadic_arguments
-            |> map_state
-                 (type_variadic table members policies ~before_item_index)
+            source |> Function_call_conversion_policy.indirect_fixed_policies
+            |> type_fixed_results table members policies ~before_item_index
                  state
           with
           | Error _ as error -> error
-          | Ok (variadic_results, state) ->
-              Ok
-                ( Indirect_call_result
-                    { source; fixed_results; variadic_results },
-                  state )))
+          | Ok (fixed_results, state) -> (
+              match
+                source
+                |> Function_call_conversion_policy.indirect_variadic_arguments
+                |> map_state
+                     (type_variadic table members policies ~before_item_index)
+                     state
+              with
+              | Error _ as error -> error
+              | Ok (variadic_results, state) ->
+                  Ok
+                    ( Indirect_call_result
+                        {
+                          source;
+                          callee_result;
+                          fixed_results;
+                          variadic_results;
+                        },
+                      state ))))
   | Function_call_conversion_policy.Deferred_call_policy call ->
       Ok (Deferred_call_result call, state)
 

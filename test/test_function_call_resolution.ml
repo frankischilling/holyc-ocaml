@@ -425,6 +425,91 @@ let indirect_headers_bind_defaults_holes_and_varargs () =
         calls)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let indexed_callback_arrays_resolve_indirectly () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-call-indexed-callback-arrays.HC"
+          "F64 (*Global)(I64 first=1,I64 required,F64 last=3,...)[2][3];\n\
+           I64 Caller(){\n\
+           F64 (*automatic)(I64 first=1,I64 required,F64 last=3,...)[2];\n\
+           static F64 (*stored)(I64 first=1,I64 required,F64 last=3,...)[2][2];\n\
+           automatic[1](,2,,4);stored[0][1](,2,,4);\n\
+           return Global[1][2](,2,,4);}"
+      in
+      let calls =
+        resolve prepared |> checked |> fun result ->
+        calls_named result "Caller" |> List.map indirect
+      in
+      Alcotest.(check (list string))
+        "local and global callback arrays keep source order"
+        [ "automatic"; "stored"; "Global" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_callee_name)
+           calls);
+      Alcotest.(check (list string))
+        "indexed callees retain their computed bracket trees"
+        [ "index"; "index"; "index" ]
+        (List.map
+           (fun call ->
+             call |> Semantic_function_call_resolution.indirect_source
+             |> Semantic_function_call_resolution.call_computed_callee
+             |> Option.map (fun expression ->
+                 expression
+                 |> Semantic_function_call_resolution.argument_expression_kind
+                 |> Semantic_function_call_resolution
+                    .argument_expression_kind_name)
+             |> Option.value ~default:"missing")
+           calls);
+      List.iter
+        (fun call ->
+          Alcotest.(check string)
+            "the array keeps its recursive callback return type" "F64"
+            (call |> Semantic_function_call_resolution.indirect_callable
+           |> Semantic_function_call_resolution.callable_return_type
+           |> Semantic_type_reference.spelling);
+          let paths =
+            call |> Semantic_function_call_resolution.indirect_fixed_arguments
+            |> List.map (fun fixed ->
+                match Semantic_function_call_resolution.fixed_value fixed with
+                | Semantic_function_call_resolution.Declared_default _ ->
+                    "default"
+                | Semantic_function_call_resolution.Provided_argument _ ->
+                    "provided")
+          in
+          Alcotest.(check (list string))
+            "middle holes use the retained callback header"
+            [ "default"; "provided"; "default" ]
+            paths;
+          Alcotest.(check int64)
+            "the variadic tail keeps its target count" 1L
+            (Semantic_function_call_resolution.indirect_variadic_count call))
+        calls)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_indexed_callback_arrays_report_rank_and_shape () =
+  [
+    ( "partial rank",
+      "I64 (*Callback)(I64 value)[2][3];I64 Caller(){return Callback[0](1);}",
+      "HCSEMA0039: indexed callback callee uses 1 bracket, but `Callback` has \
+       2 dimensions" );
+    ( "excess rank",
+      "I64 (*Callback)(I64 value)[2];I64 Caller(){return Callback[0][1](1);}",
+      "HCSEMA0039: indexed callback callee uses 2 brackets, but `Callback` has \
+       1 dimension" );
+    ( "ordinary array",
+      "I64 Values[2];I64 Caller(){return Values[0]();}",
+      "HCSEMA0039: indexed value `Values` has no function-pointer signature" );
+  ]
+  |> List.iter (fun (label, source, expected) ->
+      let prepared =
+        prepare ~path:("function-call-indexed-" ^ label ^ ".HC") source
+      in
+      Alcotest.(check (result reject string))
+        label (Error expected) (resolve prepared))
+
 let generated_and_included_call_provenance () =
   let generated =
     prepare ~path:"function-call-generated.HC"
@@ -1436,6 +1521,10 @@ let tests =
       typed_function_pointer_calls_resolve_indirectly;
     Alcotest.test_case "indirect defaults, holes, and varargs" `Quick
       indirect_headers_bind_defaults_holes_and_varargs;
+    Alcotest.test_case "indexed callback arrays" `Quick
+      indexed_callback_arrays_resolve_indirectly;
+    Alcotest.test_case "invalid indexed callback arrays" `Quick
+      invalid_indexed_callback_arrays_report_rank_and_shape;
     Alcotest.test_case "generated and included provenance" `Quick
       generated_and_included_call_provenance;
     Alcotest.test_case "invalid inputs, determinism, and purity" `Quick
