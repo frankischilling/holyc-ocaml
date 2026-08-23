@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Typed function-body calls through fully indexed callback arrays stored in automatic or static locals, module globals, and checked outer globals. The call record keeps the recursive signature, typed base, ordered integer-target subscripts, arguments, return type, and exact outer binding when present. Partial and excessive ranks receive `HCSEMA0039` or `HCSEMA0046`; address calculation, storage reads, lowering, and execution remain separate work.
+
 - Typed calls through scalar, metadata-bearing outer callbacks in executable top-level expressions. The call record keeps the exact source occurrence, selected JIT task or AOT parent-table binding, recursive callback signature, fixed and defaulted slots, variadic tail, return type, and expression-result identity. Outer callback arrays, ordinary objects, and records without checked metadata remain unavailable. Runtime storage reads, address selection, lowering, and execution remain separate work.
 
 - Typed metadata-bearing outer globals in executable top-level expressions. Primitive, pointer, aggregate, array, and callback records retain their exact source occurrence and JIT task or AOT parent-table binding. Metadata-free records remain unavailable, while storage access, lowering, and execution remain separate work.
