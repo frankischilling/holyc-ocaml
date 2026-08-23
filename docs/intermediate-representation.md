@@ -46,6 +46,8 @@ Executable top-level switch selectors are also contextual semantic records, not 
 
 Executable top-level switch cases remain on the semantic side of the same boundary. An implicit label has no value, a single label has one exact typed root, and a ranged label keeps its ellipsis and both roots together. An `F64` bound records integer-conversion intent; no bound is evaluated or assigned a table position. These records are not blocks, labels, constants, jump-table entries, `IC_SWITCH`, or `IC_NOBOUND_SWITCH` instructions.
 
+An explicit `return` under executable top-level code is rejected before this semantic tree can be built. The source check in `PrsStmt` requires an active function and would otherwise emit `IC_RETURN_VAL`. That rule does not remove TempleOS's separate `LexStmt2Bin` behavior: the final ordinary top-level expression may later produce `IC_RETURN_VAL2` and `IC_RET`. The current validator enforces the first distinction but does not emit either instruction.
+
 The implicit-output argument binder is also a semantic record, not a call instruction. It pairs each supplied fixed value or declared default with the parameter from the selected checked header, records integer or `F64` conversion intent, and separates the variadic tail. An unchecked outer function remains explicitly deferred. Later lowering must materialize defaults, apply the recorded conversions, promote variadic values, and create the actual call without confusing a semantic slot position with an IR operand number.
 
 Function switch selectors are also semantic results rather than IR values. They retain bounded or no-bound mode, source type, result class, and nested call identity without creating the range subtraction, jump table, or switch instruction.

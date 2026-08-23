@@ -6965,6 +6965,38 @@ case_evaluation_implicit_value_assignment_range_normalization_and_expansion_dupl
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and LexExpressionI64 directly define the retained pattern and conversion facts"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-RETURN-VALIDATION"
+description = "Explicit return statements are rejected outside function definitions without suppressing the separate implicit final-expression result."
+sources = [
+  "Compiler/PrsStmt.HC:1089-1120 active-function check and IC_RETURN_VAL construction",
+  "Compiler/CMain.HC:1-27 final ordinary-expression IC_RETURN_VAL2 and IC_RET construction",
+  "Compiler/CMain.HC:48-93 executable JIT and AOT top-level compilation without an active function record",
+  "Compiler/CompilerA.HH:28-29 IC_RETURN_VAL and IC_RETURN_VAL2 identities"
+]
+implementation = [
+  "src/driver/top_level_statement_validation.ml",
+  "src/driver/top_level_statement_validation.mli",
+  "src/driver/top_level_expression_tree.ml",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_top_level_statement_validation.ml"]
+status = "implemented"
+issue = 356
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "explicit return statements recursively nested under executable top-level module items"
+function_boundary = "function definitions are not traversed, so their return statements remain on the checked function-return path"
+implicit_result_boundary = "the final ordinary top-level expression remains eligible for later IC_RETURN_VAL2 lowering"
+order_rule = "report the first explicit return in recursive source order"
+provenance = ["return keyword", "include source", "generated invocation", "definition origin"]
+diagnostics = ["HCSEMA0066 explicit return outside a function"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+explicit_return_ir_implicit_final_result_ir_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated legality boundary; PrsStmt checks the active function directly and CMain defines the separate top-level result path"
+
+[[feature]]
 id = "HC-SEMA-TYPED-OUTER-GLOBAL-VALUES"
 description = "Caller-supplied outer global records retain checked types and value shapes in function expressions."
 sources = [
