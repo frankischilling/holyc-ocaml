@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Resolved implicit `Print` and `PutChars` targets for executable top-level statements. The pass groups each typed fixed value with its ordered trailing values, keeps the literal marker and statement identity, selects only module function headers visible before that statement, and then follows the retained JIT or AOT outer chain. Same-name objects do not hide functions. `HCSEMA0059` reports a missing target at the marker; slot binding, format handling, lowering, and output remain separate work.
+- Bound executable top-level `Print` and `PutChars` values against the exact header selected by target resolution. The result distinguishes provided and defaulted fixed slots, records integer and `F64` conversion intent, keeps JIT and AOT default materialization separate, and retains only the remaining `Print` roots as variadic values. Untyped outer targets stay deferred. `HCSEMA0061` and `HCSEMA0062` report missing required and excess nonvariadic values; format handling, evaluated defaults, vararg promotion, lowering, and output remain separate work.
+
+- Resolved implicit `Print` and `PutChars` targets for executable top-level statements. The pass groups each typed fixed value with its ordered trailing values, keeps the literal marker and statement identity, selects only module function headers visible before that statement, and then follows the retained JIT or AOT outer chain. Same-name objects do not hide functions. `HCSEMA0059` reports a missing target at the marker; the newer entry above covers slot binding, while format handling, lowering, and output remain separate work.
 
 - Typed executable top-level calls through fully indexed callback arrays selected from JIT parent-task or AOT enclosing-compilation tables. Each call retains the exact outer occurrence and binding, checked recursive signature, completed callee result, integer-target indexes, fixed and variadic results, return type, and result identity. Zero, partial, and excessive ranks receive `HCSEMA0057`; runtime storage reads, address calculation, lowering, and execution remain separate work.
 
