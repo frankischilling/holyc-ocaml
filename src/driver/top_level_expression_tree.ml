@@ -503,7 +503,7 @@ let record_expression_statement state
            { statement_index = index })
         statement.expression_statement_expression
 
-let record_condition state role source =
+let record_condition state role keyword source =
   let index = state.next_condition in
   match increment "top-level condition" index with
   | Error _ as error -> error
@@ -511,7 +511,7 @@ let record_condition state role source =
       add_root
         { state with next_condition }
         (Sema.Top_level_expression_tree.Condition
-           { condition_index = index; role })
+           { condition_index = index; role; keyword_origin = origin keyword })
         source
 
 let record_selector state mode source =
@@ -680,7 +680,7 @@ let rec statement state = function
       | Ok state ->
           record_condition state
             Sema.Function_call_resolution.Do_while_condition
-            do_while.do_while_condition)
+            do_while.do_while_keyword do_while.do_while_condition)
   | Frontend.Ast.Expression_statement expression ->
       record_expression_statement state expression
   | Frontend.Ast.For_statement for_ -> (
@@ -689,7 +689,7 @@ let rec statement state = function
       | Ok state -> (
           match
             record_condition state Sema.Function_call_resolution.For_condition
-              for_.for_condition
+              for_.for_keyword for_.for_condition
           with
           | Error _ as error -> error
           | Ok state -> (
@@ -702,7 +702,7 @@ let rec statement state = function
   | Frontend.Ast.If_statement if_ -> (
       match
         record_condition state Sema.Function_call_resolution.If_condition
-          if_.if_condition
+          if_.if_keyword if_.if_condition
       with
       | Error _ as error -> error
       | Ok state -> (
@@ -748,7 +748,7 @@ let rec statement state = function
   | Frontend.Ast.While_statement while_ -> (
       match
         record_condition state Sema.Function_call_resolution.While_condition
-          while_.while_condition
+          while_.while_keyword while_.while_condition
       with
       | Error _ as error -> error
       | Ok state -> statement state while_.while_body)

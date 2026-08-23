@@ -12,6 +12,7 @@ type root_role =
   | Condition of {
       condition_index : int;
       role : Function_call_resolution.condition_role;
+      keyword_origin : Symbol.origin;
     }
   | Switch_selector of {
       selector_index : int;

@@ -12,6 +12,7 @@ type root_role =
   | Condition of {
       condition_index : int;
       role : Function_call_resolution.condition_role;
+      keyword_origin : Symbol.origin;
     }
   | Switch_selector of {
       selector_index : int;
@@ -114,7 +115,7 @@ let root_role_name = function
   | Implicit_output_argument { output_index; argument_index } ->
       Printf.sprintf "implicit-output:%d:argument:%d" output_index
         argument_index
-  | Condition { condition_index; role } ->
+  | Condition { condition_index; role; _ } ->
       Printf.sprintf "condition:%d:%s" condition_index
         (match role with
         | Function_call_resolution.If_condition -> "if"
@@ -152,7 +153,8 @@ let role_is_valid = function
       output_index >= 0 && valid_origin marker_origin
   | Implicit_output_argument { output_index; argument_index } ->
       output_index >= 0 && argument_index >= 0
-  | Condition { condition_index; _ } -> condition_index >= 0
+  | Condition { condition_index; keyword_origin; _ } ->
+      condition_index >= 0 && valid_origin keyword_origin
   | Switch_selector { selector_index; _ } -> selector_index >= 0
   | Switch_case_value { case_index; _ } -> case_index >= 0
   | Local_array_dimension
