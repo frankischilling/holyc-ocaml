@@ -2411,15 +2411,69 @@ pinned_ckernel_slice = "Kernel/KernelA.HH:430-449 parses through start, the expl
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 unaffected_name_contexts = [
-  "globals",
-  "locals",
-  "parameters",
-  "functions",
-  "aggregate declarations",
+  "aggregate type names",
+  "aggregate base names",
   "labels"
 ]
+extended_by = "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES"
 native_oracle_status = "not required; the pinned lexer and PrsKeyWord contract make the contextual identity behavior explicit"
 semantic_member_identity_layout_and_duplicates = "planned"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES"
+description = "Global, function, parameter, and local declarators plus offset, sizeof, and ordinary member references retain language-keyword spellings as source-positioned identifiers."
+sources = [
+  "Compiler/PrsLib.HC:31-38 PrsKeyWord",
+  "Compiler/PrsVar.HC:332-337 PrsType identifier slot",
+  "Compiler/PrsVar.HC:209-224 PrsGlblVarLst reaches PrsType",
+  "Compiler/PrsVar.HC:496-521 PrsVarLst consumes reg and noreg before PrsType",
+  "Compiler/PrsExp.HC:335 PrsSizeOf member path",
+  "Compiler/PrsExp.HC:373 PrsOffsetOf member path",
+  "Compiler/PrsExp.HC:996 ordinary member access",
+  "Demo/TimeIns.HC:10 local group naming start and end",
+  "Kernel/BlkDev/DskFmt.HC:3 local group naming offset",
+  "Adam/Gr/GrMath.HC:9 parameter named start with a default",
+  "Kernel/KExts.HC:8 parameter named offset with a default",
+  "Adam/Gr/SpriteNew.HC:41 offset(CSprite.start)"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/cli/parse-register-parameter-error.hc",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 358
+ast_schema = "holyc-ast-v1"
+accepted_contexts = [
+  "global and function declarator names",
+  "global function-pointer declarator names",
+  "function parameter names",
+  "function-pointer parameter names",
+  "local variable declarator names",
+  "local function-pointer declarator names",
+  "sizeof target member names",
+  "offset target member names",
+  "member names after . and ->"
+]
+shared_predicate = "token_is_name_position_identifier"
+lexer_behavior = "the OCaml lexer retains explicit keyword tokens; token dumps and keyword identities do not change"
+register_qualifier_boundary = "reg and noreg stay qualifiers because PrsVarLst consumes them before PrsType; I64 *reg value names the declarator reg and reports the following token"
+misplaced_qualifier_diagnostic = "HCPARSE0013 now reports a qualifier that follows a complete parameter"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+corpus_effect = "eight AOT corpus files move past a name position; accumulated diagnostics fall from 37,414 to 37,264"
+unaffected_name_contexts = [
+  "aggregate type names",
+  "aggregate base names",
+  "expression operands",
+  "labels"
+]
+native_oracle_status = "not required; PrsKeyWord and the TK_IDENT name slots state the contract directly"
+aggregate_type_name_slot = "planned"
+expression_operand_slot = "planned"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
