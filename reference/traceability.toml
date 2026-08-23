@@ -6856,6 +6856,44 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-CONDITION-RESULTS"
+description = "Executable top-level conditions retain their typed value and source-selected branch sense."
+sources = [
+  "Compiler/PrsStmt.HC:459-527 if, while, and do-while expression and branch construction",
+  "Compiler/PrsStmt.HC:529-564 for expression and zero-branch construction",
+  "Compiler/OptPass3.HC:285-319 integer and F64 zero-branch folding",
+  "Compiler/OptPass4.HC:516-526 branch label retention",
+  "Compiler/OptPass789A.HC:151-166 zero and nonzero branch emission",
+  "Compiler/CompilerA.HH:179-180 branch intermediate-code identities"
+]
+implementation = [
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_expression_tree.mli",
+  "src/driver/top_level_expression_tree.ml",
+  "src/sema/top_level_condition_result.ml",
+  "src/sema/top_level_condition_result.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_top_level_condition_result.ml"]
+status = "implemented"
+issue = 350
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "if, while, do-while, and for conditions in typed executable top-level statements"
+order_rule = "retain conditions in recursive source traversal order with one contiguous identity sequence across the compilation unit"
+typing_rule = "reuse the exact immutable top-level root result without adding an intrinsic conversion"
+branch_rule = "if, while, and for select Branch_on_zero; do-while selects Branch_on_nonzero"
+class_rule = "retain integer and F64 result classes; OptPass3 folds zero branches for both immediate forms"
+validation = ["symbol-table ownership", "typed-batch ownership", "contiguous condition identities", "absence of discarded-result intent"]
+provenance = ["containing top-level statement", "statement keyword", "condition expression", "included source", "definition origin"]
+diagnostics = ["HCSEMA0063 invalid, foreign, or discontinuous condition input"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+boolean_conversion_control_flow_edges_labels_branch_emission_iet_main_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained value and branch facts"
+
+[[feature]]
 id = "HC-SEMA-TYPED-OUTER-GLOBAL-VALUES"
 description = "Caller-supplied outer global records retain checked types and value shapes in function expressions."
 sources = [
