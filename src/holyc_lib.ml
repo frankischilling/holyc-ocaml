@@ -66,6 +66,8 @@ module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 module Semantic_top_level_switch_selector_result =
   Sema.Top_level_switch_selector_result
 
+module Semantic_top_level_switch_case_result = Sema.Top_level_switch_case_result
+
 module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
@@ -346,6 +348,11 @@ let collect_top_level_conditions session expressions =
 
 let collect_top_level_switch_selectors session expressions =
   Sema.Top_level_switch_selector_result.collect
+    ~table:(Session.semantic_symbols session)
+    expressions
+
+let collect_top_level_switch_cases session expressions =
+  Sema.Top_level_switch_case_result.collect
     ~table:(Session.semantic_symbols session)
     expressions
 

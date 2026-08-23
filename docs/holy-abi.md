@@ -55,6 +55,8 @@ Executable top-level conditions likewise stop before ABI or machine control flow
 
 Executable top-level switch selectors stop at the same boundary. Their checked records retain bounded or no-bound mode and the original typed result, but do not choose a range origin, jump-table address, default label, register, or machine sequence. [Issue #352](https://github.com/frankischilling/holyc-ocaml/issues/352) records this selector boundary.
 
+Executable top-level case labels also stop before ABI decisions. Their semantic records keep implicit, single-value, and ranged structure, both exact typed range endpoints, and the `ICF_RES_TO_INT` intent on an `F64` bound. They do not evaluate a value, choose an implicit number, allocate a label, populate a jump table, select registers, or emit a branch sequence. [Issue #354](https://github.com/frankischilling/holyc-ocaml/issues/354) records this case boundary.
+
 Ordinary `$$` has the same internal zero-depth `RT_PTR`/`RT_I64` semantic type as the direct function-address result, but it carries no function identity or address-selection policy. The pinned ordinary-expression branch uses `IC_RIP`; class-offset and assembler modes take separate branches. The current checked result records only the address type and integer result class. Numeric RIP selection, IC emission, relocation, and argument placement remain future ABI work. [Issue #342](https://github.com/frankischilling/holyc-ocaml/issues/342) records this boundary.
 
 ## Return value facts

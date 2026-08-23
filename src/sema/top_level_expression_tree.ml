@@ -1,5 +1,10 @@
 type switch_case_position = Single_case | Range_start | Range_end
 
+type switch_case_pattern =
+  | Implicit_case
+  | Single_case_pattern
+  | Ranged_case_pattern of { ellipsis_origin : Symbol.origin }
+
 type root_role =
   | Expression_statement of { statement_index : int }
   | Implicit_output_fixed of {
@@ -39,6 +44,13 @@ type root = {
   origin : Symbol.origin;
 }
 
+type switch_case = {
+  index : int;
+  keyword_origin : Symbol.origin;
+  pattern : switch_case_pattern;
+  origin : Symbol.origin;
+}
+
 type call = {
   source : Function_call_resolution.call;
   callee : Top_level_outer_expression_binding.occurrence;
@@ -50,6 +62,7 @@ type statement = {
   source : Top_level_outer_expression_binding.statement;
   roots : root list;
   calls : call list;
+  switch_cases : switch_case list;
 }
 
 type expression_node = {
@@ -63,6 +76,7 @@ type t = {
   statements_ : statement list;
   all_roots_ : root list;
   all_calls_ : call list;
+  all_switch_cases_ : switch_case list;
   all_expression_nodes_ : expression_node list;
 }
 
@@ -86,14 +100,20 @@ let source result = result.source_
 let statements result = result.statements_
 let all_roots result = result.all_roots_
 let all_calls result = result.all_calls_
+let all_switch_cases result = result.all_switch_cases_
 let all_expression_nodes result = result.all_expression_nodes_
 let statement_source (statement : statement) = statement.source
 let statement_roots (statement : statement) = statement.roots
 let statement_calls (statement : statement) = statement.calls
+let statement_switch_cases (statement : statement) = statement.switch_cases
 let root_index (root : root) = root.index
 let root_role (root : root) = root.role
 let root_expression (root : root) = root.expression
 let root_origin (root : root) = root.origin
+let switch_case_index (case_ : switch_case) = case_.index
+let switch_case_keyword_origin (case_ : switch_case) = case_.keyword_origin
+let switch_case_pattern (case_ : switch_case) = case_.pattern
+let switch_case_origin (case_ : switch_case) = case_.origin
 let call_source (call : call) = call.source
 let call_callee (call : call) = call.callee
 let call_callee_expression (call : call) = call.callee_expression
@@ -105,6 +125,11 @@ let switch_case_position_name = function
   | Single_case -> "single"
   | Range_start -> "range-start"
   | Range_end -> "range-end"
+
+let switch_case_pattern_name = function
+  | Implicit_case -> "implicit"
+  | Single_case_pattern -> "single"
+  | Ranged_case_pattern _ -> "ranged"
 
 let root_role_name = function
   | Expression_statement { statement_index } ->
@@ -175,6 +200,22 @@ let make_root ~index ~role ~expression ~origin =
     Error (invalid_input "top-level expression root has an invalid origin")
   else Ok { index; role; expression; origin }
 
+let make_switch_case ~index ~keyword_origin ~pattern ~origin =
+  if index < 0 then
+    Error (invalid_input "top-level switch case index cannot be negative")
+  else if not (valid_origin keyword_origin) then
+    Error (invalid_input ~origin "top-level switch case keyword is invalid")
+  else if not (valid_origin origin) then
+    Error (invalid_input "top-level switch case has an invalid origin")
+  else
+    match pattern with
+    | Ranged_case_pattern { ellipsis_origin }
+      when not (valid_origin ellipsis_origin) ->
+        Error
+          (invalid_input ~origin "top-level switch range ellipsis is invalid")
+    | Implicit_case | Single_case_pattern | Ranged_case_pattern _ ->
+        Ok { index; keyword_origin; pattern; origin }
+
 let make_call ~source ~callee ~callee_expression ~result_expression =
   let callee_index =
     Top_level_outer_expression_binding.occurrence_index callee
@@ -230,7 +271,7 @@ let indexes_increase accessor values =
   in
   loop None values
 
-let make_statement ~source ~roots ~calls =
+let make_statement ~source ~roots ~calls ~switch_cases =
   if not (indexes_increase root_index roots) then
     Error
       (invalid_input
@@ -246,7 +287,12 @@ let make_statement ~source ~roots ~calls =
       (invalid_input
          ~origin:(Top_level_outer_expression_binding.statement_origin source)
          "top-level calls are not in identity order")
-  else Ok { source; roots; calls }
+  else if not (indexes_increase switch_case_index switch_cases) then
+    Error
+      (invalid_input
+         ~origin:(Top_level_outer_expression_binding.statement_origin source)
+         "top-level switch cases are not in identity order")
+  else Ok { source; roots; calls; switch_cases }
 
 let rec flatten_expression rev expression =
   let rev = expression :: rev in
@@ -328,6 +374,9 @@ let validate_statement_sources source statements =
 let validate_global_indexes statements =
   let roots = List.concat_map (fun statement -> statement.roots) statements in
   let calls = List.concat_map (fun statement -> statement.calls) statements in
+  let switch_cases =
+    List.concat_map (fun statement -> statement.switch_cases) statements
+  in
   if not (indexes_are_contiguous root_index roots) then
     Error (invalid_input "top-level expression root indexes are not contiguous")
   else if
@@ -336,7 +385,7 @@ let validate_global_indexes statements =
          (fun (call : call) -> Function_call_resolution.call_index call.source)
          calls)
   then Error (invalid_input "top-level call indexes are not contiguous")
-  else Ok (roots, calls)
+  else Ok (roots, calls, switch_cases)
 
 let create ~table ~source statements =
   if not (Top_level_outer_expression_binding.owns_table source table) then
@@ -349,7 +398,7 @@ let create ~table ~source statements =
     | Ok () -> (
         match validate_global_indexes statements with
         | Error _ as error -> error
-        | Ok (all_roots, all_calls) ->
+        | Ok (all_roots, all_calls, all_switch_cases) ->
             Ok
               {
                 table;
@@ -357,5 +406,6 @@ let create ~table ~source statements =
                 statements_ = statements;
                 all_roots_ = all_roots;
                 all_calls_ = all_calls;
+                all_switch_cases_ = all_switch_cases;
                 all_expression_nodes_ = expression_nodes statements;
               })

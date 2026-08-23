@@ -66,6 +66,8 @@ module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 module Semantic_top_level_switch_selector_result =
   Sema.Top_level_switch_selector_result
 
+module Semantic_top_level_switch_case_result = Sema.Top_level_switch_case_result
+
 module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
@@ -513,6 +515,16 @@ val collect_top_level_switch_selectors :
 (** Collect the checked roots used by bounded and no-bound executable top-level
     switch statements. Each record retains the source mode; no range arithmetic,
     jump table, or IR is created. *)
+
+val collect_top_level_switch_cases :
+  Session.t ->
+  Semantic_function_call_expression_result.top_level_t ->
+  ( Semantic_top_level_switch_case_result.t,
+    Semantic_top_level_switch_case_result.error )
+  result
+(** Join implicit, single-value, and ranged executable top-level switch cases to
+    their checked value roots. Explicit [F64] values record integer-conversion
+    intent; no value is evaluated and no jump table or IR is created. *)
 
 val resolve_implicit_output_targets :
   Session.t ->

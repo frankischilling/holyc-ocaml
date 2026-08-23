@@ -24,6 +24,7 @@ type state = {
   next_return : int;
   roots_rev : Sema.Top_level_expression_tree.root list;
   calls_rev : Sema.Top_level_expression_tree.call list;
+  switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
 }
 
 let initial_state ~next_occurrence ~next_root ~next_call
@@ -47,6 +48,7 @@ let initial_state ~next_occurrence ~next_root ~next_call
     next_return;
     roots_rev = [];
     calls_rev = [];
+    switch_cases_rev = [];
   }
 
 let increment label value =
@@ -635,36 +637,61 @@ let record_case state (case_ : Frontend.Ast.switch_case_label) =
   match increment "top-level switch case" case_index with
   | Error _ as error -> error
   | Ok next_case -> (
-      let state = { state with next_case } in
-      match case_.switch_case_pattern with
-      | Frontend.Ast.Implicit_case -> Ok state
-      | Frontend.Ast.Single_case value ->
-          add_root state
-            (Sema.Top_level_expression_tree.Switch_case_value
-               {
-                 case_index;
-                 position = Sema.Top_level_expression_tree.Single_case;
-               })
-            value
-      | Frontend.Ast.Ranged_case range -> (
-          match
-            add_root state
-              (Sema.Top_level_expression_tree.Switch_case_value
-                 {
-                   case_index;
-                   position = Sema.Top_level_expression_tree.Range_start;
-                 })
-              range.case_range_start
-          with
-          | Error _ as error -> error
-          | Ok state ->
+      let pattern =
+        match case_.switch_case_pattern with
+        | Frontend.Ast.Implicit_case ->
+            Sema.Top_level_expression_tree.Implicit_case
+        | Frontend.Ast.Single_case _ ->
+            Sema.Top_level_expression_tree.Single_case_pattern
+        | Frontend.Ast.Ranged_case range ->
+            Sema.Top_level_expression_tree.Ranged_case_pattern
+              { ellipsis_origin = origin range.case_range_ellipsis }
+      in
+      match
+        Sema.Top_level_expression_tree.make_switch_case ~index:case_index
+          ~keyword_origin:(origin case_.switch_case_keyword)
+          ~pattern
+          ~origin:(origin case_.switch_case_location)
+      with
+      | Error error ->
+          Error (Sema.Top_level_expression_tree.error_to_string error)
+      | Ok prepared -> (
+          let state =
+            {
+              state with
+              next_case;
+              switch_cases_rev = prepared :: state.switch_cases_rev;
+            }
+          in
+          match case_.switch_case_pattern with
+          | Frontend.Ast.Implicit_case -> Ok state
+          | Frontend.Ast.Single_case value ->
               add_root state
                 (Sema.Top_level_expression_tree.Switch_case_value
                    {
                      case_index;
-                     position = Sema.Top_level_expression_tree.Range_end;
+                     position = Sema.Top_level_expression_tree.Single_case;
                    })
-                range.case_range_end))
+                value
+          | Frontend.Ast.Ranged_case range -> (
+              match
+                add_root state
+                  (Sema.Top_level_expression_tree.Switch_case_value
+                     {
+                       case_index;
+                       position = Sema.Top_level_expression_tree.Range_start;
+                     })
+                  range.case_range_start
+              with
+              | Error _ as error -> error
+              | Ok state ->
+                  add_root state
+                    (Sema.Top_level_expression_tree.Switch_case_value
+                       {
+                         case_index;
+                         position = Sema.Top_level_expression_tree.Range_end;
+                       })
+                    range.case_range_end)))
 
 let selector_mode = function
   | Frontend.Ast.Bounded_switch -> Sema.Function_call_resolution.Bounded_switch
@@ -809,6 +836,7 @@ let statement_input counters expected (item_index, ast) =
           Error "top-level expression traversal did not consume every binding"
         else
           let roots = List.rev state.roots_rev in
+          let switch_cases = List.rev state.switch_cases_rev in
           let calls =
             state.calls_rev
             |> List.sort (fun left right ->
@@ -820,7 +848,7 @@ let statement_input counters expected (item_index, ast) =
           in
           match
             Sema.Top_level_expression_tree.make_statement ~source:expected
-              ~roots ~calls
+              ~roots ~calls ~switch_cases
           with
           | Error error ->
               Error (Sema.Top_level_expression_tree.error_to_string error)

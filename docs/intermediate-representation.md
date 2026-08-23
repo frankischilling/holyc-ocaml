@@ -44,6 +44,8 @@ The semantic frontend now assigns immutable typed results to provided fixed and 
 
 Executable top-level switch selectors are also contextual semantic records, not IR values. They retain bounded or no-bound mode, source type, result class, containing statement, keyword origin, and nested call identity. They do not subtract the lowest case, construct labels or a jump table, or create `IC_SWITCH` or `IC_NOBOUND_SWITCH`.
 
+Executable top-level switch cases remain on the semantic side of the same boundary. An implicit label has no value, a single label has one exact typed root, and a ranged label keeps its ellipsis and both roots together. An `F64` bound records integer-conversion intent; no bound is evaluated or assigned a table position. These records are not blocks, labels, constants, jump-table entries, `IC_SWITCH`, or `IC_NOBOUND_SWITCH` instructions.
+
 The implicit-output argument binder is also a semantic record, not a call instruction. It pairs each supplied fixed value or declared default with the parameter from the selected checked header, records integer or `F64` conversion intent, and separates the variadic tail. An unchecked outer function remains explicitly deferred. Later lowering must materialize defaults, apply the recorded conversions, promote variadic values, and create the actual call without confusing a semantic slot position with an IR operand number.
 
 Function switch selectors are also semantic results rather than IR values. They retain bounded or no-bound mode, source type, result class, and nested call identity without creating the range subtraction, jump table, or switch instruction.
