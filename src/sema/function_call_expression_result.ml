@@ -770,6 +770,7 @@ let primitive_type ?(form = Type.Internal_storage) primitive pointer_depth =
 let integer_type = primitive_type Primitive_type.I64 0
 let float_type = primitive_type Primitive_type.F64 0
 let string_type = primitive_type Primitive_type.U8 1
+let rip_address_type = primitive_type Primitive_type.I64 0
 
 let type_is_owned table type_ =
   match Type.base type_ with
@@ -1428,7 +1429,8 @@ let rec type_expression table members policies ~before_item_index ~context
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
-              finish Unavailable Integer_result state
+              finish ~source_type:rip_address_type Address_value Integer_result
+                state
           | Function_call_resolution.Sizeof_expression
           | Function_call_resolution.Offset_expression
           | Function_call_resolution.Defined_expression ->

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Typed ordinary `$$` expressions in function bodies and executable top-level statements as TempleOS `RT_PTR` addresses. Results keep the compiler's internal zero-depth `I64` representation, address value category, integer result class, and exact source origin in JIT and AOT modes. Assignment and update uses now fail the existing lvalue check. Concrete addresses, assembler fixups, aggregate-offset evaluation, IR, and execution remain separate work.
+
 - Typed function-body calls through fully indexed callback arrays stored in automatic or static locals, module globals, and checked outer globals. The call record keeps the recursive signature, typed base, ordered integer-target subscripts, arguments, return type, and exact outer binding when present. Partial and excessive ranks receive `HCSEMA0039` or `HCSEMA0046`; address calculation, storage reads, lowering, and execution remain separate work.
 
 - Typed calls through scalar, metadata-bearing outer callbacks in executable top-level expressions. The call record keeps the exact source occurrence, selected JIT task or AOT parent-table binding, recursive callback signature, fixed and defaulted slots, variadic tail, return type, and expression-result identity. Outer callback arrays, ordinary objects, and records without checked metadata remain unavailable. Runtime storage reads, address selection, lowering, and execution remain separate work.
