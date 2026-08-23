@@ -58,6 +58,8 @@ let () =
         Test_implicit_output_target_resolution.tests );
       ( "semantic top-level implicit output target resolution",
         Test_top_level_implicit_output_target_resolution.tests );
+      ( "semantic top-level implicit output argument binding",
+        Test_top_level_implicit_output_argument_binding.tests );
       ( "semantic implicit output argument binding",
         Test_implicit_output_argument_binding.tests );
       ( "semantic function call conversion decision",

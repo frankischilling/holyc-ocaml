@@ -15,12 +15,11 @@ type default_materialization =
   | Aot_string_default
 
 type provided_source =
-  | Fixed_expression of Function_call_expression_result.expression_result
-  | Following_argument of
-      Function_call_expression_result.implicit_output_argument_result
+  | Fixed_value of Function_call_expression_result.top_level_root_result
+  | Trailing_value of Function_call_expression_result.top_level_root_result
 
 type omission = {
-  output : Implicit_output_target_resolution.output;
+  output : Top_level_implicit_output_target_resolution.output;
   parameter : Function_type_resolution.parameter;
   position : int;
 }
@@ -52,14 +51,14 @@ type fixed_slot = {
 }
 
 type bound_output = {
-  source : Implicit_output_target_resolution.output;
+  source : Top_level_implicit_output_target_resolution.output;
   header : Function_type_resolution.resolved_function;
   fixed_slots : fixed_slot list;
-  variadic_values : Function_call_expression_result.expression_result list;
+  variadic_roots : Function_call_expression_result.top_level_root_result list;
 }
 
 type deferred_output = {
-  source : Implicit_output_target_resolution.output;
+  source : Top_level_implicit_output_target_resolution.output;
   outer_binding : Outer_environment.binding;
 }
 
@@ -67,27 +66,19 @@ type output_result =
   | Bound_output of bound_output
   | Deferred_outer_output of deferred_output
 
-type resolved_function = {
-  source : Implicit_output_target_resolution.resolved_function;
-  outputs : output_result list;
-}
-
-module Int_map = Map.Make (Int)
-
 type t = {
   table : Symbol_table.t;
   policies_ : Function_call_conversion_policy.t;
-  targets_ : Implicit_output_target_resolution.t;
+  targets_ : Top_level_implicit_output_target_resolution.t;
   compilation_mode_ : Function_resolution.compilation_mode;
-  functions_ : resolved_function list;
-  by_symbol : resolved_function Int_map.t;
+  outputs_ : output_result list;
 }
 
 type error_kind =
   | Invalid_input of string
   | Missing_required_parameter of omission
   | Extra_nonvariadic_argument of {
-      output : Implicit_output_target_resolution.output;
+      output : Top_level_implicit_output_target_resolution.output;
       provided : provided_source;
       position : int;
       fixed_count : int;
@@ -95,19 +86,15 @@ type error_kind =
 
 type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
-let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
-let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 let owns_table result table = result.table == table
 let policies result = result.policies_
 let targets result = result.targets_
 let compilation_mode result = result.compilation_mode_
-let functions result = result.functions_
-let function_source (function_ : resolved_function) = function_.source
-let function_outputs (function_ : resolved_function) = function_.outputs
+let outputs result = result.outputs_
 let bound_source (output : bound_output) = output.source
 let bound_header (output : bound_output) = output.header
 let bound_fixed_slots (output : bound_output) = output.fixed_slots
-let bound_variadic_values (output : bound_output) = output.variadic_values
+let bound_variadic_roots (output : bound_output) = output.variadic_roots
 let deferred_source (output : deferred_output) = output.source
 let deferred_outer_binding (output : deferred_output) = output.outer_binding
 let fixed_parameter (slot : fixed_slot) = slot.parameter
@@ -157,30 +144,31 @@ let fixed_path_name = function
       "defaulted:" ^ default_materialization_name default.materialization
 
 let invalid_input message =
-  { code = "HCSEMA0049"; kind = Invalid_input message; origin = None }
+  { code = "HCSEMA0060"; kind = Invalid_input message; origin = None }
 
 let output_origin output =
-  output |> Implicit_output_target_resolution.output_source
-  |> Function_call_expression_result.implicit_output_source
-  |> Function_call_resolution.implicit_output_origin
+  Top_level_implicit_output_target_resolution.output_marker_origin output
 
 let missing_required_parameter omission =
   {
-    code = "HCSEMA0050";
+    code = "HCSEMA0061";
     kind = Missing_required_parameter omission;
     origin = Some (output_origin omission.output);
   }
 
-let provided_origin = function
-  | Fixed_expression result ->
-      Function_call_expression_result.result_origin result
-  | Following_argument argument ->
-      argument |> Function_call_expression_result.implicit_output_argument_value
-      |> Function_call_expression_result.result_origin
+let root_of_source = function
+  | Fixed_value root | Trailing_value root -> root
+
+let result_of_source source =
+  source |> root_of_source
+  |> Function_call_expression_result.top_level_root_value
+
+let provided_origin source =
+  source |> result_of_source |> Function_call_expression_result.result_origin
 
 let extra_nonvariadic_argument output provided position fixed_count =
   {
-    code = "HCSEMA0051";
+    code = "HCSEMA0062";
     kind =
       Extra_nonvariadic_argument { output; provided; position; fixed_count };
     origin = Some (provided_origin provided);
@@ -200,45 +188,30 @@ let error_message error =
   match error.kind with
   | Invalid_input message -> message
   | Missing_required_parameter omission ->
-      Printf.sprintf "implicit output call to %S is missing required %s"
-        (Implicit_output_target_resolution.output_target_name omission.output)
+      Printf.sprintf
+        "top-level implicit output call to %S is missing required %s"
+        (Top_level_implicit_output_target_resolution.output_target_name
+           omission.output)
         (parameter_display omission.parameter)
   | Extra_nonvariadic_argument { output; position; fixed_count; _ } ->
       Printf.sprintf
-        "implicit output call to %S provides argument %d, but its selected \
-         header has %d fixed %s"
-        (Implicit_output_target_resolution.output_target_name output)
+        "top-level implicit output call to %S provides argument %d, but its \
+         selected header has %d fixed %s"
+        (Top_level_implicit_output_target_resolution.output_target_name output)
         (position + 1) fixed_count
         (if fixed_count = 1 then "parameter" else "parameters")
 
 let error_to_string error = error.code ^ ": " ^ error_message error
 
-let find_function result symbol =
-  if not (Symbol_table.owns_symbol result.table symbol) then None
-  else
-    match Int_map.find_opt (symbol_number symbol) result.by_symbol with
-    | Some function_
-      when function_ |> function_source
-           |> Implicit_output_target_resolution.function_source
-           |> Function_call_expression_result.function_symbol
-           |> same_symbol symbol -> Some function_
-    | Some _ | None -> None
-
-let result_of_source = function
-  | Fixed_expression result -> result
-  | Following_argument argument ->
-      Function_call_expression_result.implicit_output_argument_value argument
-
 let provided_values output =
-  let source = Implicit_output_target_resolution.output_source output in
   let fixed =
-    Function_call_expression_result.implicit_output_fixed_value source
+    Top_level_implicit_output_target_resolution.output_fixed_value output
   in
   let following =
-    source |> Function_call_expression_result.implicit_output_arguments
-    |> List.map (fun argument -> Following_argument argument)
+    output |> Top_level_implicit_output_target_resolution.output_arguments
+    |> List.map (fun root -> Trailing_value root)
   in
-  Fixed_expression fixed :: following
+  Fixed_value fixed :: following
 
 let make_provided policies ~before_item_index position parameter source =
   let result = result_of_source source in
@@ -270,8 +243,7 @@ let make_default policies mode ~before_item_index output position parameter
   }
 
 let bind_header policies mode ~before_item_index output header =
-  let values = provided_values output in
-  match Implicit_output_argument_rules.plan header values with
+  match Implicit_output_argument_rules.plan header (provided_values output) with
   | Error
       (Implicit_output_argument_rules.Missing_required_parameter
          { parameter; position }) ->
@@ -305,21 +277,32 @@ let bind_header policies mode ~before_item_index output header =
             in
             { parameter; path })
       in
-      let variadic_values =
-        plan |> Implicit_output_argument_rules.variadic_values
-        |> List.map result_of_source
-      in
       Ok
-        (Bound_output { source = output; header; fixed_slots; variadic_values })
+        (Bound_output
+           {
+             source = output;
+             header;
+             fixed_slots;
+             variadic_roots =
+               plan |> Implicit_output_argument_rules.variadic_values
+               |> List.map root_of_source;
+           })
 
-let bind_output policies mode outer_headers ~before_item_index output =
-  match Implicit_output_target_resolution.output_binding output with
-  | Implicit_output_target_resolution.Module_function target ->
+let before_item_index output =
+  output |> Top_level_implicit_output_target_resolution.output_statement
+  |> Function_call_expression_result.top_level_statement_source
+  |> Top_level_expression_tree.statement_source
+  |> Top_level_outer_expression_binding.statement_item_index
+
+let bind_output policies mode outer_headers output =
+  let before_item_index = before_item_index output in
+  match Top_level_implicit_output_target_resolution.output_binding output with
+  | Top_level_implicit_output_target_resolution.Module_function target ->
       bind_header policies mode ~before_item_index output
-        (Implicit_output_target_resolution.module_header target)
-  | Implicit_output_target_resolution.Outer_function outer_binding -> (
+        (Top_level_implicit_output_target_resolution.module_header target)
+  | Top_level_implicit_output_target_resolution.Outer_function binding -> (
       let symbol =
-        outer_binding |> Outer_environment.binding_entry
+        binding |> Outer_environment.binding_entry
         |> Outer_environment.entry_symbol
       in
       match
@@ -327,7 +310,10 @@ let bind_output policies mode outer_headers ~before_item_index output =
       with
       | Some header ->
           bind_header policies mode ~before_item_index output header
-      | None -> Ok (Deferred_outer_output { source = output; outer_binding }))
+      | None ->
+          Ok
+            (Deferred_outer_output { source = output; outer_binding = binding })
+      )
 
 let map_result apply values =
   let rec loop rev = function
@@ -339,42 +325,37 @@ let map_result apply values =
   in
   loop [] values
 
-let bind_function policies mode outer_headers source =
-  let expression_function =
-    Implicit_output_target_resolution.function_source source
-  in
-  let before_item_index =
-    Function_call_expression_result.function_item_index expression_function
-  in
-  match
-    source |> Implicit_output_target_resolution.function_outputs
-    |> map_result (bind_output policies mode outer_headers ~before_item_index)
-  with
-  | Error _ as error -> error
-  | Ok outputs -> Ok { source; outputs }
-
 let bind ~table ~policies ?(outer_headers = []) targets =
-  let expressions = Implicit_output_target_resolution.source targets in
-  let mode = Implicit_output_target_resolution.compilation_mode targets in
-  if not (Implicit_output_target_resolution.owns_table targets table) then
-    Error
-      (invalid_input "implicit output targets belong to another symbol table")
-  else if not (Function_call_conversion_policy.owns_table policies table) then
-    Error
-      (invalid_input
-         "implicit output conversion policies belong to another symbol table")
-  else if
-    not (Function_call_expression_result.owns_policies expressions policies)
+  let expressions =
+    Top_level_implicit_output_target_resolution.source targets
+  in
+  let mode =
+    Top_level_implicit_output_target_resolution.compilation_mode targets
+  in
+  if not (Top_level_implicit_output_target_resolution.owns_table targets table)
   then
     Error
       (invalid_input
-         "implicit output expressions belong to another conversion-policy \
-          traversal")
+         "top-level implicit output targets belong to another symbol table")
+  else if not (Function_call_conversion_policy.owns_table policies table) then
+    Error
+      (invalid_input
+         "top-level implicit output conversion policies belong to another \
+          symbol table")
+  else if
+    not
+      (Function_call_expression_result.top_level_owns_policies expressions
+         policies)
+  then
+    Error
+      (invalid_input
+         "top-level implicit output expressions belong to another \
+          conversion-policy traversal")
   else if Function_call_conversion_policy.compilation_mode policies <> mode then
     Error
       (invalid_input
-         "implicit output targets and conversion policies use different \
-          compilation modes")
+         "top-level implicit output targets and conversion policies use \
+          different compilation modes")
   else
     match
       Implicit_output_argument_rules.collect_outer_headers table outer_headers
@@ -382,35 +363,24 @@ let bind ~table ~policies ?(outer_headers = []) targets =
     | Error Implicit_output_argument_rules.Foreign_header ->
         Error
           (invalid_input
-             "implicit output outer header belongs to another symbol table")
+             "top-level implicit output outer header belongs to another symbol \
+              table")
     | Error Implicit_output_argument_rules.Duplicate_header ->
         Error
           (invalid_input
-             "implicit output outer headers repeat a function symbol")
+             "top-level implicit output outer headers repeat a function symbol")
     | Ok outer_headers -> (
         match
-          targets |> Implicit_output_target_resolution.functions
-          |> map_result (bind_function policies mode outer_headers)
+          targets |> Top_level_implicit_output_target_resolution.outputs
+          |> map_result (bind_output policies mode outer_headers)
         with
         | Error _ as error -> error
-        | Ok functions ->
-            let by_symbol =
-              List.fold_left
-                (fun map function_ ->
-                  let symbol =
-                    function_ |> function_source
-                    |> Implicit_output_target_resolution.function_source
-                    |> Function_call_expression_result.function_symbol
-                  in
-                  Int_map.add (symbol_number symbol) function_ map)
-                Int_map.empty functions
-            in
+        | Ok outputs_ ->
             Ok
               {
                 table;
                 policies_ = policies;
                 targets_ = targets;
                 compilation_mode_ = mode;
-                functions_ = functions;
-                by_symbol;
+                outputs_;
               })

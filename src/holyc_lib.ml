@@ -86,6 +86,9 @@ module Semantic_implicit_output_target_resolution =
 module Semantic_top_level_implicit_output_target_resolution =
   Sema.Top_level_implicit_output_target_resolution
 
+module Semantic_top_level_implicit_output_argument_binding =
+  Sema.Top_level_implicit_output_argument_binding
+
 module Semantic_implicit_output_argument_binding =
   Sema.Implicit_output_argument_binding
 
@@ -343,6 +346,12 @@ let resolve_top_level_implicit_output_targets session ~function_types ~functions
   Sema.Top_level_implicit_output_target_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~function_types ~functions expressions
+
+let bind_top_level_implicit_output_arguments session ~policies ?outer_headers
+    targets =
+  Sema.Top_level_implicit_output_argument_binding.bind
+    ~table:(Session.semantic_symbols session)
+    ~policies ?outer_headers targets
 
 let bind_implicit_output_arguments session ~policies ?outer_headers targets =
   Sema.Implicit_output_argument_binding.bind
