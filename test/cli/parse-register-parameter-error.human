@@ -1,3 +1,3 @@
-cli/parse-register-parameter-error.hc:2:26: error[HCPARSE0013]: register qualifier must appear before function parameter pointer stars or its name
-    2 | extern U0 Misplaced(I64 *reg value);
-      |                          ^^^
+cli/parse-register-parameter-error.hc:2:32: error[HCPARSE0013]: register qualifier must appear before a parameter type or immediately after it
+    2 | extern U0 Misplaced(I64 *value reg);
+      |                                ^^^

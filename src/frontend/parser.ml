@@ -830,15 +830,13 @@ let delimiter_kind token =
   | Token_kind.Punctuation ';' -> Some Ast.Semicolon
   | _ -> None
 
-let token_is_aggregate_member_identifier token =
+(* TempleOS has no keyword tokens. [Lex] hands back [TK_IDENT] for every word,
+   and [PrsKeyWord] (Compiler/PrsLib.HC:31-38) is what turns one into a keyword
+   at the sites that ask. Name positions never ask, so a keyword spelling is an
+   ordinary name in a declarator or after a member dot. *)
+let token_is_name_position_identifier token =
   match token.Token.kind with
   | Token_kind.Identifier | Token_kind.Keyword _ -> true
-  | _ -> false
-
-let token_is_function_pointer_identifier ~declarator_context token =
-  match token.Token.kind with
-  | Token_kind.Identifier -> true
-  | Token_kind.Keyword _ -> declarator_context = Aggregate_member_declarator
   | _ -> false
 
 let declaration_modifier_kind token =
@@ -889,7 +887,7 @@ let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
               definition_trace = pointer_trace;
             })
           (parse_function_pointer ())
-      else if name_item.token.kind <> Token_kind.Identifier then (
+      else if not (token_is_name_position_identifier name_item.token) then (
         report ~secondary:pointer_trace cursor name_item ~code:"HCPARSE0002"
           ~message:
             (Printf.sprintf "expected an identifier after type %S, but found %s"
@@ -1304,7 +1302,7 @@ and parse_sizeof_expression cursor ~context : parsed_expression option =
       | Token_kind.Punctuation '.' ->
           let dot_item = take cursor in
           let name_item = peek cursor in
-          if name_item.token.kind <> Token_kind.Identifier then
+          if not (token_is_name_position_identifier name_item.token) then
             expression_failure ~secondary:dot_item.context.definition_trace
               cursor name_item ~code:"HCPARSE0032"
               ~message:
@@ -1442,7 +1440,7 @@ and parse_offset_expression cursor ~context : parsed_expression option =
       let rec take_members members_rev items_rev =
         let dot_item = take cursor in
         let name_item = peek cursor in
-        if name_item.token.kind <> Token_kind.Identifier then
+        if not (token_is_name_position_identifier name_item.token) then
           expression_failure ~secondary:dot_item.context.definition_trace cursor
             name_item ~code:"HCPARSE0037"
             ~message:
@@ -1872,7 +1870,7 @@ and parse_member_suffix cursor ~context (base : parsed_expression) access_kind :
     parsed_expression option =
   let operator_item = take cursor in
   let member_item = peek cursor in
-  if member_item.token.kind <> Token_kind.Identifier then
+  if not (token_is_name_position_identifier member_item.token) then
     expression_failure cursor member_item ~code:"HCPARSE0027"
       ~message:
         (Printf.sprintf "expected a member name after %S in %s, but found %s"
@@ -2796,7 +2794,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
                 (fun name ->
                   (name, Some parsed.node, pointer_tokens @ parsed.tokens))
                 parsed.name
-        else if not (token_is_aggregate_member_identifier name_item.token) then (
+        else if not (token_is_name_position_identifier name_item.token) then (
           report cursor name_item ~code:"HCPARSE0113"
             ~message:
               (Printf.sprintf
@@ -2855,7 +2853,7 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
     (parsed_aggregate_member_metadata, aggregate_parse_failure) result =
   let rec collect nodes_rev tokens_rev =
     let name_item = peek cursor in
-    if not (token_is_aggregate_member_identifier name_item.token) then
+    if not (token_is_name_position_identifier name_item.token) then
       Ok
         {
           metadata_nodes = List.rev nodes_rev;
@@ -3064,8 +3062,8 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
         | Token_kind.Keyword Keyword.Reg | Token_kind.Keyword Keyword.Noreg ->
             declaration_failure cursor following_item ~code:"HCPARSE0013"
               ~message:
-                "register qualifier must appear before function parameter \
-                 pointer stars or its name"
+                "register qualifier must appear before a parameter type or \
+                 immediately after it"
         | _ ->
             declaration_failure cursor following_item ~code:"HCPARSE0010"
               ~message:
@@ -3131,32 +3129,31 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
           let leading_tokens =
             prefix_tokens @ [ type_item.token ] @ suffix.tokens @ pointer_tokens
           in
-          match next_item.token.kind with
-          | Token_kind.Punctuation '(' -> (
-              match
-                parse_function_pointer_declarator cursor ~function_pointer_depth
-                  ~declarator_context:Function_parameter_declarator
-              with
-              | None -> None
-              | Some parsed ->
-                  finish_function_parameter cursor ~register_qualifiers
-                    ~type_specifier ~pointer_layers ~name:parsed.name
-                    ~function_pointer:(Some parsed.node)
-                    ~tokens:(leading_tokens @ parsed.tokens))
-          | Token_kind.Identifier ->
-              let name_item = take cursor in
-              let name =
-                Ast.make_identifier ~spelling:name_item.token.raw
-                  ~location:(token_location name_item.token)
-              in
-              finish_function_parameter cursor ~register_qualifiers
-                ~type_specifier ~pointer_layers ~name:(Some name)
-                ~function_pointer:None
-                ~tokens:(leading_tokens @ [ name_item.token ])
-          | _ ->
-              finish_function_parameter cursor ~register_qualifiers
-                ~type_specifier ~pointer_layers ~name:None
-                ~function_pointer:None ~tokens:leading_tokens))
+          if next_item.token.kind = Token_kind.Punctuation '(' then
+            match
+              parse_function_pointer_declarator cursor ~function_pointer_depth
+                ~declarator_context:Function_parameter_declarator
+            with
+            | None -> None
+            | Some parsed ->
+                finish_function_parameter cursor ~register_qualifiers
+                  ~type_specifier ~pointer_layers ~name:parsed.name
+                  ~function_pointer:(Some parsed.node)
+                  ~tokens:(leading_tokens @ parsed.tokens)
+          else if token_is_name_position_identifier next_item.token then
+            let name_item = take cursor in
+            let name =
+              Ast.make_identifier ~spelling:name_item.token.raw
+                ~location:(token_location name_item.token)
+            in
+            finish_function_parameter cursor ~register_qualifiers
+              ~type_specifier ~pointer_layers ~name:(Some name)
+              ~function_pointer:None
+              ~tokens:(leading_tokens @ [ name_item.token ])
+          else
+            finish_function_parameter cursor ~register_qualifiers
+              ~type_specifier ~pointer_layers ~name:None ~function_pointer:None
+              ~tokens:leading_tokens))
   | _ ->
       declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:
@@ -3222,8 +3219,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
           in
           let name_item = peek cursor in
           let name_is_identifier =
-            token_is_function_pointer_identifier ~declarator_context
-              name_item.token
+            token_is_name_position_identifier name_item.token
           in
           let parsed_name =
             if name_is_identifier then
@@ -4283,37 +4279,35 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
       let pointer_tokens = List.map (fun item -> item.token) pointer_items in
       let name_item = peek cursor in
       let parsed_name =
-        match name_item.token.kind with
-        | Token_kind.Punctuation '(' ->
-            Option.map
-              (fun parsed ->
-                let name =
-                  match parsed.name with
-                  | Some name -> name
-                  | None ->
-                      invalid_arg
-                        "local function-pointer parser returned an unnamed \
-                         declarator"
-                in
-                (name, Some parsed.node, parsed.tokens))
-              (parse_function_pointer_declarator cursor
-                 ~function_pointer_depth:0
-                 ~declarator_context:(Local_variable_declarator boundary))
-        | Token_kind.Identifier ->
-            let name_item = take cursor in
-            let name =
-              Ast.make_identifier ~spelling:name_item.token.raw
-                ~location:(token_location name_item.token)
-            in
-            Some (name, None, [ name_item.token ])
-        | _ ->
-            local_declaration_failure cursor ~boundary name_item
-              ~code:"HCPARSE0100"
-              ~message:
-                (Printf.sprintf
-                   "expected a local variable name after type %S, but found %s"
-                   (type_spelling base_spelling pointer_layers)
-                   (token_description name_item.token))
+        if name_item.token.kind = Token_kind.Punctuation '(' then
+          Option.map
+            (fun parsed ->
+              let name =
+                match parsed.name with
+                | Some name -> name
+                | None ->
+                    invalid_arg
+                      "local function-pointer parser returned an unnamed \
+                       declarator"
+              in
+              (name, Some parsed.node, parsed.tokens))
+            (parse_function_pointer_declarator cursor ~function_pointer_depth:0
+               ~declarator_context:(Local_variable_declarator boundary))
+        else if token_is_name_position_identifier name_item.token then
+          let name_item = take cursor in
+          let name =
+            Ast.make_identifier ~spelling:name_item.token.raw
+              ~location:(token_location name_item.token)
+          in
+          Some (name, None, [ name_item.token ])
+        else
+          local_declaration_failure cursor ~boundary name_item
+            ~code:"HCPARSE0100"
+            ~message:
+              (Printf.sprintf
+                 "expected a local variable name after type %S, but found %s"
+                 (type_spelling base_spelling pointer_layers)
+                 (token_description name_item.token))
       in
       Option.bind parsed_name
         (fun (name, function_pointer, declarator_tokens) ->

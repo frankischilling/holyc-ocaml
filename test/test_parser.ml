@@ -1445,8 +1445,8 @@ let function_parameter_register_failures () =
       | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "rejected qualified function %s became visible" name)
     [
-      ( "qualifier after pointer stars",
-        "extern U0 Misplaced(I64 *reg value);",
+      ( "qualifier after a complete parameter",
+        "extern U0 Misplaced(I64 value reg);",
         "Misplaced",
         "HCPARSE0013",
         "must appear before" );
@@ -3618,11 +3618,11 @@ let aggregate_member_keyword_provenance_and_scope () =
       Alcotest.(check string)
         description code (first_diagnostic rejected_output).code)
     [
-      ( "aggregate names remain strict",
+      (* PrsStmt.HC:4 accepts any TK_IDENT here, so this rejection is a known
+         difference tracked separately from the declarator-name rule. *)
+      ( "aggregate type names remain strict",
         "class start { I64 value; };",
         "HCPARSE0109" );
-      ("global names remain strict", "I64 start;", "HCPARSE0002");
-      ("global callback names remain strict", "I64 (*start)();", "HCPARSE0132");
     ];
   let _, _, switch_output = parse_string "switch[value]{start:case 1:;end:}" in
   ignore (expect_ast switch_output)
@@ -10662,7 +10662,7 @@ let function_prototype_failures () =
         "HCPARSE0011",
         "array parameters" );
       ( "register-qualified parameter",
-        "extern U0 Registered(I64 *reg value);",
+        "extern U0 Registered(I64 *value reg);",
         "Registered",
         "HCPARSE0013",
         "must appear before" );
@@ -11162,6 +11162,223 @@ let function_body_statements (definition : Ast.function_definition) =
             sequence.sequence_elements
       | statement -> [ statement ])
     body.block_statements
+
+(* Compiler/PrsLib.HC:31-38 keeps keyword identity in the hash entry, so the
+   name positions that read TK_IDENT directly accept a keyword spelling:
+   Compiler/PrsVar.HC:332-337 for declarators and Compiler/PrsExp.HC:335, :373,
+   and :996 for member references. *)
+let contextual_keyword_declarator_names () =
+  let source =
+    "extern U0 Fill("
+    ^ "I64 start=0,I64 offset=0);\n"
+    ^ "I64 start;\n"
+    ^ "I64 (*end)();\n"
+    ^ "U0 Ins()\n{\n"
+    ^ pinned_lines "Demo/TimeIns.HC" ~first:10 ~last:10
+    ^ "\n"
+    ^ pinned_lines "Kernel/BlkDev/DskFmt.HC" ~first:3 ~last:3
+    ^ "\nU0 (*lock)();\n}"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~path:"Demo/contextual-names.HC" ~compilation_mode source
+      in
+      let ast = expect_ast output in
+      let prototype =
+        List.find_map
+          (function Ast.Function_prototype value -> Some value | _ -> None)
+          ast.items
+        |> Option.get
+      in
+      Alcotest.(check (list string))
+        "parameter names keep their keyword spelling" [ "start"; "offset" ]
+        (List.map
+           (fun (parameter : Ast.function_parameter) ->
+             (Option.get parameter.name).spelling)
+           prototype.parameters);
+      List.iter
+        (fun (parameter : Ast.function_parameter) ->
+          Alcotest.(check bool)
+            (Printf.sprintf "%s keeps its default"
+               (Option.get parameter.name).spelling)
+            true
+            (Option.is_some parameter.default))
+        prototype.parameters;
+      let global =
+        List.find_map
+          (function Ast.Global_variable value -> Some value | _ -> None)
+          ast.items
+        |> Option.get
+      in
+      Alcotest.(check string) "global name" "start" global.name.spelling;
+      let callback =
+        List.find_map
+          (function
+            | Ast.Global_declaration declaration ->
+                List.find_opt
+                  (fun (declarator : Ast.global_declarator) ->
+                    Option.is_some declarator.function_pointer)
+                  declaration.declarators
+            | _ -> None)
+          ast.items
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "global callback name" "end" callback.name.spelling;
+      ignore (expect_global_function_pointer callback);
+      let definition =
+        List.find_map
+          (function Ast.Function_definition value -> Some value | _ -> None)
+          ast.items
+        |> Option.get
+      in
+      let declarations =
+        function_body_statements definition |> List.map expect_local_declaration
+      in
+      let local_names declaration =
+        List.map
+          (fun (declarator : Ast.local_declarator) ->
+            declarator.local_name.spelling)
+          declaration.Ast.local_declarators
+      in
+      Alcotest.(check (list string))
+        "pinned TimeIns local group"
+        [ "i"; "start"; "end"; "overhead_time"; "test_time" ]
+        (local_names (List.nth declarations 0));
+      Alcotest.(check (list string))
+        "pinned DskFmt local group"
+        [ "i"; "j"; "ext_base"; "drv_num"; "offset"; "cur_type" ]
+        (local_names (List.nth declarations 1));
+      let local_callback =
+        List.hd (List.nth declarations 2).local_declarators
+      in
+      Alcotest.(check string)
+        "local callback name" "lock" local_callback.local_name.spelling;
+      ignore (expect_local_function_pointer local_callback))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let contextual_keyword_member_names () =
+  let source =
+    "extern class CSprite;\n"
+    ^ "I64 SpriteElemQuedBaseSize()\n{\n"
+    ^ "  return offset(CSprite.start)+sizeof(CSprite.end);\n}\n"
+    ^ "U0 Walk(CSprite *sprite)\n{\n  sprite->start;\n  sprite->end;\n}"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~path:"Adam/Gr/contextual-members.HC" ~compilation_mode
+          source
+      in
+      let definitions =
+        List.filter_map
+          (function Ast.Function_definition value -> Some value | _ -> None)
+          (expect_ast output).items
+      in
+      let returned =
+        function_body_statements (List.nth definitions 0)
+        |> List.hd |> expect_return_statement
+      in
+      let sum =
+        Option.get returned.return_value |> expect_binary_expression
+      in
+      let offset = expect_offset_expression sum.binary_left in
+      Alcotest.(check (list string))
+        "offset member path" [ "start" ]
+        (List.map
+           (fun (member : Ast.offset_member) -> member.offset_member_name.spelling)
+           offset.offset_members);
+      let size = expect_sizeof_expression sum.binary_right in
+      Alcotest.(check (list string))
+        "sizeof member path" [ "end" ]
+        (List.map
+           (fun (member : Ast.sizeof_member) -> member.sizeof_member_name.spelling)
+           size.sizeof_members);
+      Alcotest.(check (list string))
+        "arrow member names" [ "start"; "end" ]
+        (function_body_statements (List.nth definitions 1)
+        |> List.map (fun statement ->
+               (expect_expression_statement statement)
+                 .expression_statement_expression |> expect_member_expression
+               |> fun access -> access.member_name.spelling)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let contextual_keyword_name_limits () =
+  (* PrsVarLst consumes reg and noreg before PrsType runs
+     (Compiler/PrsVar.HC:496-520), so they stay qualifiers rather than names. *)
+  let _, _, output =
+    parse_string "U0 Hold()\n{\nI64 reg R15 value;\nI64 noreg other;\n}"
+  in
+  let definition =
+    List.find_map
+      (function Ast.Function_definition value -> Some value | _ -> None)
+      (expect_ast output).items
+    |> Option.get
+  in
+  let declarations =
+    function_body_statements definition |> List.map expect_local_declaration
+  in
+  Alcotest.(check (list string))
+    "qualifiers do not become names" [ "value"; "other" ]
+    (List.map
+       (fun declaration ->
+         (List.hd declaration.Ast.local_declarators).local_name.spelling)
+       declarations);
+  Alcotest.(check (list string))
+    "qualifier kinds are retained" [ "reg"; "noreg" ]
+    (List.map
+       (fun declaration ->
+         (List.hd declaration.Ast.local_declarators).local_register_qualifiers
+         |> List.hd
+         |> fun qualifier -> qualifier.Ast.spelling)
+       declarations);
+  List.iter
+    (fun (description, rejected, code) ->
+      let _, _, rejected_output = parse_string rejected in
+      Alcotest.(check string)
+        description code (first_diagnostic rejected_output).code)
+    [
+      ("keyword type positions stay strict", "start value;", "HCPARSE0048");
+      ( "keyword parameter types stay strict",
+        "extern U0 Take(start value);",
+        "HCPARSE0009" );
+    ]
+
+let contextual_keyword_local_provenance () =
+  let source = "#define NAME start\nU0 Ins()\n{\nI64 NAME;\n}" in
+  let session, root, output = parse_string source in
+  let definition =
+    List.find_map
+      (function Ast.Function_definition value -> Some value | _ -> None)
+      (expect_ast output).items
+    |> Option.get
+  in
+  let name =
+    function_body_statements definition
+    |> List.hd |> expect_local_declaration
+    |> fun declaration ->
+    (List.hd declaration.local_declarators).local_name
+  in
+  Alcotest.(check string) "generated local spelling" "start" name.spelling;
+  Alcotest.(check bool)
+    "generated local uses its definition frame" false
+    (Source_id.equal name.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated local keeps its invocation" true
+    (Option.is_some name.location.generated_from);
+  Alcotest.(check bool)
+    "generated local keeps its definition" true
+    (Option.is_some name.location.defined_at);
+  let ast = expect_ast output in
+  let sources = Session.sources session in
+  Alcotest.(check string)
+    "human local dump is deterministic"
+    (Ast_dump.human sources ast)
+    (Ast_dump.human sources ast);
+  Alcotest.(check bool)
+    "human dump retains the contextual local" true
+    (contains (Ast_dump.human sources ast) "name spelling=\"start\"")
 
 let pinned_function_pointer_locals () =
   let source =
@@ -18399,6 +18616,14 @@ let tests =
       pinned_aggregate_member_keyword_names;
     Alcotest.test_case "aggregate member keyword provenance and scope" `Quick
       aggregate_member_keyword_provenance_and_scope;
+    Alcotest.test_case "contextual keyword declarator names" `Quick
+      contextual_keyword_declarator_names;
+    Alcotest.test_case "contextual keyword member names" `Quick
+      contextual_keyword_member_names;
+    Alcotest.test_case "contextual keyword name limits" `Quick
+      contextual_keyword_name_limits;
+    Alcotest.test_case "contextual keyword local provenance" `Quick
+      contextual_keyword_local_provenance;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick
       aggregate_backing_source_behavior;
     Alcotest.test_case "internal type specifiers" `Quick
