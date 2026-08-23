@@ -2,14 +2,14 @@
   {
     "code": "HCPARSE0013",
     "severity": "error",
-    "message": "register qualifier must appear before function parameter pointer stars or its name",
+    "message": "register qualifier must appear before a parameter type or immediately after it",
     "primary": {
       "path": "cli/parse-register-parameter-error.hc",
       "line": 2,
-      "column": 26,
+      "column": 32,
       "source_id": 0,
-      "start": 124,
-      "stop": 127
+      "start": 141,
+      "stop": 144
     },
     "secondary": [],
     "include_stack": [],
