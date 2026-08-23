@@ -6894,6 +6894,41 @@ boolean_conversion_control_flow_edges_labels_branch_emission_iet_main_and_execut
 native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and optimizer passes directly define the retained value and branch facts"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-SWITCH-SELECTOR-RESULTS"
+description = "Executable top-level switch selectors retain their typed value and bounded or no-bound mode."
+sources = [
+  "Compiler/PrsStmt.HC:578-617 selector parsing and bounded or no-bound operation construction",
+  "Compiler/OptPass3.HC:269-273 switch default-label forwarding",
+  "Compiler/OptPass789A.HC:1012-1017 final bounded and no-bound switch emission",
+  "Compiler/CompilerA.HH:118-119 switch intermediate-code identities"
+]
+implementation = [
+  "src/sema/top_level_expression_tree.ml",
+  "src/sema/top_level_expression_tree.mli",
+  "src/driver/top_level_expression_tree.ml",
+  "src/sema/top_level_switch_selector_result.ml",
+  "src/sema/top_level_switch_selector_result.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_top_level_switch_selector_result.ml"]
+status = "implemented"
+issue = 352
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "bounded and no-bound selectors in typed executable top-level switch statements"
+order_rule = "retain selectors in recursive source traversal order with one contiguous identity sequence across the compilation unit"
+typing_rule = "reuse the exact immutable top-level root result without evaluating or retyping the selector"
+mode_rule = "preserve bounded and no-bound syntax explicitly because final emission passes a distinct flag to ICSwitch"
+validation = ["symbol-table ownership", "typed-batch ownership", "contiguous selector identities", "absence of discarded-result intent"]
+provenance = ["containing top-level statement", "switch keyword", "selector expression", "included source", "definition origin"]
+diagnostics = ["HCSEMA0064 invalid, foreign, or discontinuous selector input"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+selector_and_case_evaluation_range_origin_labels_jump_table_switch_ir_iet_main_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsStmt and final emission directly define the retained mode"
+
+[[feature]]
 id = "HC-SEMA-TYPED-OUTER-GLOBAL-VALUES"
 description = "Caller-supplied outer global records retain checked types and value shapes in function expressions."
 sources = [

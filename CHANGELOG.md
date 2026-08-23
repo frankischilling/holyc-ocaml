@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Collected bounded and no-bound switch selectors from executable top-level code. Each record keeps its containing statement, selector identity, keyword provenance, typed value, and source mode. `HCSEMA0064` rejects foreign or discontinuous input. The pass does not evaluate selectors, calculate ranges, construct a jump table, emit switch IR, or execute the statement.
+
 - Collected checked `if`, `while`, `do while`, and `for` conditions from executable top-level code. Each record keeps its containing statement, condition identity, keyword provenance, typed value, and the source-selected zero or nonzero branch test. `HCSEMA0063` rejects foreign or discontinuous input. The pass does not insert a Boolean conversion, create control-flow IR, or execute the statement.
 
 - Bound executable top-level `Print` and `PutChars` values against the exact header selected by target resolution. The result distinguishes provided and defaulted fixed slots, records integer and `F64` conversion intent, keeps JIT and AOT default materialization separate, and retains only the remaining `Print` roots as variadic values. Untyped outer targets stay deferred. `HCSEMA0061` and `HCSEMA0062` report missing required and excess nonvariadic values; format handling, evaluated defaults, vararg promotion, lowering, and output remain separate work.

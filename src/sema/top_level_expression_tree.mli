@@ -17,6 +17,7 @@ type root_role =
   | Switch_selector of {
       selector_index : int;
       mode : Function_call_resolution.selector_mode;
+      keyword_origin : Symbol.origin;
     }
   | Switch_case_value of { case_index : int; position : switch_case_position }
   | Local_array_dimension of {

@@ -63,6 +63,9 @@ module Semantic_top_level_outer_expression_binding =
 module Semantic_top_level_expression_tree = Sema.Top_level_expression_tree
 module Semantic_top_level_condition_result = Sema.Top_level_condition_result
 
+module Semantic_top_level_switch_selector_result =
+  Sema.Top_level_switch_selector_result
+
 module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
@@ -500,6 +503,16 @@ val collect_top_level_conditions :
 (** Collect the checked roots used by executable top-level [if], [while],
     [do while], and [for] statements. Each record retains its source role and
     zero or nonzero branch sense; no Boolean conversion or IR is created. *)
+
+val collect_top_level_switch_selectors :
+  Session.t ->
+  Semantic_function_call_expression_result.top_level_t ->
+  ( Semantic_top_level_switch_selector_result.t,
+    Semantic_top_level_switch_selector_result.error )
+  result
+(** Collect the checked roots used by bounded and no-bound executable top-level
+    switch statements. Each record retains the source mode; no range arithmetic,
+    jump table, or IR is created. *)
 
 val resolve_implicit_output_targets :
   Session.t ->

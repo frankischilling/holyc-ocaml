@@ -17,6 +17,7 @@ type root_role =
   | Switch_selector of {
       selector_index : int;
       mode : Function_call_resolution.selector_mode;
+      keyword_origin : Symbol.origin;
     }
   | Switch_case_value of { case_index : int; position : switch_case_position }
   | Local_array_dimension of {
@@ -122,7 +123,7 @@ let root_role_name = function
         | Function_call_resolution.While_condition -> "while"
         | Function_call_resolution.Do_while_condition -> "do-while"
         | Function_call_resolution.For_condition -> "for")
-  | Switch_selector { selector_index; mode } ->
+  | Switch_selector { selector_index; mode; _ } ->
       Printf.sprintf "switch-selector:%d:%s" selector_index
         (match mode with
         | Function_call_resolution.Bounded_switch -> "bounded"
@@ -155,7 +156,8 @@ let role_is_valid = function
       output_index >= 0 && argument_index >= 0
   | Condition { condition_index; keyword_origin; _ } ->
       condition_index >= 0 && valid_origin keyword_origin
-  | Switch_selector { selector_index; _ } -> selector_index >= 0
+  | Switch_selector { selector_index; keyword_origin; _ } ->
+      selector_index >= 0 && valid_origin keyword_origin
   | Switch_case_value { case_index; _ } -> case_index >= 0
   | Local_array_dimension
       { declaration_index; declarator_index; dimension_index } ->
