@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Preserved implicit, single-value, and ranged `case` labels from executable top-level switches and joined every explicit bound to its exact typed expression root. `F64` bounds record `ICF_RES_TO_INT`; implicit cases remain expression-free. `HCSEMA0065` rejects foreign, discontinuous, missing, or excess metadata. Evaluation, implicit numbering, reversed-range normalization, duplicate checks, jump-table construction, IR, and execution remain unimplemented.
 - Collected bounded and no-bound switch selectors from executable top-level code. Each record keeps its containing statement, selector identity, keyword provenance, typed value, and source mode. `HCSEMA0064` rejects foreign or discontinuous input. The pass does not evaluate selectors, calculate ranges, construct a jump table, emit switch IR, or execute the statement.
 
 - Collected checked `if`, `while`, `do while`, and `for` conditions from executable top-level code. Each record keeps its containing statement, condition identity, keyword provenance, typed value, and the source-selected zero or nonzero branch test. `HCSEMA0063` rejects foreign or discontinuous input. The pass does not insert a Boolean conversion, create control-flow IR, or execute the statement.
