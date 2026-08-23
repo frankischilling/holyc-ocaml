@@ -233,6 +233,8 @@ let retag_selectors (source : prepared) expressions update_index =
             (Semantic_top_level_expression_tree.statement_source statement)
           ~roots
           ~calls:(Semantic_top_level_expression_tree.statement_calls statement)
+          ~switch_cases:
+            (Semantic_top_level_expression_tree.statement_switch_cases statement)
         |> checked_tree)
   in
   Semantic_top_level_expression_tree.create
