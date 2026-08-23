@@ -3121,7 +3121,7 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
       let register_qualifiers = prefix_qualifiers @ suffix.nodes in
       match parse_pointer_layers cursor 0 [] [] with
       | None -> None
-      | Some (pointer_layers, pointer_items) -> (
+      | Some (pointer_layers, pointer_items) ->
           let pointer_tokens =
             List.map (fun item -> item.token) pointer_items
           in
@@ -3153,7 +3153,7 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
           else
             finish_function_parameter cursor ~register_qualifiers
               ~type_specifier ~pointer_layers ~name:None ~function_pointer:None
-              ~tokens:leading_tokens))
+              ~tokens:leading_tokens)
   | _ ->
       declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:

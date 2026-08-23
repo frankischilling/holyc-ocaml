@@ -11169,11 +11169,8 @@ let function_body_statements (definition : Ast.function_definition) =
    and :996 for member references. *)
 let contextual_keyword_declarator_names () =
   let source =
-    "extern U0 Fill("
-    ^ "I64 start=0,I64 offset=0);\n"
-    ^ "I64 start;\n"
-    ^ "I64 (*end)();\n"
-    ^ "U0 Ins()\n{\n"
+    "extern U0 Fill(" ^ "I64 start=0,I64 offset=0);\n" ^ "I64 start;\n"
+    ^ "I64 (*end)();\n" ^ "U0 Ins()\n{\n"
     ^ pinned_lines "Demo/TimeIns.HC" ~first:10 ~last:10
     ^ "\n"
     ^ pinned_lines "Kernel/BlkDev/DskFmt.HC" ~first:3 ~last:3
@@ -11187,7 +11184,9 @@ let contextual_keyword_declarator_names () =
       let ast = expect_ast output in
       let prototype =
         List.find_map
-          (function Ast.Function_prototype value -> Some value | _ -> None)
+          (function
+            | Ast.Function_prototype value -> Some value
+            | _ -> None)
           ast.items
         |> Option.get
       in
@@ -11207,7 +11206,9 @@ let contextual_keyword_declarator_names () =
         prototype.parameters;
       let global =
         List.find_map
-          (function Ast.Global_variable value -> Some value | _ -> None)
+          (function
+            | Ast.Global_variable value -> Some value
+            | _ -> None)
           ast.items
         |> Option.get
       in
@@ -11229,7 +11230,9 @@ let contextual_keyword_declarator_names () =
       ignore (expect_global_function_pointer callback);
       let definition =
         List.find_map
-          (function Ast.Function_definition value -> Some value | _ -> None)
+          (function
+            | Ast.Function_definition value -> Some value
+            | _ -> None)
           ast.items
         |> Option.get
       in
@@ -11260,8 +11263,7 @@ let contextual_keyword_declarator_names () =
 
 let contextual_keyword_member_names () =
   let source =
-    "extern class CSprite;\n"
-    ^ "I64 SpriteElemQuedBaseSize()\n{\n"
+    "extern class CSprite;\n" ^ "I64 SpriteElemQuedBaseSize()\n{\n"
     ^ "  return offset(CSprite.start)+sizeof(CSprite.end);\n}\n"
     ^ "U0 Walk(CSprite *sprite)\n{\n  sprite->start;\n  sprite->end;\n}"
   in
@@ -11273,35 +11275,37 @@ let contextual_keyword_member_names () =
       in
       let definitions =
         List.filter_map
-          (function Ast.Function_definition value -> Some value | _ -> None)
+          (function
+            | Ast.Function_definition value -> Some value
+            | _ -> None)
           (expect_ast output).items
       in
       let returned =
         function_body_statements (List.nth definitions 0)
         |> List.hd |> expect_return_statement
       in
-      let sum =
-        Option.get returned.return_value |> expect_binary_expression
-      in
+      let sum = Option.get returned.return_value |> expect_binary_expression in
       let offset = expect_offset_expression sum.binary_left in
       Alcotest.(check (list string))
         "offset member path" [ "start" ]
         (List.map
-           (fun (member : Ast.offset_member) -> member.offset_member_name.spelling)
+           (fun (member : Ast.offset_member) ->
+             member.offset_member_name.spelling)
            offset.offset_members);
       let size = expect_sizeof_expression sum.binary_right in
       Alcotest.(check (list string))
         "sizeof member path" [ "end" ]
         (List.map
-           (fun (member : Ast.sizeof_member) -> member.sizeof_member_name.spelling)
+           (fun (member : Ast.sizeof_member) ->
+             member.sizeof_member_name.spelling)
            size.sizeof_members);
       Alcotest.(check (list string))
         "arrow member names" [ "start"; "end" ]
         (function_body_statements (List.nth definitions 1)
         |> List.map (fun statement ->
-               (expect_expression_statement statement)
-                 .expression_statement_expression |> expect_member_expression
-               |> fun access -> access.member_name.spelling)))
+            (expect_expression_statement statement)
+              .expression_statement_expression |> expect_member_expression
+            |> fun access -> access.member_name.spelling)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let contextual_keyword_name_limits () =
@@ -11312,7 +11316,9 @@ let contextual_keyword_name_limits () =
   in
   let definition =
     List.find_map
-      (function Ast.Function_definition value -> Some value | _ -> None)
+      (function
+        | Ast.Function_definition value -> Some value
+        | _ -> None)
       (expect_ast output).items
     |> Option.get
   in
@@ -11350,15 +11356,15 @@ let contextual_keyword_local_provenance () =
   let session, root, output = parse_string source in
   let definition =
     List.find_map
-      (function Ast.Function_definition value -> Some value | _ -> None)
+      (function
+        | Ast.Function_definition value -> Some value
+        | _ -> None)
       (expect_ast output).items
     |> Option.get
   in
   let name =
-    function_body_statements definition
-    |> List.hd |> expect_local_declaration
-    |> fun declaration ->
-    (List.hd declaration.local_declarators).local_name
+    function_body_statements definition |> List.hd |> expect_local_declaration
+    |> fun declaration -> (List.hd declaration.local_declarators).local_name
   in
   Alcotest.(check string) "generated local spelling" "start" name.spelling;
   Alcotest.(check bool)
