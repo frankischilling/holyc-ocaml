@@ -514,7 +514,7 @@ let record_condition state role keyword source =
            { condition_index = index; role; keyword_origin = origin keyword })
         source
 
-let record_selector state mode source =
+let record_selector state mode keyword source =
   let index = state.next_selector in
   match increment "top-level switch selector" index with
   | Error _ as error -> error
@@ -522,7 +522,7 @@ let record_selector state mode source =
       add_root
         { state with next_selector }
         (Sema.Top_level_expression_tree.Switch_selector
-           { selector_index = index; mode })
+           { selector_index = index; mode; keyword_origin = origin keyword })
         source
 
 let record_output state (output : Frontend.Ast.implicit_output_statement) =
@@ -737,7 +737,7 @@ let rec statement state = function
       match
         record_selector state
           (selector_mode switch.switch_mode)
-          switch.switch_expression
+          switch.switch_keyword switch.switch_expression
       with
       | Error _ as error -> error
       | Ok state -> switch_elements state switch.switch_elements)

@@ -44,6 +44,8 @@ let () =
         Test_top_level_expression_result.tests );
       ( "semantic top-level condition results",
         Test_top_level_condition_result.tests );
+      ( "semantic top-level switch selector results",
+        Test_top_level_switch_selector_result.tests );
       ("semantic outer expression binding", Test_outer_expression_binding.tests);
       ( "semantic global initializer binding",
         Test_global_initializer_binding.tests );
