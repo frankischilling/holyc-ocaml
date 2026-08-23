@@ -83,6 +83,9 @@ module Semantic_function_call_expression_result =
 module Semantic_implicit_output_target_resolution =
   Sema.Implicit_output_target_resolution
 
+module Semantic_top_level_implicit_output_target_resolution =
+  Sema.Top_level_implicit_output_target_resolution
+
 module Semantic_implicit_output_argument_binding =
   Sema.Implicit_output_argument_binding
 
@@ -496,6 +499,18 @@ val resolve_implicit_output_targets :
   result
 (** Resolve implicit [Print] and [PutChars] statements through visible module
     function headers and the supplied outer hash-table snapshot. *)
+
+val resolve_top_level_implicit_output_targets :
+  Session.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  functions:Semantic_function_resolution.t ->
+  Semantic_function_call_expression_result.top_level_t ->
+  ( Semantic_top_level_implicit_output_target_resolution.t,
+    Semantic_top_level_implicit_output_target_resolution.error )
+  result
+(** Resolve executable top-level [Print] and [PutChars] targets through module
+    functions visible before each statement and then through the exact outer
+    environment retained by the typed expression batch. *)
 
 val bind_implicit_output_arguments :
   Session.t ->

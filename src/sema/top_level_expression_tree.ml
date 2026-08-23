@@ -6,6 +6,7 @@ type root_role =
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
       source : Function_call_resolution.implicit_output_fixed_source;
+      marker_origin : Symbol.origin;
     }
   | Implicit_output_argument of { output_index : int; argument_index : int }
   | Condition of {
@@ -106,7 +107,7 @@ let switch_case_position_name = function
 let root_role_name = function
   | Expression_statement { statement_index } ->
       Printf.sprintf "expression-statement:%d" statement_index
-  | Implicit_output_fixed { output_index; target; source } ->
+  | Implicit_output_fixed { output_index; target; source; _ } ->
       Printf.sprintf "implicit-output:%d:%s:%s" output_index
         (Function_call_resolution.implicit_output_target_name target)
         (Function_call_resolution.implicit_output_fixed_source_name source)
@@ -144,10 +145,11 @@ let valid_origin = function
   | Symbol.Source_location _ -> true
   | Symbol.Synthesized description -> not (String.equal description "")
 
-let role_indexes_are_valid = function
+let role_is_valid = function
   | Expression_statement { statement_index }
   | Return_value { return_index = statement_index } -> statement_index >= 0
-  | Implicit_output_fixed { output_index; _ } -> output_index >= 0
+  | Implicit_output_fixed { output_index; marker_origin; _ } ->
+      output_index >= 0 && valid_origin marker_origin
   | Implicit_output_argument { output_index; argument_index } ->
       output_index >= 0 && argument_index >= 0
   | Condition { condition_index; _ } -> condition_index >= 0
@@ -163,9 +165,8 @@ let role_indexes_are_valid = function
 let make_root ~index ~role ~expression ~origin =
   if index < 0 then
     Error (invalid_input "top-level expression root index cannot be negative")
-  else if not (role_indexes_are_valid role) then
-    Error
-      (invalid_input ~origin "top-level expression role has a negative index")
+  else if not (role_is_valid role) then
+    Error (invalid_input ~origin "top-level expression role is invalid")
   else if not (valid_origin origin) then
     Error (invalid_input "top-level expression root has an invalid origin")
   else Ok { index; role; expression; origin }

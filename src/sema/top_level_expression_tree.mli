@@ -6,6 +6,7 @@ type root_role =
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
       source : Function_call_resolution.implicit_output_fixed_source;
+      marker_origin : Symbol.origin;
     }
   | Implicit_output_argument of { output_index : int; argument_index : int }
   | Condition of {
