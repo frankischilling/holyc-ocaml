@@ -562,6 +562,136 @@ let roots_retain_types_and_categories () =
     ]
     (class_names roots)
 
+let current_position_results_are_rip_addresses () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-current-position.HC"
+          "extern I64 Target(I64 value);\n\
+           I64 Caller(){$$;($$);Target($$);return $$+1;}"
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let _, first = analyze prepared in
+      let _, second = analyze prepared in
+      let current_positions result =
+        result |> Semantic_function_call_expression_result.all_results
+        |> List.filter (fun expression ->
+            match
+              expression
+              |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Unresolved_expression
+                Semantic_function_call_resolution.Current_position_expression ->
+                true
+            | _ -> false)
+      in
+      let positions = current_positions first in
+      Alcotest.(check int)
+        "every current-position occurrence receives a result" 4
+        (List.length positions);
+      Alcotest.(check (list string))
+        "ordinary current positions use the RIP address class"
+        (List.init 4 (Fun.const "I64:address-value:integer-result:rank-0"))
+        (List.map result_descriptor positions);
+      List.iter
+        (fun result ->
+          match Semantic_function_call_expression_result.result_type result with
+          | Some type_ -> (
+              Alcotest.(check int)
+                "RT_PTR has no source pointer layer" 0
+                (Semantic_type.pointer_depth type_);
+              match Semantic_type.base type_ with
+              | Semantic_type.Primitive (form, primitive) ->
+                  Alcotest.(check bool)
+                    "RT_PTR keeps the intrinsic storage form" true
+                    (form = Semantic_type.Internal_storage);
+                  Alcotest.(check bool)
+                    "RT_PTR uses the pinned RT_I64 slot" true
+                    (Primitive_type.equal primitive Primitive_type.I64)
+              | Semantic_type.Aggregate _ ->
+                  Alcotest.fail "expected RT_PTR's intrinsic primitive type")
+          | None -> Alcotest.fail "expected a current-position type")
+        positions;
+      Alcotest.(check (list string))
+        "direct and parenthesized statements keep address results"
+        [
+          "I64:address-value:integer-result:rank-0";
+          "I64:address-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (expression_statements_named first "Caller"
+        |> List.map (fun statement ->
+            statement
+            |> Semantic_function_call_expression_result
+               .expression_statement_value |> result_descriptor));
+      let call_root =
+        direct_named first "Caller" "Target" |> provided_results |> List.hd
+      in
+      Alcotest.(check string)
+        "a fixed argument keeps the current-position address"
+        "I64:address-value:integer-result:rank-0"
+        (result_descriptor call_root);
+      Alcotest.(check string)
+        "a binary expression consumes the address through the integer path"
+        "I64:object-value:integer-result:rank-0"
+        (returns_named first "Caller"
+        |> List.hd |> return_value |> result_descriptor);
+      Alcotest.(check (list string))
+        "current-position typing replays identically"
+        (current_positions first |> List.map result_descriptor)
+        (current_positions second |> List.map result_descriptor);
+      Alcotest.(check int)
+        "current-position typing leaves symbols unchanged" symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  [
+    ( "assignment",
+      "I64 Caller(){$$=1;return 0;}",
+      "=",
+      "assignment destination is not an lvalue" );
+    ( "update",
+      "I64 Caller(){$$++;return 0;}",
+      "++",
+      "post-increment operand is not an lvalue" );
+  ]
+  |> List.iter (fun (label, source, operator, expected) ->
+      let prepared =
+        prepare
+          ~path:("call-expression-current-position-" ^ label ^ ".HC")
+          source
+      in
+      let policies =
+        Test_function_call_conversion_policy.analyze prepared
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_function_call_expressions prepared.session
+          ~members:prepared.members ~policies
+      with
+      | Ok _ -> Alcotest.failf "expected current-position %s to fail" label
+      | Error error -> (
+          Alcotest.(check string)
+            (label ^ " uses the expression semantic code")
+            "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error);
+          Alcotest.(check string)
+            (label ^ " explains the invalid destination")
+            expected
+            (Semantic_function_call_expression_result.error_message error);
+          match Semantic_function_call_expression_result.error_origin error with
+          | Some (Semantic_symbol.Source_location location) ->
+              Alcotest.(check int)
+                (label ^ " points at its operator")
+                (substring_start source operator)
+                location.span.start
+          | Some
+              (Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _)
+          | None -> Alcotest.fail "expected a source-positioned lvalue error"))
+
 let direct_function_addresses_keep_publication_identity () =
   List.iter
     (fun mode ->
@@ -5511,6 +5641,8 @@ let tests =
       pointer_transitions_are_checked;
     Alcotest.test_case "root types and categories" `Quick
       roots_retain_types_and_categories;
+    Alcotest.test_case "current-position RIP address results" `Quick
+      current_position_results_are_rip_addresses;
     Alcotest.test_case "direct function address identity" `Quick
       direct_function_addresses_keep_publication_identity;
     Alcotest.test_case "function address extern paths" `Quick

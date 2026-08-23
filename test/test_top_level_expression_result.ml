@@ -391,6 +391,76 @@ let literals_and_module_values () =
                  Semantic_function_call_expression_result.result_use_name)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let top_level_current_positions_are_rip_addresses () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-current-position-results.HC"
+          "$$;($$);$$+1;"
+      in
+      let table = Session.semantic_symbols source.session in
+      let symbol_count =
+        Semantic_symbol_table.all_symbols table |> List.length
+      in
+      let _, _, _, first = analyze source in
+      let _, _, _, second = analyze source in
+      Alcotest.(check (list string))
+        "top-level current positions keep RIP address results"
+        [
+          "I64:address-value:integer-result:rank-0";
+          "I64:address-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (root_values first |> List.map descriptor);
+      let current_positions result =
+        result |> Semantic_function_call_expression_result.top_level_all_results
+        |> List.filter (fun expression ->
+            match
+              expression
+              |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Unresolved_expression
+                Semantic_function_call_resolution.Current_position_expression ->
+                true
+            | _ -> false)
+      in
+      let positions = current_positions first in
+      Alcotest.(check int)
+        "every top-level current-position occurrence is typed" 3
+        (List.length positions);
+      List.iter
+        (fun result ->
+          Alcotest.(check string)
+            "each current-position leaf is an address"
+            "I64:address-value:integer-result:rank-0" (descriptor result);
+          match Semantic_function_call_expression_result.result_type result with
+          | Some type_ -> (
+              Alcotest.(check int)
+                "top-level RT_PTR has no source pointer layer" 0
+                (Semantic_type.pointer_depth type_);
+              match Semantic_type.base type_ with
+              | Semantic_type.Primitive (form, primitive) ->
+                  Alcotest.(check bool)
+                    "top-level RT_PTR keeps the intrinsic storage form" true
+                    (form = Semantic_type.Internal_storage);
+                  Alcotest.(check bool)
+                    "top-level RT_PTR uses the pinned RT_I64 slot" true
+                    (Primitive_type.equal primitive Primitive_type.I64)
+              | Semantic_type.Aggregate _ ->
+                  Alcotest.fail "expected RT_PTR's intrinsic primitive type")
+          | None -> Alcotest.fail "expected a top-level current-position type")
+        positions;
+      Alcotest.(check (list string))
+        "top-level current-position typing replays identically"
+        (root_values first |> List.map descriptor)
+        (root_values second |> List.map descriptor);
+      Alcotest.(check int)
+        "top-level current-position typing leaves symbols unchanged"
+        symbol_count
+        (Semantic_symbol_table.all_symbols table |> List.length))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let top_level_outer_globals_retain_checked_shapes () =
   List.iter
     (fun mode ->
@@ -2078,6 +2148,8 @@ let tests =
   [
     Alcotest.test_case "literals and module values" `Quick
       literals_and_module_values;
+    Alcotest.test_case "top-level current-position RIP addresses" `Quick
+      top_level_current_positions_are_rip_addresses;
     Alcotest.test_case "typed top-level outer globals" `Quick
       top_level_outer_globals_retain_checked_shapes;
     Alcotest.test_case "metadata-free top-level outer global" `Quick
