@@ -163,6 +163,7 @@ type parsed_register_qualifiers = {
 
 type parsed_parameter_list = {
   parameters : Ast.function_parameter list;
+  empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
   tokens : Token.t list;
   closing_parenthesis : Ast.location;
@@ -3414,7 +3415,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
               else
                 let signature_opening = take cursor in
                 match
-                  parse_function_parameters cursor [] [] ~after_comma:false
+                  parse_function_parameters cursor [] [] [] ~after_comma:false
                     ~function_pointer_depth:(function_pointer_depth + 1)
                 with
                 | None -> None
@@ -3434,6 +3435,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                         ~signature_opening_parenthesis:
                           (token_location signature_opening.token)
                         ~signature_parameters:parsed_parameters.parameters
+                        ~signature_empty_parameter_entries:
+                          parsed_parameters.empty_parameter_entries
                         ~signature_variadic:parsed_parameters.variadic
                         ~signature_closing_parenthesis:
                           parsed_parameters.closing_parenthesis
@@ -3441,8 +3444,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                     in
                     Some { node; name; tokens })
 
-and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
-    ~function_pointer_depth : parsed_parameter_list option =
+and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
+    ~after_comma ~function_pointer_depth : parsed_parameter_list option =
   let prefix =
     parse_register_qualifiers cursor ~position:Ast.Before_type [] []
   in
@@ -3453,6 +3456,7 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
       Some
         {
           parameters = List.rev parameters_rev;
+          empty_parameter_entries = List.rev empty_entries_rev;
           variadic = None;
           tokens = List.rev (closing.token :: tokens_rev);
           closing_parenthesis = token_location closing.token;
@@ -3477,10 +3481,27 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
         Some
           {
             parameters = List.rev parameters_rev;
+            empty_parameter_entries = List.rev empty_entries_rev;
             variadic = Some variadic;
             tokens = List.rev (closing.token :: ellipsis.token :: tokens_rev);
             closing_parenthesis = token_location closing.token;
           }
+  | Token_kind.Punctuation ';' when (not after_comma) && prefix.nodes = [] ->
+      let semicolon = take cursor in
+      let delimiter =
+        Ast.make_declaration_delimiter ~kind:Ast.Semicolon
+          ~spelling:semicolon.token.raw
+          ~location:(token_location semicolon.token)
+      in
+      let empty_entry =
+        Ast.make_empty_parameter_entry
+          ~preceding_parameter_count:(List.length parameters_rev)
+          ~delimiter
+      in
+      parse_function_parameters cursor parameters_rev
+        (empty_entry :: empty_entries_rev)
+        (semicolon.token :: tokens_rev)
+        ~after_comma:false ~function_pointer_depth
   | Token_kind.Punctuation ')' ->
       declaration_failure cursor item ~code:"HCPARSE0009"
         ~message:
@@ -3501,18 +3522,19 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
           let parameters_rev = parameter.node :: parameters_rev in
           match parameter.node.delimiter with
           | Some delimiter ->
-              parse_function_parameters cursor parameters_rev tokens_rev
+              parse_function_parameters cursor parameters_rev empty_entries_rev
+                tokens_rev
                 ~after_comma:(delimiter.kind = Ast.Comma)
                 ~function_pointer_depth
           | None ->
-              parse_function_parameters cursor parameters_rev tokens_rev
-                ~after_comma:false ~function_pointer_depth))
+              parse_function_parameters cursor parameters_rev empty_entries_rev
+                tokens_rev ~after_comma:false ~function_pointer_depth))
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
   let opening = take cursor in
   match
-    parse_function_parameters cursor [] [] ~after_comma:false
+    parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
   with
   | None -> None
@@ -3540,6 +3562,7 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
             ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
             ~opening_parenthesis:(token_location opening.token)
             ~parameters:parsed_parameters.parameters
+            ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
             ~variadic:parsed_parameters.variadic
             ~closing_parenthesis:parsed_parameters.closing_parenthesis
             ~semicolon:(token_location semicolon_item.token)
@@ -6492,7 +6515,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
     ~return_type (prefix : parsed_declarator_prefix) =
   let opening = take cursor in
   match
-    parse_function_parameters cursor [] [] ~after_comma:false
+    parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
   with
   | None -> None
@@ -6525,6 +6548,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
               ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
               ~opening_parenthesis:(token_location opening.token)
               ~parameters:parsed_parameters.parameters
+              ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
               ~variadic:parsed_parameters.variadic
               ~closing_parenthesis:parsed_parameters.closing_parenthesis ~body
               ~location:(location_from_expression_tokens definition_tokens)

@@ -1525,20 +1525,150 @@ let semicolon_separated_function_parameters () =
   Alcotest.(check bool)
     "source permits a trailing semicolon" true
     ((Option.get parameter.delimiter).kind = Ast.Semicolon);
+  Alcotest.(check bool)
+    "pinned parser accepts semicolon list entries" true
+    (contains (pinned "Compiler/PrsVar.HC") "case ';':")
+
+let empty_semicolon_function_parameter_entries () =
+  let check_entries description expected
+      (entries : Ast.empty_parameter_entry list) =
+    Alcotest.(check (list int))
+      (description ^ " positions")
+      expected
+      (List.map (fun entry -> entry.Ast.preceding_parameter_count) entries);
+    List.iter
+      (fun entry ->
+        Alcotest.(check bool)
+          (description ^ " semicolon kind")
+          true
+          (entry.Ast.empty_parameter_delimiter.kind = Ast.Semicolon);
+        Alcotest.(check string)
+          (description ^ " spelling")
+          ";" entry.empty_parameter_delimiter.spelling)
+      entries
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, prototype_output =
+        parse_string ~compilation_mode
+          "extern U0 Entries(;;I64 first;;;I64 second;;);"
+      in
+      let prototype = expect_ast prototype_output |> expect_one_prototype in
+      Alcotest.(check int)
+        "concrete parameter count" 2
+        (List.length prototype.parameters);
+      check_entries "prototype empty entries" [ 0; 0; 1; 1; 2 ]
+        prototype.empty_parameter_entries;
+      let ast = expect_ast prototype_output in
+      let human = Ast_dump.human (Session.sources session) ast in
+      let json = Ast_dump.json (Session.sources session) ast in
+      let second_session, _, second_output =
+        parse_string ~compilation_mode
+          "extern U0 Entries(;;I64 first;;;I64 second;;);"
+      in
+      Alcotest.(check string)
+        "empty-entry human dump is deterministic" human
+        (Ast_dump.human
+           (Session.sources second_session)
+           (expect_ast second_output));
+      Alcotest.(check string)
+        "empty-entry JSON dump is deterministic" json
+        (Ast_dump.json
+           (Session.sources second_session)
+           (expect_ast second_output));
+      Alcotest.(check bool)
+        "human dump retains empty entries" true
+        (contains human
+           "empty_parameter_entry index=4 preceding_parameters=2 spelling=\";\"");
+      Alcotest.(check bool)
+        "JSON dump retains empty entries" true
+        (contains json "\"preceding_parameter_count\": 2");
+      let _, _, definition_output =
+        parse_string ~compilation_mode "U0 Defined(;;I64 value;;){}"
+      in
+      let definition = expect_ast definition_output |> expect_one_definition in
+      check_entries "definition empty entries" [ 0; 0; 1 ]
+        definition.empty_parameter_entries;
+      let _, _, nested_output =
+        parse_string ~compilation_mode
+          "extern U0 Outer(U0 (*callback)(;;I64 value;;));"
+      in
+      let nested =
+        expect_ast nested_output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_function_pointer
+      in
+      check_entries "nested empty entries" [ 0; 0; 1 ]
+        nested.signature_empty_parameter_entries;
+      let _, _, empty_only_output =
+        parse_string ~compilation_mode "extern U0 EmptyOnly(;;);"
+      in
+      let empty_only = expect_ast empty_only_output |> expect_one_prototype in
+      Alcotest.(check int)
+        "empty-only concrete parameter count" 0
+        (List.length empty_only.parameters);
+      check_entries "empty-only entries" [ 0; 0 ]
+        empty_only.empty_parameter_entries)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let session, root, generated =
+    parse_string "#define EMPTY ;\nextern U0 Generated(EMPTY I64 value);"
+  in
+  let generated_entry =
+    expect_ast generated |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.empty_parameter_entries
+  in
+  let generated_location = generated_entry.empty_parameter_delimiter.location in
+  Alcotest.(check bool)
+    "definition entry uses generated source" false
+    (Source_id.equal generated_location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "definition entry keeps invocation provenance" true
+    (Option.is_some generated_location.generated_from);
+  Alcotest.(check bool)
+    "definition entry keeps definition provenance" true
+    (Option.is_some generated_location.defined_at);
+  let generated_json =
+    Ast_dump.json (Session.sources session) (expect_ast generated)
+  in
+  Alcotest.(check bool)
+    "generated entry JSON keeps provenance" true
+    (contains generated_json "\"defined_at\"");
+  with_temp_directory (fun directory ->
+      let root_path = Filename.concat directory "root.HC" in
+      let included_path = Filename.concat directory "entries.HC" in
+      write_file root_path "#include \"entries\"";
+      write_file included_path "extern U0 Included(;;I64 value);";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_path |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config directory) ~source
+      in
+      let entry =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.empty_parameter_entries
+      in
+      let entry_path =
+        Source_manager.find (Session.sources session)
+          entry.empty_parameter_delimiter.location.span.source
+        |> Option.get |> Source_file.display_path
+      in
+      Alcotest.(check bool)
+        "included entry has its own source" false
+        (Source_id.equal entry.empty_parameter_delimiter.location.span.source
+           (Source_file.id source));
+      Alcotest.(check string) "included entry source" "entries" entry_path);
   List.iter
     (fun (description, source) ->
       let _, _, output = parse_string source in
       Alcotest.(check string)
         description "HCPARSE0009" (first_diagnostic output).code)
     [
-      ( "leading semicolon stays outside this slice",
-        "extern U0 Leading(;I64 value);" );
-      ( "repeated semicolon stays outside this slice",
-        "extern U0 Repeated(I64 first;;I64 second);" );
-    ];
-  Alcotest.(check bool)
-    "pinned parser accepts semicolon list entries" true
-    (contains (pinned "Compiler/PrsVar.HC") "case ';':")
+      ("leading comma", "extern U0 Leading(,I64 value);");
+      ("repeated comma", "extern U0 Repeated(I64 first,,I64 second);");
+      ( "semicolon after an empty comma slot",
+        "extern U0 AfterComma(I64 first,;I64 second);" );
+    ]
 
 let modifier_declaration_group () =
   let _, _, output = parse_string "public I64 first,*second;" in
@@ -19941,6 +20071,8 @@ let tests =
       function_parameter_register_failures;
     Alcotest.test_case "semicolon-separated function parameters" `Quick
       semicolon_separated_function_parameters;
+    Alcotest.test_case "empty semicolon parameter entries" `Quick
+      empty_semicolon_function_parameter_entries;
     Alcotest.test_case "deterministic function dumps" `Quick
       deterministic_function_dumps;
     Alcotest.test_case "pinned function definition behavior" `Quick

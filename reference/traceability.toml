@@ -6163,9 +6163,37 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 compilation_modes = ["jit", "aot"]
 ast_delimiter = "semicolon"
 trailing_semicolon = "implemented"
-leading_or_repeated_empty_semicolons = "not represented by the current parameter AST; tracked by issue 377"
+leading_or_repeated_empty_semicolons = "implemented by HC-FUNCTION-PARAMETER-EMPTY-SEMICOLON"
 corpus_effect = "Kernel/StrA.HC parses in both modes; Kernel/KernelC.HH advances to HCPARSE0016 at line 180; standalone and project-prelude parse counts each rise by one"
 semantic_compatibility = "syntax only; parameter storage and ABI behavior are not evaluated"
+
+[[feature]]
+id = "HC-FUNCTION-PARAMETER-EMPTY-SEMICOLON"
+description = "Leading and repeated semicolons in a function parameter list remain ordered, source-spanned empty entries without changing the concrete parameter list."
+sources = [
+  "Compiler/PrsVar.HC:428 leading variable-list semicolon loop",
+  "Compiler/PrsVar.HC:692-713 function-argument delimiter dispatch",
+  "Compiler/PrsStmt.HC:62-124 PrsFunJoin"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml"
+]
+tests = ["test/test_parser.ml"]
+status = "implemented"
+issue = 377
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+ast_schema = "holyc-ast-v1"
+entry_order = "each empty entry records the number of preceding concrete parameters"
+ordinary_delimiters = "remain attached to concrete parameters and are not duplicated"
+empty_comma_entries = "rejected with HCPARSE0009"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+authored_corpus_occurrences = 0
+corpus_effect = "none"
+semantic_compatibility = "syntax only; parameter storage and ABI behavior are unchanged"
 
 [[feature]]
 id = "HC-DOLDOC-INSERTED-BINARY"

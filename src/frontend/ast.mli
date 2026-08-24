@@ -359,12 +359,18 @@ type function_parameter = private {
   location : location;
 }
 
+and empty_parameter_entry = private {
+  preceding_parameter_count : int;
+  empty_parameter_delimiter : declaration_delimiter;
+}
+
 and function_pointer_declarator = private {
   declarator_opening_parenthesis : location;
   indirection_layers : pointer_layer list;
   declarator_closing_parenthesis : location;
   signature_opening_parenthesis : location;
   signature_parameters : function_parameter list;
+  signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
   signature_closing_parenthesis : location;
   function_pointer_location : location;
@@ -479,6 +485,7 @@ type function_prototype = private {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   semicolon : location;
@@ -848,6 +855,7 @@ type function_definition = private {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   body : statement option;
@@ -1220,12 +1228,18 @@ val make_function_parameter :
   location:location ->
   function_parameter
 
+val make_empty_parameter_entry :
+  preceding_parameter_count:int ->
+  delimiter:declaration_delimiter ->
+  empty_parameter_entry
+
 val make_function_pointer_declarator :
   declarator_opening_parenthesis:location ->
   indirection_layers:pointer_layer list ->
   declarator_closing_parenthesis:location ->
   signature_opening_parenthesis:location ->
   signature_parameters:function_parameter list ->
+  signature_empty_parameter_entries:empty_parameter_entry list ->
   signature_variadic:variadic_marker option ->
   signature_closing_parenthesis:location ->
   function_pointer_location:location ->
@@ -1245,6 +1259,7 @@ val make_function_prototype :
   name:identifier ->
   opening_parenthesis:location ->
   parameters:function_parameter list ->
+  empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
   closing_parenthesis:location ->
   semicolon:location ->
@@ -1518,6 +1533,7 @@ val make_function_definition :
   name:identifier ->
   opening_parenthesis:location ->
   parameters:function_parameter list ->
+  empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
   closing_parenthesis:location ->
   body:statement option ->

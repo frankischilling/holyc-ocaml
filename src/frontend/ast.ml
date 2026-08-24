@@ -354,12 +354,18 @@ type function_parameter = {
   location : location;
 }
 
+and empty_parameter_entry = {
+  preceding_parameter_count : int;
+  empty_parameter_delimiter : declaration_delimiter;
+}
+
 and function_pointer_declarator = {
   declarator_opening_parenthesis : location;
   indirection_layers : pointer_layer list;
   declarator_closing_parenthesis : location;
   signature_opening_parenthesis : location;
   signature_parameters : function_parameter list;
+  signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
   signature_closing_parenthesis : location;
   function_pointer_location : location;
@@ -474,6 +480,7 @@ type function_prototype = {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   semicolon : location;
@@ -843,6 +850,7 @@ type function_definition = {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   body : statement option;
@@ -1274,9 +1282,13 @@ let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
     location;
   }
 
+let make_empty_parameter_entry ~preceding_parameter_count ~delimiter =
+  { preceding_parameter_count; empty_parameter_delimiter = delimiter }
+
 let make_function_pointer_declarator ~declarator_opening_parenthesis
     ~indirection_layers ~declarator_closing_parenthesis
-    ~signature_opening_parenthesis ~signature_parameters ~signature_variadic
+    ~signature_opening_parenthesis ~signature_parameters
+    ~signature_empty_parameter_entries ~signature_variadic
     ~signature_closing_parenthesis ~function_pointer_location =
   {
     declarator_opening_parenthesis;
@@ -1284,6 +1296,7 @@ let make_function_pointer_declarator ~declarator_opening_parenthesis
     declarator_closing_parenthesis;
     signature_opening_parenthesis;
     signature_parameters;
+    signature_empty_parameter_entries;
     signature_variadic;
     signature_closing_parenthesis;
     function_pointer_location;
@@ -1294,8 +1307,9 @@ let make_variadic_marker ~register_qualifiers ~spelling ~location :
   { register_qualifiers; spelling; location }
 
 let make_function_prototype ~modifiers ~binding ~return_type
-    ~return_pointer_layers ~name ~opening_parenthesis ~parameters ~variadic
-    ~closing_parenthesis ~semicolon ~location =
+    ~return_pointer_layers ~name ~opening_parenthesis ~parameters
+    ~empty_parameter_entries ~variadic ~closing_parenthesis ~semicolon ~location
+    =
   {
     modifiers;
     binding;
@@ -1304,6 +1318,7 @@ let make_function_prototype ~modifiers ~binding ~return_type
     name;
     opening_parenthesis;
     parameters;
+    empty_parameter_entries;
     variadic;
     closing_parenthesis;
     semicolon;
@@ -1603,8 +1618,8 @@ let make_statement_sequence ~leading_commas ~elements ~location =
   }
 
 let make_function_definition ~modifiers ~return_type ~return_pointer_layers
-    ~name ~opening_parenthesis ~parameters ~variadic ~closing_parenthesis ~body
-    ~location =
+    ~name ~opening_parenthesis ~parameters ~empty_parameter_entries ~variadic
+    ~closing_parenthesis ~body ~location =
   {
     modifiers;
     return_type;
@@ -1612,6 +1627,7 @@ let make_function_definition ~modifiers ~return_type ~return_pointer_layers
     name;
     opening_parenthesis;
     parameters;
+    empty_parameter_entries;
     variadic;
     closing_parenthesis;
     body;

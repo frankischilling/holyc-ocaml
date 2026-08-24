@@ -1428,6 +1428,15 @@ and print_function_parameter buffer sources ~indent index
         (location_text sources delimiter.location))
     parameter.delimiter
 
+and print_empty_parameter_entry buffer sources ~indent index
+    (entry : Ast.empty_parameter_entry) =
+  let delimiter = entry.empty_parameter_delimiter in
+  Printf.bprintf buffer
+    "%sempty_parameter_entry index=%d preceding_parameters=%d spelling=%S \
+     span=%s\n"
+    indent index entry.preceding_parameter_count delimiter.spelling
+    (location_text sources delimiter.location)
+
 and print_function_pointer buffer sources ~indent ~name
     (function_pointer : Ast.function_pointer_declarator) =
   let child_indent = indent ^ "  " in
@@ -1448,6 +1457,9 @@ and print_function_pointer buffer sources ~indent ~name
   List.iteri
     (print_function_parameter buffer sources ~indent:child_indent)
     function_pointer.signature_parameters;
+  List.iteri
+    (print_empty_parameter_entry buffer sources ~indent:child_indent)
+    function_pointer.signature_empty_parameter_entries;
   Option.iter
     (print_variadic_marker buffer sources ~indent:child_indent)
     function_pointer.signature_variadic;
@@ -1594,6 +1606,9 @@ let human sources module_ =
           List.iteri
             (print_function_parameter buffer sources ~indent:"    ")
             prototype.parameters;
+          List.iteri
+            (print_empty_parameter_entry buffer sources ~indent:"    ")
+            prototype.empty_parameter_entries;
           Option.iter
             (print_variadic_marker buffer sources ~indent:"    ")
             prototype.variadic;
@@ -1620,6 +1635,9 @@ let human sources module_ =
           List.iteri
             (print_function_parameter buffer sources ~indent:"    ")
             definition.parameters;
+          List.iteri
+            (print_empty_parameter_entry buffer sources ~indent:"    ")
+            definition.empty_parameter_entries;
           Option.iter
             (print_variadic_marker buffer sources ~indent:"    ")
             definition.variadic;
@@ -3064,6 +3082,14 @@ and parameter_to_yojson sources (parameter : Ast.function_parameter) =
           [ ("delimiter", delimiter_to_yojson sources delimiter) ])
     @ [ ("location", location_to_yojson sources parameter.location) ])
 
+and empty_parameter_entry_to_yojson sources (entry : Ast.empty_parameter_entry)
+    =
+  `Assoc
+    [
+      ("preceding_parameter_count", `Int entry.preceding_parameter_count);
+      ("delimiter", delimiter_to_yojson sources entry.empty_parameter_delimiter);
+    ]
+
 and function_pointer_to_yojson sources ~name
     (function_pointer : Ast.function_pointer_declarator) =
   `Assoc
@@ -3090,6 +3116,14 @@ and function_pointer_to_yojson sources ~name
                (parameter_to_yojson sources)
                function_pointer.signature_parameters) );
       ]
+    @ (match function_pointer.signature_empty_parameter_entries with
+      | [] -> []
+      | entries ->
+          [
+            ( "empty_parameter_entries",
+              `List (List.map (empty_parameter_entry_to_yojson sources) entries)
+            );
+          ])
     @ (match function_pointer.signature_variadic with
       | None -> []
       | Some variadic -> [ ("variadic", variadic_to_yojson sources variadic) ])
@@ -3238,6 +3272,15 @@ let item_to_yojson sources = function
               `List
                 (List.map (parameter_to_yojson sources) prototype.parameters) );
           ]
+        @ (match prototype.empty_parameter_entries with
+          | [] -> []
+          | entries ->
+              [
+                ( "empty_parameter_entries",
+                  `List
+                    (List.map (empty_parameter_entry_to_yojson sources) entries)
+                );
+              ])
         @ (match prototype.variadic with
           | None -> []
           | Some variadic ->
@@ -3263,6 +3306,15 @@ let item_to_yojson sources = function
                 (List.map (parameter_to_yojson sources) definition.parameters)
             );
           ]
+        @ (match definition.empty_parameter_entries with
+          | [] -> []
+          | entries ->
+              [
+                ( "empty_parameter_entries",
+                  `List
+                    (List.map (empty_parameter_entry_to_yojson sources) entries)
+                );
+              ])
         @ (match definition.variadic with
           | None -> []
           | Some variadic ->
