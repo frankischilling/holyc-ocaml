@@ -523,7 +523,11 @@ The `IC_*` constant name and the display name are not interchangeable. Thirteen 
 | `0xB0` | `IC_SQR_I64` | `SQRI64` |
 | `0xB1` | `IC_SQR_U64` | `SQRU64` |
 
-`tools/intermediate_code_source.ml` parses both tables without deriving one name from the other. `tools/intermediate_code_gen.ml` emits an exhaustive `Ir.Opcode.t` variant, typed metadata, safe lookups, pinned checksums, and original line numbers. The checked table is an input to future IR work; it does not yet classify complete side effects, represent operands, or make any opcode executable.
+`tools/intermediate_code_source.ml` parses both tables without deriving one name from the other. `tools/intermediate_code_gen.ml` emits an exhaustive `Ir.Opcode.t` variant, typed metadata, safe lookups, pinned checksums, and original line numbers.
+
+`Kernel/KernelA.HH:1602-1632` defines the low instruction flags, both three-bit floating-stack fields, and the high optimizer and lock flags. Its `CIntermediateCode` records combine those flags with an opcode, source line, target class, data union, and tree links. `Compiler/PrsLib.HC:ICAdd` appends those records in source order, while `Compiler/OptPass012.HC` rebuilds argument links from the table's counts.
+
+`Ir.Instruction_sequence` turns that evidence into an immutable checked sequence. It uses the generated opcode metadata for operand and result validation, admits only the pinned flag fields, and retains explicit IDs, the independent `ic_class`-shaped target type, payload bits and bytes, and source spans. It rejects duplicate or out-of-order values and a produced value without a target type. Its deterministic `holyc-ir-v1` text is a hosted inspection schema, not an upstream TempleOS format. Blocks, complete effects, relocation rules, lowering, and execution remain later work under [the IR epic](https://github.com/frankischilling/holyc-ocaml/issues/396).
 
 ## TempleOS BIN header and patch records
 

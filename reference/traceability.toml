@@ -7436,6 +7436,37 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-CHECKED-INSTRUCTION-SEQUENCE"
+description = "Source-ordered IR instructions receive stable identities and pass metadata-driven structural checks before becoming immutable."
+sources = [
+  "Kernel/KernelA.HH:1602-1684 ICF fields, CICArg, tree links, and CIntermediateCode",
+  "Compiler/CompilerA.HH:1-218 complete IC numeric domain",
+  "Compiler/CInit.HC:intermediate_code_table argument, result, structural, floating-pop, and constant-folding metadata",
+  "Compiler/PrsLib.HC:79-97 ICAdd source order and retained fields",
+  "Compiler/OptPass012.HC argument-tree construction from arg_cnt and res_cnt"
+]
+implementation = [
+  "src/ir/instruction_sequence.ml",
+  "src/ir/instruction_sequence.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_instruction_sequence.ml"]
+status = "implemented"
+issue = 397
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "immutable source-ordered instruction sequences over every checked opcode"
+validation = ["nonnegative public IDs", "fixed and variable operand counts", "exact zero-or-one result count", "target type required for a produced value and retained independently for no-result instructions", "nonnegative ordered byte span", "pinned ICF fields only", "unique instruction and value IDs", "value definition precedes every use"]
+diagnostics = ["HCIR0001 invalid ID", "HCIR0002 invalid source span", "HCIR0003 unsupported flag bits", "HCIR0004 wrong operand count", "HCIR0005 wrong result count", "HCIR0006 duplicate instruction ID", "HCIR0007 duplicate value ID", "HCIR0008 forward value use", "HCIR0009 missing value definition", "HCIR0010 produced value without a target type"]
+deterministic_text_schema = "holyc-ir-v1"
+focused_tests = 12
+property_cases = 1000
+opcode_shapes_checked = 185
+mutation = "none after construction"
+basic_blocks_control_flow_effects_payload_opcode_rules_relocations_lowering_optimization_interpretation_and_codegen = "not implemented"
+native_oracle_status = "not required for this host-side structural boundary; operand and result shapes and flag fields come directly from the pinned source tables"
+
+[[feature]]
 id = "HC-SEMA-TOP-LEVEL-CONDITION-RESULTS"
 description = "Executable top-level conditions retain their typed value and source-selected branch sense."
 sources = [

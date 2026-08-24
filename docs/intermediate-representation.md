@@ -2,7 +2,7 @@
 
 All source facts on this page refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-## Current implementation
+## Opcode registry
 
 `Holyc_lib.Ir_opcode` exposes one constructor for each of the 185 intermediate codes in `Compiler/CompilerA.HH`. Numeric codes cover `0x00` through `0xB8`; `0xB9` is the count sentinel and is not an operation. Lookups by numeric code, `IC_*` constant name, and display name return an option rather than substituting an unknown code.
 
@@ -17,6 +17,14 @@ Each metadata record retains:
 - definition and metadata line numbers.
 
 The field names describe the pinned table and its observed consumers. They are not a complete side-effect model. In particular, `not_const` is preserved because `OptPass012` reads it; it does not claim that every record with `FALSE` can always be folded.
+
+## Checked instruction sequences
+
+`Holyc_lib.Ir_instruction_sequence` is the first executable data model built on that registry. It accepts source-ordered instruction descriptions through one checked constructor. Instruction and value IDs are explicit nonnegative values; list positions and OCaml object identity never become public IDs. Each description carries the checked opcode, ordered value operands, an optional produced value, an independent target type, an optional immediate or reference payload, the original source span when one exists, and the audited `ICF_*` bits from `Kernel/KernelA.HH`. Keeping the target type independent matches `CIntermediateCode.ic_class`, including typed instructions that produce no value.
+
+Construction checks the opcode table's fixed or variable operand shape and exact result count. A produced value must have a target type; a no-result instruction may still carry one. Construction also rejects invalid spans, flag bits outside the pinned fields, duplicate instruction or value IDs, forward uses, and missing definitions. Failures use stable `HCIR0001` through `HCIR0010` codes and retain the offending instruction and span when available. A successful value is immutable and exposes only ordered traversal.
+
+`human` emits the versioned `holyc-ir-v1` form. It uses `IC_*` source names, decimal signed `I64` values, hexadecimal `F64` bit patterns, escaped bytes, resolved symbol IDs, kinds, and names, explicit block payloads, stable instruction and value IDs, target types, flag masks, and source ID plus byte range. The reference commit appears in the header, so a dump cannot be mistaken for a result from a moving TempleOS branch.
 
 ## Generated source
 
@@ -34,11 +42,11 @@ The metadata has active roles in the original compiler:
 - `CExcept` uses the display name in intermediate-code dumps.
 - later optimizer and backend passes use argument and result counts while rewriting or emitting code.
 
-These uses justify the current typed fields. Full operand shapes, side-effect classes, memory behavior, control-flow behavior, relocation intent, source spans, and x87 stack verification require the M5 IR instruction model.
+These uses justify the current typed fields and construction checks. Opcode-specific payload rules, side-effect classes, memory behavior, control-flow behavior, relocation intent, and x87 stack verification require later M5 slices.
 
 ## Current boundary
 
-This table is the exhaustive opcode identity layer, not an executable IR. There are no instructions, blocks, functions, verifier, textual dump, lowerer, optimizer pipeline, or interpreter yet. No compatibility result on this page implies that HolyC programs can be lowered or run.
+The checked sequence is a structural IR foundation, not a compiled program. It does not yet contain basic blocks, functions, branch-target checks, a lowerer, an optimizer pipeline, or an interpreter. Its payload variant records exact data without claiming that every payload is valid for every opcode; later lowering and verifier work will add those opcode-specific rules. No compatibility result on this page implies that HolyC programs can be lowered or run.
 
 The semantic frontend now assigns immutable typed results to provided fixed and variadic expressions on resolved direct and typed callback calls. Those records keep source expression identity, type, value category, and forwarded class, but they are not IR values. A nested resolved direct or indirect call additionally retains its call-resolution identity and the source-visible return type. A selected declared default has a separate semantic record: it keeps the exact parameter and default-use identity, checked parameter type, forwarded class, ordinary-expression or `lastclass` kind, and the immediate or AOT string-constant path selected by compilation mode. It deliberately has no expression ID because no call-site expression was provided. Fixed expression results can carry a target conversion decision; a `lastclass` default can also carry the preceding provided result and derived base spelling; variadic results retain only their actual class. Ordinary function expression statements keep the same checked result plus `ICF_RES_NOT_USED` intent. Implicit-output statements retain that intent alongside the synthetic `Print` or `PutChars` target, fixed-source form, and checked output arguments. A downstream semantic result identifies the source-visible module header and canonical target or the exact outer-table entry. Function and executable top-level conditions keep the same typed result plus an `if`, `while`, `do while`, or `for` role. The top-level view also records whether the later edge tests zero or nonzero. These records do not create `IC_END_EXP`, calls, output conversions, Boolean conversions, blocks, labels, or branch instructions. None of these paths has an operand graph, use list, block placement, evaluated default payload, side-effect model, relocation intent, string allocation, or machine representation. IR lowering under M5 must consume the semantic result without treating its deterministic traversal ID or call index as an instruction ID.
 

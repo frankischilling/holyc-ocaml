@@ -91,6 +91,7 @@ let () =
       ("compiler option", Test_compiler_option.tests);
       ("intermediate code source", Test_intermediate_code_source.tests);
       ("intermediate code", Test_intermediate_code.tests);
+      ("IR instruction sequence", Test_ir_instruction_sequence.tests);
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);
       ("global record flag source", Test_global_record_flag_source.tests);
