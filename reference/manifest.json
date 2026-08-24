@@ -27,7 +27,7 @@
       "parser_diagnostics": 486,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 37005
+      "diagnostics": 36999
     },
     "project_prelude": {
       "parses": 126,
@@ -35,9 +35,9 @@
       "parser_diagnostics": 372,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 20989
+      "diagnostics": 20981
     },
-    "baseline_sha256": "52eb87e4bc94eb4c94f48753c508495c19e00ce2dc6e09a1118781510356b97b"
+    "baseline_sha256": "5e3ae43dfd8ccb9fa75e9c516966fe7a94104ef06a45b891599a71706bb3064a"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

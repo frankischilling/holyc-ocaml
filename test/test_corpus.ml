@@ -567,9 +567,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_005
+    "diagnostics" 36_999
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_005 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 36_999 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -585,7 +585,7 @@ let pinned_parser_reference () =
     ]
     (Corpus.Parse.Comparison.prelude_files comparison);
   Alcotest.(check int)
-    "prelude diagnostics" 25
+    "prelude diagnostics" 23
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
     "both parse" 25
@@ -607,7 +607,7 @@ let pinned_parser_reference () =
     "prelude parser failures" 372
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 20_989
+    "prelude diagnostics" 20_981
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -640,6 +640,15 @@ let pinned_parser_reference () =
   Alcotest.(check bool)
     "KernelC accepts its semicolon-free prototype" true
     (kernel_c.status = Corpus.Parse.Parses);
+  List.iter
+    (fun result ->
+      Alcotest.(check bool)
+        "KernelA string headings do not report HCPP0010" false
+        (List.mem_assoc "HCPP0010" result.Corpus.Parse.diagnostic_codes))
+    [
+      parse_file report "Kernel/KernelA.HH";
+      parse_file prelude "Kernel/KernelA.HH";
+    ];
   let kernel_ints = parse_file prelude "Kernel/KInts.HC" in
   Alcotest.(check bool)
     "KInts accepts an intrinsic-class assembly size prefix" true
