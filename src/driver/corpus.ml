@@ -150,6 +150,9 @@ let git_raw root arguments =
     let stdout, stdin, stderr =
       Unix.open_process_args_full "git" arguments (Unix.environment ())
     in
+    set_binary_mode_in stdout true;
+    set_binary_mode_out stdin true;
+    set_binary_mode_in stderr true;
     let output = read_all stdout in
     let error_output = read_all stderr in
     match Unix.close_process_full (stdout, stdin, stderr) with
@@ -342,7 +345,10 @@ let diagnostic_summary source (item : Common.Diagnostic.t) =
   }
 
 let lex_source source =
-  let lexer = Frontend.Lexer.create ~nul_terminates:true source in
+  let lexer =
+    Frontend.Lexer.create ~nul_terminates:true ~recover_normalized_doldoc:true
+      source
+  in
   let rec loop tokens diagnostic_count first_diagnostic =
     match Frontend.Lexer.next lexer with
     | Frontend.Lexer.Token token
@@ -921,7 +927,8 @@ module Parse = struct
       Frontend.Preprocessor.Config.create ~working_directory:root
         ~templeos_root:root ~compilation_mode ~max_source_bytes:max_file_bytes
         ~physical_nul_terminates:true ~predefined_date:"01/01/70"
-        ~predefined_time:"00:00:00" ~command_line_source:false ()
+        ~recover_normalized_doldoc:true ~predefined_time:"00:00:00"
+        ~command_line_source:false ()
     with
     | Ok config -> Ok config
     | Error message -> Error (report_message root message)

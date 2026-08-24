@@ -26,6 +26,7 @@ module Trivia = Frontend.Trivia
 module Token_kind = Frontend.Token_kind
 module Token = Frontend.Token
 module Lexer = Frontend.Lexer
+module Doldoc_binary = Frontend.Doldoc_binary
 module Include_resolver = Frontend.Include_resolver
 module Definition = Frontend.Definition
 module Predefined = Frontend.Predefined

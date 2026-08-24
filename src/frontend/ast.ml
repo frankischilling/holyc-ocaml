@@ -69,6 +69,17 @@ type literal_value =
   | Float_value of float
   | Bytes_value of string
 
+type inserted_binary_origin = {
+  record_number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
+type literal_origin =
+  | Source_literal
+  | Inserted_binary_literal of inserted_binary_origin
+  | Inserted_binary_size_literal of inserted_binary_origin
+
 type unary_operator_kind =
   | Unary_plus
   | Unary_minus
@@ -107,6 +118,7 @@ and expression_literal = {
   literal_value : literal_value;
   literal_location : location;
   literal_segments : expression_literal_segment list;
+  literal_origin : literal_origin;
 }
 
 and expression_literal_segment = {
@@ -1062,12 +1074,13 @@ let make_expression_literal_segment ~spelling ~value ~location =
     literal_segment_location = location;
   }
 
-let make_expression_literal ~spelling ~value ~location =
+let make_expression_literal ~origin ~spelling ~value ~location =
   {
     literal_spelling = spelling;
     literal_value = value;
     literal_location = location;
     literal_segments = [];
+    literal_origin = origin;
   }
 
 let make_segmented_expression_literal ~segments ~spelling ~value ~location =
@@ -1076,6 +1089,7 @@ let make_segmented_expression_literal ~segments ~spelling ~value ~location =
     literal_value = value;
     literal_location = location;
     literal_segments = segments;
+    literal_origin = Source_literal;
   }
 
 let make_expression_operator ~spelling ~location =

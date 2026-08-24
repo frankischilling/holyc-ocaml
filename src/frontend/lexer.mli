@@ -22,6 +22,7 @@ val create :
   ?defined_at:Common.Span.t ->
   ?caller:t ->
   ?nul_terminates:bool ->
+  ?recover_normalized_doldoc:bool ->
   Common.Source_file.t ->
   t
 
@@ -40,5 +41,6 @@ val next : t -> item
 val lex_all :
   ?mode:Token.mode ->
   ?nul_terminates:bool ->
+  ?recover_normalized_doldoc:bool ->
   Common.Source_file.t ->
   (Token.t list, Common.Diagnostic.t list) result

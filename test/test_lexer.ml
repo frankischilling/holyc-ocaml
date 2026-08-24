@@ -244,6 +244,140 @@ let nul_termination () =
   | Some Lexer.Physical_eof -> Alcotest.fail "expected NUL termination"
   | None -> Alcotest.fail "expected recorded termination"
 
+let add_uint32_le buffer value =
+  for shift = 0 to 3 do
+    Buffer.add_char buffer (Char.chr ((value lsr (shift * 8)) land 0xff))
+  done
+
+let saved_doldoc text records =
+  let buffer = Buffer.create (String.length text + 64) in
+  Buffer.add_string buffer text;
+  Buffer.add_char buffer '\x00';
+  List.iter
+    (fun (number, payload) ->
+      add_uint32_le buffer number;
+      add_uint32_le buffer 0;
+      add_uint32_le buffer (String.length payload);
+      add_uint32_le buffer 1;
+      Buffer.add_string buffer payload)
+    records;
+  Buffer.contents buffer
+
+let lex_saved ?(recover_normalized_doldoc = false) contents =
+  let session = Session.create () in
+  let source = Session.add_source session ~path:"saved.HC" ~contents in
+  let lexer =
+    Lexer.create ~mode:Token.Holyc ~nul_terminates:true
+      ~recover_normalized_doldoc source
+  in
+  let rec collect tokens diagnostics =
+    match Lexer.next lexer with
+    | Lexer.Token token when token.Token.kind = Token_kind.Eof ->
+        (session, List.rev tokens, List.rev diagnostics)
+    | Lexer.Token token -> collect (token :: tokens) diagnostics
+    | Lexer.Diagnostic diagnostic -> collect tokens (diagnostic :: diagnostics)
+  in
+  collect [] []
+
+let inserted_binary_tokens () =
+  let source =
+    saved_doldoc "U8 *data[2]={$IB,\"<two>\",BI=2$,$IS,\"<one>\",BI=1$};"
+      [ (2, "\x10\x20"); (1, "abc") ]
+  in
+  let session, tokens, diagnostics = lex_saved source in
+  Alcotest.(check int) "valid table diagnostics" 0 (List.length diagnostics);
+  let inserted =
+    List.filter
+      (fun token ->
+        token.Token.kind = Token_kind.Inserted_binary
+        || token.Token.kind = Token_kind.Inserted_binary_size)
+      tokens
+  in
+  match inserted with
+  | [ binary; size ] ->
+      Alcotest.(check string)
+        "inserted bytes" "\x10\x20"
+        (match binary.value with
+        | Token.Bytes value -> value
+        | _ -> Alcotest.fail "expected an inserted byte value");
+      Alcotest.(check int64)
+        "inserted size" 3L
+        (match size.value with
+        | Token.Int64 value -> value
+        | _ -> Alcotest.fail "expected an inserted size value");
+      let binary_record = Option.get binary.binary_record in
+      Alcotest.(check int64) "binary record number" 2L binary_record.number;
+      Alcotest.(check bool)
+        "binary payload is complete" true binary_record.payload_complete;
+      let dump = Token.json (Session.sources session) inserted in
+      let open Yojson.Safe.Util in
+      let complete =
+        Yojson.Safe.from_string dump
+        |> to_list |> List.hd |> member "binary_record"
+        |> member "payload_complete" |> to_bool
+      in
+      Alcotest.(check bool) "token JSON records completeness" true complete
+  | _ -> Alcotest.fail "expected one IB token and one IS token"
+
+let inserted_binary_failures () =
+  let _, _, missing =
+    lex_saved (saved_doldoc "$IB,\"missing\",BI=7$;" [ (1, "ok") ])
+  in
+  Alcotest.(check (list string))
+    "missing record diagnostic" [ "HCLEX0010" ]
+    (List.map (fun item -> item.Diagnostic.code) missing);
+  let _, _, malformed = lex_saved (saved_doldoc "$IB,\"bad\",BI=-1$;" []) in
+  Alcotest.(check (list string))
+    "malformed BI diagnostic" [ "HCLEX0009" ]
+    (List.map (fun item -> item.Diagnostic.code) malformed);
+  let duplicate = saved_doldoc "name" [ (1, "a"); (1, "b") ] in
+  match Holyc_lib.Doldoc_binary.decode duplicate with
+  | Error error ->
+      Alcotest.(check bool)
+        "duplicate record kind" true
+        (error.kind = Holyc_lib.Doldoc_binary.Duplicate_record)
+  | Ok _ -> Alcotest.fail "expected a duplicate-record error"
+
+let normalized_binary_recovery () =
+  let buffer = Buffer.create 64 in
+  Buffer.add_string buffer "$IB,\"short\",BI=1$;";
+  Buffer.add_char buffer '\x00';
+  add_uint32_le buffer 1;
+  add_uint32_le buffer 0;
+  add_uint32_le buffer 4;
+  add_uint32_le buffer 1;
+  Buffer.add_string buffer "abc";
+  let source = Buffer.contents buffer in
+  (match Holyc_lib.Doldoc_binary.decode source with
+  | Error error ->
+      Alcotest.(check bool)
+        "strict truncated-payload kind" true
+        (error.kind = Holyc_lib.Doldoc_binary.Truncated_payload)
+  | Ok _ -> Alcotest.fail "strict decoding accepted a shortened payload");
+  let _, tokens, diagnostics =
+    lex_saved ~recover_normalized_doldoc:true source
+  in
+  Alcotest.(check int) "recovery diagnostics" 0 (List.length diagnostics);
+  let token = List.hd tokens in
+  let record = Option.get token.Token.binary_record in
+  Alcotest.(check int64) "declared size" 4L record.declared_size;
+  Alcotest.(check bool) "payload is incomplete" false record.payload_complete;
+  Alcotest.(check string)
+    "archived bytes are retained" "abc"
+    (match token.value with
+    | Token.Bytes value -> value
+    | _ -> Alcotest.fail "expected recovered bytes")
+
+let inserted_command_detection_is_lexical () =
+  let _, tokens, diagnostics = lex_saved "\"$IB,\";\x00not-a-binary-table" in
+  Alcotest.(check (list string))
+    "string content does not decode a table" []
+    (List.map (fun item -> item.Diagnostic.code) diagnostics);
+  Alcotest.(check (list string))
+    "ordinary token kinds"
+    [ "string"; "punctuation(';')" ]
+    (List.map (fun token -> Token_kind.name token.Token.kind) tokens)
+
 let read_file path =
   let channel = open_in_bin path in
   Fun.protect
@@ -281,5 +415,13 @@ let tests =
     Alcotest.test_case "malformed input" `Quick malformed_input;
     Alcotest.test_case "line continuations" `Quick line_continuations;
     Alcotest.test_case "NUL termination" `Quick nul_termination;
+    Alcotest.test_case "DolDoc inserted binary tokens" `Quick
+      inserted_binary_tokens;
+    Alcotest.test_case "DolDoc inserted binary failures" `Quick
+      inserted_binary_failures;
+    Alcotest.test_case "normalized DolDoc binary recovery" `Quick
+      normalized_binary_recovery;
+    Alcotest.test_case "DolDoc command detection is lexical" `Quick
+      inserted_command_detection_is_lexical;
     Alcotest.test_case "golden token dump" `Quick golden_dump;
   ]

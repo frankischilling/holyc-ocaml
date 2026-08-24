@@ -13146,6 +13146,178 @@ let pinned_adjacent_string_contexts () =
         fixtures)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let add_doldoc_uint32 buffer value =
+  for shift = 0 to 3 do
+    Buffer.add_char buffer (Char.chr ((value lsr (shift * 8)) land 0xff))
+  done
+
+let saved_binary_source text records =
+  let buffer = Buffer.create (String.length text + 64) in
+  Buffer.add_string buffer text;
+  Buffer.add_char buffer '\x00';
+  List.iter
+    (fun (number, payload) ->
+      add_doldoc_uint32 buffer number;
+      add_doldoc_uint32 buffer 0;
+      add_doldoc_uint32 buffer (String.length payload);
+      add_doldoc_uint32 buffer 1;
+      Buffer.add_string buffer payload)
+    records;
+  Buffer.contents buffer
+
+let parse_saved_binary ~compilation_mode ?(recover = false) contents =
+  let session = Session.create () in
+  let source = Session.add_source session ~path:"saved-binary.HC" ~contents in
+  let config =
+    Preprocessor.Config.create ~compilation_mode ~physical_nul_terminates:true
+      ~recover_normalized_doldoc:recover ()
+    |> Result.get_ok
+  in
+  let output = Holyc_lib.parse_detailed session ~config ~source in
+  (session, output)
+
+let expect_single_global_declarator ast =
+  match ast.Ast.items with
+  | [ Ast.Global_declaration declaration ] -> List.hd declaration.declarators
+  | [ Ast.Global_variable variable ] ->
+      Alcotest.failf "expected a grouped global, got %s" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected one global declaration, got %d items"
+        (List.length items)
+
+let inserted_binary_initializer_expressions () =
+  List.iter
+    (fun compilation_mode ->
+      let source =
+        saved_binary_source
+          "U8 *imgs[2]={$IB,\"<one>\",BI=1$,$IS,\"<two>\",BI=2$};"
+          [ (1, "sprite"); (2, "abcd") ]
+      in
+      let session, output = parse_saved_binary ~compilation_mode source in
+      Alcotest.(check (list string))
+        "saved initializer diagnostics" []
+        (List.map (fun item -> item.Diagnostic.code) output.diagnostics);
+      let declarator = expect_ast output |> expect_single_global_declarator in
+      let braced =
+        expect_global_initial_value declarator |> fun value ->
+        expect_braced_initial_value value.global_initializer_value
+      in
+      let expressions =
+        List.map
+          (fun element ->
+            expect_scalar_initial_value element.Ast.initializer_element_value)
+          braced.initializer_elements
+      in
+      let binary = List.nth expressions 0 |> expect_string_literal in
+      let size =
+        match List.nth expressions 1 with
+        | Ast.Integer_literal literal -> literal
+        | _ -> Alcotest.fail "expected an inserted binary size literal"
+      in
+      (match binary.literal_origin with
+      | Ast.Inserted_binary_literal record ->
+          Alcotest.(check int64) "binary record" 1L record.record_number;
+          Alcotest.(check int64) "binary declared size" 6L record.declared_size;
+          Alcotest.(check bool)
+            "binary payload complete" true record.payload_complete
+      | Ast.Source_literal | Ast.Inserted_binary_size_literal _ ->
+          Alcotest.fail "expected inserted binary origin");
+      (match size.literal_origin with
+      | Ast.Inserted_binary_size_literal record ->
+          Alcotest.(check int64) "size record" 2L record.record_number;
+          Alcotest.(check int64)
+            "size literal value" 4L
+            (match size.literal_value with
+            | Ast.Integer_value value -> value
+            | Ast.Float_value _ | Ast.Bytes_value _ ->
+                Alcotest.fail "inserted size has a non-integer value")
+      | Ast.Source_literal | Ast.Inserted_binary_literal _ ->
+          Alcotest.fail "expected inserted binary size origin");
+      let sources = Session.sources session in
+      let ast = expect_ast output in
+      let human = Ast_dump.human sources ast in
+      let json = Ast_dump.json sources ast in
+      Alcotest.(check bool)
+        "human dump names binary literal" true
+        (contains human "kind=inserted_binary_literal");
+      Alcotest.(check bool)
+        "JSON dump names binary size" true
+        (contains json "inserted_binary_size_literal");
+      Alcotest.(check string)
+        "binary JSON is deterministic" json
+        (Ast_dump.json sources ast))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inserted_binary_initializer_boundaries () =
+  let source =
+    saved_binary_source "U8 *item=$IB,\"missing\",BI=9$;" [ (1, "x") ]
+  in
+  let _, strict =
+    parse_saved_binary ~compilation_mode:Preprocessor.Aot source
+  in
+  Alcotest.(check (list string))
+    "strict missing record"
+    [ "HCLEX0010"; "HCPARSE0127" ]
+    (List.map (fun item -> item.Diagnostic.code) strict.diagnostics);
+  let _, recovered =
+    parse_saved_binary ~compilation_mode:Preprocessor.Aot ~recover:true source
+  in
+  let literal =
+    expect_ast recovered |> expect_single_global_declarator
+    |> expect_global_initial_value
+    |> fun value ->
+    expect_scalar_initial_value value.global_initializer_value
+    |> expect_string_literal
+  in
+  (match literal.literal_origin with
+  | Ast.Inserted_binary_literal record ->
+      Alcotest.(check bool)
+        "missing archive record stays incomplete" false record.payload_complete;
+      Alcotest.(check int64)
+        "missing archive record number" 9L record.record_number
+  | Ast.Source_literal | Ast.Inserted_binary_size_literal _ ->
+      Alcotest.fail "expected a recovered inserted binary literal");
+  let _, _, omitted = parse_string "I64 values[2]={,1};" in
+  Alcotest.(check string)
+    "genuine omitted initializer still fails" "HCPARSE0127"
+    (List.hd omitted.diagnostics).Diagnostic.code
+
+let inserted_binary_source_behavior () =
+  let kernel = pinned "Kernel/KernelA.HH" in
+  let lexer = pinned "Compiler/Lex.HC" in
+  let expressions = pinned "Compiler/PrsExp.HC" in
+  let document_file = pinned "Adam/DolDoc/DocFile.HC" in
+  let document_init = pinned "Adam/DolDoc/DocInit.HC" in
+  List.iter
+    (fun (name, source, fragment) ->
+      Alcotest.(check bool) name true (contains source fragment))
+    [
+      ("saved CDocBin fields", kernel, "U32\tnum,flags,size,use_cnt;");
+      ("inserted binary token", lexer, "cc->last_U16=TK_INS_BIN;");
+      ("inserted size token", lexer, "cc->last_U16=TK_INS_BIN_SIZE;");
+      ("binary expression case", expressions, "case TK_INS_BIN:");
+      ("size expression case", expressions, "case TK_INS_BIN_SIZE:");
+      ( "saved record header copy",
+        document_file,
+        "offset(CDocBin.end)-offset(CDocBin.start)" );
+      ("IB and IS registration", document_init, "SP+T;IB+T;IS+T;SO+T;HC+T;");
+    ];
+  List.iter
+    (fun path ->
+      Alcotest.(check bool)
+        (path ^ " contains an inserted binary command")
+        true
+        (contains (pinned path) "$IB,"))
+    [
+      "Apps/KeepAway/KeepAway.HC";
+      "Apps/Logic/Logic.HC";
+      "Apps/Psalmody/PsalmodyDraw.HC";
+      "Demo/Games/BattleLines.HC";
+      "Demo/Games/FlatTops.HC";
+      "Demo/Graphics/EdSprite.HC";
+      "Demo/Graphics/WallPaperFish.HC";
+    ]
+
 let adjacent_string_provenance_and_dumps () =
   let session, root, output =
     parse_string "#define LEFT \"left\"\n#define RIGHT \"right\"\nLEFT RIGHT;"
@@ -15626,7 +15798,10 @@ let assembly_block_inventory () =
       Source_file.create ~id:source_id ~path ~display_path:path ~contents
     in
     let tokens =
-      match Lexer.lex_all ~mode:Token.Holyc ~nul_terminates:true source with
+      match
+        Lexer.lex_all ~mode:Token.Holyc ~nul_terminates:true
+          ~recover_normalized_doldoc:true source
+      with
       | Ok tokens -> tokens
       | Error diagnostics ->
           Alcotest.failf "raw assembly audit could not lex %s: %s" path
@@ -19423,6 +19598,12 @@ let tests =
       pinned_adjacent_string_contexts;
     Alcotest.test_case "adjacent string provenance and dumps" `Quick
       adjacent_string_provenance_and_dumps;
+    Alcotest.test_case "DolDoc binary initializer expressions" `Quick
+      inserted_binary_initializer_expressions;
+    Alcotest.test_case "DolDoc binary initializer boundaries" `Quick
+      inserted_binary_initializer_boundaries;
+    Alcotest.test_case "DolDoc binary source behavior" `Quick
+      inserted_binary_source_behavior;
     Alcotest.test_case "implicit output shapes" `Quick implicit_output_shapes;
     Alcotest.test_case "implicit output fixed expressions" `Quick
       implicit_output_fixed_expressions;

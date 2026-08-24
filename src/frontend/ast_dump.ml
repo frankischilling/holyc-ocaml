@@ -164,6 +164,20 @@ let literal_value_text = function
   | Ast.Float_value value -> Printf.sprintf "%.17g" value
   | Ast.Bytes_value value -> escaped_bytes value
 
+let literal_kind fallback (literal : Ast.expression_literal) =
+  match literal.literal_origin with
+  | Ast.Source_literal -> fallback
+  | Ast.Inserted_binary_literal _ -> "inserted_binary_literal"
+  | Ast.Inserted_binary_size_literal _ -> "inserted_binary_size_literal"
+
+let literal_record_text (literal : Ast.expression_literal) =
+  match literal.literal_origin with
+  | Ast.Source_literal -> ""
+  | Ast.Inserted_binary_literal record | Ast.Inserted_binary_size_literal record
+    ->
+      Printf.sprintf " binary_record=%Ld declared_size=%Ld payload_complete=%b"
+        record.record_number record.declared_size record.payload_complete
+
 let binding_kind_name = function
   | Ast.Extern -> "extern"
   | Ast.Import -> "import"
@@ -531,9 +545,12 @@ and print_call_argument buffer sources ~indent index
 
 and print_literal buffer sources ~indent ~kind
     (literal : Ast.expression_literal) =
-  Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S span=%s\n"
-    indent kind literal.literal_spelling
+  Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S%s span=%s\n"
+    indent
+    (literal_kind kind literal)
+    literal.literal_spelling
     (literal_value_text literal.literal_value)
+    (literal_record_text literal)
     (location_text sources literal.literal_location);
   List.iteri
     (fun index (segment : Ast.expression_literal_segment) ->
@@ -1768,13 +1785,31 @@ let literal_value_to_yojson = function
   | Ast.Bytes_value value -> `String (escaped_bytes value)
 
 let literal_to_yojson sources ~kind (literal : Ast.expression_literal) =
+  let binary_record =
+    match literal.literal_origin with
+    | Ast.Source_literal -> []
+    | Ast.Inserted_binary_literal record
+    | Ast.Inserted_binary_size_literal record ->
+        [
+          ( "binary_record",
+            `Assoc
+              [
+                ( "number",
+                  `String (Printf.sprintf "0x%08Lx" record.record_number) );
+                ( "declared_size",
+                  `String (Printf.sprintf "0x%08Lx" record.declared_size) );
+                ("payload_complete", `Bool record.payload_complete);
+              ] );
+        ]
+  in
   `Assoc
     ([
-       ("kind", `String kind);
+       ("kind", `String (literal_kind kind literal));
        ("spelling", `String literal.literal_spelling);
        ("value", literal_value_to_yojson literal.literal_value);
        ("location", location_to_yojson sources literal.literal_location);
      ]
+    @ binary_record
     @
     if literal.literal_segments = [] then []
     else
