@@ -469,6 +469,7 @@ type global_declaration = {
   binding : declaration_binding option;
   type_specifier : type_specifier;
   declarators : global_declarator list;
+  trailing_semicolon : location option;
   location : location;
 }
 
@@ -1068,8 +1069,15 @@ let make_global_variable ~modifiers ~binding ~type_specifier ~pointer_layers
   }
 
 let make_global_declaration ~modifiers ~binding ~type_specifier ~declarators
-    ~location =
-  { modifiers; binding; type_specifier; declarators; location }
+    ~trailing_semicolon ~location =
+  {
+    modifiers;
+    binding;
+    type_specifier;
+    declarators;
+    trailing_semicolon;
+    location;
+  }
 
 let make_register_qualifier ~kind ~position ~spelling ~explicit_register
     ~location =

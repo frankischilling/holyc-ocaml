@@ -771,7 +771,7 @@ function_type_checking_storage_layout_indirect_call_lowering_and_execution = "pl
 
 [[feature]]
 id = "HC-PARSER-COMMA-GLOBALS"
-description = "A primitive global declaration can contain several comma-separated names, with one shared base type and an independent pointer depth for each name."
+description = "A primitive global declaration can contain several comma-separated names, with one shared base type, an independent pointer depth for each name, and an optional comma immediately before its semicolon."
 sources = [
   "Compiler/PrsStmt.HC:PrsGlblVarLst",
   "Compiler/PrsVar.HC:PrsType",
@@ -796,12 +796,47 @@ tests = [
 status = "implemented"
 issue = 53
 ast_schema = "holyc-ast-v1"
-accepted_grammar = "global-declaration := primitive declarator (',' declarator)* ';'"
+accepted_grammar = "global-declaration := primitive declarator (',' declarator)* [','] ';'"
 delimiter_provenance = "implemented"
 streaming_symbol_publication = "implemented"
 initializer_status = "planned"
 array_suffix_status = "implemented in HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
 function_declarator_status = "bound primitive prototypes implemented in HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+extended_by = [382]
+
+[[feature]]
+id = "HC-PARSER-TERMINAL-GLOBAL-COMMA"
+description = "A global variable list may end with a comma before its semicolon; the comma does not create a declarator or symbol."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Demo/Graphics/Life.HC:4"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/driver/global_type_resolution.ml"
+]
+tests = [
+  "test/test_parser.ml:terminal_global_comma",
+  "test/test_global_type_resolution.ml:terminal_comma_is_semantically_terminated",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 382
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-declaration := prefix type-specifier declarator (',' declarator)* [','] ';'"
+source_behavior = "After PrsGlblVarLst consumes a comma, PrsType may return a null global identifier; the following semicolon ends the list without adding a variable."
+ast_shape = "The final concrete declarator retains its comma, and the declaration retains the separate terminal semicolon."
+semantic_shape = "Global type resolution exposes the terminal semicolon as the final variable's effective declaration delimiter without inventing a variable."
+ordinary_global_status = "implemented in JIT and AOT modes"
+aggregate_attached_status = "implemented in JIT and AOT modes"
+definition_and_include_provenance = "implemented"
+missing_first_name = "rejected with HCPARSE0002"
+non_semicolon_after_terminal_comma = "rejected with HCPARSE0002"
+corpus_result = "Demo/Graphics/Life.HC loses one recovered diagnostic in both views and advances from HCPARSE0002 at line 4 to unresolved GrBlot at line 10 with the project prelude; standalone diagnostics fall from 37016 to 37015 and project-prelude diagnostics fall from 21141 to 21140."
+native_oracle_status = "not required; PrsGlblVarLst and PrsType state the control flow directly"
 
 [[feature]]
 id = "HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
@@ -6114,13 +6149,13 @@ project_prelude_parses = 118
 project_prelude_only = 94
 project_prelude_frontend_diagnostics = 30
 project_prelude_parser_diagnostics = 380
-project_prelude_unresolved_name_failures = 368
-project_prelude_other_failures = 42
+project_prelude_unresolved_name_failures = 369
+project_prelude_other_failures = 41
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 21141
+project_prelude_diagnostics = 21140
 prelude_diagnostics = 27
-baseline_sha256 = "6bbe2bd89ead2d66b3b5fba79e8d1cd4b1e168b26dc336cd97e7558d175ebc60"
+baseline_sha256 = "f626c8e39ef4171c8b56b652708c5761b04657c7080c9070a3f9f351d72be600"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"

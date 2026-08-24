@@ -20,6 +20,11 @@ type cursor = {
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 
+type parsed_declarator_list = {
+  declarators : parsed_declarator list;
+  trailing_semicolon : located_token option;
+}
+
 type parsed_declarator_prefix = {
   pointer_layers : Ast.pointer_layer list;
   name : Ast.identifier;
@@ -2654,15 +2659,28 @@ let parse_declarator cursor base_spelling ~parse_function_pointer =
 
 let rec parse_declarators cursor base_spelling ~parse_function_pointer
     declarators_rev =
-  match parse_declarator cursor base_spelling ~parse_function_pointer with
-  | None -> None
-  | Some declarator -> (
-      let declarators_rev = declarator :: declarators_rev in
-      match declarator.node.delimiter.kind with
-      | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma ->
-          parse_declarators cursor base_spelling ~parse_function_pointer
-            declarators_rev)
+  let item = peek cursor in
+  if item.token.kind = Token_kind.Punctuation ';' then
+    Some
+      {
+        declarators = List.rev declarators_rev;
+        trailing_semicolon = Some (take cursor);
+      }
+  else
+    match parse_declarator cursor base_spelling ~parse_function_pointer with
+    | None -> None
+    | Some declarator -> (
+        let declarators_rev = declarator :: declarators_rev in
+        match declarator.node.delimiter.kind with
+        | Ast.Semicolon ->
+            Some
+              {
+                declarators = List.rev declarators_rev;
+                trailing_semicolon = None;
+              }
+        | Ast.Comma ->
+            parse_declarators cursor base_spelling ~parse_function_pointer
+              declarators_rev)
 
 let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
@@ -3082,8 +3100,20 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                         ~parse_function_pointer []
                     with
                     | None -> None
-                    | Some declarators ->
+                    | Some parsed_declarators ->
+                        let declarators = parsed_declarators.declarators in
                         let last = List.hd (List.rev declarators) in
+                        let trailing_tokens =
+                          Option.to_list
+                            (Option.map
+                               (fun item -> item.token)
+                               parsed_declarators.trailing_semicolon)
+                        in
+                        let semicolon =
+                          match parsed_declarators.trailing_semicolon with
+                          | Some item -> token_location item.token
+                          | None -> last.node.delimiter.location
+                        in
                         Some
                           ( List.map
                               (fun (declarator : parsed_declarator) ->
@@ -3092,8 +3122,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                             List.concat_map
                               (fun (declarator : parsed_declarator) ->
                                 declarator.tokens)
-                              declarators,
-                            last.node.delimiter.location ))
+                              declarators
+                            @ trailing_tokens,
+                            semicolon ))
                 | _ ->
                     report cursor following_item ~code:"HCPARSE0115"
                       ~message:
@@ -3765,7 +3796,12 @@ let parse_global cursor ~parse_function_definition =
                                     match
                                       first_declarator.node.delimiter.kind
                                     with
-                                    | Ast.Semicolon -> Some [ first_declarator ]
+                                    | Ast.Semicolon ->
+                                        Some
+                                          {
+                                            declarators = [ first_declarator ];
+                                            trailing_semicolon = None;
+                                          }
                                     | Ast.Comma ->
                                         parse_declarators cursor spelling
                                           ~parse_function_pointer:
@@ -3774,7 +3810,17 @@ let parse_global cursor ~parse_function_definition =
                                   in
                                   match parsed_declarators with
                                   | None -> None
-                                  | Some declarators -> (
+                                  | Some parsed_declarators -> (
+                                      let declarators =
+                                        parsed_declarators.declarators
+                                      in
+                                      let trailing_tokens =
+                                        Option.to_list
+                                          (Option.map
+                                             (fun item -> item.token)
+                                             parsed_declarators
+                                               .trailing_semicolon)
+                                      in
                                       let declaration_tokens =
                                         modifier_tokens @ binding_tokens
                                         @ type_item.token
@@ -3782,12 +3828,16 @@ let parse_global cursor ~parse_function_definition =
                                                (fun (item : parsed_declarator)
                                                   -> item.tokens)
                                                declarators
+                                        @ trailing_tokens
                                       in
                                       match declarators with
                                       | [ declarator ]
                                         when Option.is_none
-                                               declarator.node
-                                                 .global_initial_value
+                                               parsed_declarators
+                                                 .trailing_semicolon
+                                             && Option.is_none
+                                                  declarator.node
+                                                    .global_initial_value
                                              && Option.is_none
                                                   declarator.node
                                                     .function_pointer ->
@@ -3819,6 +3869,12 @@ let parse_global cursor ~parse_function_definition =
                                                           parsed_declarator) ->
                                                      item.node)
                                                    declarators)
+                                              ~trailing_semicolon:
+                                                (Option.map
+                                                   (fun item ->
+                                                     token_location item.token)
+                                                   parsed_declarators
+                                                     .trailing_semicolon)
                                               ~location:
                                                 (location_from_tokens
                                                    declaration_tokens)

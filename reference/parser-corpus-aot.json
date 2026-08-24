@@ -58,13 +58,12 @@
       "failed": 504,
       "unresolved_name_failures": 479,
       "other_failures": 25,
-      "diagnostics": 37016,
-      "errors": 37016,
+      "diagnostics": 37015,
+      "errors": 37015,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 10351,
-        "HCPARSE0002": 1,
         "HCPARSE0003": 26,
         "HCPARSE0009": 599,
         "HCPARSE0016": 6,
@@ -100,15 +99,15 @@
       "read_errors": 0,
       "internal_errors": 0,
       "failed": 410,
-      "unresolved_name_failures": 368,
-      "other_failures": 42,
-      "diagnostics": 21141,
-      "errors": 21141,
+      "unresolved_name_failures": 369,
+      "other_failures": 41,
+      "diagnostics": 21140,
+      "errors": 21140,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 3989,
-        "HCPARSE0002": 3,
+        "HCPARSE0002": 2,
         "HCPARSE0003": 15,
         "HCPARSE0009": 29,
         "HCPARSE0016": 8,
@@ -15586,13 +15585,12 @@
       "bytes": 2019,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 52,
-        "errors": 52,
+        "diagnostics": 51,
+        "errors": 51,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 19,
-          "HCPARSE0002": 1,
           "HCPARSE0009": 1,
           "HCPARSE0048": 26,
           "HCPARSE0050": 4,
@@ -15610,24 +15608,23 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 31,
-        "errors": 31,
+        "diagnostics": 30,
+        "errors": 30,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 10,
-          "HCPARSE0002": 1,
           "HCPARSE0048": 17,
           "HCPARSE0050": 2,
           "HCPARSE0055": 1
         },
         "first_error": {
-          "code": "HCPARSE0002",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected an identifier after type \"I64\", but found \";\"",
+          "message": "label or declaration syntax for unresolved identifier \"GrBlot\" after a statement comma is not implemented",
           "path": "Demo/Graphics/Life.HC",
-          "line": 4,
-          "column": 12
+          "line": 10,
+          "column": 3
         },
         "failure_message": null
       }

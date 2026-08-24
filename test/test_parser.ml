@@ -824,6 +824,146 @@ let comma_declaration_group () =
   Alcotest.(check int) "group start" 0 declaration.location.span.start;
   Alcotest.(check int) "group stop" 27 declaration.location.span.stop
 
+let terminal_global_comma () =
+  List.iter
+    (fun compilation_mode ->
+      let session, _, output =
+        parse_string ~path:"Demo/Graphics/Life.HC" ~compilation_mode
+          (pinned_lines "Demo/Graphics/Life.HC" ~first:4 ~last:4)
+      in
+      let declaration = expect_ast output |> expect_one_declaration in
+      match declaration.declarators with
+      | [ declarator ] ->
+          Alcotest.(check string)
+            "Life global name" "cur_dc" declarator.name.spelling;
+          Alcotest.(check string)
+            "Life declarator delimiter" "," declarator.delimiter.spelling;
+          Alcotest.(check string)
+            "Life terminal semicolon" ";"
+            ( declaration.trailing_semicolon |> Option.get |> fun location ->
+              let source =
+                Source_manager.find (Session.sources session)
+                  location.span.source
+                |> Option.get
+              in
+              String.sub
+                (Source_file.contents source)
+                location.span.start
+                (Span.length location.span) )
+      | declarators ->
+          Alcotest.failf "Life terminal comma produced %d declarators"
+            (List.length declarators))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let coverage =
+    "public I64 initialized=1,;\n\
+     extern I64 forwarded,;\n\
+     I64 (*callback)(),;\n\
+     class Payload { I64 member; } payload,;"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode coverage in
+      match (expect_ast output).items with
+      | [
+       Ast.Global_declaration initialized;
+       Ast.Global_declaration forwarded;
+       Ast.Global_declaration callback;
+       Ast.Aggregate_definition payload;
+      ] ->
+          List.iter
+            (fun declaration ->
+              Alcotest.(check int)
+                "terminal group has one named declarator" 1
+                (List.length declaration.Ast.declarators);
+              Alcotest.(check bool)
+                "terminal group retains semicolon" true
+                (Option.is_some declaration.trailing_semicolon))
+            [ initialized; forwarded; callback ];
+          Alcotest.(check int)
+            "aggregate terminal group has one named declarator" 1
+            (List.length payload.attached_declarators);
+          Alcotest.(check string)
+            "aggregate attached delimiter" ","
+            (List.hd payload.attached_declarators).delimiter.spelling
+      | items ->
+          Alcotest.failf "terminal comma coverage produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun (description, source) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string)
+        description "HCPARSE0002" (first_diagnostic output).code)
+    [
+      ("missing first name remains invalid", "I64 ;");
+      ("non-semicolon after comma remains invalid", "I64 value,+1;");
+    ];
+  let generated_session, generated_root, generated =
+    parse_string "#define END ,;\nI64 value END"
+  in
+  let generated_declaration = expect_ast generated |> expect_one_declaration in
+  let generated_semicolon =
+    generated_declaration.trailing_semicolon |> Option.get
+  in
+  Alcotest.(check bool)
+    "generated terminal semicolon uses its definition frame" false
+    (Source_id.equal generated_semicolon.span.source
+       (Source_file.id generated_root));
+  Alcotest.(check bool)
+    "generated terminal semicolon keeps its invocation" true
+    (Option.is_some generated_semicolon.generated_from);
+  Alcotest.(check bool)
+    "generated terminal semicolon keeps its definition" true
+    (Option.is_some generated_semicolon.defined_at);
+  let human =
+    Ast_dump.human (Session.sources generated_session) (expect_ast generated)
+  in
+  let json =
+    Ast_dump.json (Session.sources generated_session) (expect_ast generated)
+  in
+  Alcotest.(check bool)
+    "human dump retains the terminal semicolon" true
+    (contains human "trailing_semicolon span=");
+  let open Yojson.Safe.Util in
+  let json_semicolon =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "trailing_semicolon"
+  in
+  Alcotest.(check bool)
+    "JSON terminal semicolon keeps provenance" true
+    (json_semicolon |> member "generated_from" <> `Null);
+  Alcotest.(check string)
+    "terminal comma human dump is deterministic" human
+    (Ast_dump.human (Session.sources generated_session) (expect_ast generated));
+  Alcotest.(check string)
+    "terminal comma JSON dump is deterministic" json
+    (Ast_dump.json (Session.sources generated_session) (expect_ast generated));
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "terminal.HC" in
+      write_file root_file "#include \"terminal\"";
+      write_file declaration_file "I64 included,;";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      let semicolon =
+        (expect_ast output |> expect_one_declaration).trailing_semicolon
+        |> Option.get
+      in
+      let included_source =
+        Source_manager.find (Session.sources session) semicolon.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "terminal semicolon keeps its included source"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
+
 let definition_backed_comma_group () =
   let session, root, output =
     parse_string "#define NEXT ,**\nU8 *first NEXT second;"
@@ -19555,6 +19695,7 @@ let tests =
     Alcotest.test_case "pinned comma declaration behavior" `Quick
       comma_source_behavior;
     Alcotest.test_case "comma declaration group" `Quick comma_declaration_group;
+    Alcotest.test_case "terminal global comma" `Quick terminal_global_comma;
     Alcotest.test_case "definition-backed comma declaration" `Quick
       definition_backed_comma_group;
     Alcotest.test_case "comma declarations update symbol conditionals" `Quick

@@ -474,6 +474,7 @@ type global_declaration = private {
   binding : declaration_binding option;
   type_specifier : type_specifier;
   declarators : global_declarator list;
+  trailing_semicolon : location option;
   location : location;
 }
 
@@ -1063,6 +1064,7 @@ val make_global_declaration :
   binding:declaration_binding option ->
   type_specifier:type_specifier ->
   declarators:global_declarator list ->
+  trailing_semicolon:location option ->
   location:location ->
   global_declaration
 
