@@ -9833,7 +9833,8 @@ let direct_function_prototypes () =
         "variadic spelling" "..."
         (format.variadic |> Option.get |> fun item -> item.spelling);
       Alcotest.(check int)
-        "prototype covers its semicolon" format.semicolon.span.stop
+        "prototype covers its semicolon"
+        (format.semicolon |> Option.get |> fun semicolon -> semicolon.span.stop)
         format.location.span.stop;
       Alcotest.(check int)
         "four pointer layers are accepted" 4
@@ -9884,6 +9885,159 @@ let function_import_mode_boundary () =
       | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "accepted AOT prototype %s is not visible" name)
     [ "OrdinaryImport"; "AlternateImport" ]
+
+let optional_prototype_semicolons () =
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~compilation_mode
+          "extern U0 First()\nextern U0 Second();\nI64 following;"
+      in
+      match (expect_ast output).items with
+      | [
+       Ast.Function_prototype first;
+       Ast.Function_prototype second;
+       Ast.Global_variable following;
+      ] ->
+          Alcotest.(check bool)
+            "omitted semicolon remains absent" true
+            (Option.is_none first.semicolon);
+          Alcotest.(check bool)
+            "written semicolon remains present" true
+            (Option.is_some second.semicolon);
+          Alcotest.(check string)
+            "following declaration remains available" "following"
+            following.name.spelling;
+          Alcotest.(check int)
+            "omitted prototype ends at its closing parenthesis"
+            first.closing_parenthesis.span.stop first.location.span.stop
+      | items ->
+          Alcotest.failf "optional prototype delimiters produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, bindings =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "extern U0 Ordinary()\n\
+       _extern REMOTE U0 Alternate()\n\
+       _intern 42 U0 Internal()\n\
+       import U0 Imported()\n\
+       _import REMOTE_IMPORT U0 AlternateImport()"
+  in
+  let binding_prototypes =
+    (expect_ast bindings).items
+    |> List.map (function
+      | Ast.Function_prototype prototype -> prototype
+      | _ -> Alcotest.fail "expected a bound function prototype")
+  in
+  Alcotest.(check (list string))
+    "every binding form accepts omission"
+    [ "Ordinary"; "Alternate"; "Internal"; "Imported"; "AlternateImport" ]
+    (List.map
+       (fun (prototype : Ast.function_prototype) -> prototype.name.spelling)
+       binding_prototypes);
+  Alcotest.(check bool)
+    "every omitted binding delimiter remains absent" true
+    (List.for_all
+       (fun (prototype : Ast.function_prototype) ->
+         Option.is_none prototype.semicolon)
+       binding_prototypes);
+  let kernel_source =
+    "extern class CTask;\n"
+    ^ pinned_lines "Kernel/KernelC.HH" ~first:179 ~last:180
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode kernel_source in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_forward_declaration _;
+       Ast.Function_prototype breakpoint;
+       Ast.Function_prototype breakpoint_two;
+      ] ->
+          Alcotest.(check string)
+            "pinned prototype" "B" breakpoint.name.spelling;
+          Alcotest.(check bool)
+            "pinned omitted semicolon" true
+            (Option.is_none breakpoint.semicolon);
+          Alcotest.(check string)
+            "following pinned prototype" "B2" breakpoint_two.name.spelling
+      | items ->
+          Alcotest.failf "pinned header produced %d items" (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _generated_session, generated_root, generated =
+    parse_string "#define HEADER extern U0 Generated()\nHEADER\nI64 next;"
+  in
+  (match (expect_ast generated).items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable _ ] ->
+      Alcotest.(check bool)
+        "generated omitted semicolon" true
+        (Option.is_none prototype.semicolon);
+      Alcotest.(check bool)
+        "generated prototype leaves the root source" false
+        (Source_id.equal prototype.name.location.span.source
+           (Source_file.id generated_root));
+      Alcotest.(check bool)
+        "generated prototype keeps invocation provenance" true
+        (Option.is_some prototype.name.location.generated_from);
+      Alcotest.(check bool)
+        "generated prototype keeps definition provenance" true
+        (Option.is_some prototype.name.location.defined_at)
+  | items ->
+      Alcotest.failf "generated omitted semicolon produced %d items"
+        (List.length items));
+  let dump_session, _, dump_output =
+    parse_string "#define HEADER extern U0 Generated()\nHEADER"
+  in
+  let dump_ast = expect_ast dump_output in
+  let dump_sources = Session.sources dump_session in
+  let human = Ast_dump.human dump_sources dump_ast in
+  let json = Ast_dump.json dump_sources dump_ast in
+  Alcotest.(check bool)
+    "human dump omits an unwritten delimiter" false
+    (contains human "semicolon span=");
+  let open Yojson.Safe.Util in
+  let prototype_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON dump omits an unwritten delimiter" true
+    (prototype_json |> member "semicolon" = `Null);
+  Alcotest.(check string)
+    "optional delimiter human dump is deterministic" human
+    (Ast_dump.human dump_sources dump_ast);
+  Alcotest.(check string)
+    "optional delimiter JSON dump is deterministic" json
+    (Ast_dump.json dump_sources dump_ast);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "prototype.HC" in
+      write_file root_file "#include \"prototype\"\nI64 following;";
+      write_file declaration_file "extern U0 Included()";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      match (expect_ast output).items with
+      | [ Ast.Function_prototype prototype; Ast.Global_variable following ] ->
+          let included_source =
+            Source_manager.find (Session.sources session)
+              prototype.name.location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included prototype keeps its canonical source"
+            (Unix.realpath declaration_file)
+            (Source_file.path included_source);
+          Alcotest.(check string)
+            "root declaration remains available after include" "following"
+            following.name.spelling
+      | items ->
+          Alcotest.failf "included omitted semicolon produced %d items"
+            (List.length items))
 
 let definition_backed_function_prototype () =
   let source =
@@ -10972,11 +11126,6 @@ let function_prototype_failures () =
         "NoClose",
         "HCPARSE0009",
         "parameter type" );
-      ( "missing prototype semicolon",
-        "extern U0 NoSemicolon()",
-        "NoSemicolon",
-        "HCPARSE0016",
-        "expected ';'" );
       ( "trailing parameter comma",
         "extern U0 Trailing(I64 value,);",
         "Trailing",
@@ -11306,9 +11455,15 @@ let function_definition_failures () =
   | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
       Alcotest.fail "a definition with a rejected header became visible");
   let _, _, bound_body = parse_string "extern U0 Prototype(){}" in
-  Alcotest.(check string)
-    "a bound form remains a prototype" "HCPARSE0016"
-    (first_diagnostic bound_body).code;
+  (match (expect_ast bound_body).items with
+  | [ Ast.Function_prototype prototype; Ast.Top_level_statement _ ] ->
+      Alcotest.(check bool)
+        "a bound form remains a prototype" true
+        (Option.is_none prototype.semicolon)
+  | items ->
+      Alcotest.failf
+        "expected a bound prototype and separate top-level block, got %d items"
+        (List.length items));
   let depth = Parser.max_block_depth + 1 in
   let nested_source =
     "U0 TooDeep()" ^ String.make depth '{' ^ String.make depth '}'
@@ -20000,6 +20155,8 @@ let tests =
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick
       direct_function_prototypes;
+    Alcotest.test_case "optional prototype semicolons" `Quick
+      optional_prototype_semicolons;
     Alcotest.test_case "function import compilation mode boundary" `Quick
       function_import_mode_boundary;
     Alcotest.test_case "definition-backed function prototype" `Quick
