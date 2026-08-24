@@ -2468,12 +2468,12 @@ corpus_effect = "eight AOT corpus files move past a name position; accumulated d
 unaffected_name_contexts = [
   "aggregate type names",
   "aggregate base names",
-  "operands without an active parameter or local binding",
+  "operands without an active parameter, local, or global-variable binding",
   "labels"
 ]
 native_oracle_status = "not required; PrsKeyWord and the TK_IDENT name slots state the contract directly"
 aggregate_type_name_slot = "planned"
-expression_operand_slot = "implemented by HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS for active parameters and locals"
+expression_operand_slot = "implemented by HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS and HC-PARSER-CONTEXTUAL-GLOBAL-OPERANDS for active variable bindings"
 
 [[feature]]
 id = "HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS"
@@ -2515,10 +2515,54 @@ compilation_modes = ["jit", "aot"]
 definition_provenance = "preserved"
 corpus_effect = "Adam/Gr/GrMath.HC advances from line 57 to line 96; Demo/TimeIns.HC advances to #exe; accumulated diagnostics fall from 37,264 to 37,194"
 limitations = [
-  "keyword-spelled globals do not override keyword expression dispatch",
   "aggregate type and base names remain planned under issue 361"
 ]
 native_oracle_status = "not required; the pinned lexer, expression parser, and statement parser state the local-first order directly"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-GLOBAL-OPERANDS"
+description = "A source-visible global variable with a language-keyword spelling is parsed as an ordinary expression operand before keyword dispatch."
+sources = [
+  "Compiler/PrsStmt.HC:209-409 global-variable construction and insertion",
+  "Kernel/KHashA.HC:40-106 first-match lookup in table-chain order",
+  "Kernel/KHashA.HC:169-189 head insertion by HashAdd",
+  "Compiler/CMain.HC:60-75 JIT and AOT global-table chains",
+  "Compiler/Lex.HC:493-514 selected hash entry",
+  "Compiler/PrsLib.HC:31-38 keyword recognition on the selected entry",
+  "Compiler/PrsStmt.HC:935-942,1156-1179 non-keyword global statement route",
+  "Compiler/PrsExp.HC:810-904 global-variable operand branch"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 363
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "global variables published earlier in the current compilation"
+]
+accepted_expression_contexts = [
+  "top-level arithmetic operands",
+  "statement-leading expressions",
+  "function-body operands"
+]
+dispatch_order = "active local binding, selected global-variable record, then ordinary keyword behavior"
+hash_behavior = "the global and keyword records coexist; HashAdd and table-chain order select the global without replacing the keyword record"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
+corpus_effect = "recovery after unsupported function headers publishes local declarations at top level in Adam/DolDoc/DocGet.HC, Apps/Psalmody/JukePuppet.HC, and Kernel/FunSeg.HC; accumulated diagnostics fall from 37,194 to 37,183 without changing phase counts or first errors"
+limitations = [
+  "keyword-spelled global functions are outside this parser slice",
+  "aggregate type and base names remain planned under issue 361",
+  "storage, lowering, and execution are not implemented"
+]
+native_oracle_status = "not required; the pinned hash insertion, table-chain, lexer, statement, and expression paths state the selection order directly"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
@@ -5963,8 +6007,8 @@ frontend_diagnostics = 17
 parser_diagnostics = 490
 read_errors = 0
 internal_errors = 0
-diagnostics = 37194
-baseline_sha256 = "462a7312f3e3763db24f2d96cd9e65d36bb6bdec91ff6f39e04ed1a8ddd970e6"
+diagnostics = 37183
+baseline_sha256 = "323eab1a5630c95d5d810aa5b3f177938f3402d718f90777fca999b6d375548d"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"
