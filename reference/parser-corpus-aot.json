@@ -47,8 +47,8 @@
     "files": 528,
     "both_parse": 25,
     "standalone_only": 0,
-    "project_prelude_only": 100,
-    "neither_parses": 403,
+    "project_prelude_only": 101,
+    "neither_parses": 402,
     "standalone": {
       "parses": 25,
       "frontend_diagnostics": 17,
@@ -91,16 +91,16 @@
       }
     },
     "project_prelude": {
-      "parses": 125,
+      "parses": 126,
       "frontend_diagnostics": 30,
-      "parser_diagnostics": 373,
+      "parser_diagnostics": 372,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 403,
+      "failed": 402,
       "unresolved_name_failures": 370,
-      "other_failures": 33,
-      "diagnostics": 20991,
-      "errors": 20991,
+      "other_failures": 32,
+      "diagnostics": 20989,
+      "errors": 20989,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
@@ -112,7 +112,7 @@
         "HCPARSE0024": 43,
         "HCPARSE0029": 33,
         "HCPARSE0035": 6,
-        "HCPARSE0047": 58,
+        "HCPARSE0047": 56,
         "HCPARSE0048": 11644,
         "HCPARSE0050": 2800,
         "HCPARSE0055": 1782,
@@ -21393,7 +21393,7 @@
     {
       "path": "Kernel/KInts.HC",
       "effective_project_directory": "Kernel",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 4846,
       "standalone": {
         "status": "parser-diagnostics",
@@ -21413,20 +21413,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0047": 1 },
-        "first_error": {
-          "code": "HCPARSE0047",
-          "severity": "error",
-          "message": "expected ';' or ',' after statement expression, but found identifier \"dbg\"",
-          "path": "Kernel/KInts.HC",
-          "line": 157,
-          "column": 5
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -21870,15 +21863,15 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 328,
-        "errors": 328,
+        "diagnostics": 327,
+        "errors": 327,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 57,
           "HCPARSE0009": 2,
           "HCPARSE0029": 2,
-          "HCPARSE0047": 6,
+          "HCPARSE0047": 5,
           "HCPARSE0048": 101,
           "HCPARSE0050": 29,
           "HCPARSE0055": 9,

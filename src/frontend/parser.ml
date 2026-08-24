@@ -4935,13 +4935,13 @@ let token_is_visible_inline_assembly_size cursor token =
   with
   | Symbol_visibility.Present entry -> (
       match Symbol_visibility.kind entry with
-      | Symbol_visibility.Internal_type | Symbol_visibility.Assembly_keyword ->
-          true
+      | Symbol_visibility.Class
+      | Symbol_visibility.Internal_type
+      | Symbol_visibility.Assembly_keyword -> true
       | Symbol_visibility.Export_system_symbol
       | Symbol_visibility.Import_system_symbol
       | Symbol_visibility.Definition
       | Symbol_visibility.Global_variable
-      | Symbol_visibility.Class
       | Symbol_visibility.Function
       | Symbol_visibility.Word
       | Symbol_visibility.Dictionary_word
