@@ -2328,7 +2328,7 @@ tests = [
 status = "implemented"
 issue = 129
 ast_schema = "holyc-ast-v1"
-accepted_forms = ["modifier* class identifier { aggregate-member* } ;", "modifier* union identifier { aggregate-member* } ;"]
+accepted_forms = ["modifier* class identifier { aggregate-member* } semicolon?", "modifier* union identifier { aggregate-member* } semicolon?"]
 ordinary_member_shape = "one primitive, internal storage, or visible named type followed by one or more pointer, function-pointer, and array declarators"
 member_delimiters = "commas continue a shared type group; a semicolon completes it"
 anonymous_union_shape = "recursive union { aggregate-member* } with an optional following semicolon"
@@ -2342,7 +2342,7 @@ missing_name_diagnostic = "HCPARSE0109"
 missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
-missing_final_semicolon_diagnostic = "HCPARSE0115"
+missing_final_semicolon_diagnostic = "HCPARSE0115 unless another class or union definition begins immediately"
 deferred_form_diagnostics = "HCPARSE0116 for nested named aggregate definitions"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
@@ -2354,6 +2354,39 @@ nested_named_definitions = "planned"
 attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
 function_pointer_members = "implemented in HC-PARSER-FUNCTION-POINTER-MEMBERS"
 semantic_identity_layout_overlap_and_linkage = "planned"
+
+[[feature]]
+id = "HC-PARSER-ADJACENT-AGGREGATE-DEFINITIONS"
+description = "A global class or union definition may omit its semicolon when another class or union definition follows immediately."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
+  "Compiler/PrsVar.HC:PrsType nested class and union type path",
+  "Demo/Graphics/Pick3D.HC:27-38 PCSprite and PObj"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/driver/global_type_resolution.ml"
+]
+tests = [
+  "test/test_parser.ml:adjacent_aggregate_definition_semicolons",
+  "test/cli/parse-aggregate-definition.hc",
+  "test/cli/parse-aggregate-definition.human",
+  "test/cli/parse-aggregate-definition.json",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 388
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+accepted_boundary = "the next preprocessed token is class or union"
+written_semicolon = "retained with its source location"
+omitted_semicolon = "represented as absent; no punctuation is synthesized or consumed"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+corpus_effect = "Pick3D.HC advances from HCPARSE0115 at line 37 to unresolved DCDepthBufAlloc at line 83; phase counts do not change and one diagnostic is removed from each corpus view"
+semantic_compatibility = "aggregate layout behavior is unchanged"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-OFFSET-DIRECTIVES"
@@ -6145,18 +6178,18 @@ report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
 standalone_parses = 24
-standalone_diagnostics = 37010
+standalone_diagnostics = 37009
 project_prelude_parses = 122
 project_prelude_only = 98
 project_prelude_frontend_diagnostics = 30
 project_prelude_parser_diagnostics = 376
-project_prelude_unresolved_name_failures = 369
-project_prelude_other_failures = 37
+project_prelude_unresolved_name_failures = 370
+project_prelude_other_failures = 36
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 21019
+project_prelude_diagnostics = 21018
 prelude_diagnostics = 25
-baseline_sha256 = "d98291229a080ca1218c807c574a9f82c667104653b31c20ad6a043f5b872119"
+baseline_sha256 = "ea37d1a3e8716b67856aa4de1ff8cfb823c0ef350c09481f36fb816af383757e"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
