@@ -7467,6 +7467,38 @@ basic_blocks_control_flow_effects_payload_opcode_rules_relocations_lowering_opti
 native_oracle_status = "not required for this host-side structural boundary; operand and result shapes and flag fields come directly from the pinned source tables"
 
 [[feature]]
+id = "HC-IR-CONTROL-FLOW-CLASSIFICATION"
+description = "Every checked opcode has one source-audited control-flow class, block-target shape, and boundary behavior."
+sources = [
+  "Compiler/CompilerA.HH:20-218 control-flow opcode identities and contiguous conditional branch range",
+  "Kernel/KernelA.HH:1706-1733 CCodeMisc label, forwarding, switch, default, and jump-table fields",
+  "Compiler/OptPass012.HC:1089-1185 label forwarding and branch consumers",
+  "Compiler/OptPass3.HC:269-390,497-504 switch, branch, jump, end, and label consumers",
+  "Compiler/OptPass4.HC:520-545 dead-code boundary after jump and return",
+  "Compiler/OptPass789A.HC:152-294,418,1037 branch, jump, label, return, and zero-byte end emission",
+  "Compiler/BackC.HC:649-742 switch default and jump-table targets"
+]
+implementation = [
+  "src/ir/control_flow.ml",
+  "src/ir/control_flow.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_control_flow.ml"]
+status = "implemented"
+issue = 399
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "total control-flow classification over all 185 checked opcodes"
+classes = ["fallthrough", "label", "unconditional-branch", "conditional-branch", "switch", "return", "end"]
+class_counts = [147, 1, 1, 32, 2, 1, 1]
+target_shapes = ["none", "single", "switch-targets"]
+source_distinctions = ["IC_RETURN_VAL and IC_RETURN_VAL2 fall through before the epilogue", "IC_SUB_CALL is a returning local call", "IC_END terminates the IC stream but emits no bytes"]
+focused_tests = 8
+mutation = "none"
+block_construction_target_payload_validation_calls_exceptions_memory_relocations_floating_state_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated classification boundary; optimizer and backend consumers identify each transfer directly"
+
+[[feature]]
 id = "HC-SEMA-TOP-LEVEL-CONDITION-RESULTS"
 description = "Executable top-level conditions retain their typed value and source-selected branch sense."
 sources = [

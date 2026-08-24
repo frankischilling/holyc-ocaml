@@ -334,6 +334,12 @@ The checked IR sequence group constructs zero-, one-, two-, and variable-operand
 opam exec -- dune exec test/test_main.exe -- test "IR instruction sequence"
 ```
 
+The IR control-flow group partitions all 185 opcodes into 147 ordinary fallthrough operations, one label, one unconditional jump, 32 conditional branches, two switches, one return, and one end marker. It pins both sides of the contiguous conditional range, target shapes, block-ending and fallthrough predicates, deterministic names, and the distinct behavior of return-value preparation and local subroutine calls. Run only this group with:
+
+```sh
+opam exec -- dune exec test/test_main.exe -- test "IR control flow"
+```
+
 Function-flag tests cover the two shared flag positions, all eight stored function bits, all eight parser-staging masks, both source groups, and every modifier transition. The transition test checks all 4,096 possible staging masks. Boundary and truth-table tests cover automatic `RET1`, varargs, caller cleanup, interrupt error-code handling, internal functions, and the distinction between public hash state and stored function flags.
 
 BIN source tests cover the exact header layout and signature, entry order and numeric gaps, source status comments, import displacement biases, record payloads, loader-pass actions, AOT adjustments, checksum normalization, and source provenance. Mutation tests reject changed, duplicate, missing, or reordered entries, changed reserved gaps, altered import formulas, altered adjustment operations, unknown consumers, and incomplete source sets. Public API tests distinguish known, reserved, and unknown codes and check every name and numeric round trip. These are specification tests; loader and actual-TempleOS oracle tests remain pending with the serializer.
