@@ -968,7 +968,8 @@ let rec print_statement buffer sources ~indent = function
               | Ast.Scalar_initializer expression ->
                   print_expression buffer sources
                     ~indent:(declarator_indent ^ "  ") expression
-              | Ast.Braced_initializer _ as value ->
+              | (Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _) as
+                value ->
                   print_initializer buffer sources
                     ~indent:(declarator_indent ^ "  ") value)
             declarator.local_initializer;
@@ -1259,6 +1260,30 @@ and print_initializer buffer sources ~indent = function
         braced.initializer_elements;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources braced.initializer_closing_brace)
+  | Ast.Unbraced_array_initializer unbraced ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%svalue kind=unbraced_array span=%s elements=%d\n"
+        indent
+        (location_text sources unbraced.unbraced_initializer_location)
+        (List.length unbraced.unbraced_initializer_elements);
+      List.iteri
+        (fun index (element : Ast.initializer_element) ->
+          Printf.bprintf buffer "%selement index=%d span=%s\n" child_indent
+            index
+            (location_text sources element.initializer_element_location);
+          print_initializer buffer sources ~indent:(child_indent ^ "  ")
+            element.initializer_element_value;
+          Option.iter
+            (fun comma ->
+              Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+                (location_text sources comma))
+            element.initializer_element_comma)
+        unbraced.unbraced_initializer_elements;
+      Option.iter
+        (fun closing_brace ->
+          Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+            (location_text sources closing_brace))
+        unbraced.unbraced_initializer_closing_brace
 
 and print_array_dimensions buffer sources ~indent dimensions =
   List.iteri
@@ -2552,8 +2577,8 @@ let rec statement_to_yojson sources = function
           match initial_value.local_initializer_value with
           | Ast.Scalar_initializer expression ->
               expression_to_yojson sources expression
-          | Ast.Braced_initializer _ as value ->
-              initializer_to_yojson sources value
+          | (Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _) as
+            value -> initializer_to_yojson sources value
         in
         `Assoc
           [
@@ -2858,6 +2883,25 @@ and initializer_to_yojson sources = function
             location_to_yojson sources braced.initializer_closing_brace );
           ("location", location_to_yojson sources braced.initializer_location);
         ]
+  | Ast.Unbraced_array_initializer unbraced ->
+      `Assoc
+        ([
+           ("kind", `String "unbraced_array");
+           ( "elements",
+             `List
+               (List.map
+                  (initializer_element_to_yojson sources)
+                  unbraced.unbraced_initializer_elements) );
+         ]
+        @ (match unbraced.unbraced_initializer_closing_brace with
+          | None -> []
+          | Some closing_brace ->
+              [ ("closing_brace", location_to_yojson sources closing_brace) ])
+        @ [
+            ( "location",
+              location_to_yojson sources unbraced.unbraced_initializer_location
+            );
+          ])
 
 and initializer_element_to_yojson sources (element : Ast.initializer_element) =
   `Assoc

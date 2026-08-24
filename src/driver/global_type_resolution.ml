@@ -505,6 +505,9 @@ let initializer_fact (initial_value : Frontend.Ast.global_initializer) =
     | Frontend.Ast.Braced_initializer braced ->
         ( Sema.Global_type_resolution.Braced_initializer,
           origin braced.initializer_location )
+    | Frontend.Ast.Unbraced_array_initializer unbraced ->
+        ( Sema.Global_type_resolution.Braced_initializer,
+          origin unbraced.unbraced_initializer_location )
   in
   Sema.Global_type_resolution.make_initializer ~kind
     ~origin:(origin initial_value.global_initializer_location)

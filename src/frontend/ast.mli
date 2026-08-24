@@ -313,12 +313,19 @@ type aggregate_base = private {
 type initial_value =
   | Scalar_initializer of expression
   | Braced_initializer of braced_initializer
+  | Unbraced_array_initializer of unbraced_array_initializer
 
 and braced_initializer = private {
   initializer_opening_brace : location;
   initializer_elements : initializer_element list;
   initializer_closing_brace : location;
   initializer_location : location;
+}
+
+and unbraced_array_initializer = private {
+  unbraced_initializer_elements : initializer_element list;
+  unbraced_initializer_closing_brace : location option;
+  unbraced_initializer_location : location;
 }
 
 and initializer_element = private {
@@ -1009,6 +1016,12 @@ val make_braced_initializer :
   closing_brace:location ->
   location:location ->
   braced_initializer
+
+val make_unbraced_array_initializer :
+  elements:initializer_element list ->
+  closing_brace:location option ->
+  location:location ->
+  unbraced_array_initializer
 
 val make_initializer_element :
   value:initial_value ->

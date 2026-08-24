@@ -308,12 +308,19 @@ type aggregate_base = {
 type initial_value =
   | Scalar_initializer of expression
   | Braced_initializer of braced_initializer
+  | Unbraced_array_initializer of unbraced_array_initializer
 
 and braced_initializer = {
   initializer_opening_brace : location;
   initializer_elements : initializer_element list;
   initializer_closing_brace : location;
   initializer_location : location;
+}
+
+and unbraced_array_initializer = {
+  unbraced_initializer_elements : initializer_element list;
+  unbraced_initializer_closing_brace : location option;
+  unbraced_initializer_location : location;
 }
 
 and initializer_element = {
@@ -1009,6 +1016,13 @@ let make_braced_initializer ~opening_brace ~elements ~closing_brace ~location =
     initializer_location = location;
   }
 
+let make_unbraced_array_initializer ~elements ~closing_brace ~location =
+  {
+    unbraced_initializer_elements = elements;
+    unbraced_initializer_closing_brace = closing_brace;
+    unbraced_initializer_location = location;
+  }
+
 let make_initializer_element ~value ~comma ~location =
   {
     initializer_element_value = value;
@@ -1270,6 +1284,8 @@ let expression_location = function
 let initial_value_location = function
   | Scalar_initializer expression -> expression_location expression
   | Braced_initializer braced -> braced.initializer_location
+  | Unbraced_array_initializer unbraced ->
+      unbraced.unbraced_initializer_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }

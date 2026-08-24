@@ -97,6 +97,21 @@ let rec initial_value path state = function
                 else elements (index + 1) state rest)
       in
       elements 0 state braced.initializer_elements
+  | Frontend.Ast.Unbraced_array_initializer unbraced ->
+      let rec elements index state = function
+        | [] -> Ok state
+        | (element : Frontend.Ast.initializer_element) :: rest -> (
+            match
+              initial_value (path @ [ index ]) state
+                element.initializer_element_value
+            with
+            | Error _ as error -> error
+            | Ok state ->
+                if index = max_int then
+                  Error "global initializer path identity space is exhausted"
+                else elements (index + 1) state rest)
+      in
+      elements 0 state unbraced.unbraced_initializer_elements
 
 let events = function
   | None -> Ok []
@@ -155,6 +170,9 @@ let initializer_shape = function
   | Frontend.Ast.Braced_initializer braced ->
       ( Sema.Global_type_resolution.Braced_initializer,
         origin braced.initializer_location )
+  | Frontend.Ast.Unbraced_array_initializer unbraced ->
+      ( Sema.Global_type_resolution.Braced_initializer,
+        origin unbraced.unbraced_initializer_location )
 
 let validate_initializer semantic ast =
   match (semantic, ast) with
