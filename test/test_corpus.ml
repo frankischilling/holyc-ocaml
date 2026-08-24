@@ -567,9 +567,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_015
+    "diagnostics" 37_010
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_015 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_010 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -585,7 +585,7 @@ let pinned_parser_reference () =
     ]
     (Corpus.Parse.Comparison.prelude_files comparison);
   Alcotest.(check int)
-    "prelude diagnostics" 27
+    "prelude diagnostics" 25
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
     "both parse" 24
@@ -594,20 +594,20 @@ let pinned_parser_reference () =
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 94
+    "prelude only" 97
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 410
+    "neither parses" 407
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 118 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 121 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 380
+    "prelude parser failures" 377
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 21_140
+    "prelude diagnostics" 21_021
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -637,13 +637,26 @@ let pinned_parser_reference () =
     "StrA parses with its semicolon-separated header" true
     (str_a.status = Corpus.Parse.Parses);
   let kernel_c = parse_file prelude "Kernel/KernelC.HH" in
-  (match kernel_c.first_error with
+  Alcotest.(check bool)
+    "KernelC accepts its semicolon-free prototype" true
+    (kernel_c.status = Corpus.Parse.Parses);
+  List.iter
+    (fun path ->
+      Alcotest.(check bool)
+        (path ^ " parses after the prototype boundary")
+        true
+        ((parse_file prelude path).status = Corpus.Parse.Parses))
+    [ "Demo/AcctExample/TOS/TOSExt.HC"; "Kernel/KMisc.HC" ];
+  let make_tos = parse_file prelude "Demo/AcctExample/TOS/MakeTOS.HC" in
+  (match make_tos.first_error with
   | Some diagnostic ->
       Alcotest.(check string)
-        "KernelC advances beyond its parameter separator" "HCPARSE0016"
-        diagnostic.code;
-      Alcotest.(check int) "KernelC new boundary line" 180 diagnostic.line
-  | None -> Alcotest.fail "expected KernelC to retain a later parser boundary");
+        "MakeTOS advances past TOSExt" "HCPARSE0048" diagnostic.code;
+      Alcotest.(check string)
+        "MakeTOS next boundary source" "Demo/AcctExample/TOS/TOSMisc.HC"
+        diagnostic.path;
+      Alcotest.(check int) "MakeTOS next boundary line" 12 diagnostic.line
+  | None -> Alcotest.fail "expected MakeTOS to retain a later parser boundary");
   List.iter
     (fun (path, code, line) ->
       let result = parse_file prelude path in
