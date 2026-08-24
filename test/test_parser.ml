@@ -14067,6 +14067,117 @@ let pinned_adjacent_string_contexts () =
         fixtures)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let doldoc_string_commands_source_behavior () =
+  let lexer = pinned "Compiler/Lex.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains lexer fragment))
+    [
+      ("Lex marks quoted input", "cc->flags|=CCF_IN_QUOTES;");
+      ("LexDollar quotes a saved command", "cc->dollar_buf=MStrPrint");
+      ("LexDollar records both delimiters", "cc->dollar_cnt=2;");
+      ("LexInStr consumes reconstructed dollars", "if (cc->dollar_cnt)");
+    ]
+
+let doldoc_string_commands_in_pinned_examples () =
+  let text_demo = pinned_lines "Demo/DolDoc/TextDemo.HC" ~first:15 ~last:22 in
+  let message_loop = pinned_lines "Demo/MsgLoop.HC" ~first:1 ~last:5 ^ "\n}" in
+  List.iter
+    (fun mode ->
+      let _, _, text_output = parse_string ~compilation_mode:mode text_demo in
+      Alcotest.(check (list string))
+        "TextDemo diagnostics" []
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           text_output.diagnostics);
+      let text_statement =
+        expect_ast text_output |> expect_one_implicit_output
+      in
+      let text_value = expect_bytes_value text_statement.marker in
+      Alcotest.(check bool)
+        "TextDemo link bytes" true
+        (contains text_value "$LK,\"Genesis,1:1\",A=\"BF:Genesis,1:1\"$");
+      Alcotest.(check bool)
+        "TextDemo button bytes" true
+        (contains text_value "$BT,\"OKAY\",LE=1$");
+      Alcotest.(check int)
+        "TextDemo physical strings" 6
+        (List.length text_statement.marker.literal_segments);
+      let _, _, message_output =
+        parse_string ~compilation_mode:mode message_loop
+      in
+      Alcotest.(check (list string))
+        "MsgLoop diagnostics" []
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           message_output.diagnostics);
+      let statements =
+        expect_ast message_output |> expect_one_definition
+        |> function_body_statements
+      in
+      match statements with
+      | [
+       Ast.Local_declaration_statement _; Ast.Implicit_output_statement print;
+      ] ->
+          Alcotest.(check string)
+            "MsgLoop decoded bytes"
+            "Use $LK,\"msg_code\",A=\"MN:MSG_CMD\"$ defines in your programs \
+             instead of hardcoded nums.\n\
+             <ESC> to Exit\n"
+            (expect_bytes_value print.marker);
+          Alcotest.(check int)
+            "MsgLoop physical strings" 2
+            (List.length print.marker.literal_segments)
+      | statements ->
+          Alcotest.failf "expected MsgLoop declaration and output, got %d items"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let doldoc_string_command_provenance () =
+  let _, root, output =
+    parse_string "#define DOC \"Use $LK,\"name\",A=\"MN:name\"$\"\nDOC;"
+  in
+  let marker = (expect_ast output |> expect_one_implicit_output).marker in
+  Alcotest.(check string)
+    "definition-backed bytes" "Use $LK,\"name\",A=\"MN:name\"$"
+    (expect_bytes_value marker);
+  Alcotest.(check bool)
+    "definition uses a generated source" false
+    (Source_id.equal marker.literal_location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "definition keeps its invocation" true
+    (Option.is_some marker.literal_location.generated_from);
+  Alcotest.(check bool)
+    "definition keeps its declaration" true
+    (Option.is_some marker.literal_location.defined_at);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let included_file = Filename.concat directory "included.HC" in
+      write_file root_file "#include \"included\"";
+      write_file included_file "\"$BT,\"OKAY\",LE=1$\";";
+      let include_session = Session.create () in
+      let root_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root_source
+      in
+      let included = expect_ast include_output |> expect_one_implicit_output in
+      Alcotest.(check string)
+        "included bytes" "$BT,\"OKAY\",LE=1$"
+        (expect_bytes_value included.marker);
+      let source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.marker.literal_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included canonical path"
+        (Unix.realpath included_file)
+        (Source_file.path source))
+
 let add_doldoc_uint32 buffer value =
   for shift = 0 to 3 do
     Buffer.add_char buffer (Char.chr ((value lsr (shift * 8)) land 0xff))
@@ -20526,6 +20637,12 @@ let tests =
       adjacent_string_token_boundaries;
     Alcotest.test_case "pinned adjacent string contexts" `Quick
       pinned_adjacent_string_contexts;
+    Alcotest.test_case "pinned DolDoc string command behavior" `Quick
+      doldoc_string_commands_source_behavior;
+    Alcotest.test_case "pinned DolDoc string command examples" `Quick
+      doldoc_string_commands_in_pinned_examples;
+    Alcotest.test_case "DolDoc string command provenance" `Quick
+      doldoc_string_command_provenance;
     Alcotest.test_case "adjacent string provenance and dumps" `Quick
       adjacent_string_provenance_and_dumps;
     Alcotest.test_case "DolDoc binary initializer expressions" `Quick

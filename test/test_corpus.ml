@@ -508,7 +508,7 @@ let pinned_reference () =
   Alcotest.(check int64)
     "canonical lexed bytes" 2_923_417L
     (Corpus.total_lexed_bytes report);
-  Alcotest.(check int64) "token count" 719_621L (Corpus.total_tokens report);
+  Alcotest.(check int64) "token count" 719_471L (Corpus.total_tokens report);
   Alcotest.(check int)
     "NUL-terminated files" 54
     (Corpus.nul_terminated_count report);
@@ -551,25 +551,25 @@ let pinned_parser_reference () =
     "compilation mode" "aot"
     (Preprocessor.compilation_mode_name (Corpus.Parse.compilation_mode report));
   Alcotest.(check int) "source count" 528 (Corpus.Parse.file_count report);
-  Alcotest.(check int) "parsed count" 24 (Corpus.Parse.parses_count report);
+  Alcotest.(check int) "parsed count" 25 (Corpus.Parse.parses_count report);
   Alcotest.(check int)
     "frontend failures" 17
     (Corpus.Parse.frontend_diagnostic_count report);
   Alcotest.(check int)
-    "parser failures" 487
+    "parser failures" 486
     (Corpus.Parse.parser_diagnostic_count report);
   Alcotest.(check int) "read errors" 0 (Corpus.Parse.read_error_count report);
   Alcotest.(check int)
     "internal errors" 0
     (Corpus.Parse.internal_error_count report);
-  Alcotest.(check int) "failure count" 504 (Corpus.Parse.failure_count report);
+  Alcotest.(check int) "failure count" 503 (Corpus.Parse.failure_count report);
   Alcotest.(check int64)
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_009
+    "diagnostics" 37_005
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_009 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_005 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -588,26 +588,26 @@ let pinned_parser_reference () =
     "prelude diagnostics" 25
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
-    "both parse" 24
+    "both parse" 25
     (Corpus.Parse.Comparison.both_parse_count comparison);
   Alcotest.(check int)
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 98
+    "prelude only" 100
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 406
+    "neither parses" 403
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 122 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 125 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 376
+    "prelude parser failures" 373
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 21_018
+    "prelude diagnostics" 20_991
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -651,6 +651,23 @@ let pinned_parser_reference () =
   Alcotest.(check bool)
     "DocHighlight accepts its unbraced fixed-array initializer" true
     (doc_highlight.status = Corpus.Parse.Parses);
+  List.iter
+    (fun path ->
+      Alcotest.(check bool)
+        (path ^ " preserves quoted DolDoc commands inside strings")
+        true
+        ((parse_file prelude path).status = Corpus.Parse.Parses))
+    [ "Adam/Opt/Utils/MemRep.HC"; "Demo/DolDoc/TextDemo.HC"; "Demo/MsgLoop.HC" ];
+  Alcotest.(check bool)
+    "TextDemo also parses without the project prelude" true
+    ((parse_file report "Demo/DolDoc/TextDemo.HC").status = Corpus.Parse.Parses);
+  let standalone_msg_loop = parse_file report "Demo/MsgLoop.HC" in
+  (match standalone_msg_loop.first_error with
+  | Some diagnostic ->
+      Alcotest.(check string)
+        "standalone MsgLoop advances to Fs" "HCPARSE0048" diagnostic.code;
+      Alcotest.(check int) "standalone MsgLoop boundary line" 10 diagnostic.line
+  | None -> Alcotest.fail "expected MsgLoop to need the project prelude");
   let make_tos = parse_file prelude "Demo/AcctExample/TOS/MakeTOS.HC" in
   (match make_tos.first_error with
   | Some diagnostic ->
