@@ -3815,18 +3815,6 @@ let aggregate_member_keyword_provenance_and_scope () =
         "included keyword name keeps its canonical path"
         (Unix.realpath definition_file)
         (Source_file.path included_source));
-  List.iter
-    (fun (description, rejected, code) ->
-      let _, _, rejected_output = parse_string rejected in
-      Alcotest.(check string)
-        description code (first_diagnostic rejected_output).code)
-    [
-      (* PrsStmt.HC:4 accepts any TK_IDENT here, so this rejection is a known
-         difference tracked separately from the declarator-name rule. *)
-      ( "aggregate type names remain strict",
-        "class start { I64 value; };",
-        "HCPARSE0109" );
-    ];
   let _, _, switch_output = parse_string "switch[value]{start:case 1:;end:}" in
   ignore (expect_ast switch_output)
 
@@ -11365,6 +11353,120 @@ let function_body_statements (definition : Ast.function_definition) =
             sequence.sequence_elements
       | statement -> [ statement ])
     body.block_statements
+
+let keyword_spelled_aggregate_types () =
+  let source =
+    "class start { I64 value; };\n\
+     union end { I64 value; };\n\
+     start global_start;\n\
+     end global_end;\n\
+     class Derived:start { I64 value; };\n\
+     U0 Use() { start local_start; end local_end; }"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_definition start_type;
+       Ast.Aggregate_definition end_type;
+       Ast.Global_variable global_start;
+       Ast.Global_variable global_end;
+       Ast.Aggregate_definition derived;
+       Ast.Function_definition use;
+      ] ->
+          Alcotest.(check string)
+            "keyword class name" "start" start_type.name.spelling;
+          Alcotest.(check string)
+            "keyword union name" "end" end_type.name.spelling;
+          ignore (expect_named_specifier "start" global_start.type_specifier);
+          ignore (expect_named_specifier "end" global_end.type_specifier);
+          ignore (expect_aggregate_base "start" derived);
+          let locals =
+            function_body_statements use |> List.map expect_local_declaration
+          in
+          Alcotest.(check int) "keyword local count" 2 (List.length locals);
+          ignore
+            (expect_named_specifier "start"
+               (List.nth locals 0).local_type_specifier);
+          ignore
+            (expect_named_specifier "end"
+               (List.nth locals 1).local_type_specifier)
+      | items ->
+          Alcotest.failf "keyword aggregate fixture produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, missing_base = parse_string "class Derived:start { I64 value; };" in
+  Alcotest.(check string)
+    "unresolved keyword base diagnostic" "HCPARSE0121"
+    (first_diagnostic missing_base).code;
+  Alcotest.(check bool)
+    "unresolved keyword base is a lookup error" true
+    (contains (first_diagnostic missing_base).message
+       "is not a visible class or union");
+  let _, _, ordinary_keyword = parse_string "U0 Use(){start value;}" in
+  Alcotest.(check string)
+    "ordinary keyword remains a statement keyword" "HCPARSE0048"
+    (first_diagnostic ordinary_keyword).code;
+  let _, _, forward = parse_string "extern class catch; catch forward_value;" in
+  (match (expect_ast forward).items with
+  | [ Ast.Aggregate_forward_declaration declaration; Ast.Global_variable value ]
+    ->
+      Alcotest.(check string)
+        "keyword forward declaration name" "catch" declaration.name.spelling;
+      ignore (expect_named_specifier "catch" value.type_specifier)
+  | items ->
+      Alcotest.failf "keyword aggregate forward fixture produced %d items"
+        (List.length items));
+  let _, root, generated =
+    parse_string "#define AGG_NAME start\nclass AGG_NAME { I64 value; };"
+  in
+  let generated_name =
+    expect_ast generated |> expect_one_aggregate_definition |> fun definition ->
+    definition.name
+  in
+  Alcotest.(check bool)
+    "generated aggregate name uses generated source" false
+    (Source_id.equal generated_name.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated aggregate name keeps invocation provenance" true
+    (Option.is_some generated_name.location.generated_from);
+  Alcotest.(check bool)
+    "generated aggregate name keeps definition provenance" true
+    (Option.is_some generated_name.location.defined_at);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let aggregate_file = Filename.concat include_root "aggregate.HC" in
+      write_file root_file "#include \"aggregate\"";
+      write_file aggregate_file
+        "class start { I64 value; };\nstart included_value;";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_name =
+        match (expect_ast output).items with
+        | [ Ast.Aggregate_definition definition; Ast.Global_variable value ] ->
+            ignore (expect_named_specifier "start" value.type_specifier);
+            definition.name
+        | items ->
+            Alcotest.failf "keyword aggregate include produced %d items"
+              (List.length items)
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "keyword aggregate keeps its included source"
+        (Unix.realpath aggregate_file)
+        (Source_file.path included_source))
 
 (* Compiler/PrsLib.HC:31-38 keeps keyword identity in the hash entry, so the
    name positions that read TK_IDENT directly accept a keyword spelling:
@@ -19614,6 +19716,8 @@ let tests =
       aggregate_inheritance_failures_recover;
     Alcotest.test_case "aggregate inheritance provenance and dumps" `Quick
       aggregate_inheritance_provenance_and_dumps;
+    Alcotest.test_case "keyword-spelled aggregate types" `Quick
+      keyword_spelled_aggregate_types;
     Alcotest.test_case "pinned named type behavior" `Quick
       named_type_source_behavior;
     Alcotest.test_case "direct named type declarations" `Quick

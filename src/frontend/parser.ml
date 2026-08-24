@@ -707,7 +707,7 @@ let internal_type_of_token cursor token =
 
 let token_is_named_type cursor token =
   match token.Token.kind with
-  | Token_kind.Identifier -> (
+  | Token_kind.Identifier | Token_kind.Keyword _ -> (
       match
         Symbol_visibility.Environment.find_preprocessor cursor.symbols
           (token_text token)
@@ -2291,11 +2291,11 @@ let parse_aggregate_base cursor =
     let colon_item = take cursor in
     let base_item = peek cursor in
     if
-      base_item.token.kind <> Token_kind.Identifier
+      (not (token_is_name_position_identifier base_item.token))
       || not (token_is_named_type cursor base_item.token)
     then (
       let message =
-        if base_item.token.kind = Token_kind.Identifier then
+        if token_is_name_position_identifier base_item.token then
           Printf.sprintf
             "%S is not a visible class or union and cannot be used as a base"
             base_item.token.raw
@@ -3028,7 +3028,7 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
     ~aggregate_kind ~parse_function_pointer ~parse_member_function_pointer =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
-  if name_item.token.kind <> Token_kind.Identifier then (
+  if not (token_is_name_position_identifier name_item.token) then (
     report cursor name_item ~code:"HCPARSE0109"
       ~message:
         (Printf.sprintf "expected a name after %S, but found %s"
@@ -3610,7 +3610,7 @@ let parse_global cursor ~parse_function_definition =
           ~target:Ast.No_binding_target
       in
       let name_item = peek cursor in
-      if name_item.token.kind <> Token_kind.Identifier then (
+      if not (token_is_name_position_identifier name_item.token) then (
         report cursor name_item ~code:"HCPARSE0107"
           ~message:
             (Printf.sprintf "expected a name after %S %S, but found %s"
@@ -5366,6 +5366,10 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | (Token_kind.Identifier | Token_kind.Keyword _)
+    when Option.is_some cursor.local_context
+         && token_is_named_type cursor item.token ->
+      parse_local_declaration cursor ~boundary
   | Token_kind.Keyword _
     when token_is_contextual_identifier_operand cursor item.token ->
       parse_expression_statement cursor ~boundary
