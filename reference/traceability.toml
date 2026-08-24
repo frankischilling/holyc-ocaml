@@ -6146,17 +6146,17 @@ default_mode = "aot"
 source_objects = 528
 standalone_parses = 24
 standalone_diagnostics = 37010
-project_prelude_parses = 121
-project_prelude_only = 97
+project_prelude_parses = 122
+project_prelude_only = 98
 project_prelude_frontend_diagnostics = 30
-project_prelude_parser_diagnostics = 377
+project_prelude_parser_diagnostics = 376
 project_prelude_unresolved_name_failures = 369
-project_prelude_other_failures = 38
+project_prelude_other_failures = 37
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 21021
+project_prelude_diagnostics = 21019
 prelude_diagnostics = 25
-baseline_sha256 = "e12053600b73c04e3ba61d1bcf79c56a05800873e98c6e34a96bf9ada4aaf2a7"
+baseline_sha256 = "d98291229a080ca1218c807c574a9f82c667104653b31c20ad6a043f5b872119"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
@@ -6294,6 +6294,45 @@ provenance = ["primary span", "source segments", "generated source origin", "def
 native_oracle = "not required because the compiler control flow and two authored corpus examples are explicit"
 corpus_effect = "project-prelude parsing rises from 118 to 121 files; Kernel/KernelC.HH, Kernel/KMisc.HC, and Demo/AcctExample/TOS/TOSExt.HC parse; MakeTOS advances into TOSMisc; project-prelude diagnostics fall from 21140 to 21021"
 semantic_compatibility = "prototype syntax and source boundaries only; ABI and linkage behavior are not evaluated"
+
+[[feature]]
+id = "HC-GLOBAL-FIXED-ARRAY-UNBRACED-INITIALIZER"
+description = "A fixed-size global array may read its declared number of initializer elements without an opening brace."
+sources = [
+  "Compiler/PrsVar.HC:123-204 PrsVarInit2",
+  "Compiler/PrsVar.HC:154-158 consumes an opening brace only when present",
+  "Compiler/PrsVar.HC:190-197 reads the fixed dimension count and accepts a closing brace",
+  "Adam/DolDoc/DocHighlight.HC:3-7 highlight_hash_type_colors initializer",
+  "Kernel/KernelA.HH:673 HTt_TYPES_NUM definition"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/driver/global_initializer_binding.ml"
+]
+tests = [
+  "test/test_parser.ml:unbraced_fixed_array_initializers",
+  "test/test_global_initializer_binding.ml:prior_module_and_nested_paths",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 386
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+ast_schema = "holyc-ast-v1"
+opening_brace = "absent and never synthesized"
+closing_brace = "optional and retained when written"
+dimension_count = "positive literal after definition expansion, limited to 1000000 elements per dimension"
+multidimensional_shape = "nested unbraced array nodes retain each fixed dimension"
+strings = "continue through the existing scalar string initializer path"
+unsupported_bound_diagnostic = "HCPARSE0159"
+missing_element_separator_diagnostic = "HCPARSE0160"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+corpus_effect = "Adam/DolDoc/DocHighlight.HC parses with the project prelude; project-prelude parsing rises from 121 to 122 files and diagnostics fall from 21021 to 21019"
+semantic_compatibility = "syntax, initializer shape, and expression binding only; storage bytes and runtime initialization are not evaluated"
 
 [[feature]]
 id = "HC-DOLDOC-INSERTED-BINARY"
