@@ -11426,9 +11426,7 @@ let contextual_keyword_operand_source_behavior () =
       ( "global declarations enter the compilation table",
         variable_parser,
         "HashAdd(tmpg,cc->htc.glbl_hash_table);" );
-      ( "hash insertion puts the newest record first",
-        hash,
-        "MOV\tU64 [RAX],RCX" );
+      ("hash insertion puts the newest record first", hash, "MOV\tU64 [RAX],RCX");
       ( "AOT searches compilation globals before assembler keywords",
         compilation,
         "cc->htc.glbl_hash_table->next=cmp.asm_hash;" );
@@ -11521,9 +11519,7 @@ let contextual_keyword_statement_dispatch () =
 
 let contextual_keyword_global_operands () =
   let source =
-    "I64 start=1,offset=2,sizeof=3;\n"
-    ^ "start+offset;\n"
-    ^ "sizeof;\n"
+    "I64 start=1,offset=2,sizeof=3;\n" ^ "start+offset;\n" ^ "sizeof;\n"
     ^ "U0 Read()\n{\noffset+start;\n}"
   in
   let identifier expression =
@@ -11542,7 +11538,8 @@ let contextual_keyword_global_operands () =
         ] -> (first, second, definition)
         | items ->
             Alcotest.failf
-              "expected one global group, two top-level expressions, and one function, got %d items"
+              "expected one global group, two top-level expressions, and one \
+               function, got %d items"
               (List.length items)
       in
       let first =
@@ -11550,8 +11547,7 @@ let contextual_keyword_global_operands () =
         statement.expression_statement_expression |> expect_binary_expression
       in
       Alcotest.(check (pair string string))
-        "top-level expression reads keyword-spelled globals"
-        ("start", "offset")
+        "top-level expression reads keyword-spelled globals" ("start", "offset")
         (identifier first.binary_left, identifier first.binary_right);
       let second =
         expect_expression_statement second |> fun statement ->
@@ -11561,13 +11557,13 @@ let contextual_keyword_global_operands () =
         "statement keyword resolves to the visible global" "sizeof"
         (identifier second);
       let inside =
-        function_body_statements definition |> List.hd
-        |> expect_expression_statement |> fun statement ->
+        function_body_statements definition
+        |> List.hd |> expect_expression_statement
+        |> fun statement ->
         statement.expression_statement_expression |> expect_binary_expression
       in
       Alcotest.(check (pair string string))
-        "function expression reads keyword-spelled globals"
-        ("offset", "start")
+        "function expression reads keyword-spelled globals" ("offset", "start")
         (identifier inside.binary_left, identifier inside.binary_right))
     [ Preprocessor.Jit; Preprocessor.Aot ];
   let _, _, outside = parse_string "sizeof;" in
@@ -11589,8 +11585,8 @@ let contextual_keyword_global_provenance () =
           "expected one generated global and one expression, got %d items"
           (List.length items)
   in
-  Alcotest.(check string) "generated global operand spelling" "start"
-    operand.spelling;
+  Alcotest.(check string)
+    "generated global operand spelling" "start" operand.spelling;
   Alcotest.(check bool)
     "generated global operand uses its definition frame" false
     (Source_id.equal operand.location.span.source (Source_file.id root));
