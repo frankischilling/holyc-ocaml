@@ -210,77 +210,141 @@ let parser_synthetic_tree () =
         (Corpus.Parse.human report))
 
 let parser_project_prelude_comparison () =
-  with_temp_directory (fun root ->
-      let compiler = Filename.concat root "Compiler" in
-      let kernel = Filename.concat root "Kernel" in
-      let demo = Filename.concat root "Demo" in
-      make_directory compiler;
-      make_directory kernel;
-      make_directory demo;
-      write_file
-        (Filename.concat compiler "Compiler.PRJ")
-        "#include \"/Kernel/First.HH\"\n#include \"/Kernel/Second.HH\"\n";
-      write_file
-        (Filename.concat kernel "Kernel.PRJ")
-        "#include \"/Kernel/Second.HH\"\n#include \"/Kernel/First.HH\"\n";
-      write_file (Filename.concat kernel "First.HH") "#define TARGET CThing\n";
-      write_file (Filename.concat kernel "Second.HH") "extern class CThing;\n";
-      write_file (Filename.concat demo "A.HC") "extern class Leaked;\n";
-      write_file (Filename.concat demo "B.HC") "Leaked *item;\n";
-      write_file (Filename.concat demo "Use.HC") "TARGET *item;\n";
-      let scan () =
-        Corpus.Parse.Comparison.tree ~reference_commit:"synthetic-reference"
-          ~compilation_mode:Preprocessor.Aot ~root ()
-        |> checked
-      in
-      let report = scan () in
-      Alcotest.(check (list string))
-        "prelude follows Compiler.PRJ"
-        [ "/Kernel/First.HH"; "/Kernel/Second.HH" ]
-        (Corpus.Parse.Comparison.prelude_files report);
-      let orders = Corpus.Parse.Comparison.project_orders report in
-      (match orders with
-      | [ compiler_order; kernel_order ] ->
+  with_temp_directory (fun outside ->
+      with_temp_directory (fun root ->
+          let compiler = Filename.concat root "Compiler" in
+          let kernel = Filename.concat root "Kernel" in
+          let demo = Filename.concat root "Demo" in
+          let app = Filename.concat root "Apps" in
+          let app_test = Filename.concat app "Test" in
+          make_directory compiler;
+          make_directory kernel;
+          make_directory demo;
+          make_directory app;
+          make_directory app_test;
+          write_file
+            (Filename.concat compiler "Compiler.PRJ")
+            "#include \"/Kernel/First.HH\"\n#include \"/Kernel/Second.HH\"\n";
+          write_file
+            (Filename.concat kernel "Kernel.PRJ")
+            "#include \"/Kernel/Second.HH\"\n#include \"/Kernel/First.HH\"\n";
+          write_file
+            (Filename.concat kernel "First.HH")
+            "#define TARGET CThing\n";
+          write_file
+            (Filename.concat kernel "Second.HH")
+            "extern class CThing;\n";
+          write_file (Filename.concat demo "A.HC") "extern class Leaked;\n";
+          write_file (Filename.concat demo "B.HC") "Leaked *item;\n";
+          write_file (Filename.concat demo "Use.HC") "TARGET *item;\n";
+          write_file (Filename.concat app_test "Part.HC") "I64 sibling;\n";
+          write_file
+            (Filename.concat app_test "Load.HC")
+            "#include \"Part\"\nI64 loaded;\n";
+          write_file (Filename.concat outside "Secret.HC") "I64 secret;\n";
+          let outside_spelling =
+            Printf.sprintf "../../%s/Secret" (Filename.basename outside)
+          in
+          write_file
+            (Filename.concat demo "Escape.HC")
+            (Printf.sprintf "#include %S\n" outside_spelling);
+          let scan () =
+            Corpus.Parse.Comparison.tree ~reference_commit:"synthetic-reference"
+              ~compilation_mode:Preprocessor.Aot ~root ()
+            |> checked
+          in
+          let report = scan () in
           Alcotest.(check (list string))
-            "compiler order"
+            "prelude follows Compiler.PRJ"
             [ "/Kernel/First.HH"; "/Kernel/Second.HH" ]
-            compiler_order.includes;
-          Alcotest.(check (list string))
-            "kernel order"
-            [ "/Kernel/Second.HH"; "/Kernel/First.HH" ]
-            kernel_order.includes
-      | _ -> Alcotest.fail "expected both project include orders");
-      let use =
-        Corpus.Parse.Comparison.files report
-        |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
-            String.equal item.path "Demo/Use.HC")
-      in
-      Alcotest.(check string)
-        "standalone status" "parser-diagnostics"
-        (Corpus.Parse.status_name use.standalone.status);
-      Alcotest.(check string)
-        "prelude status" "parses"
-        (Corpus.Parse.status_name use.project_prelude.status);
-      Alcotest.(check int)
-        "prelude-only files" 1
-        (Corpus.Parse.Comparison.project_prelude_only_count report);
-      let leaked_use =
-        Corpus.Parse.Comparison.files report
-        |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
-            String.equal item.path "Demo/B.HC")
-      in
-      Alcotest.(check string)
-        "target declarations stay isolated" "parser-diagnostics"
-        (Corpus.Parse.status_name leaked_use.project_prelude.status);
-      let second = scan () in
-      Alcotest.(check string)
-        "deterministic comparison JSON"
-        (Corpus.Parse.Comparison.json report)
-        (Corpus.Parse.Comparison.json second);
-      Alcotest.(check string)
-        "deterministic comparison report"
-        (Corpus.Parse.Comparison.human report)
-        (Corpus.Parse.Comparison.human second))
+            (Corpus.Parse.Comparison.prelude_files report);
+          let orders = Corpus.Parse.Comparison.project_orders report in
+          (match orders with
+          | [ compiler_order; kernel_order ] ->
+              Alcotest.(check string)
+                "compiler directory" "Compiler" compiler_order.directory;
+              Alcotest.(check string)
+                "kernel directory" "Kernel" kernel_order.directory;
+              Alcotest.(check (list string))
+                "compiler order"
+                [ "/Kernel/First.HH"; "/Kernel/Second.HH" ]
+                compiler_order.includes;
+              Alcotest.(check (list string))
+                "kernel order"
+                [ "/Kernel/Second.HH"; "/Kernel/First.HH" ]
+                kernel_order.includes
+          | _ -> Alcotest.fail "expected both project include orders");
+          let use =
+            Corpus.Parse.Comparison.files report
+            |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+                String.equal item.path "Demo/Use.HC")
+          in
+          Alcotest.(check string)
+            "standalone status" "parser-diagnostics"
+            (Corpus.Parse.status_name use.standalone.status);
+          Alcotest.(check string)
+            "prelude status" "parses"
+            (Corpus.Parse.status_name use.project_prelude.status);
+          Alcotest.(check int)
+            "prelude-only files" 2
+            (Corpus.Parse.Comparison.project_prelude_only_count report);
+          let load =
+            Corpus.Parse.Comparison.files report
+            |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+                String.equal item.path "Apps/Test/Load.HC")
+          in
+          Alcotest.(check string)
+            "project source directory" "Apps/Test"
+            load.effective_project_directory;
+          Alcotest.(check string)
+            "relative include fails in standalone mode" "frontend-diagnostics"
+            (Corpus.Parse.status_name load.standalone.status);
+          Alcotest.(check string)
+            "relative include follows project directory" "parses"
+            (Corpus.Parse.status_name load.project_prelude.status);
+          let escape =
+            Corpus.Parse.Comparison.files report
+            |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+                String.equal item.path "Demo/Escape.HC")
+          in
+          (match escape.project_prelude.first_error with
+          | Some diagnostic ->
+              Alcotest.(check string)
+                "project directory stays confined" "HCPP0004" diagnostic.code
+          | None -> Alcotest.fail "expected the outside include to be rejected");
+          let leaked_use =
+            Corpus.Parse.Comparison.files report
+            |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+                String.equal item.path "Demo/B.HC")
+          in
+          Alcotest.(check string)
+            "target declarations stay isolated" "parser-diagnostics"
+            (Corpus.Parse.status_name leaked_use.project_prelude.status);
+          let second = scan () in
+          Alcotest.(check string)
+            "deterministic comparison JSON"
+            (Corpus.Parse.Comparison.json report)
+            (Corpus.Parse.Comparison.json second);
+          Alcotest.(check string)
+            "deterministic comparison report"
+            (Corpus.Parse.Comparison.human report)
+            (Corpus.Parse.Comparison.human second);
+          let json =
+            Corpus.Parse.Comparison.json report |> Yojson.Safe.from_string
+          in
+          let open Yojson.Safe.Util in
+          Alcotest.(check string)
+            "JSON records directory policy" "source-directory"
+            (json |> member "directory_policy" |> to_string);
+          let load_json =
+            json |> member "files" |> to_list
+            |> List.find (fun item ->
+                item |> member "path" |> to_string
+                |> String.equal "Apps/Test/Load.HC")
+          in
+          Alcotest.(check string)
+            "JSON records effective directory" "Apps/Test"
+            (load_json |> member "effective_project_directory" |> to_string)))
 
 let parser_physical_nul_termination () =
   with_temp_directory (fun root ->
@@ -537,13 +601,13 @@ let pinned_parser_reference () =
     (Corpus.Parse.Comparison.neither_parses_count comparison);
   Alcotest.(check int) "prelude parses" 118 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
-    "prelude frontend failures" 63
+    "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 347
+    "prelude parser failures" 380
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 15_153
+    "prelude diagnostics" 21_141
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -551,6 +615,23 @@ let pinned_parser_reference () =
   Alcotest.(check int)
     "prelude internal errors" 0
     (Corpus.Parse.internal_error_count prelude);
+  let unresolved_relative_includes =
+    Corpus.Parse.Comparison.files comparison
+    |> List.filter (fun (item : Corpus.Parse.Comparison.compared_file) ->
+        match item.project_prelude.first_error with
+        | Some diagnostic -> String.equal diagnostic.code "HCPP0003"
+        | None -> false)
+  in
+  Alcotest.(check int)
+    "project-relative include first failures" 0
+    (List.length unresolved_relative_includes);
+  let make_a_blk_dev = parse_file prelude "Adam/ABlkDev/MakeABlkDev.HC" in
+  (match make_a_blk_dev.first_error with
+  | Some diagnostic ->
+      Alcotest.(check string)
+        "MakeABlkDev reaches parser" "HCPARSE0048" diagnostic.code;
+      Alcotest.(check int) "MakeABlkDev next boundary line" 10 diagnostic.line
+  | None -> Alcotest.fail "expected MakeABlkDev to retain a parser boundary");
   let str_a = parse_file prelude "Kernel/StrA.HC" in
   Alcotest.(check bool)
     "StrA parses with its semicolon-separated header" true

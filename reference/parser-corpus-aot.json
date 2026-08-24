@@ -1,12 +1,14 @@
 {
-  "schema": "holyc-corpus-parse-comparison-v1",
+  "schema": "holyc-corpus-parse-comparison-v2",
   "phase": "parse",
   "input": "verified-git-tree",
   "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "compilation_mode": "aot",
+  "directory_policy": "source-directory",
   "project_orders": [
     {
       "path": "Compiler/Compiler.PRJ",
+      "directory": "Compiler",
       "includes": [
         "/Kernel/KernelA.HH", "/Compiler/CompilerA.HH", "/Kernel/KernelB.HH",
         "/Kernel/KernelC.HH", "Templates", "CExts", "CInit", "CExcept",
@@ -19,6 +21,7 @@
     },
     {
       "path": "Kernel/Kernel.PRJ",
+      "directory": "Kernel",
       "includes": [
         "KCfg", "KernelA.HH", "KStart16", "KStart32", "KStart64", "KMathA",
         "KUtils", "/Compiler/CompilerA.HH", "/Compiler/CompilerB.HH",
@@ -92,51 +95,53 @@
     },
     "project_prelude": {
       "parses": 118,
-      "frontend_diagnostics": 63,
-      "parser_diagnostics": 347,
+      "frontend_diagnostics": 30,
+      "parser_diagnostics": 380,
       "read_errors": 0,
       "internal_errors": 0,
       "failed": 410,
-      "unresolved_name_failures": 336,
-      "other_failures": 74,
-      "diagnostics": 15153,
-      "errors": 15153,
+      "unresolved_name_failures": 368,
+      "other_failures": 42,
+      "diagnostics": 21141,
+      "errors": 21141,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 2919,
-        "HCPARSE0002": 2,
-        "HCPARSE0003": 6,
-        "HCPARSE0009": 20,
-        "HCPARSE0016": 7,
+        "HCPARSE0001": 3989,
+        "HCPARSE0002": 3,
+        "HCPARSE0003": 15,
+        "HCPARSE0009": 29,
+        "HCPARSE0016": 8,
         "HCPARSE0018": 14,
-        "HCPARSE0020": 5,
-        "HCPARSE0024": 38,
-        "HCPARSE0029": 17,
-        "HCPARSE0046": 5,
-        "HCPARSE0047": 47,
-        "HCPARSE0048": 8398,
-        "HCPARSE0050": 1784,
-        "HCPARSE0055": 1233,
-        "HCPARSE0082": 92,
+        "HCPARSE0020": 10,
+        "HCPARSE0024": 58,
+        "HCPARSE0029": 33,
+        "HCPARSE0035": 6,
+        "HCPARSE0046": 6,
+        "HCPARSE0047": 61,
+        "HCPARSE0048": 11606,
+        "HCPARSE0050": 2851,
+        "HCPARSE0055": 1787,
+        "HCPARSE0082": 136,
         "HCPARSE0093": 1,
         "HCPARSE0095": 4,
         "HCPARSE0102": 2,
-        "HCPARSE0105": 8,
-        "HCPARSE0112": 33,
+        "HCPARSE0105": 16,
+        "HCPARSE0112": 48,
         "HCPARSE0115": 1,
-        "HCPARSE0147": 49,
-        "HCPP0003": 349,
-        "HCPP0008": 38,
+        "HCPARSE0147": 106,
+        "HCPP0003": 166,
+        "HCPP0008": 58,
         "HCPP0009": 10,
-        "HCPP0010": 6,
-        "HCPP0022": 65
+        "HCPP0010": 8,
+        "HCPP0022": 109
       }
     }
   },
   "files": [
     {
       "path": "Adam/ABlkDev/ADskA.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 6514,
       "standalone": {
@@ -181,6 +186,7 @@
     },
     {
       "path": "Adam/ABlkDev/ADskB.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "project-prelude-only",
       "bytes": 5093,
       "standalone": {
@@ -220,6 +226,7 @@
     },
     {
       "path": "Adam/ABlkDev/ChkDsk.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 10515,
       "standalone": {
@@ -266,6 +273,7 @@
     },
     {
       "path": "Adam/ABlkDev/DskChk.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 10411,
       "standalone": {
@@ -312,6 +320,7 @@
     },
     {
       "path": "Adam/ABlkDev/DskPrt.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "project-prelude-only",
       "bytes": 4323,
       "standalone": {
@@ -344,6 +353,7 @@
     },
     {
       "path": "Adam/ABlkDev/FileMgr.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 19295,
       "standalone": {
@@ -394,6 +404,7 @@
     },
     {
       "path": "Adam/ABlkDev/MakeABlkDev.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 131,
       "standalone": {
@@ -414,25 +425,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "status": "parser-diagnostics",
+        "diagnostics": 196,
+        "errors": 196,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 6 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 21,
+          "HCPARSE0048": 138,
+          "HCPARSE0050": 24,
+          "HCPARSE0055": 11,
+          "HCPARSE0082": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"ADskA\"",
-          "path": "Adam/ABlkDev/MakeABlkDev.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocD\" after a statement comma is not implemented",
+          "path": "Adam/ABlkDev/ADskA.HC",
+          "line": 10,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/ABlkDev/Mount.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "neither-parses",
       "bytes": 5188,
       "standalone": {
@@ -478,6 +496,7 @@
     },
     {
       "path": "Adam/ABlkDev/PrtDsk.HC",
+      "effective_project_directory": "Adam/ABlkDev",
       "comparison": "project-prelude-only",
       "bytes": 4323,
       "standalone": {
@@ -510,6 +529,7 @@
     },
     {
       "path": "Adam/ADbg.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 7110,
       "standalone": {
@@ -561,6 +581,7 @@
     },
     {
       "path": "Adam/ADefine.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 1281,
       "standalone": {
@@ -593,6 +614,7 @@
     },
     {
       "path": "Adam/AExts.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 4478,
       "standalone": {
@@ -632,6 +654,7 @@
     },
     {
       "path": "Adam/AHash.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 9691,
       "standalone": {
@@ -684,6 +707,7 @@
     },
     {
       "path": "Adam/AMath.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 2458,
       "standalone": {
@@ -721,6 +745,7 @@
     },
     {
       "path": "Adam/AMathODE.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 17606,
       "standalone": {
@@ -766,6 +791,7 @@
     },
     {
       "path": "Adam/AMem.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 4037,
       "standalone": {
@@ -807,6 +833,7 @@
     },
     {
       "path": "Adam/AMouse.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 947,
       "standalone": {
@@ -856,6 +883,7 @@
     },
     {
       "path": "Adam/ARegistry.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 5114,
       "standalone": {
@@ -901,6 +929,7 @@
     },
     {
       "path": "Adam/ASnd.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 8095,
       "standalone": {
@@ -939,6 +968,7 @@
     },
     {
       "path": "Adam/AutoComplete/ACDictGen.HC",
+      "effective_project_directory": "Adam/AutoComplete",
       "comparison": "neither-parses",
       "bytes": 5653,
       "standalone": {
@@ -983,6 +1013,7 @@
     },
     {
       "path": "Adam/AutoComplete/ACFill.HC",
+      "effective_project_directory": "Adam/AutoComplete",
       "comparison": "neither-parses",
       "bytes": 4960,
       "standalone": {
@@ -1033,6 +1064,7 @@
     },
     {
       "path": "Adam/AutoComplete/ACInit.HC",
+      "effective_project_directory": "Adam/AutoComplete",
       "comparison": "neither-parses",
       "bytes": 3567,
       "standalone": {
@@ -1078,6 +1110,7 @@
     },
     {
       "path": "Adam/AutoComplete/ACTask.HC",
+      "effective_project_directory": "Adam/AutoComplete",
       "comparison": "neither-parses",
       "bytes": 7294,
       "standalone": {
@@ -1128,6 +1161,7 @@
     },
     {
       "path": "Adam/AutoComplete/MakeAC.HC",
+      "effective_project_directory": "Adam/AutoComplete",
       "comparison": "neither-parses",
       "bytes": 115,
       "standalone": {
@@ -1148,25 +1182,31 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parser-diagnostics",
+        "diagnostics": 81,
+        "errors": 81,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 3 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 22,
+          "HCPARSE0048": 30,
+          "HCPARSE0050": 23,
+          "HCPARSE0055": 6
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"ACFill\"",
-          "path": "Adam/AutoComplete/MakeAC.HC",
-          "line": 3,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
+          "path": "Adam/AutoComplete/ACFill.HC",
+          "line": 157,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/CPURep.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 1822,
       "standalone": {
@@ -1199,6 +1239,7 @@
     },
     {
       "path": "Adam/Ctrls/CtrlsA.HC",
+      "effective_project_directory": "Adam/Ctrls",
       "comparison": "neither-parses",
       "bytes": 11095,
       "standalone": {
@@ -1245,6 +1286,7 @@
     },
     {
       "path": "Adam/Ctrls/CtrlsBttn.HC",
+      "effective_project_directory": "Adam/Ctrls",
       "comparison": "neither-parses",
       "bytes": 2071,
       "standalone": {
@@ -1291,6 +1333,7 @@
     },
     {
       "path": "Adam/Ctrls/CtrlsSlider.HC",
+      "effective_project_directory": "Adam/Ctrls",
       "comparison": "neither-parses",
       "bytes": 5105,
       "standalone": {
@@ -1336,6 +1379,7 @@
     },
     {
       "path": "Adam/Ctrls/MakeCtrls.HC",
+      "effective_project_directory": "Adam/Ctrls",
       "comparison": "neither-parses",
       "bytes": 134,
       "standalone": {
@@ -1356,25 +1400,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parser-diagnostics",
+        "diagnostics": 56,
+        "errors": 56,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 3 },
+        "diagnostic_codes": { "HCPARSE0048": 53, "HCPARSE0055": 3 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"CtrlsA\"",
-          "path": "Adam/Ctrls/MakeCtrls.HC",
-          "line": 5,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DCDel\" after a statement comma is not implemented",
+          "path": "Adam/Ctrls/CtrlsA.HC",
+          "line": 103,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/DevInfo.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 5457,
       "standalone": {
@@ -1420,6 +1465,7 @@
     },
     {
       "path": "Adam/DolDoc/DocBin.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 3088,
       "standalone": {
@@ -1469,6 +1515,7 @@
     },
     {
       "path": "Adam/DolDoc/DocChar.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 18775,
       "standalone": {
@@ -1519,6 +1566,7 @@
     },
     {
       "path": "Adam/DolDoc/DocClipBoard.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 3079,
       "standalone": {
@@ -1565,6 +1613,7 @@
     },
     {
       "path": "Adam/DolDoc/DocCodeTools.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 15599,
       "standalone": {
@@ -1616,6 +1665,7 @@
     },
     {
       "path": "Adam/DolDoc/DocDblBuf.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 3340,
       "standalone": {
@@ -1660,6 +1710,7 @@
     },
     {
       "path": "Adam/DolDoc/DocEd.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 6565,
       "standalone": {
@@ -1706,6 +1757,7 @@
     },
     {
       "path": "Adam/DolDoc/DocExt.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "project-prelude-only",
       "bytes": 653,
       "standalone": {
@@ -1738,6 +1790,7 @@
     },
     {
       "path": "Adam/DolDoc/DocFile.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 9639,
       "standalone": {
@@ -1788,6 +1841,7 @@
     },
     {
       "path": "Adam/DolDoc/DocFind.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 14219,
       "standalone": {
@@ -1838,6 +1892,7 @@
     },
     {
       "path": "Adam/DolDoc/DocForm.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 9308,
       "standalone": {
@@ -1889,6 +1944,7 @@
     },
     {
       "path": "Adam/DolDoc/DocGet.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 5723,
       "standalone": {
@@ -1935,6 +1991,7 @@
     },
     {
       "path": "Adam/DolDoc/DocGr.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 4794,
       "standalone": {
@@ -1980,6 +2037,7 @@
     },
     {
       "path": "Adam/DolDoc/DocHighlight.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 4239,
       "standalone": {
@@ -2025,6 +2083,7 @@
     },
     {
       "path": "Adam/DolDoc/DocInit.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 3479,
       "standalone": {
@@ -2064,6 +2123,7 @@
     },
     {
       "path": "Adam/DolDoc/DocLink.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 8571,
       "standalone": {
@@ -2115,6 +2175,7 @@
     },
     {
       "path": "Adam/DolDoc/DocMacro.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 4585,
       "standalone": {
@@ -2160,6 +2221,7 @@
     },
     {
       "path": "Adam/DolDoc/DocNew.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 10277,
       "standalone": {
@@ -2205,6 +2267,7 @@
     },
     {
       "path": "Adam/DolDoc/DocPlain.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 15940,
       "standalone": {
@@ -2257,6 +2320,7 @@
     },
     {
       "path": "Adam/DolDoc/DocPopUp.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 8370,
       "standalone": {
@@ -2307,6 +2371,7 @@
     },
     {
       "path": "Adam/DolDoc/DocPutKey.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 16617,
       "standalone": {
@@ -2357,6 +2422,7 @@
     },
     {
       "path": "Adam/DolDoc/DocPutS.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 7828,
       "standalone": {
@@ -2406,6 +2472,7 @@
     },
     {
       "path": "Adam/DolDoc/DocRecalc.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 36007,
       "standalone": {
@@ -2462,6 +2529,7 @@
     },
     {
       "path": "Adam/DolDoc/DocRecalcLib.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 5485,
       "standalone": {
@@ -2508,6 +2576,7 @@
     },
     {
       "path": "Adam/DolDoc/DocRun.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 2811,
       "standalone": {
@@ -2558,6 +2627,7 @@
     },
     {
       "path": "Adam/DolDoc/DocTerm.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 5697,
       "standalone": {
@@ -2603,6 +2673,7 @@
     },
     {
       "path": "Adam/DolDoc/DocTree.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 6018,
       "standalone": {
@@ -2655,6 +2726,7 @@
     },
     {
       "path": "Adam/DolDoc/DocWidgetWiz.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 29857,
       "standalone": {
@@ -2700,6 +2772,7 @@
     },
     {
       "path": "Adam/DolDoc/MakeDoc.HC",
+      "effective_project_directory": "Adam/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1666,
       "standalone": {
@@ -2724,25 +2797,39 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 27,
-        "errors": 27,
+        "status": "parser-diagnostics",
+        "diagnostics": 1537,
+        "errors": 1537,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 27 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 236,
+          "HCPARSE0002": 1,
+          "HCPARSE0003": 9,
+          "HCPARSE0009": 2,
+          "HCPARSE0020": 5,
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 700,
+          "HCPARSE0050": 348,
+          "HCPARSE0055": 220,
+          "HCPARSE0082": 5,
+          "HCPARSE0105": 8,
+          "HCPARSE0147": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"DocExt\"",
-          "path": "Adam/DolDoc/MakeDoc.HC",
-          "line": 37,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"CDocBin\"",
+          "path": "Adam/DolDoc/DocBin.HC",
+          "line": 3,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/God/GodBible.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "neither-parses",
       "bytes": 7045,
       "standalone": {
@@ -2793,6 +2880,7 @@
     },
     {
       "path": "Adam/God/GodDoodle.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "neither-parses",
       "bytes": 4896,
       "standalone": {
@@ -2845,6 +2933,7 @@
     },
     {
       "path": "Adam/God/GodExt.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "project-prelude-only",
       "bytes": 537,
       "standalone": {
@@ -2877,6 +2966,7 @@
     },
     {
       "path": "Adam/God/GodSong.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "neither-parses",
       "bytes": 3974,
       "standalone": {
@@ -2920,6 +3010,7 @@
     },
     {
       "path": "Adam/God/HolySpirit.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "neither-parses",
       "bytes": 3790,
       "standalone": {
@@ -2965,6 +3056,7 @@
     },
     {
       "path": "Adam/God/MakeGod.HC",
+      "effective_project_directory": "Adam/God",
       "comparison": "neither-parses",
       "bytes": 150,
       "standalone": {
@@ -2985,25 +3077,33 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "status": "parser-diagnostics",
+        "diagnostics": 112,
+        "errors": 112,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 4 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 23,
+          "HCPARSE0024": 1,
+          "HCPARSE0048": 62,
+          "HCPARSE0050": 16,
+          "HCPARSE0055": 9,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"GodBible\"",
-          "path": "Adam/God/MakeGod.HC",
-          "line": 5,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocGoToLine\" after a statement comma is not implemented",
+          "path": "Adam/God/GodBible.HC",
+          "line": 161,
+          "column": 5
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Gr/Gr.HH",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "both-parse",
       "bytes": 4382,
       "standalone": {
@@ -3029,6 +3129,7 @@
     },
     {
       "path": "Adam/Gr/GrAsm.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 6234,
       "standalone": {
@@ -3061,6 +3162,7 @@
     },
     {
       "path": "Adam/Gr/GrBitMap.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 51887,
       "standalone": {
@@ -3110,6 +3212,7 @@
     },
     {
       "path": "Adam/Gr/GrComposites.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 9256,
       "standalone": {
@@ -3162,6 +3265,7 @@
     },
     {
       "path": "Adam/Gr/GrDC.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 11727,
       "standalone": {
@@ -3216,6 +3320,7 @@
     },
     {
       "path": "Adam/Gr/GrEnd.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 517,
       "standalone": {
@@ -3259,6 +3364,7 @@
     },
     {
       "path": "Adam/Gr/GrExt.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 436,
       "standalone": {
@@ -3298,6 +3404,7 @@
     },
     {
       "path": "Adam/Gr/GrGlbls.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 1727,
       "standalone": {
@@ -3330,6 +3437,7 @@
     },
     {
       "path": "Adam/Gr/GrInitA.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 761,
       "standalone": {
@@ -3362,6 +3470,7 @@
     },
     {
       "path": "Adam/Gr/GrInitB.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 5077,
       "standalone": {
@@ -3406,6 +3515,7 @@
     },
     {
       "path": "Adam/Gr/GrMV.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 1453,
       "standalone": {
@@ -3445,6 +3555,7 @@
     },
     {
       "path": "Adam/Gr/GrMath.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 19186,
       "standalone": {
@@ -3483,6 +3594,7 @@
     },
     {
       "path": "Adam/Gr/GrPalette.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 2737,
       "standalone": {
@@ -3521,6 +3633,7 @@
     },
     {
       "path": "Adam/Gr/GrPrimatives.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 42679,
       "standalone": {
@@ -3573,6 +3686,7 @@
     },
     {
       "path": "Adam/Gr/GrScrn.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 10415,
       "standalone": {
@@ -3629,6 +3743,7 @@
     },
     {
       "path": "Adam/Gr/GrSpritePlot.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 13546,
       "standalone": {
@@ -3674,6 +3789,7 @@
     },
     {
       "path": "Adam/Gr/GrTextBase.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "project-prelude-only",
       "bytes": 7230,
       "standalone": {
@@ -3711,6 +3827,7 @@
     },
     {
       "path": "Adam/Gr/MakeGr.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 578,
       "standalone": {
@@ -3732,17 +3849,27 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 24,
-        "errors": 24,
+        "diagnostics": 607,
+        "errors": 607,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 24 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 95,
+          "HCPARSE0029": 2,
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 387,
+          "HCPARSE0050": 79,
+          "HCPARSE0055": 36,
+          "HCPARSE0082": 4,
+          "HCPARSE0147": 1,
+          "HCPP0022": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPP0022",
           "severity": "error",
-          "message": "could not find included source \"GrInitA\"",
-          "path": "Adam/Gr/MakeGr.HC",
-          "line": 3,
+          "message": "offset requires semantic or runtime state in #assert",
+          "path": "Adam/Gr/GrDC.HC",
+          "line": 319,
           "column": 10
         },
         "failure_message": null
@@ -3750,6 +3877,7 @@
     },
     {
       "path": "Adam/Gr/ScrnCast.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 2300,
       "standalone": {
@@ -3794,6 +3922,7 @@
     },
     {
       "path": "Adam/Gr/SpriteBitMap.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 16654,
       "standalone": {
@@ -3844,6 +3973,7 @@
     },
     {
       "path": "Adam/Gr/SpriteCode.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 15436,
       "standalone": {
@@ -3898,6 +4028,7 @@
     },
     {
       "path": "Adam/Gr/SpriteEd.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 27702,
       "standalone": {
@@ -3952,6 +4083,7 @@
     },
     {
       "path": "Adam/Gr/SpriteMain.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 35286,
       "standalone": {
@@ -4003,6 +4135,7 @@
     },
     {
       "path": "Adam/Gr/SpriteMesh.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 35894,
       "standalone": {
@@ -4057,6 +4190,7 @@
     },
     {
       "path": "Adam/Gr/SpriteNew.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 5618,
       "standalone": {
@@ -4106,6 +4240,7 @@
     },
     {
       "path": "Adam/Gr/SpriteSideBar.HC",
+      "effective_project_directory": "Adam/Gr",
       "comparison": "neither-parses",
       "bytes": 2661,
       "standalone": {
@@ -4154,6 +4289,7 @@
     },
     {
       "path": "Adam/Host.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 1299,
       "standalone": {
@@ -4193,6 +4329,7 @@
     },
     {
       "path": "Adam/InFile.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 3079,
       "standalone": {
@@ -4232,6 +4369,7 @@
     },
     {
       "path": "Adam/InsReg.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 1962,
       "standalone": {
@@ -4276,6 +4414,7 @@
     },
     {
       "path": "Adam/MakeAdam.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 643,
       "standalone": {
@@ -4300,25 +4439,35 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 28,
-        "errors": 28,
+        "status": "parser-diagnostics",
+        "diagnostics": 357,
+        "errors": 357,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 28 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 41,
+          "HCPARSE0009": 2,
+          "HCPARSE0035": 2,
+          "HCPARSE0048": 126,
+          "HCPARSE0050": 76,
+          "HCPARSE0055": 36,
+          "HCPARSE0147": 7,
+          "HCPP0003": 67
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0009",
           "severity": "error",
-          "message": "could not find included source \"AExts\"",
-          "path": "Adam/MakeAdam.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union parameter type, but found identifier \"CDocBin\"",
+          "path": "Adam/AExts.HC",
+          "line": 12,
+          "column": 31
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Menu.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 5753,
       "standalone": {
@@ -4368,6 +4517,7 @@
     },
     {
       "path": "Adam/Opt/Boot/BootDVD.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 3766,
       "standalone": {
@@ -4407,6 +4557,7 @@
     },
     {
       "path": "Adam/Opt/Boot/BootDVDIns.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 767,
       "standalone": {
@@ -4433,29 +4584,31 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "diagnostics": 7,
+        "errors": 7,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0048": 1,
+          "HCPARSE0029": 1,
+          "HCPARSE0048": 2,
           "HCPARSE0050": 1,
           "HCPARSE0082": 1,
-          "HCPP0003": 2
+          "HCPP0022": 2
         },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPP0022",
           "severity": "error",
-          "message": "could not find included source \"BootDVD\"",
-          "path": "Adam/Opt/Boot/BootDVDIns.HC",
-          "line": 4,
-          "column": 10
+          "message": "identifier \"BDVD_END\" requires compile-time execution in #assert",
+          "path": "Adam/Opt/Boot/BootDVD.HC",
+          "line": 187,
+          "column": 9
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Boot/BootHD.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 1962,
       "standalone": {
@@ -4495,6 +4648,7 @@
     },
     {
       "path": "Adam/Opt/Boot/BootHDIns.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 1548,
       "standalone": {
@@ -4533,22 +4687,22 @@
           "HCPARSE0048": 1,
           "HCPARSE0050": 1,
           "HCPARSE0082": 1,
-          "HCPP0003": 1,
-          "HCPP0022": 2
+          "HCPP0022": 3
         },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPP0022",
           "severity": "error",
-          "message": "could not find included source \"BootHD\"",
-          "path": "Adam/Opt/Boot/BootHDIns.HC",
-          "line": 4,
-          "column": 10
+          "message": "identifier \"BHD_END\" requires compile-time execution in #assert",
+          "path": "Adam/Opt/Boot/BootHD.HC",
+          "line": 92,
+          "column": 9
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Boot/BootMHD.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 2148,
       "standalone": {
@@ -4588,6 +4742,7 @@
     },
     {
       "path": "Adam/Opt/Boot/BootMHD2.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 2398,
       "standalone": {
@@ -4627,6 +4782,7 @@
     },
     {
       "path": "Adam/Opt/Boot/BootMHDIns.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 4083,
       "standalone": {
@@ -4664,22 +4820,22 @@
           "HCPARSE0029": 1,
           "HCPARSE0047": 1,
           "HCPARSE0082": 1,
-          "HCPP0003": 2,
-          "HCPP0022": 1
+          "HCPP0022": 3
         },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPP0022",
           "severity": "error",
-          "message": "could not find included source \"BootMHD\"",
-          "path": "Adam/Opt/Boot/BootMHDIns.HC",
-          "line": 4,
-          "column": 10
+          "message": "identifier \"BMHD_END\" requires compile-time execution in #assert",
+          "path": "Adam/Opt/Boot/BootMHD.HC",
+          "line": 106,
+          "column": 9
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Boot/BootRAM.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 1452,
       "standalone": {
@@ -4719,6 +4875,7 @@
     },
     {
       "path": "Adam/Opt/Boot/DskISO9660.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 15168,
       "standalone": {
@@ -4770,6 +4927,7 @@
     },
     {
       "path": "Adam/Opt/Boot/DskISORedSea.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 5501,
       "standalone": {
@@ -4820,6 +4978,7 @@
     },
     {
       "path": "Adam/Opt/Boot/MakeBoot.HC",
+      "effective_project_directory": "Adam/Opt/Boot",
       "comparison": "neither-parses",
       "bytes": 109,
       "standalone": {
@@ -4841,24 +5000,32 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "diagnostics": 22,
+        "errors": 22,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 4 },
+        "diagnostic_codes": {
+          "HCPARSE0029": 4,
+          "HCPARSE0047": 2,
+          "HCPARSE0048": 3,
+          "HCPARSE0050": 2,
+          "HCPARSE0082": 3,
+          "HCPP0022": 8
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPP0022",
           "severity": "error",
-          "message": "could not find included source \"BootDVDIns\"",
-          "path": "Adam/Opt/Boot/MakeBoot.HC",
-          "line": 2,
-          "column": 10
+          "message": "identifier \"BDVD_END\" requires compile-time execution in #assert",
+          "path": "Adam/Opt/Boot/BootDVD.HC",
+          "line": 187,
+          "column": 9
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Utils/Diff.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 9368,
       "standalone": {
@@ -4904,6 +5071,7 @@
     },
     {
       "path": "Adam/Opt/Utils/DocUtils.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 4303,
       "standalone": {
@@ -4949,6 +5117,7 @@
     },
     {
       "path": "Adam/Opt/Utils/FileBMP.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 9287,
       "standalone": {
@@ -5002,6 +5171,7 @@
     },
     {
       "path": "Adam/Opt/Utils/Find.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 7403,
       "standalone": {
@@ -5047,6 +5217,7 @@
     },
     {
       "path": "Adam/Opt/Utils/HeapLog.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "project-prelude-only",
       "bytes": 5345,
       "standalone": {
@@ -5086,6 +5257,7 @@
     },
     {
       "path": "Adam/Opt/Utils/LineRep.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 2987,
       "standalone": {
@@ -5136,6 +5308,7 @@
     },
     {
       "path": "Adam/Opt/Utils/LinkChk.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 1952,
       "standalone": {
@@ -5186,6 +5359,7 @@
     },
     {
       "path": "Adam/Opt/Utils/MakeUtils.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 261,
       "standalone": {
@@ -5206,25 +5380,34 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 13,
-        "errors": 13,
+        "status": "parser-diagnostics",
+        "diagnostics": 221,
+        "errors": 221,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 13 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 45,
+          "HCPARSE0046": 1,
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 114,
+          "HCPARSE0050": 46,
+          "HCPARSE0055": 12,
+          "HCPARSE0147": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Diff\"",
-          "path": "Adam/Opt/Utils/MakeUtils.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
+          "path": "Adam/Opt/Utils/Diff.HC",
+          "line": 13,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Utils/MemRep.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 6016,
       "standalone": {
@@ -5271,6 +5454,7 @@
     },
     {
       "path": "Adam/Opt/Utils/Merge.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 2374,
       "standalone": {
@@ -5315,6 +5499,7 @@
     },
     {
       "path": "Adam/Opt/Utils/Profiler.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "project-prelude-only",
       "bytes": 2801,
       "standalone": {
@@ -5353,6 +5538,7 @@
     },
     {
       "path": "Adam/Opt/Utils/StrUtils.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 5112,
       "standalone": {
@@ -5405,6 +5591,7 @@
     },
     {
       "path": "Adam/Opt/Utils/TOS.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 2354,
       "standalone": {
@@ -5454,6 +5641,7 @@
     },
     {
       "path": "Adam/Opt/Utils/ToDolDoc.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 674,
       "standalone": {
@@ -5493,6 +5681,7 @@
     },
     {
       "path": "Adam/Opt/Utils/ToTXT.HC",
+      "effective_project_directory": "Adam/Opt/Utils",
       "comparison": "neither-parses",
       "bytes": 2854,
       "standalone": {
@@ -5538,6 +5727,7 @@
     },
     {
       "path": "Adam/Snd/MakeSnd.HC",
+      "effective_project_directory": "Adam/Snd",
       "comparison": "neither-parses",
       "bytes": 353,
       "standalone": {
@@ -5562,25 +5752,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "status": "parser-diagnostics",
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 4 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"SndMath\"",
-          "path": "Adam/Snd/MakeSnd.HC",
-          "line": 17,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"snd\" after a statement comma is not implemented",
+          "path": "Adam/Snd/SndFile.HC",
+          "line": 33,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Snd/SndEffects.HC",
+      "effective_project_directory": "Adam/Snd",
       "comparison": "neither-parses",
       "bytes": 1626,
       "standalone": {
@@ -5625,6 +5816,7 @@
     },
     {
       "path": "Adam/Snd/SndFile.HC",
+      "effective_project_directory": "Adam/Snd",
       "comparison": "neither-parses",
       "bytes": 3173,
       "standalone": {
@@ -5664,6 +5856,7 @@
     },
     {
       "path": "Adam/Snd/SndMath.HC",
+      "effective_project_directory": "Adam/Snd",
       "comparison": "neither-parses",
       "bytes": 5243,
       "standalone": {
@@ -5715,6 +5908,7 @@
     },
     {
       "path": "Adam/Snd/SndMusic.HC",
+      "effective_project_directory": "Adam/Snd",
       "comparison": "project-prelude-only",
       "bytes": 4484,
       "standalone": {
@@ -5751,6 +5945,7 @@
     },
     {
       "path": "Adam/TaskRep.HC",
+      "effective_project_directory": "Adam",
       "comparison": "project-prelude-only",
       "bytes": 784,
       "standalone": {
@@ -5789,6 +5984,7 @@
     },
     {
       "path": "Adam/TaskSettings.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 3447,
       "standalone": {
@@ -5833,6 +6029,7 @@
     },
     {
       "path": "Adam/Training.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 4568,
       "standalone": {
@@ -5878,6 +6075,7 @@
     },
     {
       "path": "Adam/WallPaper.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 4847,
       "standalone": {
@@ -5928,6 +6126,7 @@
     },
     {
       "path": "Adam/Win.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 12763,
       "standalone": {
@@ -5979,6 +6178,7 @@
     },
     {
       "path": "Adam/WinMgr.HC",
+      "effective_project_directory": "Adam",
       "comparison": "neither-parses",
       "bytes": 22815,
       "standalone": {
@@ -6031,6 +6231,7 @@
     },
     {
       "path": "Apps/Budget/BgtAccts.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 1793,
       "standalone": {
@@ -6070,6 +6271,7 @@
     },
     {
       "path": "Apps/Budget/BgtEntry.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 2024,
       "standalone": {
@@ -6123,6 +6325,7 @@
     },
     {
       "path": "Apps/Budget/BgtFile.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 3200,
       "standalone": {
@@ -6162,6 +6365,7 @@
     },
     {
       "path": "Apps/Budget/BgtMain.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 5096,
       "standalone": {
@@ -6214,6 +6418,7 @@
     },
     {
       "path": "Apps/Budget/BgtStrs.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 2856,
       "standalone": {
@@ -6259,6 +6464,7 @@
     },
     {
       "path": "Apps/Budget/BgtTemplate.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 3602,
       "standalone": {
@@ -6313,6 +6519,7 @@
     },
     {
       "path": "Apps/Budget/Budget.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "project-prelude-only",
       "bytes": 1557,
       "standalone": {
@@ -6351,6 +6558,7 @@
     },
     {
       "path": "Apps/Budget/Install.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 114,
       "standalone": {
@@ -6390,6 +6598,7 @@
     },
     {
       "path": "Apps/Budget/Load.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 191,
       "standalone": {
@@ -6410,25 +6619,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "status": "parser-diagnostics",
+        "diagnostics": 25,
+        "errors": 25,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 7 },
+        "diagnostic_codes": { "HCPARSE0048": 24, "HCPARSE0055": 1 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"BgtStrs\"",
-          "path": "Apps/Budget/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocDel\" after a statement comma is not implemented",
+          "path": "Apps/Budget/BgtStrs.HC",
+          "line": 40,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Budget/Run.HC",
+      "effective_project_directory": "Apps/Budget",
       "comparison": "neither-parses",
       "bytes": 88,
       "standalone": {
@@ -6449,25 +6659,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parser-diagnostics",
+        "diagnostics": 26,
+        "errors": 26,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 25, "HCPARSE0055": 1 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Budget/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocDel\" after a statement comma is not implemented",
+          "path": "Apps/Budget/BgtStrs.HC",
+          "line": 40,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/GrModels/BallGen.HC",
+      "effective_project_directory": "Apps/GrModels",
       "comparison": "neither-parses",
       "bytes": 2872,
       "standalone": {
@@ -6511,6 +6722,7 @@
     },
     {
       "path": "Apps/GrModels/Load.HC",
+      "effective_project_directory": "Apps/GrModels",
       "comparison": "neither-parses",
       "bytes": 105,
       "standalone": {
@@ -6531,25 +6743,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parser-diagnostics",
+        "diagnostics": 30,
+        "errors": 30,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 3 },
+        "diagnostic_codes": { "HCPARSE0048": 28, "HCPARSE0112": 2 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0112",
           "severity": "error",
-          "message": "could not find included source \"ManGen\"",
-          "path": "Apps/GrModels/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "expected a primitive, class, or union member type, but found identifier \"CMeshTri\"",
+          "path": "Apps/GrModels/ManGen.HC",
+          "line": 11,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/GrModels/ManGen.HC",
+      "effective_project_directory": "Apps/GrModels",
       "comparison": "neither-parses",
       "bytes": 8961,
       "standalone": {
@@ -6593,6 +6806,7 @@
     },
     {
       "path": "Apps/GrModels/Models.HC",
+      "effective_project_directory": "Apps/GrModels",
       "comparison": "neither-parses",
       "bytes": 468,
       "standalone": {
@@ -6632,6 +6846,7 @@
     },
     {
       "path": "Apps/GrModels/Run.HC",
+      "effective_project_directory": "Apps/GrModels",
       "comparison": "neither-parses",
       "bytes": 37,
       "standalone": {
@@ -6652,25 +6867,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 30,
+        "errors": 30,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 28, "HCPARSE0112": 2 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0112",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/GrModels/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union member type, but found identifier \"CMeshTri\"",
+          "path": "Apps/GrModels/ManGen.HC",
+          "line": 11,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/KeepAway/KeepAway.HC",
+      "effective_project_directory": "Apps/KeepAway",
       "comparison": "neither-parses",
       "bytes": 106267,
       "standalone": {
@@ -6723,6 +6939,7 @@
     },
     {
       "path": "Apps/KeepAway/Load.HC",
+      "effective_project_directory": "Apps/KeepAway",
       "comparison": "neither-parses",
       "bytes": 71,
       "standalone": {
@@ -6743,25 +6960,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parser-diagnostics",
+        "diagnostics": 106,
+        "errors": 106,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 35,
+          "HCPARSE0048": 46,
+          "HCPARSE0050": 16,
+          "HCPARSE0055": 8,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"KeepAway\"",
-          "path": "Apps/KeepAway/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"RegDft\"",
+          "path": "Apps/KeepAway/KeepAway.HC",
+          "line": 221,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/KeepAway/Run.HC",
+      "effective_project_directory": "Apps/KeepAway",
       "comparison": "neither-parses",
       "bytes": 39,
       "standalone": {
@@ -6782,25 +7006,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 106,
+        "errors": 106,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 35,
+          "HCPARSE0048": 46,
+          "HCPARSE0050": 16,
+          "HCPARSE0055": 8,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/KeepAway/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"RegDft\"",
+          "path": "Apps/KeepAway/KeepAway.HC",
+          "line": 221,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Logic/Load.HC",
+      "effective_project_directory": "Apps/Logic",
       "comparison": "neither-parses",
       "bytes": 67,
       "standalone": {
@@ -6821,25 +7052,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parser-diagnostics",
+        "diagnostics": 107,
+        "errors": 107,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 21,
+          "HCPARSE0048": 66,
+          "HCPARSE0050": 18,
+          "HCPARSE0055": 1,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Logic\"",
-          "path": "Apps/Logic/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrPrint\" after a statement comma is not implemented",
+          "path": "Apps/Logic/Logic.HC",
+          "line": 190,
+          "column": 5
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Logic/Logic.HC",
+      "effective_project_directory": "Apps/Logic",
       "comparison": "neither-parses",
       "bytes": 22695,
       "standalone": {
@@ -6892,6 +7130,7 @@
     },
     {
       "path": "Apps/Logic/Run.HC",
+      "effective_project_directory": "Apps/Logic",
       "comparison": "neither-parses",
       "bytes": 43,
       "standalone": {
@@ -6912,25 +7151,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 107,
+        "errors": 107,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 21,
+          "HCPARSE0048": 66,
+          "HCPARSE0050": 18,
+          "HCPARSE0055": 1,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Logic/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrPrint\" after a statement comma is not implemented",
+          "path": "Apps/Logic/Logic.HC",
+          "line": 190,
+          "column": 5
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Psalmody/Examples/childish.HC",
+      "effective_project_directory": "Apps/Psalmody/Examples",
       "comparison": "neither-parses",
       "bytes": 603,
       "standalone": {
@@ -6970,6 +7216,7 @@
     },
     {
       "path": "Apps/Psalmody/Examples/night.HC",
+      "effective_project_directory": "Apps/Psalmody/Examples",
       "comparison": "neither-parses",
       "bytes": 3403,
       "standalone": {
@@ -7016,6 +7263,7 @@
     },
     {
       "path": "Apps/Psalmody/Examples/prosper.HC",
+      "effective_project_directory": "Apps/Psalmody/Examples",
       "comparison": "neither-parses",
       "bytes": 5632,
       "standalone": {
@@ -7066,6 +7314,7 @@
     },
     {
       "path": "Apps/Psalmody/Install.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "project-prelude-only",
       "bytes": 67,
       "standalone": {
@@ -7098,6 +7347,7 @@
     },
     {
       "path": "Apps/Psalmody/JukeBox.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 5564,
       "standalone": {
@@ -7148,6 +7398,7 @@
     },
     {
       "path": "Apps/Psalmody/JukePuppet.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "project-prelude-only",
       "bytes": 2479,
       "standalone": {
@@ -7185,6 +7436,7 @@
     },
     {
       "path": "Apps/Psalmody/Load.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 218,
       "standalone": {
@@ -7205,25 +7457,33 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "status": "parser-diagnostics",
+        "diagnostics": 153,
+        "errors": 153,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 7 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 15,
+          "HCPARSE0009": 1,
+          "HCPARSE0048": 90,
+          "HCPARSE0050": 23,
+          "HCPARSE0055": 23,
+          "HCPARSE0112": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"JukeBox\"",
-          "path": "Apps/Psalmody/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
+          "path": "Apps/Psalmody/JukeBox.HC",
+          "line": 10,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Psalmody/Psalmody.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "project-prelude-only",
       "bytes": 1507,
       "standalone": {
@@ -7256,6 +7516,7 @@
     },
     {
       "path": "Apps/Psalmody/PsalmodyCtrls.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 2514,
       "standalone": {
@@ -7301,6 +7562,7 @@
     },
     {
       "path": "Apps/Psalmody/PsalmodyDraw.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 11920,
       "standalone": {
@@ -7352,6 +7614,7 @@
     },
     {
       "path": "Apps/Psalmody/PsalmodyFile.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 9243,
       "standalone": {
@@ -7403,6 +7666,7 @@
     },
     {
       "path": "Apps/Psalmody/PsalmodyMain.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 18462,
       "standalone": {
@@ -7452,6 +7716,7 @@
     },
     {
       "path": "Apps/Psalmody/Run.HC",
+      "effective_project_directory": "Apps/Psalmody",
       "comparison": "neither-parses",
       "bytes": 40,
       "standalone": {
@@ -7472,25 +7737,33 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 153,
+        "errors": 153,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 15,
+          "HCPARSE0009": 1,
+          "HCPARSE0048": 90,
+          "HCPARSE0050": 23,
+          "HCPARSE0055": 23,
+          "HCPARSE0112": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Psalmody/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
+          "path": "Apps/Psalmody/JukeBox.HC",
+          "line": 10,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Span/Install.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "project-prelude-only",
       "bytes": 17,
       "standalone": {
@@ -7523,6 +7796,7 @@
     },
     {
       "path": "Apps/Span/Load.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 153,
       "standalone": {
@@ -7543,25 +7817,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "status": "parser-diagnostics",
+        "diagnostics": 63,
+        "errors": 63,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 5 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 21,
+          "HCPARSE0048": 36,
+          "HCPARSE0050": 4,
+          "HCPARSE0055": 1,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Span.HH\"",
-          "path": "Apps/Span/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"CCtrlBttnState\"",
+          "path": "Apps/Span/Span.HH",
+          "line": 27,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Span/Run.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 36,
       "standalone": {
@@ -7582,25 +7863,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 63,
+        "errors": 63,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 21,
+          "HCPARSE0048": 36,
+          "HCPARSE0050": 4,
+          "HCPARSE0055": 1,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Span/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"CCtrlBttnState\"",
+          "path": "Apps/Span/Span.HH",
+          "line": 27,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Span/Span.HH",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 903,
       "standalone": {
@@ -7640,6 +7928,7 @@
     },
     {
       "path": "Apps/Span/SpanBridge.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 2133,
       "standalone": {
@@ -7689,6 +7978,7 @@
     },
     {
       "path": "Apps/Span/SpanDerive.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 1208,
       "standalone": {
@@ -7733,6 +8023,7 @@
     },
     {
       "path": "Apps/Span/SpanMain.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 10325,
       "standalone": {
@@ -7785,6 +8076,7 @@
     },
     {
       "path": "Apps/Span/SpanNew.HC",
+      "effective_project_directory": "Apps/Span",
       "comparison": "neither-parses",
       "bytes": 2498,
       "standalone": {
@@ -7829,6 +8121,7 @@
     },
     {
       "path": "Apps/Strut/Load.HC",
+      "effective_project_directory": "Apps/Strut",
       "comparison": "neither-parses",
       "bytes": 68,
       "standalone": {
@@ -7849,25 +8142,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parser-diagnostics",
+        "diagnostics": 108,
+        "errors": 108,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 28,
+          "HCPARSE0048": 55,
+          "HCPARSE0050": 17,
+          "HCPARSE0055": 5,
+          "HCPARSE0082": 3
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Strut\"",
-          "path": "Apps/Strut/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"CCtrlBttnState\"",
+          "path": "Apps/Strut/Strut.HC",
+          "line": 31,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Strut/Run.HC",
+      "effective_project_directory": "Apps/Strut",
       "comparison": "neither-parses",
       "bytes": 37,
       "standalone": {
@@ -7888,25 +8188,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 108,
+        "errors": 108,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 28,
+          "HCPARSE0048": 55,
+          "HCPARSE0050": 17,
+          "HCPARSE0055": 5,
+          "HCPARSE0082": 3
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Strut/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"CCtrlBttnState\"",
+          "path": "Apps/Strut/Strut.HC",
+          "line": 31,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Strut/Strut.HC",
+      "effective_project_directory": "Apps/Strut",
       "comparison": "neither-parses",
       "bytes": 14530,
       "standalone": {
@@ -7960,6 +8267,7 @@
     },
     {
       "path": "Apps/TimeClock/Install.HC",
+      "effective_project_directory": "Apps/TimeClock",
       "comparison": "neither-parses",
       "bytes": 250,
       "standalone": {
@@ -7999,6 +8307,7 @@
     },
     {
       "path": "Apps/TimeClock/Load.HC",
+      "effective_project_directory": "Apps/TimeClock",
       "comparison": "neither-parses",
       "bytes": 119,
       "standalone": {
@@ -8019,25 +8328,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"TimeClk\"",
-          "path": "Apps/TimeClock/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocClear\" after a statement comma is not implemented",
+          "path": "Apps/TimeClock/Install.HC",
+          "line": 3,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/TimeClock/TimeClk.HC",
+      "effective_project_directory": "Apps/TimeClock",
       "comparison": "project-prelude-only",
       "bytes": 3191,
       "standalone": {
@@ -8074,6 +8384,7 @@
     },
     {
       "path": "Apps/Titanium/Load.HC",
+      "effective_project_directory": "Apps/Titanium",
       "comparison": "neither-parses",
       "bytes": 71,
       "standalone": {
@@ -8094,25 +8405,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parser-diagnostics",
+        "diagnostics": 159,
+        "errors": 159,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 33,
+          "HCPARSE0048": 95,
+          "HCPARSE0050": 19,
+          "HCPARSE0055": 11,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Titanium\"",
-          "path": "Apps/Titanium/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"RegDft\"",
+          "path": "Apps/Titanium/Titanium.HC",
+          "line": 1,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Titanium/Run.HC",
+      "effective_project_directory": "Apps/Titanium",
       "comparison": "neither-parses",
       "bytes": 39,
       "standalone": {
@@ -8133,25 +8451,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 159,
+        "errors": 159,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 33,
+          "HCPARSE0048": 95,
+          "HCPARSE0050": 19,
+          "HCPARSE0055": 11,
+          "HCPARSE0082": 1
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0001",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Titanium/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "expected a primitive, class, or union type at the start of a global declaration, but found identifier \"RegDft\"",
+          "path": "Apps/Titanium/Titanium.HC",
+          "line": 1,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Titanium/Titanium.HC",
+      "effective_project_directory": "Apps/Titanium",
       "comparison": "neither-parses",
       "bytes": 106011,
       "standalone": {
@@ -8205,6 +8530,7 @@
     },
     {
       "path": "Apps/ToTheFront/AIs/Human.HC",
+      "effective_project_directory": "Apps/ToTheFront/AIs",
       "comparison": "neither-parses",
       "bytes": 3801,
       "standalone": {
@@ -8254,6 +8580,7 @@
     },
     {
       "path": "Apps/ToTheFront/AIs/SimpleAI.HC",
+      "effective_project_directory": "Apps/ToTheFront/AIs",
       "comparison": "neither-parses",
       "bytes": 1856,
       "standalone": {
@@ -8303,6 +8630,7 @@
     },
     {
       "path": "Apps/ToTheFront/Install.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "project-prelude-only",
       "bytes": 24,
       "standalone": {
@@ -8335,6 +8663,7 @@
     },
     {
       "path": "Apps/ToTheFront/Load.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 205,
       "standalone": {
@@ -8355,25 +8684,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 8,
-        "errors": 8,
+        "status": "parser-diagnostics",
+        "diagnostics": 26,
+        "errors": 26,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 8 },
+        "diagnostic_codes": { "HCPARSE0048": 26 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"TTFGlbls\"",
-          "path": "Apps/ToTheFront/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrRect\" after a statement comma is not implemented",
+          "path": "Apps/ToTheFront/TTFInit.HC",
+          "line": 29,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/ToTheFront/Run.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 41,
       "standalone": {
@@ -8394,25 +8724,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 26,
+        "errors": 26,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 26 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/ToTheFront/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrRect\" after a statement comma is not implemented",
+          "path": "Apps/ToTheFront/TTFInit.HC",
+          "line": 29,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/ToTheFront/TTFDraw.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 5543,
       "standalone": {
@@ -8464,6 +8795,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFFire.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 6876,
       "standalone": {
@@ -8515,6 +8847,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFGlbls.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "project-prelude-only",
       "bytes": 2619,
       "standalone": {
@@ -8547,6 +8880,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFInit.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 9196,
       "standalone": {
@@ -8596,6 +8930,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFLib.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 2416,
       "standalone": {
@@ -8647,6 +8982,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFMove.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 2925,
       "standalone": {
@@ -8698,6 +9034,7 @@
     },
     {
       "path": "Apps/ToTheFront/TTFVis.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 5261,
       "standalone": {
@@ -8753,6 +9090,7 @@
     },
     {
       "path": "Apps/ToTheFront/ToTheFront.HC",
+      "effective_project_directory": "Apps/ToTheFront",
       "comparison": "neither-parses",
       "bytes": 4366,
       "standalone": {
@@ -8803,6 +9141,7 @@
     },
     {
       "path": "Apps/Vocabulary/Load.HC",
+      "effective_project_directory": "Apps/Vocabulary",
       "comparison": "neither-parses",
       "bytes": 72,
       "standalone": {
@@ -8823,25 +9162,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parser-diagnostics",
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"VocabQuiz\"",
-          "path": "Apps/Vocabulary/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocBottom\" after a statement comma is not implemented",
+          "path": "Apps/Vocabulary/VocabQuiz.HC",
+          "line": 39,
+          "column": 7
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Vocabulary/Run.HC",
+      "effective_project_directory": "Apps/Vocabulary",
       "comparison": "neither-parses",
       "bytes": 40,
       "standalone": {
@@ -8862,25 +9202,26 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
+        "status": "parser-diagnostics",
         "diagnostics": 2,
         "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/Vocabulary/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocBottom\" after a statement comma is not implemented",
+          "path": "Apps/Vocabulary/VocabQuiz.HC",
+          "line": 39,
+          "column": 7
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/Vocabulary/VocabQuiz.HC",
+      "effective_project_directory": "Apps/Vocabulary",
       "comparison": "neither-parses",
       "bytes": 1181,
       "standalone": {
@@ -8924,6 +9265,7 @@
     },
     {
       "path": "Apps/X-Caliber/Load.HC",
+      "effective_project_directory": "Apps/X-Caliber",
       "comparison": "neither-parses",
       "bytes": 91,
       "standalone": {
@@ -8944,25 +9286,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 243,
+        "errors": 243,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 49,
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 129,
+          "HCPARSE0050": 36,
+          "HCPARSE0055": 28
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"XCCtrls\"",
-          "path": "Apps/X-Caliber/Load.HC",
-          "line": 4,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrRect\" after a statement comma is not implemented",
+          "path": "Apps/X-Caliber/XCCtrls.HC",
+          "line": 25,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/X-Caliber/Run.HC",
+      "effective_project_directory": "Apps/X-Caliber",
       "comparison": "neither-parses",
       "bytes": 39,
       "standalone": {
@@ -8983,25 +9332,32 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 243,
+        "errors": 243,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 49,
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 129,
+          "HCPARSE0050": 36,
+          "HCPARSE0055": 28
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"Load\"",
-          "path": "Apps/X-Caliber/Run.HC",
-          "line": 2,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"GrRect\" after a statement comma is not implemented",
+          "path": "Apps/X-Caliber/XCCtrls.HC",
+          "line": 25,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Apps/X-Caliber/X-Caliber.HC",
+      "effective_project_directory": "Apps/X-Caliber",
       "comparison": "neither-parses",
       "bytes": 37973,
       "standalone": {
@@ -9056,6 +9412,7 @@
     },
     {
       "path": "Apps/X-Caliber/XCCtrls.HC",
+      "effective_project_directory": "Apps/X-Caliber",
       "comparison": "neither-parses",
       "bytes": 4871,
       "standalone": {
@@ -9101,6 +9458,7 @@
     },
     {
       "path": "Compiler/Asm.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 30668,
       "standalone": {
@@ -9152,6 +9510,7 @@
     },
     {
       "path": "Compiler/AsmInit.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 5777,
       "standalone": {
@@ -9197,6 +9556,7 @@
     },
     {
       "path": "Compiler/AsmLib.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 3987,
       "standalone": {
@@ -9247,6 +9607,7 @@
     },
     {
       "path": "Compiler/AsmResolve.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 6228,
       "standalone": {
@@ -9298,6 +9659,7 @@
     },
     {
       "path": "Compiler/BackA.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 18492,
       "standalone": {
@@ -9348,6 +9710,7 @@
     },
     {
       "path": "Compiler/BackB.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 20053,
       "standalone": {
@@ -9398,6 +9761,7 @@
     },
     {
       "path": "Compiler/BackC.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 21570,
       "standalone": {
@@ -9448,6 +9812,7 @@
     },
     {
       "path": "Compiler/BackFA.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 17654,
       "standalone": {
@@ -9498,6 +9863,7 @@
     },
     {
       "path": "Compiler/BackFB.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 19797,
       "standalone": {
@@ -9548,6 +9914,7 @@
     },
     {
       "path": "Compiler/BackLib.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 17008,
       "standalone": {
@@ -9586,6 +9953,7 @@
     },
     {
       "path": "Compiler/CExcept.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 6109,
       "standalone": {
@@ -9625,6 +9993,7 @@
     },
     {
       "path": "Compiler/CExts.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 2294,
       "standalone": {
@@ -9657,6 +10026,7 @@
     },
     {
       "path": "Compiler/CHash.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 3961,
       "standalone": {
@@ -9703,6 +10073,7 @@
     },
     {
       "path": "Compiler/CInit.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 14811,
       "standalone": {
@@ -9742,6 +10113,7 @@
     },
     {
       "path": "Compiler/CMain.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 17161,
       "standalone": {
@@ -9799,6 +10171,7 @@
     },
     {
       "path": "Compiler/CMisc.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 3579,
       "standalone": {
@@ -9843,6 +10216,7 @@
     },
     {
       "path": "Compiler/Compiler.PRJ",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 975,
       "standalone": {
@@ -9874,20 +10248,20 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 68,
-        "errors": 68,
+        "diagnostics": 48,
+        "errors": 48,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0016": 2,
-          "HCPARSE0029": 1,
+          "HCPARSE0029": 3,
           "HCPARSE0047": 1,
-          "HCPARSE0048": 6,
+          "HCPARSE0048": 12,
+          "HCPARSE0055": 1,
           "HCPARSE0112": 9,
-          "HCPP0003": 31,
           "HCPP0008": 4,
           "HCPP0010": 2,
-          "HCPP0022": 12
+          "HCPP0022": 14
         },
         "first_error": {
           "code": "HCPP0008",
@@ -9902,6 +10276,7 @@
     },
     {
       "path": "Compiler/CompilerA.HH",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 8880,
       "standalone": {
@@ -9934,6 +10309,7 @@
     },
     {
       "path": "Compiler/CompilerB.HH",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 3554,
       "standalone": {
@@ -9966,6 +10342,7 @@
     },
     {
       "path": "Compiler/Lex.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 26595,
       "standalone": {
@@ -10017,6 +10394,7 @@
     },
     {
       "path": "Compiler/LexLib.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 7217,
       "standalone": {
@@ -10062,6 +10440,7 @@
     },
     {
       "path": "Compiler/OptLib.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "project-prelude-only",
       "bytes": 15369,
       "standalone": {
@@ -10101,6 +10480,7 @@
     },
     {
       "path": "Compiler/OptPass012.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 36330,
       "standalone": {
@@ -10151,6 +10531,7 @@
     },
     {
       "path": "Compiler/OptPass3.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 16908,
       "standalone": {
@@ -10202,6 +10583,7 @@
     },
     {
       "path": "Compiler/OptPass4.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 18544,
       "standalone": {
@@ -10252,6 +10634,7 @@
     },
     {
       "path": "Compiler/OptPass5.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 2612,
       "standalone": {
@@ -10298,6 +10681,7 @@
     },
     {
       "path": "Compiler/OptPass6.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 5815,
       "standalone": {
@@ -10349,6 +10733,7 @@
     },
     {
       "path": "Compiler/OptPass789A.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 32430,
       "standalone": {
@@ -10402,6 +10787,7 @@
     },
     {
       "path": "Compiler/PrsExp.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 32484,
       "standalone": {
@@ -10460,6 +10846,7 @@
     },
     {
       "path": "Compiler/PrsLib.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 7558,
       "standalone": {
@@ -10505,6 +10892,7 @@
     },
     {
       "path": "Compiler/PrsStmt.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 33792,
       "standalone": {
@@ -10561,6 +10949,7 @@
     },
     {
       "path": "Compiler/PrsVar.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 17935,
       "standalone": {
@@ -10613,6 +11002,7 @@
     },
     {
       "path": "Compiler/Templates.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "both-parse",
       "bytes": 5697,
       "standalone": {
@@ -10638,6 +11028,7 @@
     },
     {
       "path": "Compiler/UAsm.HC",
+      "effective_project_directory": "Compiler",
       "comparison": "neither-parses",
       "bytes": 16920,
       "standalone": {
@@ -10684,6 +11075,7 @@
     },
     {
       "path": "Demo/AcctExample/HomeKeyPlugIns.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 5890,
       "standalone": {
@@ -10729,6 +11121,7 @@
     },
     {
       "path": "Demo/AcctExample/HomeLocalize.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 596,
       "standalone": {
@@ -10768,6 +11161,7 @@
     },
     {
       "path": "Demo/AcctExample/HomeSys.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 924,
       "standalone": {
@@ -10811,6 +11205,7 @@
     },
     {
       "path": "Demo/AcctExample/HomeWrappers.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "both-parse",
       "bytes": 1131,
       "standalone": {
@@ -10836,6 +11231,7 @@
     },
     {
       "path": "Demo/AcctExample/LightTable.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 1993,
       "standalone": {
@@ -10875,6 +11271,7 @@
     },
     {
       "path": "Demo/AcctExample/MakeHome.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 486,
       "standalone": {
@@ -10922,6 +11319,7 @@
     },
     {
       "path": "Demo/AcctExample/Once.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 1051,
       "standalone": {
@@ -10961,6 +11359,7 @@
     },
     {
       "path": "Demo/AcctExample/Registry.HC",
+      "effective_project_directory": "Demo/AcctExample",
       "comparison": "neither-parses",
       "bytes": 2172,
       "standalone": {
@@ -11000,6 +11399,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/MakeTOS.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 103,
       "standalone": {
@@ -11020,25 +11420,33 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "status": "parser-diagnostics",
+        "diagnostics": 181,
+        "errors": 181,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 4 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 86,
+          "HCPARSE0016": 1,
+          "HCPARSE0024": 18,
+          "HCPARSE0048": 49,
+          "HCPARSE0050": 25,
+          "HCPARSE0055": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0016",
           "severity": "error",
-          "message": "could not find included source \"TOSExt\"",
-          "path": "Demo/AcctExample/TOS/MakeTOS.HC",
-          "line": 3,
-          "column": 10
+          "message": "expected ';' after function prototype \"GodWebIdx\", but found \"extern\"",
+          "path": "Demo/AcctExample/TOS/TOSExt.HC",
+          "line": 307,
+          "column": 1
         },
         "failure_message": null
       }
     },
     {
       "path": "Demo/AcctExample/TOS/TOSBlog.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 4736,
       "standalone": {
@@ -11084,6 +11492,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSCfg.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "project-prelude-only",
       "bytes": 2218,
       "standalone": {
@@ -11116,6 +11525,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSDistro.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 9676,
       "standalone": {
@@ -11163,6 +11573,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSExt.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 7582,
       "standalone": {
@@ -11202,6 +11613,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSHolySpirit.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 19004,
       "standalone": {
@@ -11254,6 +11666,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSIns.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 5399,
       "standalone": {
@@ -11305,6 +11718,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSMisc.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 3901,
       "standalone": {
@@ -11354,6 +11768,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSNIST.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 5552,
       "standalone": {
@@ -11404,6 +11819,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSTheme.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 30675,
       "standalone": {
@@ -11449,6 +11865,7 @@
     },
     {
       "path": "Demo/AcctExample/TOS/TOSToHtml.HC",
+      "effective_project_directory": "Demo/AcctExample/TOS",
       "comparison": "neither-parses",
       "bytes": 13906,
       "standalone": {
@@ -11499,6 +11916,7 @@
     },
     {
       "path": "Demo/Asm/AsmAndC1.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "project-prelude-only",
       "bytes": 1893,
       "standalone": {
@@ -11531,6 +11949,7 @@
     },
     {
       "path": "Demo/Asm/AsmAndC2.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "project-prelude-only",
       "bytes": 2182,
       "standalone": {
@@ -11563,6 +11982,7 @@
     },
     {
       "path": "Demo/Asm/AsmAndC3.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "both-parse",
       "bytes": 475,
       "standalone": {
@@ -11588,6 +12008,7 @@
     },
     {
       "path": "Demo/Asm/AsmHelloWorld.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "project-prelude-only",
       "bytes": 1243,
       "standalone": {
@@ -11620,6 +12041,7 @@
     },
     {
       "path": "Demo/Asm/BuzzFizz.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "project-prelude-only",
       "bytes": 4497,
       "standalone": {
@@ -11652,6 +12074,7 @@
     },
     {
       "path": "Demo/Asm/DivByHand.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "both-parse",
       "bytes": 326,
       "standalone": {
@@ -11677,6 +12100,7 @@
     },
     {
       "path": "Demo/Asm/MulByHand.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "both-parse",
       "bytes": 1457,
       "standalone": {
@@ -11702,6 +12126,7 @@
     },
     {
       "path": "Demo/Asm/PutDec.HC",
+      "effective_project_directory": "Demo/Asm",
       "comparison": "project-prelude-only",
       "bytes": 1083,
       "standalone": {
@@ -11734,6 +12159,7 @@
     },
     {
       "path": "Demo/Carry.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 582,
       "standalone": {
@@ -11759,6 +12185,7 @@
     },
     {
       "path": "Demo/ClassMeta.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 2089,
       "standalone": {
@@ -11791,6 +12218,7 @@
     },
     {
       "path": "Demo/CompileDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 730,
       "standalone": {
@@ -11830,6 +12258,7 @@
     },
     {
       "path": "Demo/DateTime.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 257,
       "standalone": {
@@ -11862,6 +12291,7 @@
     },
     {
       "path": "Demo/DbgDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 381,
       "standalone": {
@@ -11887,6 +12317,7 @@
     },
     {
       "path": "Demo/Define.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 647,
       "standalone": {
@@ -11919,6 +12350,7 @@
     },
     {
       "path": "Demo/Directives.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 252,
       "standalone": {
@@ -11944,6 +12376,7 @@
     },
     {
       "path": "Demo/DolDoc/CallBack.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1664,
       "standalone": {
@@ -11987,6 +12420,7 @@
     },
     {
       "path": "Demo/DolDoc/ClickCallBack.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1060,
       "standalone": {
@@ -12031,6 +12465,7 @@
     },
     {
       "path": "Demo/DolDoc/CursorMove.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "both-parse",
       "bytes": 894,
       "standalone": {
@@ -12056,6 +12491,7 @@
     },
     {
       "path": "Demo/DolDoc/Data.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1352,
       "standalone": {
@@ -12095,6 +12531,7 @@
     },
     {
       "path": "Demo/DolDoc/DefineStr.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 489,
       "standalone": {
@@ -12138,6 +12575,7 @@
     },
     {
       "path": "Demo/DolDoc/FileRead.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 2557,
       "standalone": {
@@ -12177,6 +12615,7 @@
     },
     {
       "path": "Demo/DolDoc/Form.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1550,
       "standalone": {
@@ -12216,6 +12655,7 @@
     },
     {
       "path": "Demo/DolDoc/MenuBttn.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1750,
       "standalone": {
@@ -12255,6 +12695,7 @@
     },
     {
       "path": "Demo/DolDoc/MenuSprite.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1165,
       "standalone": {
@@ -12294,6 +12735,7 @@
     },
     {
       "path": "Demo/DolDoc/NumBible.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 720,
       "standalone": {
@@ -12343,6 +12785,7 @@
     },
     {
       "path": "Demo/DolDoc/TextDemo.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 821,
       "standalone": {
@@ -12382,6 +12825,7 @@
     },
     {
       "path": "Demo/DolDoc/TreeDemo.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 970,
       "standalone": {
@@ -12427,6 +12871,7 @@
     },
     {
       "path": "Demo/DolDoc/UnusedDefine.HC",
+      "effective_project_directory": "Demo/DolDoc",
       "comparison": "neither-parses",
       "bytes": 1727,
       "standalone": {
@@ -12466,6 +12911,7 @@
     },
     {
       "path": "Demo/Dsk/BlkDevRep.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "neither-parses",
       "bytes": 440,
       "standalone": {
@@ -12505,6 +12951,7 @@
     },
     {
       "path": "Demo/Dsk/DataBase.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "neither-parses",
       "bytes": 1276,
       "standalone": {
@@ -12544,6 +12991,7 @@
     },
     {
       "path": "Demo/Dsk/DskRaw.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "neither-parses",
       "bytes": 998,
       "standalone": {
@@ -12583,6 +13031,7 @@
     },
     {
       "path": "Demo/Dsk/FPrintF.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "neither-parses",
       "bytes": 1273,
       "standalone": {
@@ -12628,6 +13077,7 @@
     },
     {
       "path": "Demo/Dsk/SerializeTree.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "neither-parses",
       "bytes": 960,
       "standalone": {
@@ -12667,6 +13117,7 @@
     },
     {
       "path": "Demo/Dsk/UnusedSpaceRep.HC",
+      "effective_project_directory": "Demo/Dsk",
       "comparison": "project-prelude-only",
       "bytes": 271,
       "standalone": {
@@ -12699,6 +13150,7 @@
     },
     {
       "path": "Demo/Exceptions.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 757,
       "standalone": {
@@ -12736,6 +13188,7 @@
     },
     {
       "path": "Demo/ExtChars.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 666,
       "standalone": {
@@ -12768,6 +13221,7 @@
     },
     {
       "path": "Demo/Games/BattleLines.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 8279,
       "standalone": {
@@ -12820,6 +13274,7 @@
     },
     {
       "path": "Demo/Games/BigGuns.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 6276,
       "standalone": {
@@ -12867,6 +13322,7 @@
     },
     {
       "path": "Demo/Games/BlackDiamond.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 62044,
       "standalone": {
@@ -12918,6 +13374,7 @@
     },
     {
       "path": "Demo/Games/BomberGolf.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 18567,
       "standalone": {
@@ -12968,6 +13425,7 @@
     },
     {
       "path": "Demo/Games/CastleFrankenstein.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 20931,
       "standalone": {
@@ -13020,6 +13478,7 @@
     },
     {
       "path": "Demo/Games/CharDemo.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 4104,
       "standalone": {
@@ -13065,6 +13524,7 @@
     },
     {
       "path": "Demo/Games/CircleTrace.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 3017,
       "standalone": {
@@ -13115,6 +13575,7 @@
     },
     {
       "path": "Demo/Games/Collision.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 3997,
       "standalone": {
@@ -13159,6 +13620,7 @@
     },
     {
       "path": "Demo/Games/Digits.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 1853,
       "standalone": {
@@ -13198,6 +13660,7 @@
     },
     {
       "path": "Demo/Games/DunGen.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 16763,
       "standalone": {
@@ -13249,6 +13712,7 @@
     },
     {
       "path": "Demo/Games/ElephantWalk.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 53842,
       "standalone": {
@@ -13288,6 +13752,7 @@
     },
     {
       "path": "Demo/Games/FlapBat.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 7651,
       "standalone": {
@@ -13340,6 +13805,7 @@
     },
     {
       "path": "Demo/Games/FlatTops.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 25678,
       "standalone": {
@@ -13392,6 +13858,7 @@
     },
     {
       "path": "Demo/Games/Halogen.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 3007,
       "standalone": {
@@ -13437,6 +13904,7 @@
     },
     {
       "path": "Demo/Games/MassSpring.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 3205,
       "standalone": {
@@ -13483,6 +13951,7 @@
     },
     {
       "path": "Demo/Games/Maze.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 2605,
       "standalone": {
@@ -13528,6 +13997,7 @@
     },
     {
       "path": "Demo/Games/RainDrops.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 3520,
       "standalone": {
@@ -13574,6 +14044,7 @@
     },
     {
       "path": "Demo/Games/RawHide.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 26773,
       "standalone": {
@@ -13626,6 +14097,7 @@
     },
     {
       "path": "Demo/Games/Rocket.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 80158,
       "standalone": {
@@ -13672,6 +14144,7 @@
     },
     {
       "path": "Demo/Games/RocketScience.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 87821,
       "standalone": {
@@ -13718,6 +14191,7 @@
     },
     {
       "path": "Demo/Games/Squirt.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 84514,
       "standalone": {
@@ -13771,6 +14245,7 @@
     },
     {
       "path": "Demo/Games/Stadium/Stadium.HC",
+      "effective_project_directory": "Demo/Games/Stadium",
       "comparison": "neither-parses",
       "bytes": 3801,
       "standalone": {
@@ -13816,6 +14291,7 @@
     },
     {
       "path": "Demo/Games/Stadium/StadiumGen.HC",
+      "effective_project_directory": "Demo/Games/Stadium",
       "comparison": "neither-parses",
       "bytes": 614,
       "standalone": {
@@ -13855,6 +14331,7 @@
     },
     {
       "path": "Demo/Games/Talons.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 138129,
       "standalone": {
@@ -13909,6 +14386,7 @@
     },
     {
       "path": "Demo/Games/TheDead.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 6984,
       "standalone": {
@@ -13955,6 +14433,7 @@
     },
     {
       "path": "Demo/Games/TicTacToe.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 2305,
       "standalone": {
@@ -14001,6 +14480,7 @@
     },
     {
       "path": "Demo/Games/TreeCheckers.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 7464,
       "standalone": {
@@ -14053,6 +14533,7 @@
     },
     {
       "path": "Demo/Games/Varoom.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 22215,
       "standalone": {
@@ -14106,6 +14587,7 @@
     },
     {
       "path": "Demo/Games/Wenceslas.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 64392,
       "standalone": {
@@ -14158,6 +14640,7 @@
     },
     {
       "path": "Demo/Games/Whap.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 4498,
       "standalone": {
@@ -14203,6 +14686,7 @@
     },
     {
       "path": "Demo/Games/Zing.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 4672,
       "standalone": {
@@ -14248,6 +14732,7 @@
     },
     {
       "path": "Demo/Games/ZoneOut.HC",
+      "effective_project_directory": "Demo/Games",
       "comparison": "neither-parses",
       "bytes": 111685,
       "standalone": {
@@ -14300,6 +14785,7 @@
     },
     {
       "path": "Demo/GlblVars.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 1424,
       "standalone": {
@@ -14332,6 +14818,7 @@
     },
     {
       "path": "Demo/Graphics/3DPoly.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2407,
       "standalone": {
@@ -14371,6 +14858,7 @@
     },
     {
       "path": "Demo/Graphics/BSpline.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 698,
       "standalone": {
@@ -14410,6 +14898,7 @@
     },
     {
       "path": "Demo/Graphics/Balloon.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "project-prelude-only",
       "bytes": 732,
       "standalone": {
@@ -14442,6 +14931,7 @@
     },
     {
       "path": "Demo/Graphics/Blot.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 694,
       "standalone": {
@@ -14481,6 +14971,7 @@
     },
     {
       "path": "Demo/Graphics/Bounce.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 782,
       "standalone": {
@@ -14520,6 +15011,7 @@
     },
     {
       "path": "Demo/Graphics/Box.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1223,
       "standalone": {
@@ -14564,6 +15056,7 @@
     },
     {
       "path": "Demo/Graphics/Cartesian.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 951,
       "standalone": {
@@ -14603,6 +15096,7 @@
     },
     {
       "path": "Demo/Graphics/CharAnimation.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 573,
       "standalone": {
@@ -14642,6 +15136,7 @@
     },
     {
       "path": "Demo/Graphics/Collision.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2532,
       "standalone": {
@@ -14687,6 +15182,7 @@
     },
     {
       "path": "Demo/Graphics/CommonAncestor.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2341,
       "standalone": {
@@ -14733,6 +15229,7 @@
     },
     {
       "path": "Demo/Graphics/Doodle.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1014,
       "standalone": {
@@ -14772,6 +15269,7 @@
     },
     {
       "path": "Demo/Graphics/EdSprite.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 6619,
       "standalone": {
@@ -14811,6 +15309,7 @@
     },
     {
       "path": "Demo/Graphics/Elephant.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 5136,
       "standalone": {
@@ -14855,6 +15354,7 @@
     },
     {
       "path": "Demo/Graphics/Extents.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1131,
       "standalone": {
@@ -14894,6 +15394,7 @@
     },
     {
       "path": "Demo/Graphics/FontEd.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 3351,
       "standalone": {
@@ -14940,6 +15441,7 @@
     },
     {
       "path": "Demo/Graphics/Grid.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 672,
       "standalone": {
@@ -14984,6 +15486,7 @@
     },
     {
       "path": "Demo/Graphics/Hanoi.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 3201,
       "standalone": {
@@ -15030,6 +15533,7 @@
     },
     {
       "path": "Demo/Graphics/Lattice.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 5559,
       "standalone": {
@@ -15077,6 +15581,7 @@
     },
     {
       "path": "Demo/Graphics/Life.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2019,
       "standalone": {
@@ -15129,6 +15634,7 @@
     },
     {
       "path": "Demo/Graphics/LightTable.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 15260,
       "standalone": {
@@ -15187,6 +15693,7 @@
     },
     {
       "path": "Demo/Graphics/Lines.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 678,
       "standalone": {
@@ -15226,6 +15733,7 @@
     },
     {
       "path": "Demo/Graphics/LowPassFilter.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1313,
       "standalone": {
@@ -15265,6 +15773,7 @@
     },
     {
       "path": "Demo/Graphics/MathAudioDemo.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2081,
       "standalone": {
@@ -15309,6 +15818,7 @@
     },
     {
       "path": "Demo/Graphics/MouseDemo.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 160,
       "standalone": {
@@ -15348,6 +15858,7 @@
     },
     {
       "path": "Demo/Graphics/NetOfDots.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 234,
       "standalone": {
@@ -15387,6 +15898,7 @@
     },
     {
       "path": "Demo/Graphics/Palette.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 619,
       "standalone": {
@@ -15426,6 +15938,7 @@
     },
     {
       "path": "Demo/Graphics/PanText.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 433,
       "standalone": {
@@ -15465,6 +15978,7 @@
     },
     {
       "path": "Demo/Graphics/Pick.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2376,
       "standalone": {
@@ -15510,6 +16024,7 @@
     },
     {
       "path": "Demo/Graphics/Pick3D.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 6556,
       "standalone": {
@@ -15557,6 +16072,7 @@
     },
     {
       "path": "Demo/Graphics/PoleZeros.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 3560,
       "standalone": {
@@ -15602,6 +16118,7 @@
     },
     {
       "path": "Demo/Graphics/PredatorPrey.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1616,
       "standalone": {
@@ -15647,6 +16164,7 @@
     },
     {
       "path": "Demo/Graphics/RotateTank.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2842,
       "standalone": {
@@ -15686,6 +16204,7 @@
     },
     {
       "path": "Demo/Graphics/ScrnCapture.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 252,
       "standalone": {
@@ -15725,6 +16244,7 @@
     },
     {
       "path": "Demo/Graphics/ScrollBars.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 4500,
       "standalone": {
@@ -15769,6 +16289,7 @@
     },
     {
       "path": "Demo/Graphics/Shading.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 4672,
       "standalone": {
@@ -15815,6 +16336,7 @@
     },
     {
       "path": "Demo/Graphics/Shadow.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 2296,
       "standalone": {
@@ -15860,6 +16382,7 @@
     },
     {
       "path": "Demo/Graphics/Slider.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 3026,
       "standalone": {
@@ -15905,6 +16428,7 @@
     },
     {
       "path": "Demo/Graphics/Speedline.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1042,
       "standalone": {
@@ -15944,6 +16468,7 @@
     },
     {
       "path": "Demo/Graphics/SpritePlot.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1464,
       "standalone": {
@@ -15983,6 +16508,7 @@
     },
     {
       "path": "Demo/Graphics/SpritePlot3D.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 881,
       "standalone": {
@@ -16027,6 +16553,7 @@
     },
     {
       "path": "Demo/Graphics/SpritePut.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 24901,
       "standalone": {
@@ -16066,6 +16593,7 @@
     },
     {
       "path": "Demo/Graphics/SpritePutExt.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 754,
       "standalone": {
@@ -16105,6 +16633,7 @@
     },
     {
       "path": "Demo/Graphics/SpriteRaw.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 808,
       "standalone": {
@@ -16144,6 +16673,7 @@
     },
     {
       "path": "Demo/Graphics/SpriteText.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 958,
       "standalone": {
@@ -16183,6 +16713,7 @@
     },
     {
       "path": "Demo/Graphics/SunMoon.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1252,
       "standalone": {
@@ -16222,6 +16753,7 @@
     },
     {
       "path": "Demo/Graphics/Symmetry.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 1530,
       "standalone": {
@@ -16261,6 +16793,7 @@
     },
     {
       "path": "Demo/Graphics/Transform.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 8924,
       "standalone": {
@@ -16305,6 +16838,7 @@
     },
     {
       "path": "Demo/Graphics/WallPaperCtrl.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 3072,
       "standalone": {
@@ -16350,6 +16884,7 @@
     },
     {
       "path": "Demo/Graphics/WallPaperFish.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 6511,
       "standalone": {
@@ -16395,6 +16930,7 @@
     },
     {
       "path": "Demo/Graphics/WinZBuf.HC",
+      "effective_project_directory": "Demo/Graphics",
       "comparison": "neither-parses",
       "bytes": 434,
       "standalone": {
@@ -16439,6 +16975,7 @@
     },
     {
       "path": "Demo/InFile/InPopUp.HC",
+      "effective_project_directory": "Demo/InFile",
       "comparison": "project-prelude-only",
       "bytes": 282,
       "standalone": {
@@ -16471,6 +17008,7 @@
     },
     {
       "path": "Demo/InFile/InSetIP.HC",
+      "effective_project_directory": "Demo/InFile",
       "comparison": "neither-parses",
       "bytes": 244,
       "standalone": {
@@ -16510,6 +17048,7 @@
     },
     {
       "path": "Demo/KeyBitMap.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 853,
       "standalone": {
@@ -16554,6 +17093,7 @@
     },
     {
       "path": "Demo/LastClass.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 594,
       "standalone": {
@@ -16593,6 +17133,7 @@
     },
     {
       "path": "Demo/Lectures/AndNotMod.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 911,
       "standalone": {
@@ -16632,6 +17173,7 @@
     },
     {
       "path": "Demo/Lectures/FixedPoint.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 2062,
       "standalone": {
@@ -16671,6 +17213,7 @@
     },
     {
       "path": "Demo/Lectures/FixedPointAdvanced.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 3717,
       "standalone": {
@@ -16710,6 +17253,7 @@
     },
     {
       "path": "Demo/Lectures/GraphicsCPULoad.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 819,
       "standalone": {
@@ -16749,6 +17293,7 @@
     },
     {
       "path": "Demo/Lectures/InterruptDemo.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 1573,
       "standalone": {
@@ -16788,6 +17333,7 @@
     },
     {
       "path": "Demo/Lectures/MiniCompiler.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 5699,
       "standalone": {
@@ -16837,6 +17383,7 @@
     },
     {
       "path": "Demo/Lectures/MiniGrLib.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "project-prelude-only",
       "bytes": 2913,
       "standalone": {
@@ -16869,6 +17416,7 @@
     },
     {
       "path": "Demo/Lectures/NegDisp.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 1004,
       "standalone": {
@@ -16908,6 +17456,7 @@
     },
     {
       "path": "Demo/Lectures/Optimization.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 1812,
       "standalone": {
@@ -16947,6 +17496,7 @@
     },
     {
       "path": "Demo/Lectures/PCIInterrupts.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "neither-parses",
       "bytes": 1373,
       "standalone": {
@@ -16990,6 +17540,7 @@
     },
     {
       "path": "Demo/Lectures/Ring3.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "project-prelude-only",
       "bytes": 1457,
       "standalone": {
@@ -17022,6 +17573,7 @@
     },
     {
       "path": "Demo/Lectures/ScrnMemory.HC",
+      "effective_project_directory": "Demo/Lectures",
       "comparison": "project-prelude-only",
       "bytes": 1193,
       "standalone": {
@@ -17054,6 +17606,7 @@
     },
     {
       "path": "Demo/MagicPairs.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 6930,
       "standalone": {
@@ -17097,6 +17650,7 @@
     },
     {
       "path": "Demo/MemDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 1594,
       "standalone": {
@@ -17122,6 +17676,7 @@
     },
     {
       "path": "Demo/MsgLoop.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 698,
       "standalone": {
@@ -17161,6 +17716,7 @@
     },
     {
       "path": "Demo/MultiCore/Interrupts.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "project-prelude-only",
       "bytes": 447,
       "standalone": {
@@ -17193,6 +17749,7 @@
     },
     {
       "path": "Demo/MultiCore/LoadTest.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "neither-parses",
       "bytes": 743,
       "standalone": {
@@ -17232,6 +17789,7 @@
     },
     {
       "path": "Demo/MultiCore/Lock.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "project-prelude-only",
       "bytes": 907,
       "standalone": {
@@ -17264,6 +17822,7 @@
     },
     {
       "path": "Demo/MultiCore/MPAdd.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "neither-parses",
       "bytes": 1748,
       "standalone": {
@@ -17303,6 +17862,7 @@
     },
     {
       "path": "Demo/MultiCore/MPPrint.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "neither-parses",
       "bytes": 236,
       "standalone": {
@@ -17347,6 +17907,7 @@
     },
     {
       "path": "Demo/MultiCore/MPRadix.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "project-prelude-only",
       "bytes": 2776,
       "standalone": {
@@ -17384,6 +17945,7 @@
     },
     {
       "path": "Demo/MultiCore/Palindrome.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "neither-parses",
       "bytes": 1544,
       "standalone": {
@@ -17423,6 +17985,7 @@
     },
     {
       "path": "Demo/MultiCore/Primes.HC",
+      "effective_project_directory": "Demo/MultiCore",
       "comparison": "project-prelude-only",
       "bytes": 1401,
       "standalone": {
@@ -17455,6 +18018,7 @@
     },
     {
       "path": "Demo/NullCase.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 436,
       "standalone": {
@@ -17480,6 +18044,7 @@
     },
     {
       "path": "Demo/OnceDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 240,
       "standalone": {
@@ -17519,6 +18084,7 @@
     },
     {
       "path": "Demo/ParenWarn.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 163,
       "standalone": {
@@ -17558,6 +18124,7 @@
     },
     {
       "path": "Demo/PhoneNumWords.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 1000,
       "standalone": {
@@ -17590,6 +18157,7 @@
     },
     {
       "path": "Demo/Print.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 642,
       "standalone": {
@@ -17615,6 +18183,7 @@
     },
     {
       "path": "Demo/Progress.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 1834,
       "standalone": {
@@ -17654,6 +18223,7 @@
     },
     {
       "path": "Demo/Prompt.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 424,
       "standalone": {
@@ -17686,6 +18256,7 @@
     },
     {
       "path": "Demo/PullDownMenu.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 1722,
       "standalone": {
@@ -17725,6 +18296,7 @@
     },
     {
       "path": "Demo/RadixSort.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 692,
       "standalone": {
@@ -17757,6 +18329,7 @@
     },
     {
       "path": "Demo/RandDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 1217,
       "standalone": {
@@ -17796,6 +18369,7 @@
     },
     {
       "path": "Demo/RegistryDemo.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 814,
       "standalone": {
@@ -17835,6 +18409,7 @@
     },
     {
       "path": "Demo/RevFileDemo/Rev.HC",
+      "effective_project_directory": "Demo/RevFileDemo",
       "comparison": "neither-parses",
       "bytes": 478,
       "standalone": {
@@ -17874,6 +18449,7 @@
     },
     {
       "path": "Demo/ScrnCodes.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 592,
       "standalone": {
@@ -17918,6 +18494,7 @@
     },
     {
       "path": "Demo/Snd/ASCIIOrgan.HC",
+      "effective_project_directory": "Demo/Snd",
       "comparison": "neither-parses",
       "bytes": 4109,
       "standalone": {
@@ -17957,6 +18534,7 @@
     },
     {
       "path": "Demo/Snd/MorseCode.HC",
+      "effective_project_directory": "Demo/Snd",
       "comparison": "project-prelude-only",
       "bytes": 2585,
       "standalone": {
@@ -17995,6 +18573,7 @@
     },
     {
       "path": "Demo/Snd/OhGreat.HC",
+      "effective_project_directory": "Demo/Snd",
       "comparison": "neither-parses",
       "bytes": 1086,
       "standalone": {
@@ -18034,6 +18613,7 @@
     },
     {
       "path": "Demo/Snd/WaterFowl.HC",
+      "effective_project_directory": "Demo/Snd",
       "comparison": "neither-parses",
       "bytes": 308908,
       "standalone": {
@@ -18078,6 +18658,7 @@
     },
     {
       "path": "Demo/SortFileDemo/F64FileGen.HC",
+      "effective_project_directory": "Demo/SortFileDemo",
       "comparison": "neither-parses",
       "bytes": 598,
       "standalone": {
@@ -18117,6 +18698,7 @@
     },
     {
       "path": "Demo/SortFileDemo/F64FileSort.HC",
+      "effective_project_directory": "Demo/SortFileDemo",
       "comparison": "neither-parses",
       "bytes": 1642,
       "standalone": {
@@ -18156,6 +18738,7 @@
     },
     {
       "path": "Demo/Spy.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 1135,
       "standalone": {
@@ -18201,6 +18784,7 @@
     },
     {
       "path": "Demo/StkGrow.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 987,
       "standalone": {
@@ -18226,6 +18810,7 @@
     },
     {
       "path": "Demo/SubIntAccess.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 626,
       "standalone": {
@@ -18251,6 +18836,7 @@
     },
     {
       "path": "Demo/SubSwitch.HC",
+      "effective_project_directory": "Demo",
       "comparison": "both-parse",
       "bytes": 297,
       "standalone": {
@@ -18276,6 +18862,7 @@
     },
     {
       "path": "Demo/SuggestSpelling.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 1723,
       "standalone": {
@@ -18315,6 +18902,7 @@
     },
     {
       "path": "Demo/Templates/Game1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 1266,
       "standalone": {
@@ -18360,6 +18948,7 @@
     },
     {
       "path": "Demo/Templates/Lex1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 431,
       "standalone": {
@@ -18399,6 +18988,7 @@
     },
     {
       "path": "Demo/Templates/MultiCore1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 550,
       "standalone": {
@@ -18443,6 +19033,7 @@
     },
     {
       "path": "Demo/Templates/ODE1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 656,
       "standalone": {
@@ -18488,6 +19079,7 @@
     },
     {
       "path": "Demo/Templates/Registry1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 180,
       "standalone": {
@@ -18527,6 +19119,7 @@
     },
     {
       "path": "Demo/Templates/Util1.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "project-prelude-only",
       "bytes": 391,
       "standalone": {
@@ -18559,6 +19152,7 @@
     },
     {
       "path": "Demo/Templates/Util2.HC",
+      "effective_project_directory": "Demo/Templates",
       "comparison": "neither-parses",
       "bytes": 1199,
       "standalone": {
@@ -18603,6 +19197,7 @@
     },
     {
       "path": "Demo/TimeIns.HC",
+      "effective_project_directory": "Demo",
       "comparison": "neither-parses",
       "bytes": 677,
       "standalone": {
@@ -18642,6 +19237,7 @@
     },
     {
       "path": "Demo/ToHtmlToTXTDemo/HtmlGen.HC",
+      "effective_project_directory": "Demo/ToHtmlToTXTDemo",
       "comparison": "neither-parses",
       "bytes": 790,
       "standalone": {
@@ -18662,25 +19258,30 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parser-diagnostics",
+        "diagnostics": 49,
+        "errors": 49,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0001": 1, "HCPP0003": 1 },
+        "diagnostic_codes": {
+          "HCPARSE0047": 1,
+          "HCPARSE0048": 46,
+          "HCPARSE0055": 2
+        },
         "first_error": {
-          "code": "HCPP0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "could not find included source \"ToHtml\"",
-          "path": "Demo/ToHtmlToTXTDemo/HtmlGen.HC",
-          "line": 18,
-          "column": 10
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
+          "path": "Demo/ToHtmlToTXTDemo/ToHtml.HC",
+          "line": 17,
+          "column": 7
         },
         "failure_message": null
       }
     },
     {
       "path": "Demo/ToHtmlToTXTDemo/TXTGen.HC",
+      "effective_project_directory": "Demo/ToHtmlToTXTDemo",
       "comparison": "neither-parses",
       "bytes": 177,
       "standalone": {
@@ -18720,6 +19321,7 @@
     },
     {
       "path": "Demo/ToHtmlToTXTDemo/ToHtml.HC",
+      "effective_project_directory": "Demo/ToHtmlToTXTDemo",
       "comparison": "neither-parses",
       "bytes": 10759,
       "standalone": {
@@ -18769,6 +19371,7 @@
     },
     {
       "path": "Demo/WebLogDemo/WebLogRep.HC",
+      "effective_project_directory": "Demo/WebLogDemo",
       "comparison": "neither-parses",
       "bytes": 12346,
       "standalone": {
@@ -18816,6 +19419,7 @@
     },
     {
       "path": "Demo/WebLogDemo/WebLogScramble.HC",
+      "effective_project_directory": "Demo/WebLogDemo",
       "comparison": "neither-parses",
       "bytes": 1374,
       "standalone": {
@@ -18855,6 +19459,7 @@
     },
     {
       "path": "Demo/WordSearch.HC",
+      "effective_project_directory": "Demo",
       "comparison": "project-prelude-only",
       "bytes": 2628,
       "standalone": {
@@ -18887,6 +19492,7 @@
     },
     {
       "path": "Doc/Comm.HC",
+      "effective_project_directory": "Doc",
       "comparison": "project-prelude-only",
       "bytes": 2671,
       "standalone": {
@@ -18924,6 +19530,7 @@
     },
     {
       "path": "HomeKeyPlugIns.HC",
+      "effective_project_directory": ".",
       "comparison": "neither-parses",
       "bytes": 3914,
       "standalone": {
@@ -18968,6 +19575,7 @@
     },
     {
       "path": "HomeLocalize.HC",
+      "effective_project_directory": ".",
       "comparison": "project-prelude-only",
       "bytes": 506,
       "standalone": {
@@ -19000,6 +19608,7 @@
     },
     {
       "path": "HomeSys.HC",
+      "effective_project_directory": ".",
       "comparison": "neither-parses",
       "bytes": 745,
       "standalone": {
@@ -19039,6 +19648,7 @@
     },
     {
       "path": "HomeWrappers.HC",
+      "effective_project_directory": ".",
       "comparison": "both-parse",
       "bytes": 767,
       "standalone": {
@@ -19064,6 +19674,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskATA.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 15295,
       "standalone": {
@@ -19111,6 +19722,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskATAId.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 7823,
       "standalone": {
@@ -19151,6 +19763,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskAddDev.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 5831,
       "standalone": {
@@ -19203,6 +19816,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskBlk.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 2514,
       "standalone": {
@@ -19249,6 +19863,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskBlkDev.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 4833,
       "standalone": {
@@ -19295,6 +19910,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskCDDVD.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 5540,
       "standalone": {
@@ -19348,6 +19964,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskCFile.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 6076,
       "standalone": {
@@ -19386,6 +20003,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskCache.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 3437,
       "standalone": {
@@ -19423,6 +20041,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskClus.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 2834,
       "standalone": {
@@ -19469,6 +20088,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskCluster.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 3039,
       "standalone": {
@@ -19515,6 +20135,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskCopy.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 2576,
       "standalone": {
@@ -19547,6 +20168,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskDirA.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 5065,
       "standalone": {
@@ -19585,6 +20207,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskDirB.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 4819,
       "standalone": {
@@ -19622,6 +20245,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskDirContext.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 2195,
       "standalone": {
@@ -19660,6 +20284,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskDrv.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 8820,
       "standalone": {
@@ -19712,6 +20337,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskFile.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 3288,
       "standalone": {
@@ -19750,6 +20376,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskFind.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 4035,
       "standalone": {
@@ -19794,6 +20421,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskFmt.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 2052,
       "standalone": {
@@ -19833,6 +20461,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskStrA.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 8305,
       "standalone": {
@@ -19870,6 +20499,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskStrB.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "project-prelude-only",
       "bytes": 1884,
       "standalone": {
@@ -19908,6 +20538,7 @@
     },
     {
       "path": "Kernel/BlkDev/FileSysFAT.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 25579,
       "standalone": {
@@ -19960,6 +20591,7 @@
     },
     {
       "path": "Kernel/BlkDev/FileSysISO.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 5420,
       "standalone": {
@@ -20012,6 +20644,7 @@
     },
     {
       "path": "Kernel/BlkDev/FileSysRedSea.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 15382,
       "standalone": {
@@ -20066,6 +20699,7 @@
     },
     {
       "path": "Kernel/BlkDev/MakeBlkDev.HC",
+      "effective_project_directory": "Kernel/BlkDev",
       "comparison": "neither-parses",
       "bytes": 457,
       "standalone": {
@@ -20091,11 +20725,22 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 23,
-        "errors": 23,
+        "diagnostics": 339,
+        "errors": 339,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 21, "HCPP0008": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 27,
+          "HCPARSE0009": 1,
+          "HCPARSE0029": 1,
+          "HCPARSE0035": 4,
+          "HCPARSE0048": 170,
+          "HCPARSE0050": 87,
+          "HCPARSE0055": 31,
+          "HCPARSE0082": 13,
+          "HCPP0008": 4,
+          "HCPP0022": 1
+        },
         "first_error": {
           "code": "HCPP0008",
           "severity": "error",
@@ -20109,6 +20754,7 @@
     },
     {
       "path": "Kernel/Compress.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 7600,
       "standalone": {
@@ -20147,6 +20793,7 @@
     },
     {
       "path": "Kernel/Display.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 3586,
       "standalone": {
@@ -20185,6 +20832,7 @@
     },
     {
       "path": "Kernel/EdLite.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 7729,
       "standalone": {
@@ -20223,6 +20871,7 @@
     },
     {
       "path": "Kernel/FontCyrillic.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 5532,
       "standalone": {
@@ -20248,6 +20897,7 @@
     },
     {
       "path": "Kernel/FontStd.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 5527,
       "standalone": {
@@ -20273,6 +20923,7 @@
     },
     {
       "path": "Kernel/FunSeg.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 8341,
       "standalone": {
@@ -20313,6 +20964,7 @@
     },
     {
       "path": "Kernel/Job.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 12714,
       "standalone": {
@@ -20360,6 +21012,7 @@
     },
     {
       "path": "Kernel/KCfg.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 4717,
       "standalone": {
@@ -20405,6 +21058,7 @@
     },
     {
       "path": "Kernel/KDataTypes.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 5693,
       "standalone": {
@@ -20444,6 +21098,7 @@
     },
     {
       "path": "Kernel/KDate.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 3943,
       "standalone": {
@@ -20482,6 +21137,7 @@
     },
     {
       "path": "Kernel/KDbg.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 14463,
       "standalone": {
@@ -20528,6 +21184,7 @@
     },
     {
       "path": "Kernel/KDefine.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 6331,
       "standalone": {
@@ -20565,6 +21222,7 @@
     },
     {
       "path": "Kernel/KEnd.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 5990,
       "standalone": {
@@ -20617,6 +21275,7 @@
     },
     {
       "path": "Kernel/KExcept.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 3576,
       "standalone": {
@@ -20664,6 +21323,7 @@
     },
     {
       "path": "Kernel/KExts.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 4874,
       "standalone": {
@@ -20696,6 +21356,7 @@
     },
     {
       "path": "Kernel/KGlbls.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 991,
       "standalone": {
@@ -20728,6 +21389,7 @@
     },
     {
       "path": "Kernel/KHashA.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 4507,
       "standalone": {
@@ -20760,6 +21422,7 @@
     },
     {
       "path": "Kernel/KHashB.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 6758,
       "standalone": {
@@ -20813,6 +21476,7 @@
     },
     {
       "path": "Kernel/KInts.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 4846,
       "standalone": {
@@ -20852,6 +21516,7 @@
     },
     {
       "path": "Kernel/KLoad.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 6147,
       "standalone": {
@@ -20890,6 +21555,7 @@
     },
     {
       "path": "Kernel/KMain.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 6011,
       "standalone": {
@@ -20942,6 +21608,7 @@
     },
     {
       "path": "Kernel/KMathA.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 10729,
       "standalone": {
@@ -20967,6 +21634,7 @@
     },
     {
       "path": "Kernel/KMathB.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 3078,
       "standalone": {
@@ -21004,6 +21672,7 @@
     },
     {
       "path": "Kernel/KMisc.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 6873,
       "standalone": {
@@ -21056,6 +21725,7 @@
     },
     {
       "path": "Kernel/KStart16.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 5583,
       "standalone": {
@@ -21109,6 +21779,7 @@
     },
     {
       "path": "Kernel/KStart32.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 2996,
       "standalone": {
@@ -21160,6 +21831,7 @@
     },
     {
       "path": "Kernel/KStart64.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 1993,
       "standalone": {
@@ -21185,6 +21857,7 @@
     },
     {
       "path": "Kernel/KTask.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 13685,
       "standalone": {
@@ -21240,6 +21913,7 @@
     },
     {
       "path": "Kernel/KUtils.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 6678,
       "standalone": {
@@ -21265,6 +21939,7 @@
     },
     {
       "path": "Kernel/Kernel.PRJ",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 1391,
       "standalone": {
@@ -21293,14 +21968,25 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 57,
-        "errors": 57,
+        "diagnostics": 329,
+        "errors": 329,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0048": 9,
-          "HCPP0003": 42,
-          "HCPP0008": 6
+          "HCPARSE0001": 57,
+          "HCPARSE0009": 2,
+          "HCPARSE0024": 1,
+          "HCPARSE0029": 2,
+          "HCPARSE0047": 6,
+          "HCPARSE0048": 101,
+          "HCPARSE0050": 29,
+          "HCPARSE0055": 9,
+          "HCPARSE0112": 9,
+          "HCPARSE0147": 38,
+          "HCPP0003": 30,
+          "HCPP0008": 24,
+          "HCPP0010": 2,
+          "HCPP0022": 19
         },
         "first_error": {
           "code": "HCPP0008",
@@ -21315,6 +22001,7 @@
     },
     {
       "path": "Kernel/KernelA.HH",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 92628,
       "standalone": {
@@ -21366,6 +22053,7 @@
     },
     {
       "path": "Kernel/KernelB.HH",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 14390,
       "standalone": {
@@ -21398,6 +22086,7 @@
     },
     {
       "path": "Kernel/KernelC.HH",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 30664,
       "standalone": {
@@ -21441,6 +22130,7 @@
     },
     {
       "path": "Kernel/KeyDev.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 5079,
       "standalone": {
@@ -21479,6 +22169,7 @@
     },
     {
       "path": "Kernel/Mem/BlkPool.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "project-prelude-only",
       "bytes": 1844,
       "standalone": {
@@ -21518,6 +22209,7 @@
     },
     {
       "path": "Kernel/Mem/HeapCtrl.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "neither-parses",
       "bytes": 845,
       "standalone": {
@@ -21562,6 +22254,7 @@
     },
     {
       "path": "Kernel/Mem/MAllocFree.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "neither-parses",
       "bytes": 10519,
       "standalone": {
@@ -21609,6 +22302,7 @@
     },
     {
       "path": "Kernel/Mem/MakeMem.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "neither-parses",
       "bytes": 163,
       "standalone": {
@@ -21634,11 +22328,20 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 8,
-        "errors": 8,
+        "diagnostics": 36,
+        "errors": 36,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 6, "HCPP0008": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 8,
+          "HCPARSE0029": 4,
+          "HCPARSE0048": 5,
+          "HCPARSE0050": 4,
+          "HCPARSE0055": 4,
+          "HCPARSE0147": 2,
+          "HCPP0008": 2,
+          "HCPP0022": 7
+        },
         "first_error": {
           "code": "HCPP0008",
           "severity": "error",
@@ -21652,6 +22355,7 @@
     },
     {
       "path": "Kernel/Mem/MemPag.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "neither-parses",
       "bytes": 4060,
       "standalone": {
@@ -21706,6 +22410,7 @@
     },
     {
       "path": "Kernel/Mem/MemPhysical.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "project-prelude-only",
       "bytes": 4231,
       "standalone": {
@@ -21743,6 +22448,7 @@
     },
     {
       "path": "Kernel/Mem/PageTables.HC",
+      "effective_project_directory": "Kernel/Mem",
       "comparison": "both-parse",
       "bytes": 3908,
       "standalone": {
@@ -21768,6 +22474,7 @@
     },
     {
       "path": "Kernel/MultiProc.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 9956,
       "standalone": {
@@ -21821,6 +22528,7 @@
     },
     {
       "path": "Kernel/PCIBIOS.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 5430,
       "standalone": {
@@ -21853,6 +22561,7 @@
     },
     {
       "path": "Kernel/QSort.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 2586,
       "standalone": {
@@ -21885,6 +22594,7 @@
     },
     {
       "path": "Kernel/Sched.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 7121,
       "standalone": {
@@ -21922,6 +22632,7 @@
     },
     {
       "path": "Kernel/SerialDev/Keyboard.HC",
+      "effective_project_directory": "Kernel/SerialDev",
       "comparison": "neither-parses",
       "bytes": 12402,
       "standalone": {
@@ -21971,6 +22682,7 @@
     },
     {
       "path": "Kernel/SerialDev/MakeSerialDev.HC",
+      "effective_project_directory": "Kernel/SerialDev",
       "comparison": "neither-parses",
       "bytes": 95,
       "standalone": {
@@ -21996,11 +22708,19 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "diagnostics": 113,
+        "errors": 113,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPP0003": 3, "HCPP0008": 2 },
+        "diagnostic_codes": {
+          "HCPARSE0001": 17,
+          "HCPARSE0048": 29,
+          "HCPARSE0050": 42,
+          "HCPARSE0055": 16,
+          "HCPARSE0082": 2,
+          "HCPARSE0147": 5,
+          "HCPP0008": 2
+        },
         "first_error": {
           "code": "HCPP0008",
           "severity": "error",
@@ -22014,6 +22734,7 @@
     },
     {
       "path": "Kernel/SerialDev/Message.HC",
+      "effective_project_directory": "Kernel/SerialDev",
       "comparison": "neither-parses",
       "bytes": 6526,
       "standalone": {
@@ -22065,6 +22786,7 @@
     },
     {
       "path": "Kernel/SerialDev/Mouse.HC",
+      "effective_project_directory": "Kernel/SerialDev",
       "comparison": "neither-parses",
       "bytes": 8429,
       "standalone": {
@@ -22111,6 +22833,7 @@
     },
     {
       "path": "Kernel/StrA.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "both-parse",
       "bytes": 12898,
       "standalone": {
@@ -22136,6 +22859,7 @@
     },
     {
       "path": "Kernel/StrB.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 3662,
       "standalone": {
@@ -22180,6 +22904,7 @@
     },
     {
       "path": "Kernel/StrPrint.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "neither-parses",
       "bytes": 18251,
       "standalone": {
@@ -22226,6 +22951,7 @@
     },
     {
       "path": "Kernel/StrScan.HC",
+      "effective_project_directory": "Kernel",
       "comparison": "project-prelude-only",
       "bytes": 6778,
       "standalone": {
@@ -22263,6 +22989,7 @@
     },
     {
       "path": "MakeHome.HC",
+      "effective_project_directory": ".",
       "comparison": "neither-parses",
       "bytes": 427,
       "standalone": {
@@ -22310,6 +23037,7 @@
     },
     {
       "path": "Misc/DoDistro.HC",
+      "effective_project_directory": "Misc",
       "comparison": "neither-parses",
       "bytes": 1639,
       "standalone": {
@@ -22349,6 +23077,7 @@
     },
     {
       "path": "Misc/OSInstall.HC",
+      "effective_project_directory": "Misc",
       "comparison": "neither-parses",
       "bytes": 5286,
       "standalone": {
@@ -22394,6 +23123,7 @@
     },
     {
       "path": "Misc/OSTestSuite.HC",
+      "effective_project_directory": "Misc",
       "comparison": "neither-parses",
       "bytes": 48570,
       "standalone": {
@@ -22433,6 +23163,7 @@
     },
     {
       "path": "Once.HC",
+      "effective_project_directory": ".",
       "comparison": "neither-parses",
       "bytes": 1151,
       "standalone": {
@@ -22472,6 +23203,7 @@
     },
     {
       "path": "StartOS.HC",
+      "effective_project_directory": ".",
       "comparison": "neither-parses",
       "bytes": 1158,
       "standalone": {
