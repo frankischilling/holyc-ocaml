@@ -6023,6 +6023,37 @@ provenance = ["source span", "include source", "generated invocation origin", "d
 native_oracle_status = "not required for this boundary; the root increments, member decrements, defined test, reset, and warning thresholds are direct pinned-source statements"
 
 [[feature]]
+id = "HC-STRING-LITERAL-SEQUENCES"
+description = "Consecutive string tokens form one expression while every physical token remains available for diagnostics and dumps."
+sources = [
+  "Compiler/LexLib.HC:248-270 LexExtStr",
+  "Compiler/PrsExp.HC:680-700 string primary",
+  "Compiler/PrsStmt.HC:1201-1204 statement literal dispatch",
+  "Compiler/PrsVar.HC:24-45 and 126-142 global string initializers"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml:adjacent_string_expression_contexts_and_modes",
+  "test/test_parser.ml:adjacent_string_token_boundaries",
+  "test/test_parser.ml:pinned_adjacent_string_contexts",
+  "test/test_parser.ml:adjacent_string_provenance_and_dumps",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 370
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+combination = "decoded bytes concatenate in token order, matching LexExtStr's removal of intermediate terminators"
+contexts = ["ordinary expressions", "call arguments", "global initializers", "statement-position Print markers"]
+provenance = "the combined literal has a full source-segment list; each physical string token also has its own spelling, decoded bytes, and location"
+empty_marker_behavior = "emptiness is tested after the complete string run is combined"
+corpus_effect = "standalone parsing rises from 21 to 23 files and project-prelude parsing rises from 103 to 117 files at the pinned commit"
+semantic_compatibility = "value typing is unchanged; storage, lowering, and execution remain separate work"
+
+[[feature]]
 id = "HC-PARSER-CORPUS"
 description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
 sources = [
@@ -6048,18 +6079,18 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 report_schema = "holyc-corpus-parse-comparison-v1"
 default_mode = "aot"
 source_objects = 528
-standalone_parses = 21
-project_prelude_parses = 103
-project_prelude_only = 82
+standalone_parses = 23
+project_prelude_parses = 117
+project_prelude_only = 94
 project_prelude_frontend_diagnostics = 63
-project_prelude_parser_diagnostics = 362
-project_prelude_unresolved_name_failures = 314
-project_prelude_other_failures = 111
+project_prelude_parser_diagnostics = 348
+project_prelude_unresolved_name_failures = 329
+project_prelude_other_failures = 82
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 15546
+project_prelude_diagnostics = 15279
 prelude_diagnostics = 29
-baseline_sha256 = "862977d8e2810b6579eb6dcbdb0c9744750c5b1a1f7dfca8882d9977b5d2e6ce"
+baseline_sha256 = "531d7a53e0dec441c00376849017119b4a41b4c74f041e11ef92957de38c61f6"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"
@@ -6069,7 +6100,7 @@ prelude_source = "the direct .HH includes in Compiler/Compiler.PRJ order"
 exclusions = 0
 strict_gate = "--require-all gates project-prelude parsing"
 semantic_compatibility = "not evaluated"
-remaining_issue_numbers = [3, 33, 46, 48, 361, 369, 370, 371, 372]
+remaining_issue_numbers = [3, 33, 46, 48, 361, 369, 371, 372]
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
