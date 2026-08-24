@@ -41,7 +41,7 @@
       "/Kernel/KernelA.HH", "/Compiler/CompilerA.HH", "/Kernel/KernelB.HH",
       "/Kernel/KernelC.HH"
     ],
-    "diagnostics": 25
+    "diagnostics": 23
   },
   "summary": {
     "files": 528,
@@ -58,8 +58,8 @@
       "failed": 503,
       "unresolved_name_failures": 480,
       "other_failures": 23,
-      "diagnostics": 37005,
-      "errors": 37005,
+      "diagnostics": 36999,
+      "errors": 36999,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
@@ -86,7 +86,6 @@
         "HCPP0003": 349,
         "HCPP0008": 38,
         "HCPP0009": 10,
-        "HCPP0010": 6,
         "HCPP0022": 81
       }
     },
@@ -99,8 +98,8 @@
       "failed": 402,
       "unresolved_name_failures": 370,
       "other_failures": 32,
-      "diagnostics": 20989,
-      "errors": 20989,
+      "diagnostics": 20981,
+      "errors": 20981,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
@@ -126,7 +125,6 @@
         "HCPP0003": 166,
         "HCPP0008": 58,
         "HCPP0009": 10,
-        "HCPP0010": 8,
         "HCPP0022": 109
       }
     }
@@ -10196,8 +10194,8 @@
       "bytes": 975,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 67,
-        "errors": 67,
+        "diagnostics": 65,
+        "errors": 65,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -10207,7 +10205,6 @@
           "HCPARSE0112": 9,
           "HCPP0003": 31,
           "HCPP0008": 4,
-          "HCPP0010": 2,
           "HCPP0022": 12
         },
         "first_error": {
@@ -10222,8 +10219,8 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 46,
-        "errors": 46,
+        "diagnostics": 44,
+        "errors": 44,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -10233,7 +10230,6 @@
           "HCPARSE0055": 1,
           "HCPARSE0112": 9,
           "HCPP0008": 4,
-          "HCPP0010": 2,
           "HCPP0022": 14
         },
         "first_error": {
@@ -21863,8 +21859,8 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 327,
-        "errors": 327,
+        "diagnostics": 325,
+        "errors": 325,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -21879,7 +21875,6 @@
           "HCPARSE0147": 38,
           "HCPP0003": 30,
           "HCPP0008": 24,
-          "HCPP0010": 2,
           "HCPP0022": 19
         },
         "first_error": {
@@ -21900,15 +21895,14 @@
       "bytes": 92628,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 25,
-        "errors": 25,
+        "diagnostics": 23,
+        "errors": 23,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0029": 1,
           "HCPARSE0047": 1,
           "HCPARSE0112": 9,
-          "HCPP0010": 2,
           "HCPP0022": 12
         },
         "first_error": {
@@ -21923,15 +21917,14 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 25,
-        "errors": 25,
+        "diagnostics": 23,
+        "errors": 23,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0029": 1,
           "HCPARSE0047": 1,
           "HCPARSE0112": 9,
-          "HCPP0010": 2,
           "HCPP0022": 12
         },
         "first_error": {
@@ -23091,8 +23084,8 @@
       "bytes": 1158,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 59,
-        "errors": 59,
+        "diagnostics": 57,
+        "errors": 57,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -23103,7 +23096,6 @@
           "HCPARSE0112": 9,
           "HCPP0003": 28,
           "HCPP0009": 1,
-          "HCPP0010": 2,
           "HCPP0022": 12
         },
         "first_error": {
@@ -23118,8 +23110,8 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 59,
-        "errors": 59,
+        "diagnostics": 57,
+        "errors": 57,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -23130,7 +23122,6 @@
           "HCPARSE0112": 9,
           "HCPP0003": 28,
           "HCPP0009": 1,
-          "HCPP0010": 2,
           "HCPP0022": 12
         },
         "first_error": {

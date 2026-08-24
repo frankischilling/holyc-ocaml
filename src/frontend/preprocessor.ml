@@ -566,6 +566,8 @@ let next_unexpanded stream =
 let define stream hash =
   match next_unexpanded stream with
   | Lexer.Diagnostic item -> Error item
+  | Lexer.Token name_token when name_token.Token.kind = Token_kind.String ->
+      Ok ()
   | Lexer.Token name_token -> (
       match definition_name name_token with
       | None -> Error (invalid_definition_name stream name_token)

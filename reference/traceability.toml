@@ -447,6 +447,28 @@ status = "implemented"
 issue = 23
 
 [[feature]]
+id = "HC-PREPROCESSOR-NAMELESS-STRING-DEFINE"
+description = "A #define followed by a string token consumes that token without creating a definition, then resumes the ordinary token stream."
+sources = [
+  "Compiler/Lex.HC:686-712",
+  "Kernel/KernelA.HH:3723",
+  "Kernel/KernelA.HH:3728"
+]
+implementation = ["src/frontend/preprocessor.ml"]
+tests = [
+  "test/test_preprocessor.ml",
+  "test/test_corpus.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 394
+ordinary_named_definitions = "unchanged"
+string_heading_effect = "consumed without a hash-table entry"
+other_invalid_name_tokens = "rejected with HCPP0010 pending separate source audit"
+corpus_effect = "HCPP0010 disappears from the comparison; phase classifications stay fixed, standalone diagnostics fall from 37005 to 36999, project-prelude diagnostics fall from 20989 to 20981, and prelude-seed diagnostics fall from 25 to 23."
+native_oracle = "not required because the pinned lexer branch and both authored headings state the token flow directly"
+
+[[feature]]
 id = "HC-PREPROCESSOR-MODE-CONDITIONALS"
 description = "The integrated stream selects nested #ifaot and #ifjit branches from an explicit compilation mode while discarded bytes remain free of include and definition side effects."
 sources = [
@@ -6210,7 +6232,7 @@ report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
 standalone_parses = 25
-standalone_diagnostics = 37005
+standalone_diagnostics = 36999
 project_prelude_parses = 126
 project_prelude_only = 101
 project_prelude_frontend_diagnostics = 30
@@ -6219,9 +6241,9 @@ project_prelude_unresolved_name_failures = 370
 project_prelude_other_failures = 32
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 20989
-prelude_diagnostics = 25
-baseline_sha256 = "52eb87e4bc94eb4c94f48753c508495c19e00ce2dc6e09a1118781510356b97b"
+project_prelude_diagnostics = 20981
+prelude_diagnostics = 23
+baseline_sha256 = "5e3ae43dfd8ccb9fa75e9c516966fe7a94104ef06a45b891599a71706bb3064a"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
