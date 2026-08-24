@@ -540,7 +540,7 @@ let corpus_lex_command =
 let corpus_parse format max_file_bytes expected_commit compilation_mode
     require_all root =
   match
-    Holyc_lib.Corpus.Parse.reference ~max_file_bytes ~expected_commit
+    Holyc_lib.Corpus.Parse.Comparison.reference ~max_file_bytes ~expected_commit
       ~compilation_mode ~root ()
   with
   | Error message ->
@@ -552,15 +552,19 @@ let corpus_parse format max_file_bytes expected_commit compilation_mode
       1
   | Ok report ->
       (match format with
-      | Human -> Holyc_lib.Corpus.Parse.human report |> output_string stdout
-      | Json -> Holyc_lib.Corpus.Parse.json report |> print_endline);
-      if require_all && Holyc_lib.Corpus.Parse.has_failures report then 1 else 0
+      | Human ->
+          Holyc_lib.Corpus.Parse.Comparison.human report |> output_string stdout
+      | Json -> Holyc_lib.Corpus.Parse.Comparison.json report |> print_endline);
+      if require_all && Holyc_lib.Corpus.Parse.Comparison.has_failures report
+      then 1
+      else 0
 
 let corpus_parse_command =
   let documentation =
-    "Parse every .HC, .HH, and .PRJ object in the pinned reference tree. Each \
-     root file uses a fresh session. Known incompatibilities remain visible in \
-     the report; --require-all turns them into a command failure."
+    "Parse every .HC, .HH, and .PRJ object in the pinned reference tree both \
+     in a fresh session and with the project-header prelude. Known \
+     incompatibilities remain visible in the report; --require-all gates the \
+     prelude result."
   in
   let info = Cmd.info "parse" ~doc:documentation in
   Cmd.v info

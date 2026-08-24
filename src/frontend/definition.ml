@@ -55,6 +55,13 @@ module Environment = struct
 
   let create () = { next_id = 0; current = Names.empty; history_rev = [] }
 
+  let copy environment =
+    {
+      next_id = environment.next_id;
+      current = environment.current;
+      history_rev = environment.history_rev;
+    }
+
   let define environment ~name ~replacement ~name_span ~definition_span
       ~replacement_span ~segments =
     if environment.next_id = max_int then

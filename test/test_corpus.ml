@@ -209,6 +209,79 @@ let parser_synthetic_tree () =
          notes 0\n"
         (Corpus.Parse.human report))
 
+let parser_project_prelude_comparison () =
+  with_temp_directory (fun root ->
+      let compiler = Filename.concat root "Compiler" in
+      let kernel = Filename.concat root "Kernel" in
+      let demo = Filename.concat root "Demo" in
+      make_directory compiler;
+      make_directory kernel;
+      make_directory demo;
+      write_file
+        (Filename.concat compiler "Compiler.PRJ")
+        "#include \"/Kernel/First.HH\"\n#include \"/Kernel/Second.HH\"\n";
+      write_file
+        (Filename.concat kernel "Kernel.PRJ")
+        "#include \"/Kernel/Second.HH\"\n#include \"/Kernel/First.HH\"\n";
+      write_file (Filename.concat kernel "First.HH") "#define TARGET CThing\n";
+      write_file (Filename.concat kernel "Second.HH") "extern class CThing;\n";
+      write_file (Filename.concat demo "A.HC") "extern class Leaked;\n";
+      write_file (Filename.concat demo "B.HC") "Leaked *item;\n";
+      write_file (Filename.concat demo "Use.HC") "TARGET *item;\n";
+      let scan () =
+        Corpus.Parse.Comparison.tree ~reference_commit:"synthetic-reference"
+          ~compilation_mode:Preprocessor.Aot ~root ()
+        |> checked
+      in
+      let report = scan () in
+      Alcotest.(check (list string))
+        "prelude follows Compiler.PRJ"
+        [ "/Kernel/First.HH"; "/Kernel/Second.HH" ]
+        (Corpus.Parse.Comparison.prelude_files report);
+      let orders = Corpus.Parse.Comparison.project_orders report in
+      (match orders with
+      | [ compiler_order; kernel_order ] ->
+          Alcotest.(check (list string))
+            "compiler order"
+            [ "/Kernel/First.HH"; "/Kernel/Second.HH" ]
+            compiler_order.includes;
+          Alcotest.(check (list string))
+            "kernel order"
+            [ "/Kernel/Second.HH"; "/Kernel/First.HH" ]
+            kernel_order.includes
+      | _ -> Alcotest.fail "expected both project include orders");
+      let use =
+        Corpus.Parse.Comparison.files report
+        |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+            String.equal item.path "Demo/Use.HC")
+      in
+      Alcotest.(check string)
+        "standalone status" "parser-diagnostics"
+        (Corpus.Parse.status_name use.standalone.status);
+      Alcotest.(check string)
+        "prelude status" "parses"
+        (Corpus.Parse.status_name use.project_prelude.status);
+      Alcotest.(check int)
+        "prelude-only files" 1
+        (Corpus.Parse.Comparison.project_prelude_only_count report);
+      let leaked_use =
+        Corpus.Parse.Comparison.files report
+        |> List.find (fun (item : Corpus.Parse.Comparison.compared_file) ->
+            String.equal item.path "Demo/B.HC")
+      in
+      Alcotest.(check string)
+        "target declarations stay isolated" "parser-diagnostics"
+        (Corpus.Parse.status_name leaked_use.project_prelude.status);
+      let second = scan () in
+      Alcotest.(check string)
+        "deterministic comparison JSON"
+        (Corpus.Parse.Comparison.json report)
+        (Corpus.Parse.Comparison.json second);
+      Alcotest.(check string)
+        "deterministic comparison report"
+        (Corpus.Parse.Comparison.human report)
+        (Corpus.Parse.Comparison.human second))
+
 let parser_physical_nul_termination () =
   with_temp_directory (fun root ->
       write_file (Filename.concat root "child.HH") "I64 included;\x00}";
@@ -400,11 +473,13 @@ let pinned_reference () =
 
 let pinned_parser_reference () =
   let root = Filename.concat (workspace ()) "third_party/TempleOS" in
-  let report =
-    Corpus.Parse.reference ~expected_commit:Version.reference_commit
+  let comparison =
+    Corpus.Parse.Comparison.reference ~expected_commit:Version.reference_commit
       ~compilation_mode:Preprocessor.Aot ~root ()
     |> checked
   in
+  let report = Corpus.Parse.Comparison.standalone comparison in
+  let prelude = Corpus.Parse.Comparison.project_prelude comparison in
   Alcotest.(check string)
     "reference commit" Version.reference_commit
     (Corpus.Parse.reference_commit report);
@@ -436,12 +511,53 @@ let pinned_parser_reference () =
   Alcotest.(check bool)
     "report has failures" true
     (Corpus.Parse.has_failures report);
+  Alcotest.(check (list string))
+    "project prelude"
+    [
+      "/Kernel/KernelA.HH";
+      "/Compiler/CompilerA.HH";
+      "/Kernel/KernelB.HH";
+      "/Kernel/KernelC.HH";
+    ]
+    (Corpus.Parse.Comparison.prelude_files comparison);
+  Alcotest.(check int)
+    "prelude diagnostics" 29
+    (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
+  Alcotest.(check int)
+    "both parse" 21
+    (Corpus.Parse.Comparison.both_parse_count comparison);
+  Alcotest.(check int)
+    "standalone only" 0
+    (Corpus.Parse.Comparison.standalone_only_count comparison);
+  Alcotest.(check int)
+    "prelude only" 82
+    (Corpus.Parse.Comparison.project_prelude_only_count comparison);
+  Alcotest.(check int)
+    "neither parses" 425
+    (Corpus.Parse.Comparison.neither_parses_count comparison);
+  Alcotest.(check int) "prelude parses" 103 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int)
+    "prelude frontend failures" 63
+    (Corpus.Parse.frontend_diagnostic_count prelude);
+  Alcotest.(check int)
+    "prelude parser failures" 362
+    (Corpus.Parse.parser_diagnostic_count prelude);
+  Alcotest.(check int)
+    "prelude diagnostics" 15_546
+    (Corpus.Parse.diagnostic_count prelude);
+  Alcotest.(check int)
+    "prelude read errors" 0
+    (Corpus.Parse.read_error_count prelude);
+  Alcotest.(check int)
+    "prelude internal errors" 0
+    (Corpus.Parse.internal_error_count prelude);
   let expected =
     Filename.concat (workspace ()) "reference/parser-corpus-aot.json"
     |> read_file |> String.trim
   in
   Alcotest.(check string)
-    "reviewed parser baseline" expected (Corpus.Parse.json report)
+    "reviewed parser comparison baseline" expected
+    (Corpus.Parse.Comparison.json comparison)
 
 let reference_mismatch () =
   let root = Filename.concat (workspace ()) "third_party/TempleOS" in
@@ -498,6 +614,8 @@ let tests =
     Alcotest.test_case "failure records" `Quick failures_are_recorded;
     Alcotest.test_case "file limit" `Quick file_limit;
     Alcotest.test_case "parser synthetic tree" `Quick parser_synthetic_tree;
+    Alcotest.test_case "parser project prelude" `Quick
+      parser_project_prelude_comparison;
     Alcotest.test_case "parser physical NUL" `Quick
       parser_physical_nul_termination;
     Alcotest.test_case "parser diagnostics" `Quick

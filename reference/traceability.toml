@@ -6027,6 +6027,7 @@ id = "HC-PARSER-CORPUS"
 description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
 sources = [
   "Compiler/Compiler.PRJ",
+  "Kernel/Kernel.PRJ",
   "Compiler/PrsLib.HC",
   "Compiler/PrsExp.HC",
   "Compiler/PrsVar.HC",
@@ -6042,25 +6043,33 @@ tests = [
   ".github/workflows/corpus.yml"
 ]
 status = "implemented"
-issue = 153
+issue = 359
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-report_schema = "holyc-corpus-parse-v1"
+report_schema = "holyc-corpus-parse-comparison-v1"
 default_mode = "aot"
 source_objects = 528
-parses = 21
-frontend_diagnostics = 17
-parser_diagnostics = 490
-read_errors = 0
-internal_errors = 0
-diagnostics = 37183
-baseline_sha256 = "323eab1a5630c95d5d810aa5b3f177938f3402d718f90777fca999b6d375548d"
+standalone_parses = 21
+project_prelude_parses = 103
+project_prelude_only = 82
+project_prelude_frontend_diagnostics = 63
+project_prelude_parser_diagnostics = 362
+project_prelude_unresolved_name_failures = 314
+project_prelude_other_failures = 111
+project_prelude_read_errors = 0
+project_prelude_internal_errors = 0
+project_prelude_diagnostics = 15546
+prelude_diagnostics = 29
+baseline_sha256 = "862977d8e2810b6579eb6dcbdb0c9744750c5b1a1f7dfca8882d9977b5d2e6ce"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"
-session_scope = "one fresh session per root object"
+session_scope = "one fresh standalone session and one copy of the compiler-project header state per root object"
+project_order_sources = ["Compiler/Compiler.PRJ", "Kernel/Kernel.PRJ"]
+prelude_source = "the direct .HH includes in Compiler/Compiler.PRJ order"
 exclusions = 0
-strict_gate = "--require-all"
+strict_gate = "--require-all gates project-prelude parsing"
 semantic_compatibility = "not evaluated"
+remaining_issue_numbers = [3, 33, 46, 48, 361, 369, 370, 371, 372]
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"

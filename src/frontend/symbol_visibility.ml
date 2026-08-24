@@ -116,6 +116,15 @@ module Environment = struct
       next_local_context_id = 0;
     }
 
+  let copy environment =
+    {
+      entries_by_name = Hashtbl.copy environment.entries_by_name;
+      entries_rev = environment.entries_rev;
+      next_entry_id = environment.next_entry_id;
+      local_contexts = environment.local_contexts;
+      next_local_context_id = environment.next_local_context_id;
+    }
+
   let add ?(origin = Session_registration) ?function_call_shape environment
       ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
