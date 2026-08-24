@@ -6145,17 +6145,18 @@ report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
 standalone_parses = 24
-project_prelude_parses = 118
-project_prelude_only = 94
+standalone_diagnostics = 37010
+project_prelude_parses = 121
+project_prelude_only = 97
 project_prelude_frontend_diagnostics = 30
-project_prelude_parser_diagnostics = 380
+project_prelude_parser_diagnostics = 377
 project_prelude_unresolved_name_failures = 369
-project_prelude_other_failures = 41
+project_prelude_other_failures = 38
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 21140
-prelude_diagnostics = 27
-baseline_sha256 = "f626c8e39ef4171c8b56b652708c5761b04657c7080c9070a3f9f351d72be600"
+project_prelude_diagnostics = 21021
+prelude_diagnostics = 25
+baseline_sha256 = "e12053600b73c04e3ba61d1bcf79c56a05800873e98c6e34a96bf9ada4aaf2a7"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
@@ -6168,7 +6169,7 @@ prelude_source = "the direct .HH includes in Compiler/Compiler.PRJ order"
 exclusions = 0
 strict_gate = "--require-all gates project-prelude parsing"
 semantic_compatibility = "not evaluated"
-remaining_issue_numbers = [3, 33, 46, 48, 361, 375, 377]
+remaining_issue_numbers = [3, 33, 46, 48, 361, 375]
 
 [[feature]]
 id = "HC-CORPUS-PROJECT-DIRECTORY"
@@ -6229,7 +6230,7 @@ compilation_modes = ["jit", "aot"]
 ast_delimiter = "semicolon"
 trailing_semicolon = "implemented"
 leading_or_repeated_empty_semicolons = "implemented by HC-FUNCTION-PARAMETER-EMPTY-SEMICOLON"
-corpus_effect = "Kernel/StrA.HC parses in both modes; Kernel/KernelC.HH advances to HCPARSE0016 at line 180; standalone and project-prelude parse counts each rise by one"
+corpus_effect = "Kernel/StrA.HC parses in both modes; the separated KernelC signature is retained for the optional prototype terminator implemented by HC-FUNCTION-PROTOTYPE-OPTIONAL-SEMICOLON"
 semantic_compatibility = "syntax only; parameter storage and ABI behavior are not evaluated"
 
 [[feature]]
@@ -6259,6 +6260,40 @@ provenance = ["primary span", "source segments", "generated source origin", "def
 authored_corpus_occurrences = 0
 corpus_effect = "none"
 semantic_compatibility = "syntax only; parameter storage and ABI behavior are unchanged"
+
+[[feature]]
+id = "HC-FUNCTION-PROTOTYPE-OPTIONAL-SEMICOLON"
+description = "A bound function prototype may end at its closing parenthesis without consuming or inventing a semicolon."
+sources = [
+  "Compiler/PrsStmt.HC:62-124 PrsFunJoin parses the argument list and does not inspect a following delimiter",
+  "Compiler/PrsStmt.HC:242-279 every bound function branch returns immediately after PrsFunJoin",
+  "Kernel/KernelC.HH:179-180 semicolon-free B prototype followed by B2",
+  "Demo/AcctExample/TOS/TOSExt.HC:306-307 semicolon-free GodWebIdx prototype followed by GodWordBatch"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml:optional_prototype_semicolons",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 384
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+bindings = ["extern", "_extern", "_intern", "import", "_import"]
+ast_schema = "holyc-ast-v1"
+written_semicolon = "retained with its source location"
+omitted_semicolon = "represented as absent and consumes no following token"
+function_body_interpretation = "a body after a bound prototype is a separate top-level statement"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+native_oracle = "not required because the compiler control flow and two authored corpus examples are explicit"
+corpus_effect = "project-prelude parsing rises from 118 to 121 files; Kernel/KernelC.HH, Kernel/KMisc.HC, and Demo/AcctExample/TOS/TOSExt.HC parse; MakeTOS advances into TOSMisc; project-prelude diagnostics fall from 21140 to 21021"
+semantic_compatibility = "prototype syntax and source boundaries only; ABI and linkage behavior are not evaluated"
 
 [[feature]]
 id = "HC-DOLDOC-INSERTED-BINARY"

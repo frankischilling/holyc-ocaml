@@ -3571,37 +3571,31 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
   | None -> None
   | Some parsed_parameters ->
       let semicolon_item = peek cursor in
-      if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
-        report cursor semicolon_item ~code:"HCPARSE0016"
-          ~message:
-            (Printf.sprintf
-               "expected ';' after function prototype %S, but found %s"
-               prefix.name.spelling
-               (token_description semicolon_item.token));
-        recover_declaration cursor;
-        None)
-      else
-        let semicolon_item = take cursor in
-        let declaration_tokens =
-          modifier_tokens @ binding_tokens
-          @ (type_item.token :: prefix.tokens)
-          @ (opening.token :: parsed_parameters.tokens)
-          @ [ semicolon_item.token ]
-        in
-        let prototype =
-          Ast.make_function_prototype ~modifiers ~binding ~return_type
-            ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
-            ~opening_parenthesis:(token_location opening.token)
-            ~parameters:parsed_parameters.parameters
-            ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
-            ~variadic:parsed_parameters.variadic
-            ~closing_parenthesis:parsed_parameters.closing_parenthesis
-            ~semicolon:(token_location semicolon_item.token)
-            ~location:(location_from_tokens declaration_tokens)
-        in
-        publish_function cursor prefix.name parsed_parameters.parameters
-          parsed_parameters.variadic;
-        Some (Ast.Function_prototype prototype)
+      let semicolon, semicolon_tokens =
+        if semicolon_item.token.kind = Token_kind.Punctuation ';' then
+          let semicolon_item = take cursor in
+          (Some (token_location semicolon_item.token), [ semicolon_item.token ])
+        else (None, [])
+      in
+      let declaration_tokens =
+        modifier_tokens @ binding_tokens
+        @ (type_item.token :: prefix.tokens)
+        @ (opening.token :: parsed_parameters.tokens)
+        @ semicolon_tokens
+      in
+      let prototype =
+        Ast.make_function_prototype ~modifiers ~binding ~return_type
+          ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
+          ~opening_parenthesis:(token_location opening.token)
+          ~parameters:parsed_parameters.parameters
+          ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
+          ~variadic:parsed_parameters.variadic
+          ~closing_parenthesis:parsed_parameters.closing_parenthesis ~semicolon
+          ~location:(location_from_tokens declaration_tokens)
+      in
+      publish_function cursor prefix.name parsed_parameters.parameters
+        parsed_parameters.variadic;
+      Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
   let parse_global_function_pointer () =

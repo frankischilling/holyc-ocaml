@@ -1619,8 +1619,11 @@ let human sources module_ =
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
             (location_text sources prototype.closing_parenthesis);
-          Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources prototype.semicolon)
+          Option.iter
+            (fun semicolon ->
+              Printf.bprintf buffer "    semicolon span=%s\n"
+                (location_text sources semicolon))
+            prototype.semicolon
       | Ast.Function_definition definition ->
           Printf.bprintf buffer
             "  function_definition span=%s parameters=%d variadic=%b body=%s\n"
@@ -3297,9 +3300,12 @@ let item_to_yojson sources = function
         @ [
             ( "closing_parenthesis",
               location_to_yojson sources prototype.closing_parenthesis );
-            ("semicolon", location_to_yojson sources prototype.semicolon);
-            ("location", location_to_yojson sources prototype.location);
-          ])
+          ]
+        @ (match prototype.semicolon with
+          | None -> []
+          | Some semicolon ->
+              [ ("semicolon", location_to_yojson sources semicolon) ])
+        @ [ ("location", location_to_yojson sources prototype.location) ])
   | Ast.Function_definition definition ->
       `Assoc
         ([ ("kind", `String "function_definition") ]

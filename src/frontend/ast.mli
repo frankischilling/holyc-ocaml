@@ -489,7 +489,7 @@ type function_prototype = private {
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -1264,7 +1264,7 @@ val make_function_prototype :
   empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
   closing_parenthesis:location ->
-  semicolon:location ->
+  semicolon:location option ->
   location:location ->
   function_prototype
 
