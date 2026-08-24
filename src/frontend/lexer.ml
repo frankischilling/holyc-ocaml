@@ -839,6 +839,24 @@ let scan_string lexer leading_trivia =
   let start = cursor lexer in
   ignore (advance lexer);
   let decoded = Buffer.create 32 in
+  let rec has_doldoc_command_end distance =
+    match peek lexer distance with
+    | None | Some '\x00' -> false
+    | Some '$' -> true
+    | Some _ -> has_doldoc_command_end (distance + 1)
+  in
+  let is_doldoc_command_name_byte = function
+    | 'A' .. 'Z' | '0' .. '9' | '+' | '-' -> true
+    | _ -> false
+  in
+  let rec has_doldoc_command_name distance saw_name_byte =
+    match peek lexer distance with
+    | Some byte when is_doldoc_command_name_byte byte ->
+        has_doldoc_command_name (distance + 1) true
+    | Some '$' -> saw_name_byte
+    | Some ',' -> saw_name_byte && has_doldoc_command_end (distance + 1)
+    | None | Some _ -> false
+  in
   let rec loop () =
     match peek lexer 0 with
     | None ->
@@ -857,10 +875,35 @@ let scan_string lexer leading_trivia =
           (make_token lexer leading_trivia ~kind:Token_kind.String
              ~value:(Token.Bytes (Buffer.contents decoded))
              start)
+    | Some '$' when peek lexer 1 <> Some '$' && has_doldoc_command_name 1 false
+      ->
+        ignore (advance lexer);
+        Buffer.add_char decoded '$';
+        dollar_command ()
     | Some _ ->
         let byte = Option.get (decoded_byte lexer) in
         Buffer.add_char decoded (Char.chr byte);
         loop ()
+  and dollar_command () =
+    match peek lexer 0 with
+    | None ->
+        Diagnostic
+          (make_diagnostic lexer ~code:"HCLEX0003"
+             ~message:"unterminated string literal" ~start ())
+    | Some '\x00' ->
+        let nul = cursor lexer in
+        ignore (advance lexer);
+        Diagnostic
+          (make_diagnostic lexer ~code:"HCLEX0006"
+             ~message:"embedded NUL byte in source" ~start:nul ())
+    | Some '$' ->
+        ignore (advance lexer);
+        Buffer.add_char decoded '$';
+        loop ()
+    | Some byte ->
+        ignore (advance lexer);
+        Buffer.add_char decoded byte;
+        dollar_command ()
   in
   loop ()
 

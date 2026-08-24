@@ -157,6 +157,50 @@ let strings_and_characters () =
         | _ -> Alcotest.fail "expected an empty character")
   | _ -> Alcotest.fail "unexpected literal token count"
 
+let doldoc_commands_inside_strings () =
+  let single = "\"Link: $LK,\"Genesis,1:1\",A=\"BF:Genesis,1:1\"$\\n\"" in
+  let doubled =
+    "\"Link: $$LK,\\\"Genesis,1:1\\\",A=\\\"BF:Genesis,1:1\\\"$$\\n\""
+  in
+  let value source =
+    match lex source |> snd |> without_eof with
+    | [ token ] -> (
+        match token.Token.value with
+        | Token.Bytes value -> value
+        | _ -> Alcotest.fail "expected a string token")
+    | tokens ->
+        Alcotest.failf "expected one string token, got %d" (List.length tokens)
+  in
+  let expected = "Link: $LK,\"Genesis,1:1\",A=\"BF:Genesis,1:1\"$\n" in
+  Alcotest.(check string) "single-dollar decoded bytes" expected (value single);
+  Alcotest.(check string)
+    "doubled-dollar decoded bytes" expected (value doubled);
+  let command_escape = "\"$MA,LM=\"line\\n\"$\"" in
+  Alcotest.(check string)
+    "command backslash remains literal" "$MA,LM=\"line\\n\"$"
+    (value command_escape);
+  let _, tokens = lex single in
+  let token = List.hd tokens in
+  Alcotest.(check string) "raw spelling" single token.Token.raw;
+  Alcotest.(check int)
+    "one physical source segment" 1
+    (List.length token.Token.source_segments);
+  let _, boundary_tokens = lex "\"cost $USD\"; $LK,\"outside\"$ public" in
+  match without_eof boundary_tokens with
+  | [ cost; semicolon; public ] ->
+      Alcotest.(check string)
+        "unmatched dollar is literal" "cost $USD"
+        (match cost.Token.value with
+        | Token.Bytes value -> value
+        | _ -> Alcotest.fail "expected a boundary string");
+      Alcotest.(check string)
+        "string terminator remains visible" ";" semicolon.Token.raw;
+      Alcotest.(check string)
+        "later dollar comment stays outside" "public" public.Token.raw
+  | tokens ->
+      Alcotest.failf "expected string, semicolon, and keyword, got %d tokens"
+        (List.length tokens)
+
 let nested_comments () =
   let _, tokens = lex "/* outer /* inner */ end */ // line\n$dollar$ public" in
   match without_eof tokens with
@@ -188,7 +232,10 @@ let malformed_input () =
   Alcotest.(check string) "character" "HCLEX0004" (error_code "'open");
   Alcotest.(check string)
     "long character" "HCLEX0005" (error_code "'123456789'");
-  Alcotest.(check string) "NUL" "HCLEX0006" (error_code "a\x00b")
+  Alcotest.(check string) "NUL" "HCLEX0006" (error_code "a\x00b");
+  Alcotest.(check string)
+    "string after a DolDoc command" "HCLEX0003"
+    (error_code "\"open $LK,\"quoted\"$ without close")
 
 let line_continuations () =
   let _, tokens = lex "one\\\ntwo\\\r\nthree\\\rfour" in
@@ -410,6 +457,8 @@ let tests =
     Alcotest.test_case "integer wrapping" `Quick integer_wrapping;
     Alcotest.test_case "floating literals" `Quick floating_literals;
     Alcotest.test_case "strings and characters" `Quick strings_and_characters;
+    Alcotest.test_case "DolDoc commands inside strings" `Quick
+      doldoc_commands_inside_strings;
     Alcotest.test_case "nested comments" `Quick nested_comments;
     Alcotest.test_case "trailing dollar" `Quick trailing_dollar;
     Alcotest.test_case "malformed input" `Quick malformed_input;

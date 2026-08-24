@@ -182,9 +182,38 @@ files = 528
 tokenizes = 528
 lexer_diagnostics = 0
 internal_errors = 0
-tokens = 719621
+tokens = 719471
 nul_terminated_files = 54
 trailing_payload_bytes = 1266852
+
+[[feature]]
+id = "HC-LEX-DOLDOC-STRING-COMMANDS"
+description = "Complete single-dollar DolDoc commands with an uppercase command name inside HolyC strings retain their delimiters, quotes, backslashes, and command text as literal decoded bytes."
+sources = [
+  "Compiler/Lex.HC:93-105 LexDollar",
+  "Compiler/Lex.HC:367-439 LexInStr",
+  "Demo/DolDoc/TextDemo.HC:15-22",
+  "Demo/MsgLoop.HC:1-5",
+  "Adam/Opt/Utils/MemRep.HC:201-208"
+]
+implementation = ["src/frontend/lexer.ml:scan_string"]
+tests = [
+  "test/test_lexer.ml:doldoc_commands_inside_strings",
+  "test/test_parser.ml:doldoc_string_commands_source_behavior",
+  "test/test_parser.ml:doldoc_string_commands_in_pinned_examples",
+  "test/test_parser.ml:doldoc_string_command_provenance",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 390
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+plain_source_equivalence = "a complete $...$ range is copied literally; authored $$...$$ with ordinary HolyC quote escapes decodes to the same bytes"
+recognition = "the command name contains uppercase ASCII letters, digits, plus, or minus and ends at a dollar or continues into a comma payload with a later dollar delimiter"
+unmatched_dollar_behavior = "an unrecognized command or a dollar with no later delimiter remains a literal dollar through the raw string path"
+outside_string_behavior = "unchanged dollar-comment and saved inserted-binary rules"
+corpus_effect = "raw token count falls from 719621 to 719471; TextDemo.HC parses in both views; MemRep.HC and MsgLoop.HC parse with the project prelude; standalone MsgLoop.HC advances to unresolved Fs at line 10"
+semantic_compatibility = "DolDoc rendering and command execution are not implemented"
 
 [[feature]]
 id = "HC-TYPE-PRIMITIVES"
@@ -6177,19 +6206,19 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
-standalone_parses = 24
-standalone_diagnostics = 37009
-project_prelude_parses = 122
-project_prelude_only = 98
+standalone_parses = 25
+standalone_diagnostics = 37005
+project_prelude_parses = 125
+project_prelude_only = 100
 project_prelude_frontend_diagnostics = 30
-project_prelude_parser_diagnostics = 376
+project_prelude_parser_diagnostics = 373
 project_prelude_unresolved_name_failures = 370
-project_prelude_other_failures = 36
+project_prelude_other_failures = 33
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 21018
+project_prelude_diagnostics = 20991
 prelude_diagnostics = 25
-baseline_sha256 = "ea37d1a3e8716b67856aa4de1ff8cfb823c0ef350c09481f36fb816af383757e"
+baseline_sha256 = "5da291d2ec0485d36c092da0b54e6151b325dd9222a60438b835e0bf3222a755"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
