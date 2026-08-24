@@ -594,20 +594,20 @@ let pinned_parser_reference () =
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 100
+    "prelude only" 101
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 403
+    "neither parses" 402
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 125 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 126 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 373
+    "prelude parser failures" 372
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 20_991
+    "prelude diagnostics" 20_989
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -640,6 +640,10 @@ let pinned_parser_reference () =
   Alcotest.(check bool)
     "KernelC accepts its semicolon-free prototype" true
     (kernel_c.status = Corpus.Parse.Parses);
+  let kernel_ints = parse_file prelude "Kernel/KInts.HC" in
+  Alcotest.(check bool)
+    "KInts accepts an intrinsic-class assembly size prefix" true
+    (kernel_ints.status = Corpus.Parse.Parses);
   List.iter
     (fun path ->
       Alcotest.(check bool)

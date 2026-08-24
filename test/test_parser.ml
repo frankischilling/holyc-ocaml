@@ -17263,6 +17263,12 @@ let inline_assembly_source_behavior () =
       Alcotest.(check bool) description true (contains operand_parser fragment))
     [
       ("register operands return directly", "arg->reg1=tmpr->reg_num;");
+      ( "source classes fall back to assembler size keywords",
+        "tmph->type&HTG_TYPE_MASK==HTT_CLASS||" );
+      ( "internal types share the assembler size fallback",
+        "tmph->type&HTG_TYPE_MASK==HTT_INTERNAL_TYPE)" );
+      ( "the fallback consults the assembler keyword table",
+        "HashFind(cc->cur_str,cmp.asm_hash,HTT_ASM_KEYWORD)" );
       ("size prefixes set an explicit width", "arg->size=8;");
       ("brackets mark an indirect operand", "arg->indirect=TRUE;");
       ("assembly immediates use expression parsing", "PrsAsmImm(cc,arg);");
@@ -17606,6 +17612,82 @@ let pinned_inline_assembly_operand_snippets () =
                body.block_statements))
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_intrinsic_class_size_prefix () =
+  let source =
+    pinned_lines "Kernel/KernelA.HH" ~first:95 ~last:103
+    ^ "\n\
+       I64 dbg,mp_cnt;\n\
+       I64 GetRAX();\n\
+       U0 MPInt(I64 vector,I64 cpu);\n\
+       U0 SysHlt();\n\
+       U0 throw(I64 value);\n"
+    ^ pinned_lines "Kernel/KInts.HC" ~first:150 ~last:164
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let body =
+        expect_ast output |> fun ast ->
+        match List.rev ast.Ast.items with
+        | Ast.Function_definition definition :: _ ->
+            definition |> expect_function_body |> expect_block_statement
+        | items ->
+            Alcotest.failf "expected the trailing function, got %d items"
+              (List.length items)
+      in
+      match body.block_statements with
+      | [ Ast.If_statement statement; Ast.Expression_statement _ ] ->
+          let branch = statement.if_then_branch |> expect_block_statement in
+          let assembly, following =
+            match branch.block_statements with
+            | _ :: _ :: _ :: assembly :: following :: _ -> (assembly, following)
+            | statements ->
+                Alcotest.failf
+                  "expected the pinned assembly transition, got %d trailing \
+                   statements"
+                  (List.length statements)
+          in
+          let operation =
+            assembly |> expect_inline_assembly_statement
+            |> inline_assembly_instructions |> List.hd
+          in
+          let memory = List.nth operation.inline_assembly_operands 1 in
+          Alcotest.(check (option string))
+            "the intrinsic-backed U64 class retains the size prefix"
+            (Some "U64")
+            (Option.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               memory.inline_assembly_size_prefix);
+          ignore (following |> expect_expression_statement)
+      | statements ->
+          Alcotest.failf
+            "expected direct assembly and a following C statement, got %d"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, shadowed = parse_string "U0 Shadowed(){I64 U64;MOV RAX,U64;}" in
+  let operation =
+    expect_ast shadowed |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ Ast.Sequence_statement sequence ] -> (
+        match sequence.sequence_elements with
+        | [ _; assembly ] ->
+            assembly.sequence_statement |> expect_inline_assembly_statement
+            |> inline_assembly_instructions |> List.hd
+        | elements ->
+            Alcotest.failf "expected two shadowing elements, got %d"
+              (List.length elements))
+    | statements ->
+        Alcotest.failf "expected one shadowing sequence, got %d statements"
+          (List.length statements)
+  in
+  let operand = List.nth operation.inline_assembly_operands 1 in
+  Alcotest.(check bool)
+    "a local named U64 suppresses the assembler size prefix" true
+    (Option.is_none operand.inline_assembly_size_prefix)
 
 let inline_assembly_directive_shapes () =
   let source =
@@ -20764,6 +20846,8 @@ let tests =
       inline_assembly_operand_shapes;
     Alcotest.test_case "pinned inline assembly operand snippets" `Quick
       pinned_inline_assembly_operand_snippets;
+    Alcotest.test_case "intrinsic class assembly size prefixes" `Quick
+      inline_assembly_intrinsic_class_size_prefix;
     Alcotest.test_case "inline assembly directive shapes" `Quick
       inline_assembly_directive_shapes;
     Alcotest.test_case "inline assembly directive provenance and shadowing"

@@ -19,8 +19,8 @@
     "files": 528,
     "both_parse": 25,
     "standalone_only": 0,
-    "project_prelude_only": 100,
-    "neither_parses": 403,
+    "project_prelude_only": 101,
+    "neither_parses": 402,
     "standalone": {
       "parses": 25,
       "frontend_diagnostics": 17,
@@ -30,14 +30,14 @@
       "diagnostics": 37005
     },
     "project_prelude": {
-      "parses": 125,
+      "parses": 126,
       "frontend_diagnostics": 30,
-      "parser_diagnostics": 373,
+      "parser_diagnostics": 372,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 20991
+      "diagnostics": 20989
     },
-    "baseline_sha256": "5da291d2ec0485d36c092da0b54e6151b325dd9222a60438b835e0bf3222a755"
+    "baseline_sha256": "52eb87e4bc94eb4c94f48753c508495c19e00ce2dc6e09a1118781510356b97b"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",
