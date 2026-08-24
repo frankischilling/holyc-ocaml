@@ -22,8 +22,8 @@
     "parser_diagnostics": 490,
     "read_errors": 0,
     "internal_errors": 0,
-    "diagnostics": 37194,
-    "baseline_sha256": "462a7312f3e3763db24f2d96cd9e65d36bb6bdec91ff6f39e04ed1a8ddd970e6"
+    "diagnostics": 37183,
+    "baseline_sha256": "323eab1a5630c95d5d810aa5b3f177938f3402d718f90777fca999b6d375548d"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

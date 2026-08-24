@@ -11405,7 +11405,11 @@ let contextual_keyword_local_provenance () =
 let contextual_keyword_operand_source_behavior () =
   let lexer = pinned "Compiler/Lex.HC" in
   let expression_parser = pinned "Compiler/PrsExp.HC" in
+  let variable_parser = pinned "Compiler/PrsStmt.HC" in
   let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  let compilation = pinned "Compiler/CMain.HC" in
+  let hash = pinned "Kernel/KHashA.HC" in
+  let parser_library = pinned "Compiler/PrsLib.HC" in
   List.iter
     (fun (description, source, fragment) ->
       Alcotest.(check bool) description true (contains source fragment))
@@ -11419,6 +11423,22 @@ let contextual_keyword_operand_source_behavior () =
       ( "expression dispatch checks the local entry first",
         expression_parser,
         "if (tmpm=cc->local_var_entry)" );
+      ( "global declarations enter the compilation table",
+        variable_parser,
+        "HashAdd(tmpg,cc->htc.glbl_hash_table);" );
+      ("hash insertion puts the newest record first", hash, "MOV\tU64 [RAX],RCX");
+      ( "AOT searches compilation globals before assembler keywords",
+        compilation,
+        "cc->htc.glbl_hash_table->next=cmp.asm_hash;" );
+      ( "JIT searches compilation globals before the task table",
+        compilation,
+        "cc->htc.glbl_hash_table->next=Fs->hash_table;" );
+      ( "keyword dispatch requires the selected keyword record",
+        parser_library,
+        "tmph->type&HTT_KEYWORD" );
+      ( "expression dispatch has a distinct global-variable branch",
+        expression_parser,
+        "case HTt_GLBL_VAR:" );
       ( "statement dispatch routes a local to expression parsing",
         statement_parser,
         "if (cc->local_var_entry)" );
@@ -11496,6 +11516,91 @@ let contextual_keyword_statement_dispatch () =
   Alcotest.(check string)
     "sizeof keeps its keyword meaning outside local scope" "HCPARSE0031"
     (first_diagnostic outside).code
+
+let contextual_keyword_global_operands () =
+  let source =
+    "I64 start=1,offset=2,sizeof=3;\n" ^ "start+offset;\n" ^ "sizeof;\n"
+    ^ "U0 Read()\n{\noffset+start;\n}"
+  in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let first, second, definition =
+        match (expect_ast output).items with
+        | [
+         Ast.Global_declaration _;
+         Ast.Top_level_statement first;
+         Ast.Top_level_statement second;
+         Ast.Function_definition definition;
+        ] -> (first, second, definition)
+        | items ->
+            Alcotest.failf
+              "expected one global group, two top-level expressions, and one \
+               function, got %d items"
+              (List.length items)
+      in
+      let first =
+        expect_expression_statement first |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+      in
+      Alcotest.(check (pair string string))
+        "top-level expression reads keyword-spelled globals" ("start", "offset")
+        (identifier first.binary_left, identifier first.binary_right);
+      let second =
+        expect_expression_statement second |> fun statement ->
+        statement.expression_statement_expression
+      in
+      Alcotest.(check string)
+        "statement keyword resolves to the visible global" "sizeof"
+        (identifier second);
+      let inside =
+        function_body_statements definition
+        |> List.hd |> expect_expression_statement
+        |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+      in
+      Alcotest.(check (pair string string))
+        "function expression reads keyword-spelled globals" ("offset", "start")
+        (identifier inside.binary_left, identifier inside.binary_right))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, outside = parse_string "sizeof;" in
+  Alcotest.(check string)
+    "same spelling remains a keyword without a visible global" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_global_provenance () =
+  let source = "#define NAME start\nI64 NAME;\nNAME+1;" in
+  let session, root, output = parse_string source in
+  let operand =
+    match (expect_ast output).items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_expression_statement statement |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+        |> fun binary -> expect_identifier_expression binary.binary_left
+    | items ->
+        Alcotest.failf
+          "expected one generated global and one expression, got %d items"
+          (List.length items)
+  in
+  Alcotest.(check string)
+    "generated global operand spelling" "start" operand.spelling;
+  Alcotest.(check bool)
+    "generated global operand uses its definition frame" false
+    (Source_id.equal operand.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated global operand keeps its invocation" true
+    (Option.is_some operand.location.generated_from);
+  Alcotest.(check bool)
+    "generated global operand keeps its definition" true
+    (Option.is_some operand.location.defined_at);
+  Alcotest.(check bool)
+    "human dump retains the generated global operand" true
+    (contains
+       (Ast_dump.human (Session.sources session) (expect_ast output))
+       "identifier spelling=\"start\"")
 
 let contextual_keyword_nested_block_visibility () =
   let source = "U0 Nested()\n{\n{ I64 start; }\nstart;\n}" in
@@ -18759,6 +18864,10 @@ let tests =
       contextual_keyword_local_operands;
     Alcotest.test_case "contextual keyword statement dispatch" `Quick
       contextual_keyword_statement_dispatch;
+    Alcotest.test_case "contextual keyword global operands" `Quick
+      contextual_keyword_global_operands;
+    Alcotest.test_case "contextual keyword global provenance" `Quick
+      contextual_keyword_global_provenance;
     Alcotest.test_case "contextual keyword nested block visibility" `Quick
       contextual_keyword_nested_block_visibility;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick

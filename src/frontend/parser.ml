@@ -839,7 +839,7 @@ let token_is_name_position_identifier token =
   | Token_kind.Identifier | Token_kind.Keyword _ -> true
   | _ -> false
 
-let token_is_local_identifier cursor token =
+let token_is_variable_identifier cursor token =
   match token.Token.kind with
   | Token_kind.Identifier | Token_kind.Keyword _ -> (
       match
@@ -847,7 +847,9 @@ let token_is_local_identifier cursor token =
           (token_text token)
       with
       | Symbol_visibility.Shadowed_by_local -> true
-      | Symbol_visibility.Absent | Symbol_visibility.Present _ -> false)
+      | Symbol_visibility.Present entry ->
+          Symbol_visibility.kind entry = Symbol_visibility.Global_variable
+      | Symbol_visibility.Absent -> false)
   | _ -> false
 
 let declaration_modifier_kind token =
@@ -1211,7 +1213,7 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
       take_literal (Ast.Bytes_value value) (fun literal ->
           Ast.String_literal literal)
   | (Token_kind.Identifier | Token_kind.Keyword _), _
-    when token_is_local_identifier cursor item.token ->
+    when token_is_variable_identifier cursor item.token ->
       let item = take cursor in
       let node =
         Ast.Identifier_expression
@@ -5238,7 +5240,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
-  | Token_kind.Keyword _ when token_is_local_identifier cursor item.token ->
+  | Token_kind.Keyword _ when token_is_variable_identifier cursor item.token ->
       parse_expression_statement cursor ~boundary
   | Token_kind.Identifier when token_starts_inline_assembly cursor item.token ->
       parse_inline_assembly_statement cursor ~boundary
