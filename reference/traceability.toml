@@ -2411,11 +2411,12 @@ pinned_ckernel_slice = "Kernel/KernelA.HH:430-449 parses through start, the expl
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 unaffected_name_contexts = [
-  "aggregate type names",
-  "aggregate base names",
   "labels"
 ]
-extended_by = "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES"
+extended_by = [
+  "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES",
+  "HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
+]
 native_oracle_status = "not required; the pinned lexer and PrsKeyWord contract make the contextual identity behavior explicit"
 semantic_member_identity_layout_and_duplicates = "planned"
 
@@ -2466,14 +2467,48 @@ compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 corpus_effect = "eight AOT corpus files move past a name position; accumulated diagnostics fall from 37,414 to 37,264"
 unaffected_name_contexts = [
-  "aggregate type names",
-  "aggregate base names",
   "operands without an active parameter, local, or global-variable binding",
   "labels"
 ]
 native_oracle_status = "not required; PrsKeyWord and the TK_IDENT name slots state the contract directly"
-aggregate_type_name_slot = "planned"
+aggregate_type_name_slot = "implemented by HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
 expression_operand_slot = "implemented by HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS and HC-PARSER-CONTEXTUAL-GLOBAL-OPERANDS for active variable bindings"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
+description = "Class and union declarations retain language-keyword spellings as names, and a visible aggregate wins before keyword dispatch in later type and base positions."
+sources = [
+  "Compiler/PrsStmt.HC:1-5 PrsClass aggregate-name requirement",
+  "Compiler/PrsStmt.HC:44-50 PrsClass base lookup",
+  "Compiler/PrsStmt.HC:935-942,1156-1179 selected-class statement route",
+  "Compiler/PrsLib.HC:31-38 PrsKeyWord"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 361
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_contexts = [
+  "class and union definition names",
+  "extern class and union forward-declaration names",
+  "global named-type uses",
+  "local named-type uses",
+  "single aggregate base names"
+]
+dispatch_order = "visible aggregate symbol, then ordinary keyword behavior"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+lexer_behavior = "the OCaml lexer retains explicit keyword tokens; token dumps and keyword identities do not change"
+authored_corpus_occurrences = 0
+corpus_effect = "the reviewed 528-file AOT parser report is content-identical after platform line-ending normalization"
+semantic_scope = "syntax and streaming name visibility only; aggregate identity and layout remain separate semantic passes"
+native_oracle_status = "not required; PrsClass and the selected hash-entry dispatch state the lookup order directly"
 
 [[feature]]
 id = "HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS"
@@ -2514,9 +2549,6 @@ function_scope = "the parser mirrors TempleOS's function member list rather than
 compilation_modes = ["jit", "aot"]
 definition_provenance = "preserved"
 corpus_effect = "Adam/Gr/GrMath.HC advances from line 57 to line 96; Demo/TimeIns.HC advances to #exe; accumulated diagnostics fall from 37,264 to 37,194"
-limitations = [
-  "aggregate type and base names remain planned under issue 361"
-]
 native_oracle_status = "not required; the pinned lexer, expression parser, and statement parser state the local-first order directly"
 
 [[feature]]
@@ -2558,7 +2590,6 @@ definition_provenance = "preserved"
 corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
 corpus_effect = "recovery after unsupported function headers publishes local declarations at top level in Adam/DolDoc/DocGet.HC, Apps/Psalmody/JukePuppet.HC, and Kernel/FunSeg.HC; accumulated diagnostics fall from 37,194 to 37,183 without changing phase counts or first errors"
 limitations = [
-  "aggregate type and base names remain planned under issue 361",
   "storage, lowering, and execution are not implemented"
 ]
 native_oracle_status = "not required; the pinned hash insertion, table-chain, lexer, statement, and expression paths state the selection order directly"
@@ -2603,7 +2634,6 @@ definition_provenance = "preserved on the callee and generated default slots"
 corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
 corpus_effect = "the reviewed 528-file AOT parser report is byte-for-byte unchanged"
 limitations = [
-  "aggregate type and base names remain planned under issue 361",
   "labels and unrelated visible record kinds remain excluded",
   "call lowering and execution are not implemented"
 ]
