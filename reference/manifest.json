@@ -18,12 +18,12 @@
     "mode": "aot",
     "files": 528,
     "parses": 21,
-    "frontend_diagnostics": 16,
-    "parser_diagnostics": 491,
+    "frontend_diagnostics": 17,
+    "parser_diagnostics": 490,
     "read_errors": 0,
     "internal_errors": 0,
-    "diagnostics": 37264,
-    "baseline_sha256": "fcacb8d1375dea269bac6c2228678a1937c2efda2dadf93399a9d7541904de5e"
+    "diagnostics": 37194,
+    "baseline_sha256": "462a7312f3e3763db24f2d96cd9e65d36bb6bdec91ff6f39e04ed1a8ddd970e6"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

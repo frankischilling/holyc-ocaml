@@ -414,10 +414,10 @@ let pinned_parser_reference () =
   Alcotest.(check int) "source count" 528 (Corpus.Parse.file_count report);
   Alcotest.(check int) "parsed count" 21 (Corpus.Parse.parses_count report);
   Alcotest.(check int)
-    "frontend failures" 16
+    "frontend failures" 17
     (Corpus.Parse.frontend_diagnostic_count report);
   Alcotest.(check int)
-    "parser failures" 491
+    "parser failures" 490
     (Corpus.Parse.parser_diagnostic_count report);
   Alcotest.(check int) "read errors" 0 (Corpus.Parse.read_error_count report);
   Alcotest.(check int)
@@ -428,9 +428,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_264
+    "diagnostics" 37_194
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_264 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_194 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)

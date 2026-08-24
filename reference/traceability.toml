@@ -2468,12 +2468,57 @@ corpus_effect = "eight AOT corpus files move past a name position; accumulated d
 unaffected_name_contexts = [
   "aggregate type names",
   "aggregate base names",
-  "expression operands",
+  "operands without an active parameter or local binding",
   "labels"
 ]
 native_oracle_status = "not required; PrsKeyWord and the TK_IDENT name slots state the contract directly"
 aggregate_type_name_slot = "planned"
-expression_operand_slot = "planned"
+expression_operand_slot = "implemented by HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS for active parameters and locals"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS"
+description = "A visible parameter or local with a language-keyword spelling is parsed as an ordinary expression operand before keyword dispatch."
+sources = [
+  "Compiler/Lex.HC:493-499 local member lookup before hash-table lookup",
+  "Compiler/PrsExp.HC:761-766 local-variable operand before keyword dispatch",
+  "Compiler/PrsExp.HC:910-947 keyword expression dispatch",
+  "Compiler/PrsStmt.HC:1183-1184 local-variable statement route",
+  "Adam/Gr/GrMath.HC:9 parameter named start",
+  "Adam/Gr/GrMath.HC:57 comparison operand start",
+  "Demo/TimeIns.HC:10 locals named start and end"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 362
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "fixed parameters",
+  "synthetic variadic parameters",
+  "locals published earlier in source order",
+  "locals published inside an earlier nested block"
+]
+accepted_expression_contexts = [
+  "arithmetic and comparison operands",
+  "call arguments",
+  "index expressions",
+  "statement-leading expressions"
+]
+dispatch_order = "active local binding, then ordinary keyword behavior"
+function_scope = "the parser mirrors TempleOS's function member list rather than introducing block-local routing"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+corpus_effect = "Adam/Gr/GrMath.HC advances from line 57 to line 96; Demo/TimeIns.HC advances to #exe; accumulated diagnostics fall from 37,264 to 37,194"
+limitations = [
+  "keyword-spelled globals do not override keyword expression dispatch",
+  "aggregate type and base names remain planned under issue 361"
+]
+native_oracle_status = "not required; the pinned lexer, expression parser, and statement parser state the local-first order directly"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
@@ -5914,12 +5959,12 @@ report_schema = "holyc-corpus-parse-v1"
 default_mode = "aot"
 source_objects = 528
 parses = 21
-frontend_diagnostics = 16
-parser_diagnostics = 491
+frontend_diagnostics = 17
+parser_diagnostics = 490
 read_errors = 0
 internal_errors = 0
-diagnostics = 37414
-baseline_sha256 = "876c46d4dbbb08d4c6057e76b7d9e2ce8093107630d2dd4794ff59c41116dc8a"
+diagnostics = 37194
+baseline_sha256 = "462a7312f3e3763db24f2d96cd9e65d36bb6bdec91ff6f39e04ed1a8ddd970e6"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends root and included source before any trailing payload"
