@@ -11352,7 +11352,7 @@ let contextual_keyword_name_limits () =
     ]
 
 let contextual_keyword_local_provenance () =
-  let source = "#define NAME start\nU0 Ins()\n{\nI64 NAME;\n}" in
+  let source = "#define NAME start\nU0 Ins()\n{\nI64 NAME;\nNAME+1;\n}" in
   let session, root, output = parse_string source in
   let definition =
     List.find_map
@@ -11384,7 +11384,130 @@ let contextual_keyword_local_provenance () =
     (Ast_dump.human sources ast);
   Alcotest.(check bool)
     "human dump retains the contextual local" true
-    (contains (Ast_dump.human sources ast) "name spelling=\"start\"")
+    (contains (Ast_dump.human sources ast) "name spelling=\"start\"");
+  let operand =
+    function_body_statements definition |> fun statements ->
+    List.nth statements 1 |> expect_expression_statement |> fun statement ->
+    statement.expression_statement_expression |> expect_binary_expression
+    |> fun binary -> expect_identifier_expression binary.binary_left
+  in
+  Alcotest.(check string) "generated operand spelling" "start" operand.spelling;
+  Alcotest.(check bool)
+    "generated operand uses its definition frame" false
+    (Source_id.equal operand.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated operand keeps its invocation" true
+    (Option.is_some operand.location.generated_from);
+  Alcotest.(check bool)
+    "generated operand keeps its definition" true
+    (Option.is_some operand.location.defined_at)
+
+let contextual_keyword_operand_source_behavior () =
+  let lexer = pinned "Compiler/Lex.HC" in
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  List.iter
+    (fun (description, source, fragment) ->
+      Alcotest.(check bool) description true (contains source fragment))
+    [
+      ( "the lexer searches function locals first",
+        lexer,
+        "cc->local_var_entry=MemberFind(buf,cc->htc.local_var_lst);" );
+      ( "global and keyword lookup follows the local lookup",
+        lexer,
+        "if (!cc->local_var_entry && cc->htc.hash_table_lst)" );
+      ( "expression dispatch checks the local entry first",
+        expression_parser,
+        "if (tmpm=cc->local_var_entry)" );
+      ( "statement dispatch routes a local to expression parsing",
+        statement_parser,
+        "if (cc->local_var_entry)" );
+    ]
+
+let contextual_keyword_local_operands () =
+  let source =
+    "extern U0 Sink(I64 value);\n"
+    ^ "U0 Read(I64 start,I64 offset,I64 *values)\n{\n" ^ "I64 end=1,switch=2;\n"
+    ^ "start+end;\n" ^ "offset<start;\n" ^ "Sink(end);\n" ^ "values[switch];\n}"
+  in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let definition =
+        (expect_ast output).items
+        |> List.find_map (function
+          | Ast.Function_definition definition -> Some definition
+          | _ -> None)
+        |> Option.get
+      in
+      let statements = function_body_statements definition in
+      let expression index =
+        List.nth statements index |> expect_expression_statement
+        |> fun statement -> statement.expression_statement_expression
+      in
+      let arithmetic = expression 1 |> expect_binary_expression in
+      Alcotest.(check (pair string string))
+        "arithmetic reads parameter and local" ("start", "end")
+        (identifier arithmetic.binary_left, identifier arithmetic.binary_right);
+      let comparison = expression 2 |> expect_binary_expression in
+      Alcotest.(check (pair string string))
+        "comparison reads two parameters" ("offset", "start")
+        (identifier comparison.binary_left, identifier comparison.binary_right);
+      let call = expression 3 |> expect_call_expression in
+      Alcotest.(check string)
+        "call argument reads local" "end"
+        (call.call_arguments |> List.hd |> expect_provided_call_argument
+       |> identifier);
+      let index = expression 4 |> expect_index_expression in
+      Alcotest.(check string)
+        "index reads keyword-spelled local" "switch"
+        (identifier index.index_value))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let contextual_keyword_statement_dispatch () =
+  let source =
+    "U0 Shadow(I64 if,I64 sizeof,I64 offset)\n{\n" ^ "if+1;\nsizeof+offset;\n}"
+  in
+  let _, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let expressions =
+    function_body_statements definition
+    |> List.map (fun statement ->
+        statement |> expect_expression_statement |> fun expression ->
+        expression.expression_statement_expression |> expect_binary_expression)
+  in
+  let first = List.hd expressions in
+  let second = List.nth expressions 1 in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  Alcotest.(check (list string))
+    "statement keywords are local operands"
+    [ "if"; "sizeof"; "offset" ]
+    [
+      identifier first.binary_left;
+      identifier second.binary_left;
+      identifier second.binary_right;
+    ];
+  let _, _, outside = parse_string "sizeof;" in
+  Alcotest.(check string)
+    "sizeof keeps its keyword meaning outside local scope" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_nested_block_visibility () =
+  let source = "U0 Nested()\n{\n{ I64 start; }\nstart;\n}" in
+  let _, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let operand =
+    function_body_statements definition |> fun statements ->
+    List.nth statements 1 |> expect_expression_statement |> fun statement ->
+    statement.expression_statement_expression |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "nested-block local remains function-visible" "start" operand.spelling
 
 let pinned_function_pointer_locals () =
   let source =
@@ -18630,6 +18753,14 @@ let tests =
       contextual_keyword_name_limits;
     Alcotest.test_case "contextual keyword local provenance" `Quick
       contextual_keyword_local_provenance;
+    Alcotest.test_case "contextual keyword operand source behavior" `Quick
+      contextual_keyword_operand_source_behavior;
+    Alcotest.test_case "contextual keyword local operands" `Quick
+      contextual_keyword_local_operands;
+    Alcotest.test_case "contextual keyword statement dispatch" `Quick
+      contextual_keyword_statement_dispatch;
+    Alcotest.test_case "contextual keyword nested block visibility" `Quick
+      contextual_keyword_nested_block_visibility;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick
       aggregate_backing_source_behavior;
     Alcotest.test_case "internal type specifiers" `Quick
