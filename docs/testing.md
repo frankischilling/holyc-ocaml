@@ -328,6 +328,12 @@ Operator API tests cover prefix boundaries, source provenance, all precedence ba
 
 Intermediate-code tests cover all 185 constructors and numeric slots. They compare every generated metadata field with a fresh parse of the pinned source, check all lookup directions, retain the 13 constant/display-name differences, and reject malformed shapes, counts, Booleans, padding, and records. Golden tests compare deterministic token dumps. Negative fixtures check malformed comments, strings, characters, and bytes. QCheck generates source buffers to verify offset and line-column invariants.
 
+The checked IR sequence group constructs zero-, one-, two-, and variable-operand records and then traverses all 185 opcodes with the exact result shape from the generated table. Negative cases pin the `HCIR` codes for bad IDs, operand and result counts, duplicate identities, forward and missing values, invalid spans, and unsupported flag bits. A reviewed text fixture covers signed `I64` limits, exact `F64` bits, byte escaping, types, symbols, blocks, flags, and source ranges. Two 500-case QCheck properties generate valid value chains and invalid references to prove that successful dumps and verifier errors repeat byte for byte. Run only this group with:
+
+```sh
+opam exec -- dune exec test/test_main.exe -- test "IR instruction sequence"
+```
+
 Function-flag tests cover the two shared flag positions, all eight stored function bits, all eight parser-staging masks, both source groups, and every modifier transition. The transition test checks all 4,096 possible staging masks. Boundary and truth-table tests cover automatic `RET1`, varargs, caller cleanup, interrupt error-code handling, internal functions, and the distinction between public hash state and stored function flags.
 
 BIN source tests cover the exact header layout and signature, entry order and numeric gaps, source status comments, import displacement biases, record payloads, loader-pass actions, AOT adjustments, checksum normalization, and source provenance. Mutation tests reject changed, duplicate, missing, or reordered entries, changed reserved gaps, altered import formulas, altered adjustment operations, unknown consumers, and incomplete source sets. Public API tests distinguish known, reserved, and unknown codes and check every name and numeric round trip. These are specification tests; loader and actual-TempleOS oracle tests remain pending with the serializer.
