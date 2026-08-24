@@ -1464,8 +1464,81 @@ let function_parameter_register_failures () =
         "extern U0 Narrow(I64 reg EAX value);",
         "Narrow",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
     ]
+
+let semicolon_separated_function_parameters () =
+  let check_parameters description (parameters : Ast.function_parameter list) =
+    Alcotest.(check int)
+      (description ^ " parameter count")
+      3 (List.length parameters);
+    let first = List.nth parameters 0 in
+    let second = List.nth parameters 1 in
+    let third = List.nth parameters 2 in
+    Alcotest.(check bool)
+      (description ^ " first comma")
+      true
+      ((Option.get first.Ast.delimiter).kind = Ast.Comma);
+    let separator = Option.get second.Ast.delimiter in
+    Alcotest.(check bool)
+      (description ^ " second semicolon")
+      true
+      (separator.kind = Ast.Semicolon);
+    Alcotest.(check string)
+      (description ^ " semicolon spelling")
+      ";" separator.spelling;
+    Alcotest.(check bool)
+      (description ^ " final parameter has no delimiter")
+      true
+      (Option.is_none third.Ast.delimiter)
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, header =
+        parse_string ~path:"Kernel/KernelC.HH" ~compilation_mode
+          (pinned_lines "Kernel/KernelC.HH" ~first:106 ~last:106)
+      in
+      let prototype = expect_ast header |> expect_one_prototype in
+      check_parameters "pinned header" prototype.parameters;
+      let human =
+        Ast_dump.human (Session.sources session) (expect_ast header)
+      in
+      let json = Ast_dump.json (Session.sources session) (expect_ast header) in
+      Alcotest.(check bool)
+        "human dump retains semicolon" true
+        (contains human "delimiter kind=semicolon spelling=\";\"");
+      Alcotest.(check bool)
+        "JSON dump retains semicolon" true
+        (contains json "\"kind\": \"semicolon\"");
+      let _, _, definition =
+        parse_string ~path:"Kernel/StrA.HC" ~compilation_mode
+          (pinned_lines "Kernel/StrA.HC" ~first:1 ~last:10)
+      in
+      let definition = expect_ast definition |> expect_one_definition in
+      check_parameters "pinned definition" definition.parameters)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, trailing = parse_string "extern U0 Trailing(I64 value;);" in
+  let parameter =
+    expect_ast trailing |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.parameters
+  in
+  Alcotest.(check bool)
+    "source permits a trailing semicolon" true
+    ((Option.get parameter.delimiter).kind = Ast.Semicolon);
+  List.iter
+    (fun (description, source) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string)
+        description "HCPARSE0009" (first_diagnostic output).code)
+    [
+      ( "leading semicolon stays outside this slice",
+        "extern U0 Leading(;I64 value);" );
+      ( "repeated semicolon stays outside this slice",
+        "extern U0 Repeated(I64 first;;I64 second);" );
+    ];
+  Alcotest.(check bool)
+    "pinned parser accepts semicolon list entries" true
+    (contains (pinned "Compiler/PrsVar.HC") "case ';':")
 
 let modifier_declaration_group () =
   let _, _, output = parse_string "public I64 first,*second;" in
@@ -9394,12 +9467,12 @@ let function_pointer_parameter_failures () =
          second));",
         "MissingNestedDelimiter",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "missing signature closing parenthesis",
         "extern U0 MissingSignatureClose(I64 (*callback)(I64 value;",
         "MissingSignatureClose",
-        "HCPARSE0010",
-        "expected ',' or ')'" );
+        "HCPARSE0009",
+        "parameter type" );
       ( "function-pointer depth",
         "extern U0 TooDeep(I64 (*****callback)());",
         "TooDeep",
@@ -10170,17 +10243,17 @@ let lastclass_default_failures () =
         "extern U0 Added(U8 *value,U8 *name=lastclass+1);",
         "Added",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "call continuation",
         "extern U0 Called(U8 *value,U8 *name=lastclass());",
         "Called",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "keyword after an ordinary expression",
         "extern U0 Later(U8 *name=1 lastclass);",
         "Later",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "ordinary binding expression",
         "_intern lastclass I64 Bound();",
         "Bound",
@@ -10635,12 +10708,12 @@ let function_prototype_failures () =
         "extern U0 NoComma(I64 first U8 second);",
         "NoComma",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "missing closing parenthesis",
         "extern U0 NoClose(I64 value;",
         "NoClose",
-        "HCPARSE0010",
-        "expected ',' or ')'" );
+        "HCPARSE0009",
+        "parameter type" );
       ( "missing prototype semicolon",
         "extern U0 NoSemicolon()",
         "NoSemicolon",
@@ -19866,6 +19939,8 @@ let tests =
       function_parameter_register_visibility;
     Alcotest.test_case "parameter register qualifier failures" `Quick
       function_parameter_register_failures;
+    Alcotest.test_case "semicolon-separated function parameters" `Quick
+      semicolon_separated_function_parameters;
     Alcotest.test_case "deterministic function dumps" `Quick
       deterministic_function_dumps;
     Alcotest.test_case "pinned function definition behavior" `Quick

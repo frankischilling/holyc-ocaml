@@ -487,25 +487,25 @@ let pinned_parser_reference () =
     "compilation mode" "aot"
     (Preprocessor.compilation_mode_name (Corpus.Parse.compilation_mode report));
   Alcotest.(check int) "source count" 528 (Corpus.Parse.file_count report);
-  Alcotest.(check int) "parsed count" 23 (Corpus.Parse.parses_count report);
+  Alcotest.(check int) "parsed count" 24 (Corpus.Parse.parses_count report);
   Alcotest.(check int)
     "frontend failures" 17
     (Corpus.Parse.frontend_diagnostic_count report);
   Alcotest.(check int)
-    "parser failures" 488
+    "parser failures" 487
     (Corpus.Parse.parser_diagnostic_count report);
   Alcotest.(check int) "read errors" 0 (Corpus.Parse.read_error_count report);
   Alcotest.(check int)
     "internal errors" 0
     (Corpus.Parse.internal_error_count report);
-  Alcotest.(check int) "failure count" 505 (Corpus.Parse.failure_count report);
+  Alcotest.(check int) "failure count" 504 (Corpus.Parse.failure_count report);
   Alcotest.(check int64)
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_029
+    "diagnostics" 37_016
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_029 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_016 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -521,10 +521,10 @@ let pinned_parser_reference () =
     ]
     (Corpus.Parse.Comparison.prelude_files comparison);
   Alcotest.(check int)
-    "prelude diagnostics" 29
+    "prelude diagnostics" 27
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
-    "both parse" 23
+    "both parse" 24
     (Corpus.Parse.Comparison.both_parse_count comparison);
   Alcotest.(check int)
     "standalone only" 0
@@ -533,17 +533,17 @@ let pinned_parser_reference () =
     "prelude only" 94
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 411
+    "neither parses" 410
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 117 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 118 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 63
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 348
+    "prelude parser failures" 347
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 15_165
+    "prelude diagnostics" 15_153
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -551,6 +551,18 @@ let pinned_parser_reference () =
   Alcotest.(check int)
     "prelude internal errors" 0
     (Corpus.Parse.internal_error_count prelude);
+  let str_a = parse_file prelude "Kernel/StrA.HC" in
+  Alcotest.(check bool)
+    "StrA parses with its semicolon-separated header" true
+    (str_a.status = Corpus.Parse.Parses);
+  let kernel_c = parse_file prelude "Kernel/KernelC.HH" in
+  (match kernel_c.first_error with
+  | Some diagnostic ->
+      Alcotest.(check string)
+        "KernelC advances beyond its parameter separator" "HCPARSE0016"
+        diagnostic.code;
+      Alcotest.(check int) "KernelC new boundary line" 180 diagnostic.line
+  | None -> Alcotest.fail "expected KernelC to retain a later parser boundary");
   List.iter
     (fun (path, code, line) ->
       let result = parse_file prelude path in

@@ -17,27 +17,27 @@
     "path": "reference/parser-corpus-aot.json",
     "mode": "aot",
     "files": 528,
-    "both_parse": 23,
+    "both_parse": 24,
     "standalone_only": 0,
     "project_prelude_only": 94,
-    "neither_parses": 411,
+    "neither_parses": 410,
     "standalone": {
-      "parses": 23,
+      "parses": 24,
       "frontend_diagnostics": 17,
-      "parser_diagnostics": 488,
+      "parser_diagnostics": 487,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 37029
+      "diagnostics": 37016
     },
     "project_prelude": {
-      "parses": 117,
+      "parses": 118,
       "frontend_diagnostics": 63,
-      "parser_diagnostics": 348,
+      "parser_diagnostics": 347,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 15165
+      "diagnostics": 15153
     },
-    "baseline_sha256": "583d574731bbdeb20b7c23bf2254620d397d47b808b3e1b2d387cc870d3ede93"
+    "baseline_sha256": "1b635060ee240754f76e142fd08ffae3185877e77eceb0b6b2ec069ab21bc05b"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

@@ -3168,21 +3168,27 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
             declaration_failure cursor following_item ~code:"HCPARSE0010"
               ~message:
                 (Printf.sprintf
-                   "expected ',' or ')' after function parameter, but found %s"
+                   "expected ',', ';', or ')' after function parameter, but \
+                    found %s"
                    (token_description following_item.token))
       in
       match following_item.token.kind with
-      | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
+      | Token_kind.Punctuation (',' | ';') | Token_kind.Punctuation ')' ->
           let delimiter_item =
             match following_item.token.kind with
-            | Token_kind.Punctuation ',' -> Some (take cursor)
+            | Token_kind.Punctuation (',' | ';') -> Some (take cursor)
             | _ -> None
           in
           let delimiter =
             Option.map
               (fun item ->
-                Ast.make_declaration_delimiter ~kind:Ast.Comma
-                  ~spelling:item.token.raw
+                let kind =
+                  match item.token.kind with
+                  | Token_kind.Punctuation ',' -> Ast.Comma
+                  | Token_kind.Punctuation ';' -> Ast.Semicolon
+                  | _ -> invalid_arg "function parameter delimiter"
+                in
+                Ast.make_declaration_delimiter ~kind ~spelling:item.token.raw
                   ~location:(token_location item.token))
               delimiter_item
           in
@@ -3494,9 +3500,10 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
           match parameter.node.delimiter with
-          | Some _ ->
+          | Some delimiter ->
               parse_function_parameters cursor parameters_rev tokens_rev
-                ~after_comma:true ~function_pointer_depth
+                ~after_comma:(delimiter.kind = Ast.Comma)
+                ~function_pointer_depth
           | None ->
               parse_function_parameters cursor parameters_rev tokens_rev
                 ~after_comma:false ~function_pointer_depth))
