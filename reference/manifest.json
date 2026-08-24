@@ -13,7 +13,7 @@
     "trailing_payload_bytes": 1266852
   },
   "parser_corpus": {
-    "schema": "holyc-corpus-parse-comparison-v1",
+    "schema": "holyc-corpus-parse-comparison-v2",
     "path": "reference/parser-corpus-aot.json",
     "mode": "aot",
     "files": 528,
@@ -31,13 +31,13 @@
     },
     "project_prelude": {
       "parses": 118,
-      "frontend_diagnostics": 63,
-      "parser_diagnostics": 347,
+      "frontend_diagnostics": 30,
+      "parser_diagnostics": 380,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 15153
+      "diagnostics": 21141
     },
-    "baseline_sha256": "1b635060ee240754f76e142fd08ffae3185877e77eceb0b6b2ec069ab21bc05b"
+    "baseline_sha256": "6bbe2bd89ead2d66b3b5fba79e8d1cd4b1e168b26dc336cd97e7558d175ebc60"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

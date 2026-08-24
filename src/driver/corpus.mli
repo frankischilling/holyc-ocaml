@@ -142,7 +142,12 @@ module Parse : sig
   module Comparison : sig
     type outcome = file_result
     type parse_report = t
-    type project_order = { path : string; includes : string list }
+
+    type project_order = {
+      path : string;
+      directory : string;
+      includes : string list;
+    }
 
     type comparison =
       | Both_parse
@@ -152,6 +157,7 @@ module Parse : sig
 
     type compared_file = {
       path : string;
+      effective_project_directory : string;
       comparison : comparison;
       standalone : outcome;
       project_prelude : outcome;
@@ -167,7 +173,10 @@ module Parse : sig
       unit ->
       (t, string) result
     (** Parse the filesystem corpus once in isolated sessions and once with the
-        direct project headers read from the TempleOS project files. *)
+        direct project headers read from the TempleOS project files. The
+        project-aware side gives each root its source directory as an explicit
+        compiler working directory; standalone parsing remains rooted at the
+        configured corpus directory. *)
 
     val reference :
       ?max_file_bytes:int ->
@@ -177,7 +186,9 @@ module Parse : sig
       unit ->
       (t, string) result
     (** Verify the pinned tree and compare isolated parsing with parsing from a
-        copied project-header symbol and definition state. *)
+        copied project-header symbol and definition state. Relative includes on
+        the project-aware side use the measured source directory while staying
+        confined to the verified root. *)
 
     val standalone : t -> parse_report
     val project_prelude : t -> parse_report

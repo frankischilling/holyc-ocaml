@@ -6076,31 +6076,66 @@ tests = [
 status = "implemented"
 issue = 359
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-report_schema = "holyc-corpus-parse-comparison-v1"
+report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
 standalone_parses = 24
 project_prelude_parses = 118
 project_prelude_only = 94
-project_prelude_frontend_diagnostics = 63
-project_prelude_parser_diagnostics = 347
-project_prelude_unresolved_name_failures = 336
-project_prelude_other_failures = 74
+project_prelude_frontend_diagnostics = 30
+project_prelude_parser_diagnostics = 380
+project_prelude_unresolved_name_failures = 368
+project_prelude_other_failures = 42
 project_prelude_read_errors = 0
 project_prelude_internal_errors = 0
-project_prelude_diagnostics = 15153
+project_prelude_diagnostics = 21141
 prelude_diagnostics = 27
-baseline_sha256 = "1b635060ee240754f76e142fd08ffae3185877e77eceb0b6b2ec069ab21bc05b"
+baseline_sha256 = "6bbe2bd89ead2d66b3b5fba79e8d1cd4b1e168b26dc336cd97e7558d175ebc60"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
 physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
-session_scope = "one fresh standalone session and one copy of the compiler-project header state per root object"
+session_scope = "one fresh standalone session at the corpus root and one copy of the compiler-project header state with the measured source directory as its explicit working directory per root object"
+project_directory_policy = "source-directory"
+project_directory_scope = "project-aware comparison only; ordinary standalone parsing remains rooted at the configured corpus directory"
+project_directory_confinement = "the measured directory and every resolved include remain inside the verified TempleOS root"
 project_order_sources = ["Compiler/Compiler.PRJ", "Kernel/Kernel.PRJ"]
 prelude_source = "the direct .HH includes in Compiler/Compiler.PRJ order"
 exclusions = 0
 strict_gate = "--require-all gates project-prelude parsing"
 semantic_compatibility = "not evaluated"
-remaining_issue_numbers = [3, 33, 46, 48, 361, 369, 375, 377]
+remaining_issue_numbers = [3, 33, 46, 48, 361, 375, 377]
+
+[[feature]]
+id = "HC-CORPUS-PROJECT-DIRECTORY"
+description = "Project-aware corpus parsing resolves relative includes from the measured source directory while retaining the verified TempleOS root as the filesystem boundary."
+sources = [
+  "Compiler/Compiler.PRJ:1-7 project-local Cd(__DIR__) and relative includes",
+  "Kernel/Kernel.PRJ:4-11 project-local Cd(__DIR__) and relative includes",
+  "Compiler/CMisc.HC:82-90 StreamDir derives __DIR__ from the active lexical frame",
+  "Compiler/Lex.HC:698-707 include extension and FileNameAbs resolution",
+  "Compiler/CMain.HC:419-432 Cmp starts compilation through an include",
+  "Kernel/BlkDev/DskDirB.HC:9-70 task current-directory mutation",
+  "Kernel/BlkDev/DskStrA.HC:108-203 DirNameAbs and FileNameAbs"
+]
+implementation = [
+  "src/driver/corpus.ml",
+  "src/driver/corpus.mli"
+]
+tests = [
+  "test/test_corpus.ml:parser_project_prelude_comparison",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 369
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+report_schema = "holyc-corpus-parse-comparison-v2"
+directory_policy = "source-directory"
+ordinary_single_file_resolution = "unchanged"
+outside_root_behavior = "HCPP0004"
+machine_readable_fields = ["directory_policy", "project_orders[].directory", "files[].effective_project_directory"]
+corpus_effect = "all 38 HCPP0003 project-prelude first failures advance; 33 become parser first failures and five reach HCPP0022; accepted-file counts do not change"
+semantic_compatibility = "parser-corpus instrumentation only; arbitrary Cd execution is not modeled"
 
 [[feature]]
 id = "HC-FUNCTION-PARAMETER-SEMICOLON"

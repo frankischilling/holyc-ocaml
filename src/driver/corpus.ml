@@ -922,10 +922,10 @@ module Parse = struct
       failure_message = Some (report_message root message);
     }
 
-  let make_config ~root ~max_file_bytes ~compilation_mode =
+  let make_config ~root ~working_directory ~max_file_bytes ~compilation_mode =
     match
-      Frontend.Preprocessor.Config.create ~working_directory:root
-        ~templeos_root:root ~compilation_mode ~max_source_bytes:max_file_bytes
+      Frontend.Preprocessor.Config.create ~working_directory ~templeos_root:root
+        ~compilation_mode ~max_source_bytes:max_file_bytes
         ~physical_nul_terminates:true ~predefined_date:"01/01/70"
         ~recover_normalized_doldoc:true ~predefined_time:"00:00:00"
         ~command_line_source:false ()
@@ -1053,7 +1053,10 @@ module Parse = struct
       match canonical_directory root with
       | Error _ as error -> error
       | Ok root -> (
-          match make_config ~root ~max_file_bytes ~compilation_mode with
+          match
+            make_config ~root ~working_directory:root ~max_file_bytes
+              ~compilation_mode
+          with
           | Error _ as error -> error
           | Ok config -> (
               match discover root with
@@ -1072,7 +1075,10 @@ module Parse = struct
       match validate_reference root expected_commit with
       | Error _ as error -> error
       | Ok root -> (
-          match make_config ~root ~max_file_bytes ~compilation_mode with
+          match
+            make_config ~root ~working_directory:root ~max_file_bytes
+              ~compilation_mode
+          with
           | Error _ as error -> error
           | Ok config -> (
               match discover_reference root with
@@ -1219,7 +1225,12 @@ module Parse = struct
   module Comparison = struct
     type outcome = file_result
     type parse_report = t
-    type project_order = { path : string; includes : string list }
+
+    type project_order = {
+      path : string;
+      directory : string;
+      includes : string list;
+    }
 
     type comparison =
       | Both_parse
@@ -1229,6 +1240,7 @@ module Parse = struct
 
     type compared_file = {
       path : string;
+      effective_project_directory : string;
       comparison : comparison;
       standalone : outcome;
       project_prelude : outcome;
@@ -1246,8 +1258,18 @@ module Parse = struct
 
     type nonrec t = comparison_report
 
-    let schema = "holyc-corpus-parse-comparison-v1"
+    let schema = "holyc-corpus-parse-comparison-v2"
+    let directory_policy = "source-directory"
     let project_paths = [ "Compiler/Compiler.PRJ"; "Kernel/Kernel.PRJ" ]
+
+    let source_directory path =
+      let directory = Filename.dirname path |> normalize_path in
+      if String.equal directory "" then "." else directory
+
+    let source_working_directory ~root path =
+      match source_directory path with
+      | "." -> root
+      | directory -> Filename.concat root directory
 
     let starts_with_include line =
       let line = String.trim line in
@@ -1267,7 +1289,12 @@ module Parse = struct
 
     let project_order read path =
       Result.map
-        (fun contents -> { path; includes = project_includes contents })
+        (fun contents ->
+          {
+            path;
+            directory = source_directory path;
+            includes = project_includes contents;
+          })
         (read path)
 
     let read_orders read =
@@ -1321,18 +1348,25 @@ module Parse = struct
           ("could not build the parser corpus project prelude: "
          ^ Printexc.to_string error)
 
-    let scan_file_with_prelude seed ~config ~root ~max_file_bytes
+    let scan_file_with_prelude seed ~root ~max_file_bytes ~compilation_mode
         (path, absolute) =
-      let session = Session.fork_frontend seed in
+      let working_directory = source_working_directory ~root path in
       match
-        Session.load_source ~max_bytes:max_file_bytes ~display_path:path session
-          ~path:absolute
+        make_config ~root ~working_directory ~max_file_bytes ~compilation_mode
       with
-      | Error message -> read_error ~root ~path (report_message root message)
-      | Ok source -> parse_source session ~config ~root ~path source
+      | Error message -> read_error ~root ~path message
+      | Ok config -> (
+          let session = Session.fork_frontend seed in
+          match
+            Session.load_source ~max_bytes:max_file_bytes ~display_path:path
+              session ~path:absolute
+          with
+          | Error message ->
+              read_error ~root ~path (report_message root message)
+          | Ok source -> parse_source session ~config ~root ~path source)
 
-    let scan_reference_file_with_prelude seed ~config ~root ~max_file_bytes
-        (entry : reference_entry) =
+    let scan_reference_file_with_prelude seed ~root ~max_file_bytes
+        ~compilation_mode (entry : reference_entry) =
       if entry.bytes > Int64.of_int max_file_bytes then
         read_error ~bytes:entry.bytes ~root ~path:entry.path
           (Printf.sprintf "source exceeds the %d-byte corpus file limit"
@@ -1342,18 +1376,27 @@ module Parse = struct
         | Error message ->
             read_error ~bytes:entry.bytes ~root ~path:entry.path
               ("could not read reference object: " ^ message)
-        | Ok contents ->
+        | Ok contents -> (
             if Int64.of_int (String.length contents) <> entry.bytes then
               read_error ~bytes:entry.bytes ~root ~path:entry.path
                 "Git returned a reference object with an unexpected byte count"
             else
-              let session = Session.fork_frontend seed in
-              let source =
-                Session.add_source session
-                  ~path:(Filename.concat root entry.path)
-                  ~contents
+              let working_directory =
+                source_working_directory ~root entry.path
               in
-              parse_source session ~config ~root ~path:entry.path source
+              match
+                make_config ~root ~working_directory ~max_file_bytes
+                  ~compilation_mode
+              with
+              | Error message -> read_error ~root ~path:entry.path message
+              | Ok config ->
+                  let session = Session.fork_frontend seed in
+                  let source =
+                    Session.add_source session
+                      ~path:(Filename.concat root entry.path)
+                      ~contents
+                  in
+                  parse_source session ~config ~root ~path:entry.path source)
 
     let comparison left right =
       match (left.status = Parses, right.status = Parses) with
@@ -1379,6 +1422,7 @@ module Parse = struct
             let item =
               {
                 path = standalone.path;
+                effective_project_directory = source_directory standalone.path;
                 comparison = comparison standalone project_prelude;
                 standalone;
                 project_prelude;
@@ -1456,7 +1500,10 @@ module Parse = struct
         Error "parser corpus file byte limit must be nonnegative"
       else
         let* root = canonical_directory root in
-        let* config = make_config ~root ~max_file_bytes ~compilation_mode in
+        let* config =
+          make_config ~root ~working_directory:root ~max_file_bytes
+            ~compilation_mode
+        in
         let* paths = discover root in
         let* standalone =
           tree ~max_file_bytes ~reference_commit ~compilation_mode ~root ()
@@ -1471,7 +1518,8 @@ module Parse = struct
         let* project_prelude =
           paths
           |> List.map
-               (scan_file_with_prelude seed ~config ~root ~max_file_bytes)
+               (scan_file_with_prelude seed ~root ~max_file_bytes
+                  ~compilation_mode)
           |> summarize ~input:"filesystem-tree+project-prelude"
                ~reference_commit ~compilation_mode
         in
@@ -1486,7 +1534,10 @@ module Parse = struct
         Error "parser corpus file byte limit must be nonnegative"
       else
         let* root = validate_reference root expected_commit in
-        let* config = make_config ~root ~max_file_bytes ~compilation_mode in
+        let* config =
+          make_config ~root ~working_directory:root ~max_file_bytes
+            ~compilation_mode
+        in
         let* entries = discover_reference root in
         let* standalone =
           reference ~max_file_bytes ~expected_commit ~compilation_mode ~root ()
@@ -1501,8 +1552,8 @@ module Parse = struct
         let* project_prelude =
           entries
           |> List.map
-               (scan_reference_file_with_prelude seed ~config ~root
-                  ~max_file_bytes)
+               (scan_reference_file_with_prelude seed ~root ~max_file_bytes
+                  ~compilation_mode)
           |> summarize ~input:"verified-git-tree+project-prelude"
                ~reference_commit:expected_commit ~compilation_mode
         in
@@ -1591,6 +1642,7 @@ module Parse = struct
       `Assoc
         [
           ("path", `String order.path);
+          ("directory", `String order.directory);
           ( "includes",
             `List (List.map (fun path -> `String path) order.includes) );
         ]
@@ -1599,6 +1651,8 @@ module Parse = struct
       `Assoc
         [
           ("path", `String file.path);
+          ( "effective_project_directory",
+            `String file.effective_project_directory );
           ("comparison", `String (comparison_name file.comparison));
           ( "bytes",
             match file.standalone.bytes with
@@ -1619,6 +1673,7 @@ module Parse = struct
             `String
               (Frontend.Preprocessor.compilation_mode_name
                  report.standalone.compilation_mode) );
+          ("directory_policy", `String directory_policy);
           ( "project_orders",
             `List (List.map project_order_json report.project_orders) );
           ( "prelude",
@@ -1681,6 +1736,7 @@ module Parse = struct
       Printf.bprintf buffer "compilation-mode %s\n"
         (Frontend.Preprocessor.compilation_mode_name
            report.standalone.compilation_mode);
+      Printf.bprintf buffer "directory-policy %s\n" directory_policy;
       Printf.bprintf buffer "files %d\n" (List.length report.files);
       Printf.bprintf buffer "prelude-source %s\n" report.prelude_source;
       List.iter (Printf.bprintf buffer "prelude-file %s\n") report.prelude_files;
@@ -1696,6 +1752,8 @@ module Parse = struct
       write_summary buffer "project-prelude" report.project_prelude;
       List.iter
         (fun file ->
+          Printf.bprintf buffer "project-directory %s %s\n" file.path
+            file.effective_project_directory;
           if file.comparison <> Both_parse then
             Printf.bprintf buffer "comparison %s %s standalone=%s prelude=%s\n"
               file.path
