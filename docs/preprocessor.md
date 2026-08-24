@@ -25,6 +25,8 @@ For an extensionless spelling, each root is checked for `.HC.Z` and then `.HC`. 
 
 `--templeos-root=DIR` maps spellings beginning with `/` or `::/` into a checked-out TempleOS tree. A `~/` spelling needs task home-directory state that the hosted session does not yet model, so it reports `HCPP0009` instead of guessing. Windows drive spellings are accepted only on Windows and remain confined to the configured roots. The resolver does not add source-relative lookup.
 
+The project-aware corpus comparison supplies a deliberate working-directory override for each measured root. `Compiler/CMisc.HC:StreamDir` derives `__DIR__` from the active lexical frame, and the pinned project, load, and make files call `Cd(__DIR__)` before their sibling includes. Because the parser-only scan does not execute those statements, it starts each comparison session in the measured source's directory and records that directory in its report. The standalone corpus side and ordinary `holyc preprocess` and `holyc parse` commands keep the configured working-directory rule above. Both modes retain the same allowed-root check; a source-directory context does not grant access outside the verified TempleOS tree.
+
 ## Definition strings
 
 The `KW_DEFINE` branch in `Compiler/Lex.HC:Lex` stores raw text rather than a token list. It disables expansion while it reads the name, discards horizontal whitespace before the replacement, and captures through the end of the physical line. A backslash followed by LF or CRLF removes the line boundary and continues capture. Other backslash pairs remain unchanged.
