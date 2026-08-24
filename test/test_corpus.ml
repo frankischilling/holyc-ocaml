@@ -567,9 +567,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_016
+    "diagnostics" 37_015
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_016 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_015 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -607,7 +607,7 @@ let pinned_parser_reference () =
     "prelude parser failures" 380
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 21_141
+    "prelude diagnostics" 21_140
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0

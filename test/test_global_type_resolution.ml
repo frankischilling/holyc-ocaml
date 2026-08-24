@@ -231,6 +231,34 @@ let identity_at prepared item_index =
       = item_index)
   |> Semantic_aggregate_resolution.identity_symbol
 
+let terminal_comma_is_semantically_terminated () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"terminal-global-comma.HC"
+          "I64 cur_dc,;\nclass Payload { I64 member; } payload,;"
+      in
+      Alcotest.(check (list string))
+        "terminal-comma global order" [ "cur_dc"; "payload" ]
+        (globals prepared
+        |> List.map (fun global ->
+            global |> Semantic_global_type_resolution.global_symbol
+            |> Semantic_symbol.name));
+      globals prepared
+      |> List.iter (fun global ->
+          let delimiter =
+            Semantic_global_type_resolution.global_delimiter global
+          in
+          Alcotest.(check string)
+            "semantic terminal delimiter" "semicolon"
+            (Semantic_global_type_resolution.delimiter_kind delimiter
+            |> Semantic_global_type_resolution.delimiter_kind_name);
+          Alcotest.(check string)
+            "semantic terminal origin" ";"
+            (source_text prepared.session
+               (Semantic_global_type_resolution.delimiter_origin delimiter))))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let aggregate_visibility_and_attached_globals () =
   let prepared =
     prepare ~path:"global-type-aggregates.HC"
@@ -777,6 +805,8 @@ let tests =
   [
     Alcotest.test_case "primitive pointers, arrays, and initializers" `Quick
       primitive_pointers_arrays_and_initializers;
+    Alcotest.test_case "terminal comma is semantically terminated" `Quick
+      terminal_comma_is_semantically_terminated;
     Alcotest.test_case "aggregate visibility and attached globals" `Quick
       aggregate_visibility_and_attached_globals;
     Alcotest.test_case "function-pointer shapes" `Quick function_pointer_shapes;

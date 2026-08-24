@@ -1586,7 +1586,12 @@ let human sources module_ =
           List.iteri
             (print_global_declarator buffer sources ~indent:"    "
                ~label:"declarator")
-            declaration.declarators
+            declaration.declarators;
+          Option.iter
+            (fun location ->
+              Printf.bprintf buffer "    trailing_semicolon span=%s\n"
+                (location_text sources location))
+            declaration.trailing_semicolon
       | Ast.Function_prototype prototype ->
           Printf.bprintf buffer
             "  function_prototype span=%s parameters=%d variadic=%b\n"
@@ -3255,8 +3260,12 @@ let item_to_yojson sources = function
                 (List.map
                    (declarator_to_yojson sources)
                    declaration.declarators) );
-            ("location", location_to_yojson sources declaration.location);
-          ])
+          ]
+        @ (match declaration.trailing_semicolon with
+          | None -> []
+          | Some location ->
+              [ ("trailing_semicolon", location_to_yojson sources location) ])
+        @ [ ("location", location_to_yojson sources declaration.location) ])
   | Ast.Function_prototype prototype ->
       `Assoc
         ([ ("kind", `String "function_prototype") ]
