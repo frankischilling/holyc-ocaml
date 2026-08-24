@@ -42,41 +42,41 @@
   },
   "summary": {
     "files": 528,
-    "both_parse": 21,
+    "both_parse": 23,
     "standalone_only": 0,
-    "project_prelude_only": 82,
-    "neither_parses": 425,
+    "project_prelude_only": 94,
+    "neither_parses": 411,
     "standalone": {
-      "parses": 21,
+      "parses": 23,
       "frontend_diagnostics": 17,
-      "parser_diagnostics": 490,
+      "parser_diagnostics": 488,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 507,
-      "unresolved_name_failures": 468,
-      "other_failures": 39,
-      "diagnostics": 37183,
-      "errors": 37183,
+      "failed": 505,
+      "unresolved_name_failures": 473,
+      "other_failures": 32,
+      "diagnostics": 37083,
+      "errors": 37083,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 10378,
+        "HCPARSE0001": 10360,
         "HCPARSE0002": 1,
-        "HCPARSE0003": 36,
+        "HCPARSE0003": 30,
         "HCPARSE0009": 599,
         "HCPARSE0010": 4,
         "HCPARSE0016": 6,
-        "HCPARSE0018": 59,
+        "HCPARSE0018": 65,
         "HCPARSE0020": 25,
-        "HCPARSE0024": 27,
+        "HCPARSE0024": 5,
         "HCPARSE0029": 3,
         "HCPARSE0035": 5,
         "HCPARSE0044": 1,
-        "HCPARSE0046": 71,
-        "HCPARSE0047": 55,
-        "HCPARSE0048": 18539,
-        "HCPARSE0050": 3947,
-        "HCPARSE0055": 2533,
+        "HCPARSE0046": 7,
+        "HCPARSE0047": 54,
+        "HCPARSE0048": 18559,
+        "HCPARSE0050": 3938,
+        "HCPARSE0055": 2527,
         "HCPARSE0082": 118,
         "HCPARSE0093": 2,
         "HCPARSE0095": 4,
@@ -94,36 +94,36 @@
       }
     },
     "project_prelude": {
-      "parses": 103,
+      "parses": 117,
       "frontend_diagnostics": 63,
-      "parser_diagnostics": 362,
+      "parser_diagnostics": 348,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 425,
-      "unresolved_name_failures": 314,
-      "other_failures": 111,
-      "diagnostics": 15546,
-      "errors": 15546,
+      "failed": 411,
+      "unresolved_name_failures": 329,
+      "other_failures": 82,
+      "diagnostics": 15279,
+      "errors": 15279,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
-        "HCPARSE0001": 2986,
+        "HCPARSE0001": 2955,
         "HCPARSE0002": 2,
-        "HCPARSE0003": 16,
+        "HCPARSE0003": 10,
         "HCPARSE0009": 20,
         "HCPARSE0010": 4,
         "HCPARSE0016": 7,
-        "HCPARSE0018": 23,
+        "HCPARSE0018": 29,
         "HCPARSE0020": 5,
-        "HCPARSE0024": 108,
+        "HCPARSE0024": 38,
         "HCPARSE0029": 17,
         "HCPARSE0044": 1,
-        "HCPARSE0046": 78,
-        "HCPARSE0047": 50,
-        "HCPARSE0048": 8431,
-        "HCPARSE0050": 1846,
-        "HCPARSE0055": 1267,
-        "HCPARSE0082": 92,
+        "HCPARSE0046": 5,
+        "HCPARSE0047": 47,
+        "HCPARSE0048": 8406,
+        "HCPARSE0050": 1799,
+        "HCPARSE0055": 1254,
+        "HCPARSE0082": 93,
         "HCPARSE0093": 1,
         "HCPARSE0095": 4,
         "HCPARSE0102": 2,
@@ -131,7 +131,7 @@
         "HCPARSE0112": 33,
         "HCPARSE0115": 1,
         "HCPARSE0127": 21,
-        "HCPARSE0147": 55,
+        "HCPARSE0147": 49,
         "HCPP0003": 349,
         "HCPP0008": 38,
         "HCPP0009": 10,
@@ -230,14 +230,13 @@
       "bytes": 10515,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 144,
-        "errors": 144,
+        "diagnostics": 143,
+        "errors": 143,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 69,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 52,
           "HCPARSE0050": 12,
           "HCPARSE0055": 5,
@@ -255,15 +254,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 46,
-        "errors": 46,
+        "diagnostics": 45,
+        "errors": 45,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 41,
-          "HCPARSE0082": 4
-        },
+        "diagnostic_codes": { "HCPARSE0048": 41, "HCPARSE0082": 4 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -281,14 +276,13 @@
       "bytes": 10411,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 144,
-        "errors": 144,
+        "diagnostics": 143,
+        "errors": 143,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 69,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 52,
           "HCPARSE0050": 12,
           "HCPARSE0055": 5,
@@ -306,37 +300,33 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 35,
-        "errors": 35,
+        "diagnostics": 34,
+        "errors": 34,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 32,
-          "HCPARSE0082": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 32, "HCPARSE0082": 2 },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"reformat, and copy back.  \\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"SettingsPush\" after a statement comma is not implemented",
           "path": "Adam/ABlkDev/DskChk.HC",
-          "line": 226,
-          "column": 4
+          "line": 240,
+          "column": 3
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/ABlkDev/DskPrt.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 4323,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 48,
-        "errors": 48,
+        "diagnostics": 47,
+        "errors": 47,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 47 },
+        "diagnostic_codes": { "HCPARSE0048": 47 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -348,20 +338,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"with other operating systems.\\\\n\\\"\"",
-          "path": "Adam/ABlkDev/DskPrt.HC",
-          "line": 28,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -460,17 +443,16 @@
       "bytes": 5188,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 60,
-        "errors": 60,
+        "diagnostics": 57,
+        "errors": 57,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 14,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 2,
           "HCPARSE0048": 28,
           "HCPARSE0050": 9,
-          "HCPARSE0055": 6
+          "HCPARSE0055": 5
         },
         "first_error": {
           "code": "HCPARSE0009",
@@ -484,37 +466,33 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 16,
-        "errors": 16,
+        "diagnostics": 13,
+        "errors": 13,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 2,
-          "HCPARSE0048": 11,
-          "HCPARSE0055": 3
-        },
+        "diagnostic_codes": { "HCPARSE0048": 11, "HCPARSE0055": 2 },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$GREEN$$A$$FG$$-$$GREEN$$B$$FG$$ are RAM drives.\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
           "path": "Adam/ABlkDev/Mount.HC",
-          "line": 17,
-          "column": 4
+          "line": 32,
+          "column": 2
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/ABlkDev/PrtDsk.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 4323,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 48,
-        "errors": 48,
+        "diagnostics": 47,
+        "errors": 47,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 47 },
+        "diagnostic_codes": { "HCPARSE0048": 47 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -526,20 +504,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"with other operating systems.\\\\n\\\"\"",
-          "path": "Adam/ABlkDev/PrtDsk.HC",
-          "line": 28,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -978,14 +949,12 @@
       "bytes": 5653,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 38,
-        "errors": 38,
+        "diagnostics": 36,
+        "errors": 36,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 9,
-          "HCPARSE0024": 1,
-          "HCPARSE0047": 1,
           "HCPARSE0048": 19,
           "HCPARSE0050": 5,
           "HCPARSE0055": 3
@@ -1002,15 +971,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 1,
-          "HCPARSE0047": 1,
-          "HCPARSE0048": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -1208,15 +1173,15 @@
     },
     {
       "path": "Adam/CPURep.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 1822,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 9,
-        "errors": 9,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 8 },
+        "diagnostic_codes": { "HCPARSE0048": 8 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -1228,20 +1193,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"CPU     Swaps/s         Cycles\\\\n\\\"\"",
-          "path": "Adam/CPURep.HC",
-          "line": 52,
-          "column": 4
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -1427,14 +1385,13 @@
       "bytes": 5457,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 44,
-        "errors": 44,
+        "diagnostics": 42,
+        "errors": 42,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 10,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 2,
           "HCPARSE0048": 24,
           "HCPARSE0050": 5,
           "HCPARSE0055": 2
@@ -1451,11 +1408,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -1737,11 +1694,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 28,
-        "errors": 28,
+        "diagnostics": 26,
+        "errors": 26,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 2, "HCPARSE0048": 26 },
+        "diagnostic_codes": { "HCPARSE0048": 26 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -1819,11 +1776,10 @@
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 12,
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 59,
-          "HCPARSE0050": 12,
-          "HCPARSE0055": 6
+          "HCPARSE0001": 10,
+          "HCPARSE0048": 62,
+          "HCPARSE0050": 11,
+          "HCPARSE0055": 7
         },
         "first_error": {
           "code": "HCPARSE0048",
@@ -2096,18 +2052,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 14,
-        "errors": 14,
+        "diagnostics": 11,
+        "errors": 11,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 3, "HCPARSE0048": 11 },
+        "diagnostic_codes": { "HCPARSE0048": 11 },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"BG\\\\0FD\\\\0BD\\\\0WW\\\\0HL\\\\0BK\\\\0IV\\\\0UL\\\\0SX\\\\0SY\\\\0CM\\\\0AN\\\\0LK\\\\0BT\\\\0\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"doldoc\" after a statement comma is not implemented",
           "path": "Adam/DolDoc/DocInit.HC",
-          "line": 11,
-          "column": 2
+          "line": 22,
+          "column": 3
         },
         "failure_message": null
       }
@@ -2334,15 +2290,14 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 55,
-        "errors": 55,
+        "diagnostics": 54,
+        "errors": 54,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 14,
-          "HCPARSE0024": 2,
-          "HCPARSE0048": 22,
-          "HCPARSE0050": 16,
+          "HCPARSE0048": 24,
+          "HCPARSE0050": 15,
           "HCPARSE0055": 1
         },
         "first_error": {
@@ -2636,16 +2591,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 43,
-        "errors": 43,
+        "diagnostics": 25,
+        "errors": 25,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 8,
-          "HCPARSE0024": 2,
-          "HCPARSE0048": 27,
-          "HCPARSE0050": 6
-        },
+        "diagnostic_codes": { "HCPARSE0048": 22, "HCPARSE0055": 3 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -2715,48 +2665,41 @@
       "bytes": 29857,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 150,
-        "errors": 150,
+        "diagnostics": 140,
+        "errors": 140,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 3,
-          "HCPARSE0003": 11,
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 119,
-          "HCPARSE0050": 9,
-          "HCPARSE0055": 7
+          "HCPARSE0003": 8,
+          "HCPARSE0048": 118,
+          "HCPARSE0050": 6,
+          "HCPARSE0055": 5
         },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"ctrl_L_footer\", but found \"\\\"\\\\n\\\\n$$LK+PU,\\\\\\\"Click for Help\\\\\\\",A=\\\\\\\"FI:::/Doc/Widget.DD\\\\\\\"$$\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"CDoc\" after a statement comma is not implemented",
           "path": "Adam/DolDoc/DocWidgetWiz.HC",
-          "line": 5,
-          "column": 2
+          "line": 10,
+          "column": 3
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 25,
-        "errors": 25,
+        "diagnostics": 14,
+        "errors": 14,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0003": 3,
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 16,
-          "HCPARSE0050": 3,
-          "HCPARSE0055": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 14 },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"ctrl_L_footer\", but found \"\\\"\\\\n\\\\n$$LK+PU,\\\\\\\"Click for Help\\\\\\\",A=\\\\\\\"FI:::/Doc/Widget.DD\\\\\\\"$$\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
           "path": "Adam/DolDoc/DocWidgetWiz.HC",
-          "line": 5,
-          "column": 2
+          "line": 11,
+          "column": 3
         },
         "failure_message": null
       }
@@ -2833,24 +2776,23 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 42,
-        "errors": 42,
+        "diagnostics": 40,
+        "errors": 40,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 6,
-          "HCPARSE0024": 2,
           "HCPARSE0048": 23,
           "HCPARSE0050": 7,
           "HCPARSE0055": 4
         },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"Exodus\\\\0\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocGoToLine\" after a statement comma is not implemented",
           "path": "Adam/God/GodBible.HC",
-          "line": 6,
-          "column": 2
+          "line": 161,
+          "column": 5
         },
         "failure_message": null
       }
@@ -3011,11 +2953,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 12,
-        "errors": 12,
+        "diagnostics": 11,
+        "errors": 11,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 2, "HCPARSE0048": 10 },
+        "diagnostic_codes": { "HCPARSE0024": 1, "HCPARSE0048": 10 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -3394,7 +3336,7 @@
     },
     {
       "path": "Adam/Gr/GrInitA.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 761,
       "standalone": {
         "status": "parser-diagnostics",
@@ -3414,20 +3356,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 2 },
-        "first_error": {
-          "code": "HCPARSE0024",
-          "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"Thick\\\\0Planar Symmetry\\\\0Transform On\\\\0Transform Off\\\\0Shift\\\\0\\\"\"",
-          "path": "Adam/Gr/GrInitA.HC",
-          "line": 7,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -3892,24 +3827,23 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 136,
-        "errors": 136,
+        "diagnostics": 135,
+        "errors": 135,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 41,
-          "HCPARSE0024": 1,
           "HCPARSE0048": 70,
           "HCPARSE0050": 17,
           "HCPARSE0055": 7
         },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"Rect\\\\0Circle\\\\0Text\\\\0Text Box\\\\0Text Diamond\\\\0Flood Fill\\\\0\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocPrint\" after a statement comma is not implemented",
           "path": "Adam/Gr/SpriteBitMap.HC",
-          "line": 35,
-          "column": 2
+          "line": 56,
+          "column": 3
         },
         "failure_message": null
       }
@@ -4033,11 +3967,10 @@
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 166,
+          "HCPARSE0001": 167,
           "HCPARSE0009": 1,
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 350,
-          "HCPARSE0050": 36,
+          "HCPARSE0048": 351,
+          "HCPARSE0050": 35,
           "HCPARSE0055": 20
         },
         "first_error": {
@@ -4052,16 +3985,15 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 430,
-        "errors": 430,
+        "diagnostics": 429,
+        "errors": 429,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 105,
+          "HCPARSE0001": 106,
           "HCPARSE0009": 1,
-          "HCPARSE0024": 2,
-          "HCPARSE0048": 272,
-          "HCPARSE0050": 32,
+          "HCPARSE0048": 273,
+          "HCPARSE0050": 31,
           "HCPARSE0055": 18
         },
         "first_error": {
@@ -4578,10 +4510,8 @@
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 1,
-          "HCPARSE0024": 1,
           "HCPARSE0047": 3,
-          "HCPARSE0048": 14,
+          "HCPARSE0048": 16,
           "HCPARSE0050": 1,
           "HCPARSE0082": 1,
           "HCPP0003": 1,
@@ -4599,15 +4529,14 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 9,
+        "errors": 9,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0024": 1,
           "HCPARSE0029": 2,
           "HCPARSE0047": 1,
-          "HCPARSE0048": 2,
+          "HCPARSE0048": 1,
           "HCPARSE0050": 1,
           "HCPARSE0082": 1,
           "HCPP0003": 1,
@@ -4708,16 +4637,15 @@
       "bytes": 4083,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 60,
-        "errors": 60,
+        "diagnostics": 59,
+        "errors": 59,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 24,
-          "HCPARSE0024": 4,
+          "HCPARSE0001": 17,
           "HCPARSE0047": 2,
-          "HCPARSE0048": 17,
-          "HCPARSE0050": 7,
+          "HCPARSE0048": 29,
+          "HCPARSE0050": 5,
           "HCPARSE0055": 3,
           "HCPP0003": 2,
           "HCPP0022": 1
@@ -4734,16 +4662,14 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 16,
-        "errors": 16,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0024": 6,
           "HCPARSE0029": 1,
           "HCPARSE0047": 1,
-          "HCPARSE0048": 1,
-          "HCPARSE0050": 4,
+          "HCPARSE0082": 1,
           "HCPP0003": 2,
           "HCPP0022": 1
         },
@@ -5086,17 +5012,16 @@
       "bytes": 7403,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 76,
-        "errors": 76,
+        "diagnostics": 74,
+        "errors": 74,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 10,
           "HCPARSE0003": 6,
-          "HCPARSE0024": 1,
           "HCPARSE0048": 47,
           "HCPARSE0050": 6,
-          "HCPARSE0055": 6
+          "HCPARSE0055": 5
         },
         "first_error": {
           "code": "HCPARSE0048",
@@ -5110,15 +5035,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 2,
-          "HCPARSE0048": 7,
-          "HCPARSE0055": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 7, "HCPARSE0055": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -5386,21 +5307,21 @@
         "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\";*.DD*\\\"\"",
-          "path": "<definition:00001052:FILEMASK_DD>",
-          "line": 1,
-          "column": 14
+          "message": "label or declaration syntax for unresolved identifier \"Diff\" after a statement comma is not implemented",
+          "path": "Adam/Opt/Utils/Merge.HC",
+          "line": 29,
+          "column": 8
         },
         "failure_message": null
       }
     },
     {
       "path": "Adam/Opt/Utils/Profiler.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 2801,
       "standalone": {
         "status": "parser-diagnostics",
@@ -5426,25 +5347,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 12,
-        "errors": 12,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 7,
-          "HCPARSE0050": 3,
-          "HCPARSE0055": 1
-        },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"Invalid CPU\\\\n\\\"\"",
-          "path": "Adam/Opt/Utils/Profiler.HC",
-          "line": 37,
-          "column": 15
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -5506,13 +5415,12 @@
       "bytes": 2354,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 35,
-        "errors": 35,
+        "diagnostics": 32,
+        "errors": 32,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 6,
-          "HCPARSE0046": 3,
           "HCPARSE0048": 21,
           "HCPARSE0050": 3,
           "HCPARSE0055": 2
@@ -5529,13 +5437,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 33,
-        "errors": 33,
+        "diagnostics": 30,
+        "errors": 30,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 6,
-          "HCPARSE0046": 3,
           "HCPARSE0048": 19,
           "HCPARSE0050": 3,
           "HCPARSE0055": 2
@@ -5850,18 +5757,17 @@
     },
     {
       "path": "Adam/TaskRep.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 784,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 12,
-        "errors": 12,
+        "diagnostics": 11,
+        "errors": 11,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 5,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 2,
           "HCPARSE0050": 2,
           "HCPARSE0147": 1
@@ -5877,20 +5783,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$TX,\\\\\\\"%$$Q...\\\\\\\",SCX=16$$\\\\n\\\"\"",
-          "path": "Adam/TaskRep.HC",
-          "line": 6,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -6953,15 +6852,13 @@
       "bytes": 22695,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 163,
-        "errors": 163,
+        "diagnostics": 161,
+        "errors": 161,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 45,
-          "HCPARSE0003": 1,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 93,
           "HCPARSE0050": 19,
           "HCPARSE0055": 1,
@@ -6969,25 +6866,23 @@
           "HCPARSE0127": 1
         },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0127",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"gate_type_lst\", but found \"\\\"NOT\\\\0AND\\\\0OR\\\\0NAND\\\\0NOR\\\\0XOR\\\\0AND3\\\\0OR3\\\\0NAND3\\\\0NOR3\\\\0\\\"\"",
+          "message": "expected a global initializer value, but found \",\"",
           "path": "Apps/Logic/Logic.HC",
-          "line": 51,
-          "column": 6
+          "line": 73,
+          "column": 18
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 110,
-        "errors": 110,
+        "diagnostics": 108,
+        "errors": 108,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 21,
-          "HCPARSE0003": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 66,
           "HCPARSE0050": 18,
           "HCPARSE0055": 1,
@@ -6995,12 +6890,12 @@
           "HCPARSE0127": 1
         },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0127",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"gate_type_lst\", but found \"\\\"NOT\\\\0AND\\\\0OR\\\\0NAND\\\\0NOR\\\\0XOR\\\\0AND3\\\\0OR3\\\\0NAND3\\\\0NOR3\\\\0\\\"\"",
+          "message": "expected a global initializer value, but found \",\"",
           "path": "Apps/Logic/Logic.HC",
-          "line": 51,
-          "column": 6
+          "line": 73,
+          "column": 18
         },
         "failure_message": null
       }
@@ -7420,14 +7315,13 @@
       "bytes": 11920,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 96,
-        "errors": 96,
+        "diagnostics": 95,
+        "errors": 95,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 9,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 51,
           "HCPARSE0050": 15,
           "HCPARSE0055": 18,
@@ -7445,14 +7339,13 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 92,
-        "errors": 92,
+        "diagnostics": 91,
+        "errors": 91,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 8,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 49,
           "HCPARSE0050": 15,
           "HCPARSE0055": 17,
@@ -8030,15 +7923,14 @@
       "bytes": 14530,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 165,
-        "errors": 165,
+        "diagnostics": 164,
+        "errors": 164,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 46,
           "HCPARSE0009": 1,
           "HCPARSE0018": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 87,
           "HCPARSE0050": 18,
           "HCPARSE0055": 6,
@@ -8057,14 +7949,13 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 111,
-        "errors": 111,
+        "diagnostics": 110,
+        "errors": 110,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 28,
           "HCPARSE0018": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 55,
           "HCPARSE0050": 17,
           "HCPARSE0055": 6,
@@ -8087,11 +7978,11 @@
       "bytes": 250,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -8104,11 +7995,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -8279,14 +8170,13 @@
       "bytes": 106011,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 199,
-        "errors": 199,
+        "diagnostics": 198,
+        "errors": 198,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 46,
           "HCPARSE0009": 2,
-          "HCPARSE0046": 1,
           "HCPARSE0047": 1,
           "HCPARSE0048": 105,
           "HCPARSE0050": 17,
@@ -8306,13 +8196,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 166,
-        "errors": 166,
+        "diagnostics": 165,
+        "errors": 165,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 33,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 95,
           "HCPARSE0050": 19,
           "HCPARSE0055": 11,
@@ -9012,40 +8901,39 @@
       "bytes": 1181,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 9,
-        "errors": 9,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 6,
           "HCPARSE0050": 1,
           "HCPARSE0055": 1
         },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$LM,7$$%s\\\\n$$LM,4$$\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocBottom\" after a statement comma is not implemented",
           "path": "Apps/Vocabulary/VocabQuiz.HC",
-          "line": 35,
-          "column": 6
+          "line": 39,
+          "column": 7
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$LM,7$$%s\\\\n$$LM,4$$\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocBottom\" after a statement comma is not implemented",
           "path": "Apps/Vocabulary/VocabQuiz.HC",
-          "line": 35,
-          "column": 6
+          "line": 39,
+          "column": 7
         },
         "failure_message": null
       }
@@ -9309,15 +9197,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 33,
-        "errors": 33,
+        "diagnostics": 32,
+        "errors": 32,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 31,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 31, "HCPARSE0055": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -9858,18 +9742,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 19,
-        "errors": 19,
+        "diagnostics": 12,
+        "errors": 12,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 7, "HCPARSE0048": 12 },
+        "diagnostic_codes": { "HCPARSE0048": 12 },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"F32\\\\0UF32\\\\0F64\\\\0UF64\\\\0\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"cmp\" after a statement comma is not implemented",
           "path": "Compiler/CInit.HC",
-          "line": 208,
-          "column": 2
+          "line": 244,
+          "column": 3
         },
         "failure_message": null
       }
@@ -10317,13 +10201,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 150,
-        "errors": 150,
+        "diagnostics": 148,
+        "errors": 148,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 32,
-          "HCPARSE0024": 2,
           "HCPARSE0048": 84,
           "HCPARSE0050": 22,
           "HCPARSE0055": 10
@@ -10492,14 +10375,13 @@
       "bytes": 32430,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 438,
-        "errors": 438,
+        "diagnostics": 437,
+        "errors": 437,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 77,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 286,
           "HCPARSE0050": 29,
           "HCPARSE0055": 43,
@@ -10517,13 +10399,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 377,
-        "errors": 377,
+        "diagnostics": 376,
+        "errors": 376,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 58,
-          "HCPARSE0046": 1,
           "HCPARSE0047": 1,
           "HCPARSE0048": 240,
           "HCPARSE0050": 33,
@@ -10531,12 +10412,12 @@
           "HCPARSE0095": 1
         },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$FG$$$$IV,0$$$$BK,0$$\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"ICPut\" after a statement comma is not implemented",
           "path": "Compiler/OptPass789A.HC",
-          "line": 40,
-          "column": 4
+          "line": 50,
+          "column": 7
         },
         "failure_message": null
       }
@@ -10852,15 +10733,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 21,
-        "errors": 21,
+        "diagnostics": 19,
+        "errors": 19,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 2,
-          "HCPARSE0048": 16,
-          "HCPARSE0055": 3
-        },
+        "diagnostic_codes": { "HCPARSE0048": 16, "HCPARSE0055": 3 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -10956,40 +10833,26 @@
     },
     {
       "path": "Demo/AcctExample/HomeWrappers.HC",
-      "comparison": "neither-parses",
+      "comparison": "both-parse",
       "bytes": 1131,
       "standalone": {
-        "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 4 },
-        "first_error": {
-          "code": "HCPARSE0024",
-          "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"!*/Misc/PCIDevices.DD*;!*/Misc/Bible.TXT*;\\\"\"",
-          "path": "<definition:00000000:FILEMASK_OFF_LIMITS>",
-          "line": 1,
-          "column": 1
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 4 },
-        "first_error": {
-          "code": "HCPARSE0024",
-          "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"!*/Misc/PCIDevices.DD*;!*/Misc/Bible.TXT*;\\\"\"",
-          "path": "<definition:00001907:FILEMASK_OFF_LIMITS>",
-          "line": 1,
-          "column": 1
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -11085,11 +10948,11 @@
       "bytes": 1051,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 10 },
+        "diagnostic_codes": { "HCPARSE0048": 10 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -11102,11 +10965,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 5 },
+        "diagnostic_codes": { "HCPARSE0048": 5 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -11202,14 +11065,13 @@
       "bytes": 4736,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 91,
-        "errors": 91,
+        "diagnostics": 90,
+        "errors": 90,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 59,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 16,
           "HCPARSE0050": 13,
           "HCPARSE0055": 1
@@ -11226,15 +11088,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 33,
-        "errors": 33,
+        "diagnostics": 32,
+        "errors": 32,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 7,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 25
-        },
+        "diagnostic_codes": { "HCPARSE0024": 7, "HCPARSE0048": 25 },
         "first_error": {
           "code": "HCPARSE0024",
           "severity": "error",
@@ -11348,18 +11206,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0016": 1, "HCPARSE0024": 1 },
+        "diagnostic_codes": { "HCPARSE0016": 1 },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0016",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"Family3_86-99\\\\0Family4_99\\\\0\\\"\"",
+          "message": "expected ';' after function prototype \"GodWebIdx\", but found \"extern\"",
           "path": "Demo/AcctExample/TOS/TOSExt.HC",
-          "line": 275,
-          "column": 2
+          "line": 307,
+          "column": 1
         },
         "failure_message": null
       }
@@ -11370,17 +11228,15 @@
       "bytes": 19004,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 188,
-        "errors": 188,
+        "diagnostics": 178,
+        "errors": 178,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 38,
-          "HCPARSE0018": 7,
-          "HCPARSE0024": 5,
-          "HCPARSE0046": 5,
-          "HCPARSE0048": 99,
-          "HCPARSE0050": 23,
+          "HCPARSE0001": 33,
+          "HCPARSE0018": 12,
+          "HCPARSE0048": 101,
+          "HCPARSE0050": 21,
           "HCPARSE0055": 11
         },
         "first_error": {
@@ -11395,19 +11251,17 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 141,
-        "errors": 141,
+        "diagnostics": 124,
+        "errors": 124,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 26,
-          "HCPARSE0018": 7,
-          "HCPARSE0024": 5,
-          "HCPARSE0046": 5,
+          "HCPARSE0001": 21,
+          "HCPARSE0018": 12,
           "HCPARSE0047": 2,
-          "HCPARSE0048": 65,
-          "HCPARSE0050": 22,
-          "HCPARSE0055": 9
+          "HCPARSE0048": 61,
+          "HCPARSE0050": 20,
+          "HCPARSE0055": 8
         },
         "first_error": {
           "code": "HCPARSE0048",
@@ -11426,16 +11280,15 @@
       "bytes": 5399,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 70,
-        "errors": 70,
+        "diagnostics": 64,
+        "errors": 64,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 14,
-          "HCPARSE0024": 2,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 42,
-          "HCPARSE0050": 9,
+          "HCPARSE0001": 10,
+          "HCPARSE0018": 1,
+          "HCPARSE0048": 43,
+          "HCPARSE0050": 8,
           "HCPARSE0055": 2
         },
         "first_error": {
@@ -11450,16 +11303,15 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 45,
-        "errors": 45,
+        "diagnostics": 40,
+        "errors": 40,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 6,
-          "HCPARSE0024": 2,
-          "HCPARSE0046": 1,
+          "HCPARSE0001": 4,
+          "HCPARSE0018": 1,
           "HCPARSE0048": 25,
-          "HCPARSE0050": 9,
+          "HCPARSE0050": 8,
           "HCPARSE0055": 2
         },
         "first_error": {
@@ -11528,15 +11380,14 @@
       "bytes": 5552,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 68,
-        "errors": 68,
+        "diagnostics": 67,
+        "errors": 67,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 29,
           "HCPARSE0009": 1,
           "HCPARSE0018": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 17,
           "HCPARSE0050": 19
         },
@@ -11552,15 +11403,13 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 47,
-        "errors": 47,
+        "diagnostics": 45,
+        "errors": 45,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 13,
           "HCPARSE0018": 1,
-          "HCPARSE0024": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 18,
           "HCPARSE0050": 13
         },
@@ -11649,13 +11498,13 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 67,
-        "errors": 67,
+        "diagnostics": 66,
+        "errors": 66,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0024": 2,
-          "HCPARSE0047": 2,
+          "HCPARSE0047": 1,
           "HCPARSE0048": 61,
           "HCPARSE0055": 2
         },
@@ -12233,11 +12082,11 @@
       "bytes": 1352,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 10 },
+        "diagnostic_codes": { "HCPARSE0048": 10 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12250,18 +12099,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"and you can modify the val.\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"DocUnlock\" after a statement comma is not implemented",
           "path": "Demo/DolDoc/Data.HC",
-          "line": 46,
-          "column": 2
+          "line": 58,
+          "column": 5
         },
         "failure_message": null
       }
@@ -12315,11 +12164,11 @@
       "bytes": 2557,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 10,
-        "errors": 10,
+        "diagnostics": 7,
+        "errors": 7,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 3, "HCPARSE0048": 7 },
+        "diagnostic_codes": { "HCPARSE0048": 7 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12332,11 +12181,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 3, "HCPARSE0048": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12393,11 +12242,11 @@
       "bytes": 1750,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 13,
-        "errors": 13,
+        "diagnostics": 12,
+        "errors": 12,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 12 },
+        "diagnostic_codes": { "HCPARSE0048": 12 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12410,11 +12259,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 8,
-        "errors": 8,
+        "diagnostics": 7,
+        "errors": 7,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 7 },
+        "diagnostic_codes": { "HCPARSE0048": 7 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12432,15 +12281,11 @@
       "bytes": 1165,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 9,
-        "errors": 9,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 7,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 7, "HCPARSE0055": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12453,11 +12298,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 5 },
+        "diagnostic_codes": { "HCPARSE0048": 5 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -12524,35 +12369,35 @@
       "bytes": 821,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2 },
+        "diagnostic_codes": { "HCPARSE0046": 1 },
         "first_error": {
           "code": "HCPARSE0046",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"Sub      : H$$SY,3$$2$$SY,0$$O\\\\n\\\\n\\\"\"",
+          "message": "expected ';' after implicit Print statement, but found identifier \"Genesis\"",
           "path": "Demo/DolDoc/TextDemo.HC",
-          "line": 2,
-          "column": 2
+          "line": 20,
+          "column": 19
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2 },
+        "diagnostic_codes": { "HCPARSE0046": 1 },
         "first_error": {
           "code": "HCPARSE0046",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"Sub      : H$$SY,3$$2$$SY,0$$O\\\\n\\\\n\\\"\"",
+          "message": "expected ';' after implicit Print statement, but found identifier \"Genesis\"",
           "path": "Demo/DolDoc/TextDemo.HC",
-          "line": 2,
-          "column": 2
+          "line": 20,
+          "column": 19
         },
         "failure_message": null
       }
@@ -12876,7 +12721,7 @@
     },
     {
       "path": "Demo/Exceptions.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 757,
       "standalone": {
         "status": "parser-diagnostics",
@@ -12901,20 +12746,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"Ch:%c:%P\\\\n\\\"\"",
-          "path": "Demo/Exceptions.HC",
-          "line": 27,
-          "column": 4
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -13356,11 +13194,11 @@
       "bytes": 1853,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 10 },
+        "diagnostic_codes": { "HCPARSE0048": 10 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -13373,11 +13211,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 6 },
+        "diagnostic_codes": { "HCPARSE0048": 6 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -14779,15 +14617,11 @@
       "bytes": 951,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 13,
-        "errors": 13,
+        "diagnostics": 12,
+        "errors": 12,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 10,
-          "HCPARSE0055": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 10, "HCPARSE0055": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -14800,15 +14634,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 9,
-        "errors": 9,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 6,
-          "HCPARSE0055": 2
-        },
+        "diagnostic_codes": { "HCPARSE0048": 6, "HCPARSE0055": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -15352,14 +15182,14 @@
       "bytes": 15260,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 207,
-        "errors": 207,
+        "diagnostics": 205,
+        "errors": 205,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 52,
           "HCPARSE0009": 1,
-          "HCPARSE0024": 3,
+          "HCPARSE0024": 1,
           "HCPARSE0047": 3,
           "HCPARSE0048": 111,
           "HCPARSE0050": 13,
@@ -15380,12 +15210,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 46,
-        "errors": 46,
+        "diagnostics": 44,
+        "errors": 44,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0024": 4,
+          "HCPARSE0024": 2,
           "HCPARSE0047": 3,
           "HCPARSE0048": 32,
           "HCPARSE0055": 3,
@@ -16533,14 +16363,13 @@
       "bytes": 3072,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 42,
-        "errors": 42,
+        "diagnostics": 41,
+        "errors": 41,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 33,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 1,
           "HCPARSE0050": 5,
           "HCPARSE0055": 1
@@ -16557,11 +16386,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 11,
-        "errors": 11,
+        "diagnostics": 10,
+        "errors": 10,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 10 },
+        "diagnostic_codes": { "HCPARSE0048": 10 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -16579,14 +16408,13 @@
       "bytes": 6511,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 26,
-        "errors": 26,
+        "diagnostics": 25,
+        "errors": 25,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 6,
           "HCPARSE0009": 2,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 13,
           "HCPARSE0050": 2,
           "HCPARSE0055": 1,
@@ -16604,12 +16432,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 8,
-        "errors": 8,
+        "diagnostics": 7,
+        "errors": 7,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 5,
           "HCPARSE0055": 1,
           "HCPARSE0127": 1
@@ -16946,11 +16773,11 @@
       "bytes": 819,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 5 },
+        "diagnostic_codes": { "HCPARSE0048": 5 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -16963,11 +16790,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -17024,12 +16851,11 @@
       "bytes": 5699,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 12,
-        "errors": 12,
+        "diagnostics": 11,
+        "errors": 11,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 7,
           "HCPARSE0050": 2,
           "HCPARSE0055": 1,
@@ -17047,24 +16873,23 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 1,
           "HCPARSE0050": 2,
           "HCPARSE0055": 1,
           "HCPARSE0082": 1
         },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"consisting of ints, parentheses\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"Un\" after a statement comma is not implemented",
           "path": "Demo/Lectures/MiniCompiler.HC",
-          "line": 207,
-          "column": 4
+          "line": 218,
+          "column": 2
         },
         "failure_message": null
       }
@@ -17185,12 +17010,11 @@
       "bytes": 1373,
       "standalone": {
         "status": "frontend-diagnostics",
-        "diagnostics": 16,
-        "errors": 16,
+        "diagnostics": 15,
+        "errors": 15,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 5,
           "HCPARSE0050": 8,
           "HCPP0022": 2
@@ -17207,11 +17031,11 @@
       },
       "project_prelude": {
         "status": "frontend-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
+        "diagnostics": 1,
+        "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPP0022": 1 },
+        "diagnostic_codes": { "HCPP0022": 1 },
         "first_error": {
           "code": "HCPP0022",
           "severity": "error",
@@ -17332,40 +17156,26 @@
     },
     {
       "path": "Demo/MemDemo.HC",
-      "comparison": "neither-parses",
+      "comparison": "both-parse",
       "bytes": 1594,
       "standalone": {
-        "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 3 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$BLACK$$ -->$$FG$$[X]$$BLACK$$ -->$$FG$$[X]$$BLACK$$ -->$$FG$$\\\\n\\\"\"",
-          "path": "Demo/MemDemo.HC",
-          "line": 38,
-          "column": 4
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 3 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$BLACK$$ -->$$FG$$[X]$$BLACK$$ -->$$FG$$[X]$$BLACK$$ -->$$FG$$\\\\n\\\"\"",
-          "path": "Demo/MemDemo.HC",
-          "line": 38,
-          "column": 4
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -17868,15 +17678,11 @@
       "bytes": 1834,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 25,
-        "errors": 25,
+        "diagnostics": 24,
+        "errors": 24,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 2,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 22
-        },
+        "diagnostic_codes": { "HCPARSE0001": 2, "HCPARSE0048": 22 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -17889,15 +17695,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 1,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 1
-        },
+        "diagnostic_codes": { "HCPARSE0001": 1, "HCPARSE0048": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -17911,15 +17713,15 @@
     },
     {
       "path": "Demo/Prompt.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 424,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 3 },
+        "diagnostic_codes": { "HCPARSE0048": 3 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -17931,20 +17733,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$GREEN$$<ENTER>$$FG$$ keeps default.\\\\n\\\\n\\\"\"",
-          "path": "Demo/Prompt.HC",
-          "line": 9,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -17954,11 +17749,11 @@
       "bytes": 1722,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 6 },
+        "diagnostic_codes": { "HCPARSE0048": 6 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -17971,11 +17766,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -18025,11 +17820,11 @@
       "bytes": 1217,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 18,
-        "errors": 18,
+        "diagnostics": 17,
+        "errors": 17,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 16 },
+        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 16 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -18042,11 +17837,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "diagnostics": 6,
+        "errors": 6,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 5 },
+        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 5 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -18186,64 +17981,18 @@
       "bytes": 4109,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 4,
-        "errors": 4,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 3 },
+        "diagnostic_codes": { "HCPARSE0048": 3 },
         "first_error": {
-          "code": "HCPARSE0046",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"and press $$GREEN$$<SHIFT-ESC>$$FG$$ to exit.\\\\n\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"Snd\" after a statement comma is not implemented",
           "path": "Demo/Snd/ASCIIOrgan.HC",
-          "line": 34,
-          "column": 2
-        },
-        "failure_message": null
-      },
-      "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 2,
-        "errors": 2,
-        "warnings": 0,
-        "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"and press $$GREEN$$<SHIFT-ESC>$$FG$$ to exit.\\\\n\\\"\"",
-          "path": "Demo/Snd/ASCIIOrgan.HC",
-          "line": 34,
-          "column": 2
-        },
-        "failure_message": null
-      }
-    },
-    {
-      "path": "Demo/Snd/MorseCode.HC",
-      "comparison": "neither-parses",
-      "bytes": 2585,
-      "standalone": {
-        "status": "parser-diagnostics",
-        "diagnostics": 17,
-        "errors": 17,
-        "warnings": 0,
-        "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 5,
-          "HCPARSE0003": 1,
-          "HCPARSE0009": 1,
-          "HCPARSE0048": 5,
-          "HCPARSE0050": 4,
-          "HCPARSE0055": 1
-        },
-        "first_error": {
-          "code": "HCPARSE0003",
-          "severity": "error",
-          "message": "expected ',' or ';' after global variable \"morse_lst\", but found \"\\\"B-...\\\\0\\\"\"",
-          "path": "Demo/Snd/MorseCode.HC",
-          "line": 7,
-          "column": 1
+          "line": 38,
+          "column": 5
         },
         "failure_message": null
       },
@@ -18253,15 +18002,53 @@
         "errors": 1,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0003": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 1 },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"morse_lst\", but found \"\\\"B-...\\\\0\\\"\"",
-          "path": "Demo/Snd/MorseCode.HC",
-          "line": 7,
-          "column": 1
+          "message": "label or declaration syntax for unresolved identifier \"Sprite\" after a statement comma is not implemented",
+          "path": "Demo/Snd/ASCIIOrgan.HC",
+          "line": 44,
+          "column": 3
         },
+        "failure_message": null
+      }
+    },
+    {
+      "path": "Demo/Snd/MorseCode.HC",
+      "comparison": "project-prelude-only",
+      "bytes": 2585,
+      "standalone": {
+        "status": "parser-diagnostics",
+        "diagnostics": 16,
+        "errors": 16,
+        "warnings": 0,
+        "notes": 0,
+        "diagnostic_codes": {
+          "HCPARSE0001": 5,
+          "HCPARSE0009": 1,
+          "HCPARSE0048": 5,
+          "HCPARSE0050": 4,
+          "HCPARSE0055": 1
+        },
+        "first_error": {
+          "code": "HCPARSE0009",
+          "severity": "error",
+          "message": "expected a primitive, class, or union parameter type, but found identifier \"CDoc\"",
+          "path": "Demo/Snd/MorseCode.HC",
+          "line": 80,
+          "column": 16
+        },
+        "failure_message": null
+      },
+      "project_prelude": {
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
+        "warnings": 0,
+        "notes": 0,
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -18432,14 +18219,13 @@
       "bytes": 1135,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 24,
-        "errors": 24,
+        "diagnostics": 23,
+        "errors": 23,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 3,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 13,
           "HCPARSE0050": 3,
           "HCPARSE0055": 3
@@ -18456,15 +18242,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 10,
-        "errors": 10,
+        "diagnostics": 8,
+        "errors": 8,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 8,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 8 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -19024,12 +18806,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 50,
-        "errors": 50,
+        "diagnostics": 49,
+        "errors": 49,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0047": 2,
+          "HCPARSE0047": 1,
           "HCPARSE0048": 46,
           "HCPARSE0055": 2
         },
@@ -19050,14 +18832,13 @@
       "bytes": 12346,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 166,
-        "errors": 166,
+        "diagnostics": 164,
+        "errors": 164,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 61,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 2,
           "HCPARSE0048": 67,
           "HCPARSE0050": 24,
           "HCPARSE0055": 9,
@@ -19076,11 +18857,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 6,
-        "errors": 6,
+        "diagnostics": 4,
+        "errors": 4,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 2, "HCPARSE0048": 4 },
+        "diagnostic_codes": { "HCPARSE0048": 4 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -19115,11 +18896,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 2 },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -19389,7 +19170,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskATAId.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 7823,
       "standalone": {
         "status": "parser-diagnostics",
@@ -19417,20 +19198,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"$$RED$$Exit all other applications.$$FG$$\\\\n\\\"\"",
-          "path": "Kernel/BlkDev/DskATAId.HC",
-          "line": 126,
-          "column": 2
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -19440,15 +19214,14 @@
       "bytes": 5831,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 97,
-        "errors": 97,
+        "diagnostics": 96,
+        "errors": 96,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 14,
           "HCPARSE0009": 1,
           "HCPARSE0035": 2,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 59,
           "HCPARSE0050": 9,
           "HCPARSE0055": 9,
@@ -19466,12 +19239,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 29,
-        "errors": 29,
+        "diagnostics": 28,
+        "errors": 28,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0046": 1,
           "HCPARSE0048": 17,
           "HCPARSE0050": 6,
           "HCPARSE0055": 3,
@@ -20120,7 +19892,7 @@
     },
     {
       "path": "Kernel/BlkDev/DskStrA.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 8305,
       "standalone": {
         "status": "parser-diagnostics",
@@ -20145,26 +19917,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 40,
-        "errors": 40,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 7,
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 9,
-          "HCPARSE0050": 15,
-          "HCPARSE0055": 8
-        },
-        "first_error": {
-          "code": "HCPARSE0024",
-          "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\";*.DD*\\\"\"",
-          "path": "<definition:00001052:FILEMASK_DD>",
-          "line": 1,
-          "column": 14
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -20642,22 +20401,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 3,
-        "errors": 3,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 1,
-          "HCPARSE0048": 1,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 1, "HCPARSE0055": 1 },
         "first_error": {
-          "code": "HCPARSE0024",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ')' after a call argument, but found \"\\\"%s\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"ExePrint\" after a statement comma is not implemented",
           "path": "Kernel/Job.HC",
-          "line": 436,
-          "column": 26
+          "line": 468,
+          "column": 5
         },
         "failure_message": null
       }
@@ -20668,50 +20423,41 @@
       "bytes": 4717,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 48,
-        "errors": 48,
+        "diagnostics": 43,
+        "errors": 43,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 13,
-          "HCPARSE0003": 1,
-          "HCPARSE0046": 3,
           "HCPARSE0048": 21,
           "HCPARSE0050": 5,
-          "HCPARSE0055": 4,
+          "HCPARSE0055": 3,
           "HCPARSE0112": 1
         },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0112",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"kernel_cfg_options\", but found \"\\\"HomeDir\\\\0NoMP\\\\0TextMode\\\\0DontProbe\\\\0MountIDEAuto\\\\0DbgDistro\\\\0Help\\\\0\\\"\"",
+          "message": "expected a primitive, class, or union member type, but found identifier \"CDoc\"",
           "path": "Kernel/KCfg.HC",
-          "line": 4,
-          "column": 1
+          "line": 23,
+          "column": 3
         },
         "failure_message": null
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 12,
-        "errors": 12,
+        "diagnostics": 2,
+        "errors": 2,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 3,
-          "HCPARSE0003": 1,
-          "HCPARSE0046": 3,
-          "HCPARSE0048": 1,
-          "HCPARSE0050": 3,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 2 },
         "first_error": {
-          "code": "HCPARSE0003",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ',' or ';' after global variable \"kernel_cfg_options\", but found \"\\\"HomeDir\\\\0NoMP\\\\0TextMode\\\\0DontProbe\\\\0MountIDEAuto\\\\0DbgDistro\\\\0Help\\\\0\\\"\"",
+          "message": "label or declaration syntax for unresolved identifier \"Mount2\" after a statement comma is not implemented",
           "path": "Kernel/KCfg.HC",
-          "line": 4,
-          "column": 1
+          "line": 46,
+          "column": 3
         },
         "failure_message": null
       }
@@ -20799,17 +20545,16 @@
       "bytes": 14463,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 220,
-        "errors": 220,
+        "diagnostics": 219,
+        "errors": 219,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
-          "HCPARSE0001": 74,
+          "HCPARSE0001": 72,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 67,
+          "HCPARSE0048": 70,
           "HCPARSE0050": 36,
-          "HCPARSE0055": 15,
+          "HCPARSE0055": 14,
           "HCPARSE0147": 26
         },
         "first_error": {
@@ -20824,18 +20569,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 29,
-        "errors": 29,
+        "diagnostics": 5,
+        "errors": 5,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0001": 5,
-          "HCPARSE0046": 1,
-          "HCPARSE0048": 6,
-          "HCPARSE0050": 7,
-          "HCPARSE0055": 4,
-          "HCPARSE0147": 6
-        },
+        "diagnostic_codes": { "HCPARSE0048": 2, "HCPARSE0055": 3 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -20849,7 +20587,7 @@
     },
     {
       "path": "Kernel/KDefine.HC",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 6331,
       "standalone": {
         "status": "parser-diagnostics",
@@ -20874,20 +20612,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 7,
-        "errors": 7,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 6, "HCPARSE0046": 1 },
-        "first_error": {
-          "code": "HCPARSE0046",
-          "severity": "error",
-          "message": "expected ';' after implicit Print statement, but found \"\\\"Undefined Define: '%s'.\\\\n\\\"\"",
-          "path": "Kernel/KDefine.HC",
-          "line": 45,
-          "column": 13
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -22106,13 +21837,12 @@
       "bytes": 9956,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 126,
-        "errors": 126,
+        "diagnostics": 125,
+        "errors": 125,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 76,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 18,
           "HCPARSE0050": 14,
           "HCPARSE0055": 1,
@@ -22131,14 +21861,13 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 29,
-        "errors": 29,
+        "diagnostics": 28,
+        "errors": 28,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 1,
           "HCPARSE0029": 1,
-          "HCPARSE0046": 1,
           "HCPARSE0048": 5,
           "HCPARSE0050": 8,
           "HCPARSE0147": 12,
@@ -22570,15 +22299,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 5,
-        "errors": 5,
+        "diagnostics": 3,
+        "errors": 3,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0046": 2,
-          "HCPARSE0048": 2,
-          "HCPARSE0055": 1
-        },
+        "diagnostic_codes": { "HCPARSE0048": 2, "HCPARSE0055": 1 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -22719,14 +22444,13 @@
       "bytes": 5286,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 97,
-        "errors": 97,
+        "diagnostics": 95,
+        "errors": 95,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 47,
           "HCPARSE0009": 1,
-          "HCPARSE0046": 2,
           "HCPARSE0048": 29,
           "HCPARSE0050": 13,
           "HCPARSE0055": 5
@@ -22743,15 +22467,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 24,
-        "errors": 24,
+        "diagnostics": 20,
+        "errors": 20,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": {
-          "HCPARSE0024": 1,
-          "HCPARSE0046": 3,
-          "HCPARSE0048": 20
-        },
+        "diagnostic_codes": { "HCPARSE0048": 20 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -22786,11 +22506,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 16,
-        "errors": 16,
+        "diagnostics": 12,
+        "errors": 12,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0024": 4, "HCPARSE0048": 12 },
+        "diagnostic_codes": { "HCPARSE0048": 12 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -22808,11 +22528,11 @@
       "bytes": 1151,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 14,
-        "errors": 14,
+        "diagnostics": 13,
+        "errors": 13,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 13 },
+        "diagnostic_codes": { "HCPARSE0048": 13 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",
@@ -22825,11 +22545,11 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 10,
-        "errors": 10,
+        "diagnostics": 9,
+        "errors": 9,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0046": 1, "HCPARSE0048": 9 },
+        "diagnostic_codes": { "HCPARSE0048": 9 },
         "first_error": {
           "code": "HCPARSE0048",
           "severity": "error",

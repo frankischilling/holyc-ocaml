@@ -106,6 +106,13 @@ and expression_literal = {
   literal_spelling : string;
   literal_value : literal_value;
   literal_location : location;
+  literal_segments : expression_literal_segment list;
+}
+
+and expression_literal_segment = {
+  literal_segment_spelling : string;
+  literal_segment_value : string;
+  literal_segment_location : location;
 }
 
 and expression_operator = {
@@ -1048,11 +1055,27 @@ let make_register_qualifier ~kind ~position ~spelling ~explicit_register
     ~location =
   { kind; position; spelling; explicit_register; location }
 
+let make_expression_literal_segment ~spelling ~value ~location =
+  {
+    literal_segment_spelling = spelling;
+    literal_segment_value = value;
+    literal_segment_location = location;
+  }
+
 let make_expression_literal ~spelling ~value ~location =
   {
     literal_spelling = spelling;
     literal_value = value;
     literal_location = location;
+    literal_segments = [];
+  }
+
+let make_segmented_expression_literal ~segments ~spelling ~value ~location =
+  {
+    literal_spelling = spelling;
+    literal_value = value;
+    literal_location = location;
+    literal_segments = segments;
   }
 
 let make_expression_operator ~spelling ~location =

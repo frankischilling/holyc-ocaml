@@ -1065,6 +1065,43 @@ let make_literal token value constructor =
     (Ast.make_expression_literal ~spelling:token.Token.raw ~value
        ~location:(token_location token))
 
+let take_string_literal_sequence cursor : parsed_expression =
+  let rec take_segments segments_rev tokens_rev values_rev spellings_rev =
+    let item = peek cursor in
+    match (item.token.Token.kind, item.token.value) with
+    | Token_kind.String, Token.Bytes value ->
+        let item = take cursor in
+        let segment =
+          Ast.make_expression_literal_segment ~spelling:item.token.raw ~value
+            ~location:(token_location item.token)
+        in
+        take_segments (segment :: segments_rev) (item.token :: tokens_rev)
+          (value :: values_rev)
+          (item.token.raw :: spellings_rev)
+    | _ ->
+        ( List.rev segments_rev,
+          List.rev tokens_rev,
+          String.concat "" (List.rev values_rev),
+          String.concat "" (List.rev spellings_rev) )
+  in
+  let segments, tokens, value, spelling = take_segments [] [] [] [] in
+  match tokens with
+  | [] -> invalid_arg "a string literal sequence needs at least one token"
+  | [ token ] ->
+      {
+        node =
+          make_literal token (Ast.Bytes_value value) (fun literal ->
+              Ast.String_literal literal);
+        tokens;
+      }
+  | _ ->
+      let literal =
+        Ast.make_segmented_expression_literal ~segments ~spelling
+          ~value:(Ast.Bytes_value value)
+          ~location:(location_from_expression_tokens tokens)
+      in
+      { node = Ast.String_literal literal; tokens }
+
 let rebuild_prefix prefix operand =
   let location =
     location_from_locations
@@ -1226,9 +1263,8 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   | Token_kind.Character, Token.Int64 value ->
       take_literal (Ast.Integer_value value) (fun literal ->
           Ast.Character_literal literal)
-  | Token_kind.String, Token.Bytes value ->
-      take_literal (Ast.Bytes_value value) (fun literal ->
-          Ast.String_literal literal)
+  | Token_kind.String, Token.Bytes _ ->
+      Some (take_string_literal_sequence cursor)
   | (Token_kind.Identifier | Token_kind.Keyword _), _
     when token_is_contextual_identifier_operand cursor item.token ->
       let item = take cursor in
@@ -3776,24 +3812,39 @@ let parse_global cursor ~parse_function_definition =
 
 let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let marker_item = peek cursor in
-  let target, marker_value, empty_marker =
+  let target =
     match (marker_item.token.Token.kind, marker_item.token.value) with
-    | Token_kind.String, Token.Bytes value ->
-        ( Ast.Print_target,
-          Ast.Bytes_value value,
-          String.length value = 0 || Char.equal value.[0] '\000' )
+    | Token_kind.String, Token.Bytes _ -> Ast.Print_target
+    | Token_kind.Character, Token.Int64 _ -> Ast.Put_chars_target
+    | _ -> invalid_arg "an implicit output statement needs a literal marker"
+  in
+  let marker_expression =
+    match (marker_item.token.Token.kind, marker_item.token.value) with
+    | Token_kind.String, Token.Bytes _ -> take_string_literal_sequence cursor
     | Token_kind.Character, Token.Int64 value ->
-        (Ast.Put_chars_target, Ast.Integer_value value, Int64.equal value 0L)
+        let item = take cursor in
+        {
+          node =
+            make_literal item.token (Ast.Integer_value value) (fun literal ->
+                Ast.Character_literal literal);
+          tokens = [ item.token ];
+        }
     | _ -> invalid_arg "an implicit output statement needs a literal marker"
   in
   let marker =
-    Ast.make_expression_literal ~spelling:marker_item.token.raw
-      ~value:marker_value
-      ~location:(token_location marker_item.token)
+    match marker_expression.node with
+    | Ast.String_literal literal | Ast.Character_literal literal -> literal
+    | _ -> invalid_arg "an implicit output marker must remain a literal"
+  in
+  let empty_marker =
+    match marker.literal_value with
+    | Ast.Bytes_value value ->
+        String.length value = 0 || Char.equal value.[0] '\000'
+    | Ast.Integer_value value -> Int64.equal value 0L
+    | Ast.Float_value _ -> false
   in
   let fixed_argument =
-    if empty_marker then (
-      ignore (take cursor);
+    if empty_marker then
       let next_item = peek cursor in
       match next_item.token.kind with
       | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
@@ -3814,10 +3865,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             ~depth:0 ~minimum_binding_power:0
           |> Option.map (fun (expression : parsed_expression) ->
               ( Ast.Expression_fixed_argument expression.node,
-                marker_item.token :: expression.tokens )))
+                marker_expression.tokens @ expression.tokens ))
     else
-      parse_expression cursor ~context:Implicit_output_argument_expression
-        ~depth:0 ~minimum_binding_power:0
+      parse_expression_tail cursor ~context:Implicit_output_argument_expression
+        ~depth:0 ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
+        marker_expression
       |> Option.map (fun (expression : parsed_expression) ->
           (Ast.Marker_fixed_argument expression.node, expression.tokens))
   in

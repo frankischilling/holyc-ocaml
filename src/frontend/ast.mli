@@ -111,6 +111,13 @@ and expression_literal = private {
   literal_spelling : string;
   literal_value : literal_value;
   literal_location : location;
+  literal_segments : expression_literal_segment list;
+}
+
+and expression_literal_segment = private {
+  literal_segment_spelling : string;
+  literal_segment_value : string;
+  literal_segment_location : location;
 }
 
 and expression_operator = private {
@@ -1052,6 +1059,19 @@ val make_expression_literal :
   value:literal_value ->
   location:location ->
   expression_literal
+
+val make_segmented_expression_literal :
+  segments:expression_literal_segment list ->
+  spelling:string ->
+  value:literal_value ->
+  location:location ->
+  expression_literal
+
+val make_expression_literal_segment :
+  spelling:string ->
+  value:string ->
+  location:location ->
+  expression_literal_segment
 
 val make_expression_operator :
   spelling:string -> location:location -> expression_operator

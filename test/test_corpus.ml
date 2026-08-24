@@ -487,25 +487,25 @@ let pinned_parser_reference () =
     "compilation mode" "aot"
     (Preprocessor.compilation_mode_name (Corpus.Parse.compilation_mode report));
   Alcotest.(check int) "source count" 528 (Corpus.Parse.file_count report);
-  Alcotest.(check int) "parsed count" 21 (Corpus.Parse.parses_count report);
+  Alcotest.(check int) "parsed count" 23 (Corpus.Parse.parses_count report);
   Alcotest.(check int)
     "frontend failures" 17
     (Corpus.Parse.frontend_diagnostic_count report);
   Alcotest.(check int)
-    "parser failures" 490
+    "parser failures" 488
     (Corpus.Parse.parser_diagnostic_count report);
   Alcotest.(check int) "read errors" 0 (Corpus.Parse.read_error_count report);
   Alcotest.(check int)
     "internal errors" 0
     (Corpus.Parse.internal_error_count report);
-  Alcotest.(check int) "failure count" 507 (Corpus.Parse.failure_count report);
+  Alcotest.(check int) "failure count" 505 (Corpus.Parse.failure_count report);
   Alcotest.(check int64)
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_183
+    "diagnostics" 37_083
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_183 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_083 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -524,26 +524,26 @@ let pinned_parser_reference () =
     "prelude diagnostics" 29
     (Corpus.Parse.Comparison.prelude_diagnostic_count comparison);
   Alcotest.(check int)
-    "both parse" 21
+    "both parse" 23
     (Corpus.Parse.Comparison.both_parse_count comparison);
   Alcotest.(check int)
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 82
+    "prelude only" 94
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 425
+    "neither parses" 411
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 103 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 117 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 63
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 362
+    "prelude parser failures" 348
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 15_546
+    "prelude diagnostics" 15_279
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0

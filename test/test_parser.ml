@@ -12939,6 +12939,23 @@ let declarations_update_symbol_conditionals () =
        ast.items)
 
 let implicit_output_source_behavior () =
+  let lexer_library = pinned "Compiler/LexLib.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains lexer_library fragment))
+    [
+      ("LexExtStr consumes a string run", "while (cc->token==TK_STR)");
+      ("LexExtStr removes the prior terminator", "len=len1+len2-1;");
+      ("LexExtStr appends the next bytes", "MemCpy(st+len1-1,st2,len2);");
+    ];
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "string constants use LexExtStr" true
+    (contains expression_parser "cm->str=LexExtStr(cc,&cm->st_len);");
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  Alcotest.(check bool)
+    "global string initializers use LexExtStr" true
+    (contains variable_parser "machine_code=LexExtStr(cc,&i);");
   let statement_parser =
     pinned "Compiler/PrsStmt.HC"
     |> String.split_on_char '\r' |> String.concat ""
@@ -12987,6 +13004,219 @@ let implicit_output_source_behavior () =
   Alcotest.(check bool)
     "PutChars prototype is pinned" true
     (contains headers "extern U0 PutChars(U64 ch);")
+
+let check_combined_string ~description ~value ~segments
+    (literal : Ast.expression_literal) =
+  Alcotest.(check string)
+    (description ^ " combined bytes")
+    value
+    (expect_bytes_value literal);
+  Alcotest.(check (list string))
+    (description ^ " segment bytes")
+    segments
+    (List.map
+       (fun (segment : Ast.expression_literal_segment) ->
+         segment.literal_segment_value)
+       literal.literal_segments);
+  Alcotest.(check int)
+    (description ^ " source segment count")
+    (List.length segments)
+    (List.length literal.literal_location.source_segments)
+
+let adjacent_string_expression_contexts_and_modes () =
+  let source =
+    "extern U0 Sink(U8 *value,...);\n\
+     U8 *message=\"left\" \" right\";\n\
+     Sink(\"call\" \" argument\");\n\
+     \"\" \"ready\";"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Function_prototype _;
+       Ast.Global_declaration declaration;
+       Ast.Top_level_statement (Ast.Expression_statement call_statement);
+       Ast.Top_level_statement (Ast.Implicit_output_statement output_statement);
+      ] ->
+          let global_literal =
+            List.hd declaration.declarators |> expect_global_initial_value
+            |> fun initial_value ->
+            expect_scalar_initial_value initial_value.global_initializer_value
+            |> expect_string_literal
+          in
+          check_combined_string ~description:"global initializer"
+            ~value:"left right" ~segments:[ "left"; " right" ] global_literal;
+          let call =
+            call_statement.expression_statement_expression
+            |> expect_call_expression
+          in
+          let call_literal =
+            List.hd call.call_arguments
+            |> expect_provided_call_argument |> expect_string_literal
+          in
+          check_combined_string ~description:"call argument"
+            ~value:"call argument" ~segments:[ "call"; " argument" ]
+            call_literal;
+          check_combined_string ~description:"implicit output marker"
+            ~value:"ready" ~segments:[ ""; "ready" ] output_statement.marker;
+          ignore
+            (expect_marker_fixed_argument output_statement
+            |> expect_string_literal)
+      | items ->
+          Alcotest.failf "expected a prototype and three contexts, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let adjacent_string_token_boundaries () =
+  let source =
+    "extern U0 Sink(U8 *first,U8 *second);\n\
+     Sink(\"a\",\"b\");\n\
+     U8 *separate=\"a\"+\"b\";"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Function_prototype _;
+   Ast.Top_level_statement (Ast.Expression_statement call_statement);
+   Ast.Global_declaration declaration;
+  ] ->
+      let call =
+        call_statement.expression_statement_expression |> expect_call_expression
+      in
+      Alcotest.(check int)
+        "a comma keeps two arguments" 2
+        (List.length call.call_arguments);
+      List.iter
+        (fun argument ->
+          let literal =
+            expect_provided_call_argument argument |> expect_string_literal
+          in
+          Alcotest.(check int)
+            "a comma-delimited string has no combined segments" 0
+            (List.length literal.literal_segments))
+        call.call_arguments;
+      let binary =
+        List.hd declaration.declarators |> expect_global_initial_value
+        |> fun initial_value ->
+        expect_scalar_initial_value initial_value.global_initializer_value
+        |> expect_binary_expression
+      in
+      List.iter
+        (fun expression ->
+          let literal = expect_string_literal expression in
+          Alcotest.(check int)
+            "an operator-delimited string has no combined segments" 0
+            (List.length literal.literal_segments))
+        [ binary.binary_left; binary.binary_right ]
+  | items ->
+      Alcotest.failf "expected a prototype, call, and global, got %d items"
+        (List.length items)
+
+let pinned_adjacent_string_contexts () =
+  let fixtures =
+    [
+      ( "global initializer in DocWidgetWiz.HC",
+        pinned_lines "Adam/DolDoc/DocWidgetWiz.HC" ~first:3 ~last:5 );
+      ( "global initializer in KCfg.HC",
+        pinned_lines "Kernel/KCfg.HC" ~first:3 ~last:4 );
+      ( "call argument in DocInit.HC",
+        "extern U0 DefineLstLoad(U8 *name,U8 *values);\nU0 Slice(){\n"
+        ^ pinned_lines "Adam/DolDoc/DocInit.HC" ~first:9 ~last:12
+        ^ "\n}" );
+      ( "implicit output in DskChk.HC",
+        "U0 Slice(){\n"
+        ^ pinned_lines "Adam/ABlkDev/DskChk.HC" ~first:224 ~last:227
+        ^ "\n}" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (description, source) ->
+          let _, _, output = parse_string ~compilation_mode:mode source in
+          ignore (expect_ast output);
+          Alcotest.(check (list string))
+            (description ^ " diagnostics")
+            []
+            (List.map
+               (fun diagnostic -> diagnostic.Diagnostic.code)
+               output.diagnostics))
+        fixtures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let adjacent_string_provenance_and_dumps () =
+  let session, root, output =
+    parse_string "#define LEFT \"left\"\n#define RIGHT \"right\"\nLEFT RIGHT;"
+  in
+  let statement = expect_ast output |> expect_one_implicit_output in
+  check_combined_string ~description:"definition-backed marker"
+    ~value:"leftright" ~segments:[ "left"; "right" ] statement.marker;
+  List.iter
+    (fun (segment : Ast.expression_literal_segment) ->
+      Alcotest.(check bool)
+        "definition segment uses generated source" false
+        (Source_id.equal segment.literal_segment_location.span.source
+           (Source_file.id root));
+      Alcotest.(check bool)
+        "definition segment keeps invocation provenance" true
+        (Option.is_some segment.literal_segment_location.generated_from);
+      Alcotest.(check bool)
+        "definition segment keeps definition provenance" true
+        (Option.is_some segment.literal_segment_location.defined_at))
+    statement.marker.literal_segments;
+  let sources = Session.sources session in
+  let ast = expect_ast output in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump lists physical segments" true
+    (contains human "segment index=1 spelling=\"\\\"right\\\"\"");
+  let open Yojson.Safe.Util in
+  let marker_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement" |> member "marker"
+  in
+  Alcotest.(check int)
+    "JSON lists both physical segments" 2
+    (marker_json |> member "segments" |> to_list |> List.length);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let strings_file = Filename.concat directory "strings.HC" in
+      write_file root_file "#include \"strings\"";
+      write_file strings_file "\"in\" \"cluded\";";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:include_source
+      in
+      let included = expect_ast include_output |> expect_one_implicit_output in
+      check_combined_string ~description:"included marker" ~value:"included"
+        ~segments:[ "in"; "cluded" ] included.marker;
+      List.iter
+        (fun (segment : Ast.expression_literal_segment) ->
+          let segment_source =
+            Source_manager.find
+              (Session.sources include_session)
+              segment.literal_segment_location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included segment keeps its canonical path"
+            (Unix.realpath strings_file)
+            (Source_file.path segment_source))
+        included.marker.literal_segments)
 
 let implicit_output_shapes () =
   let source =
@@ -19185,6 +19415,14 @@ let tests =
       deterministic_lastclass_dumps;
     Alcotest.test_case "pinned implicit output behavior" `Quick
       implicit_output_source_behavior;
+    Alcotest.test_case "adjacent string expression contexts" `Quick
+      adjacent_string_expression_contexts_and_modes;
+    Alcotest.test_case "adjacent string token boundaries" `Quick
+      adjacent_string_token_boundaries;
+    Alcotest.test_case "pinned adjacent string contexts" `Quick
+      pinned_adjacent_string_contexts;
+    Alcotest.test_case "adjacent string provenance and dumps" `Quick
+      adjacent_string_provenance_and_dumps;
     Alcotest.test_case "implicit output shapes" `Quick implicit_output_shapes;
     Alcotest.test_case "implicit output fixed expressions" `Quick
       implicit_output_fixed_expressions;

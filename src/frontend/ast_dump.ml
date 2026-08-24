@@ -534,7 +534,15 @@ and print_literal buffer sources ~indent ~kind
   Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S span=%s\n"
     indent kind literal.literal_spelling
     (literal_value_text literal.literal_value)
-    (location_text sources literal.literal_location)
+    (location_text sources literal.literal_location);
+  List.iteri
+    (fun index (segment : Ast.expression_literal_segment) ->
+      Printf.bprintf buffer
+        "%s  segment index=%d spelling=%S value=%S span=%s\n" indent index
+        segment.literal_segment_spelling
+        (escaped_bytes segment.literal_segment_value)
+        (location_text sources segment.literal_segment_location))
+    literal.literal_segments
 
 and print_expression_operator buffer sources ~indent
     (operator : Ast.expression_operator) =
@@ -1761,12 +1769,31 @@ let literal_value_to_yojson = function
 
 let literal_to_yojson sources ~kind (literal : Ast.expression_literal) =
   `Assoc
-    [
-      ("kind", `String kind);
-      ("spelling", `String literal.literal_spelling);
-      ("value", literal_value_to_yojson literal.literal_value);
-      ("location", location_to_yojson sources literal.literal_location);
-    ]
+    ([
+       ("kind", `String kind);
+       ("spelling", `String literal.literal_spelling);
+       ("value", literal_value_to_yojson literal.literal_value);
+       ("location", location_to_yojson sources literal.literal_location);
+     ]
+    @
+    if literal.literal_segments = [] then []
+    else
+      [
+        ( "segments",
+          `List
+            (List.map
+               (fun (segment : Ast.expression_literal_segment) ->
+                 `Assoc
+                   [
+                     ("spelling", `String segment.literal_segment_spelling);
+                     ( "value",
+                       `String (escaped_bytes segment.literal_segment_value) );
+                     ( "location",
+                       location_to_yojson sources
+                         segment.literal_segment_location );
+                   ])
+               literal.literal_segments) );
+      ])
 
 let expression_operator_to_yojson sources (operator : Ast.expression_operator) =
   `Assoc
