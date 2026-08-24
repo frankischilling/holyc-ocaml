@@ -890,6 +890,9 @@ let rec initial_value state = function
   | Frontend.Ast.Scalar_initializer value -> expression state value
   | Frontend.Ast.Braced_initializer braced ->
       fold_result initializer_element state braced.initializer_elements
+  | Frontend.Ast.Unbraced_array_initializer unbraced ->
+      fold_result initializer_element state
+        unbraced.unbraced_initializer_elements
 
 and initializer_element state (element : Frontend.Ast.initializer_element) =
   initial_value state element.initializer_element_value

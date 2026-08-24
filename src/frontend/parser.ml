@@ -205,6 +205,7 @@ let max_try_depth = 256
 let max_switch_depth = 256
 let max_aggregate_depth = 256
 let max_initializer_depth = 256
+let max_unbraced_initializer_elements = 1_000_000
 
 let resolve_assembly_opcode token =
   match token.Token.kind with
@@ -2591,15 +2592,129 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
   in
   parse_elements [] []
 
-let parse_global_initializer cursor =
+and parse_unbraced_array_initializer cursor ~declarator_context ~depth
+    ~allow_closing_brace ~dimensions : parsed_initializer option =
+  let item = peek cursor in
+  let count =
+    match dimensions with
+    | [] -> None
+    | (dimension : Ast.array_dimension) :: _ -> (
+        match dimension.dimension_expression with
+        | Some
+            (Ast.Integer_literal { literal_value = Ast.Integer_value value; _ })
+          when Int64.compare value 0L > 0
+               && Int64.compare value
+                    (Int64.of_int max_unbraced_initializer_elements)
+                  <= 0 -> Some (Int64.to_int value)
+        | None | Some _ -> None)
+  in
+  match count with
+  | None ->
+      initializer_failure cursor ~declarator_context item
+        ~local_open_braces:depth ~global_code:"HCPARSE0159"
+        ~local_code:"HCPARSE0159"
+        ~global_message:
+          (Printf.sprintf
+             "an unbraced global array initializer requires a positive, \
+              definition-expanded literal bound no larger than %d"
+             max_unbraced_initializer_elements)
+        ~local_message:
+          "unbraced static local array initializers are not implemented"
+  | Some count ->
+      let remaining_dimensions = List.tl dimensions in
+      let rec parse_elements index elements_rev token_groups_rev =
+        if index = count then
+          let closing_brace, closing_tokens =
+            let closing_item = peek cursor in
+            if
+              allow_closing_brace
+              && closing_item.token.kind = Token_kind.Punctuation '}'
+            then
+              let closing_item = take cursor in
+              (Some (token_location closing_item.token), [ closing_item.token ])
+            else (None, [])
+          in
+          let element_tokens = List.rev token_groups_rev |> List.concat in
+          let tokens = element_tokens @ closing_tokens in
+          let node =
+            Ast.make_unbraced_array_initializer
+              ~elements:(List.rev elements_rev) ~closing_brace
+              ~location:(location_from_expression_tokens tokens)
+            |> fun unbraced -> Ast.Unbraced_array_initializer unbraced
+          in
+          Some ({ node; tokens } : parsed_initializer)
+        else
+          let parsed_value =
+            match remaining_dimensions with
+            | [] ->
+                parse_initializer_value cursor ~declarator_context
+                  ~depth:(depth + 1)
+            | dimensions ->
+                let next_item = peek cursor in
+                if next_item.token.kind = Token_kind.Punctuation '{' then
+                  parse_braced_initializer cursor ~declarator_context
+                    ~depth:(depth + 1)
+                else
+                  parse_unbraced_array_initializer cursor ~declarator_context
+                    ~depth:(depth + 1) ~allow_closing_brace:false ~dimensions
+          in
+          match parsed_value with
+          | None -> None
+          | Some value ->
+              let needs_comma = index + 1 < count in
+              let following_item = peek cursor in
+              let comma, element_tokens =
+                if needs_comma then
+                  if following_item.token.kind = Token_kind.Punctuation ',' then
+                    let comma_item = take cursor in
+                    ( Some (token_location comma_item.token),
+                      value.tokens @ [ comma_item.token ] )
+                  else (None, [])
+                else (None, value.tokens)
+              in
+              if element_tokens = [] then
+                initializer_failure cursor ~declarator_context following_item
+                  ~local_open_braces:depth ~global_code:"HCPARSE0160"
+                  ~local_code:"HCPARSE0160"
+                  ~global_message:
+                    (Printf.sprintf
+                       "expected ',' after element %d of an unbraced global \
+                        array initializer, but found %s"
+                       (index + 1)
+                       (token_description following_item.token))
+                  ~local_message:
+                    "unbraced static local array initializers are not \
+                     implemented"
+              else
+                let element =
+                  Ast.make_initializer_element ~value:value.node ~comma
+                    ~location:(location_from_expression_tokens element_tokens)
+                in
+                parse_elements (index + 1) (element :: elements_rev)
+                  (element_tokens :: token_groups_rev)
+      in
+      parse_elements 0 [] []
+
+let parse_global_initializer cursor ~array_dimensions =
   let equals_item = peek cursor in
   if equals_item.token.kind <> Token_kind.Punctuation '=' then Some (None, [])
   else
     let equals_item = take cursor in
-    match
-      parse_initializer_value cursor
-        ~declarator_context:Global_initializer_declarator ~depth:0
-    with
+    let value =
+      let first_item = peek cursor in
+      if
+        array_dimensions <> []
+        && first_item.token.kind <> Token_kind.Punctuation '{'
+        && first_item.token.kind <> Token_kind.String
+      then
+        parse_unbraced_array_initializer cursor
+          ~declarator_context:Global_initializer_declarator ~depth:0
+          ~allow_closing_brace:true ~dimensions:array_dimensions
+      else
+        parse_initializer_value cursor
+          ~declarator_context:Global_initializer_declarator ~depth:0
+    in
+    match value with
     | None -> None
     | Some value ->
         let tokens = equals_item.token :: value.tokens in
@@ -2615,7 +2730,7 @@ let parse_variable_declarator_suffix cursor prefix =
   match parse_array_dimensions cursor 0 [] [] with
   | None -> None
   | Some (array_dimensions, array_tokens) ->
-      Option.bind (parse_global_initializer cursor)
+      Option.bind (parse_global_initializer cursor ~array_dimensions)
         (fun (initial_value, initializer_tokens) ->
           let delimiter_item = peek cursor in
           match delimiter_kind delimiter_item.token with

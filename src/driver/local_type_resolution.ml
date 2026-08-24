@@ -690,6 +690,8 @@ let initializer_fact (initial_value : Frontend.Ast.local_initializer) =
         Sema.Local_type_resolution.Scalar_initializer
     | Frontend.Ast.Braced_initializer _ ->
         Sema.Local_type_resolution.Braced_initializer
+    | Frontend.Ast.Unbraced_array_initializer _ ->
+        Sema.Local_type_resolution.Braced_initializer
   in
   Sema.Local_type_resolution.make_initializer ~kind
     ~origin:(origin initial_value.local_initializer_location)

@@ -47,8 +47,8 @@
     "files": 528,
     "both_parse": 24,
     "standalone_only": 0,
-    "project_prelude_only": 97,
-    "neither_parses": 407,
+    "project_prelude_only": 98,
+    "neither_parses": 406,
     "standalone": {
       "parses": 24,
       "frontend_diagnostics": 17,
@@ -92,21 +92,20 @@
       }
     },
     "project_prelude": {
-      "parses": 121,
+      "parses": 122,
       "frontend_diagnostics": 30,
-      "parser_diagnostics": 377,
+      "parser_diagnostics": 376,
       "read_errors": 0,
       "internal_errors": 0,
-      "failed": 407,
+      "failed": 406,
       "unresolved_name_failures": 369,
-      "other_failures": 38,
-      "diagnostics": 21021,
-      "errors": 21021,
+      "other_failures": 37,
+      "diagnostics": 21019,
+      "errors": 21019,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
         "HCPARSE0001": 3896,
-        "HCPARSE0002": 2,
         "HCPARSE0003": 15,
         "HCPARSE0009": 29,
         "HCPARSE0018": 14,
@@ -2035,7 +2034,7 @@
     {
       "path": "Adam/DolDoc/DocHighlight.HC",
       "effective_project_directory": "Adam/DolDoc",
-      "comparison": "neither-parses",
+      "comparison": "project-prelude-only",
       "bytes": 4239,
       "standalone": {
         "status": "parser-diagnostics",
@@ -2061,20 +2060,13 @@
         "failure_message": null
       },
       "project_prelude": {
-        "status": "parser-diagnostics",
-        "diagnostics": 1,
-        "errors": 1,
+        "status": "parses",
+        "diagnostics": 0,
+        "errors": 0,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0002": 1 },
-        "first_error": {
-          "code": "HCPARSE0002",
-          "severity": "error",
-          "message": "expected an identifier after type \"CColorROPU32\", but found \"0\"",
-          "path": "Adam/DolDoc/DocHighlight.HC",
-          "line": 4,
-          "column": 27
-        },
+        "diagnostic_codes": {},
+        "first_error": null,
         "failure_message": null
       }
     },
@@ -2795,13 +2787,12 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 1537,
-        "errors": 1537,
+        "diagnostics": 1536,
+        "errors": 1536,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
           "HCPARSE0001": 236,
-          "HCPARSE0002": 1,
           "HCPARSE0003": 9,
           "HCPARSE0009": 2,
           "HCPARSE0020": 5,

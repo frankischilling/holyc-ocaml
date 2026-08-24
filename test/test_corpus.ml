@@ -594,20 +594,20 @@ let pinned_parser_reference () =
     "standalone only" 0
     (Corpus.Parse.Comparison.standalone_only_count comparison);
   Alcotest.(check int)
-    "prelude only" 97
+    "prelude only" 98
     (Corpus.Parse.Comparison.project_prelude_only_count comparison);
   Alcotest.(check int)
-    "neither parses" 407
+    "neither parses" 406
     (Corpus.Parse.Comparison.neither_parses_count comparison);
-  Alcotest.(check int) "prelude parses" 121 (Corpus.Parse.parses_count prelude);
+  Alcotest.(check int) "prelude parses" 122 (Corpus.Parse.parses_count prelude);
   Alcotest.(check int)
     "prelude frontend failures" 30
     (Corpus.Parse.frontend_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude parser failures" 377
+    "prelude parser failures" 376
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 21_021
+    "prelude diagnostics" 21_019
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -647,6 +647,10 @@ let pinned_parser_reference () =
         true
         ((parse_file prelude path).status = Corpus.Parse.Parses))
     [ "Demo/AcctExample/TOS/TOSExt.HC"; "Kernel/KMisc.HC" ];
+  let doc_highlight = parse_file prelude "Adam/DolDoc/DocHighlight.HC" in
+  Alcotest.(check bool)
+    "DocHighlight accepts its unbraced fixed-array initializer" true
+    (doc_highlight.status = Corpus.Parse.Parses);
   let make_tos = parse_file prelude "Demo/AcctExample/TOS/MakeTOS.HC" in
   (match make_tos.first_error with
   | Some diagnostic ->

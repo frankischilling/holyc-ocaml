@@ -586,6 +586,14 @@ let rec record_initializer state ~declaration_index ~declarator_index path =
              record_initializer state ~declaration_index ~declarator_index
                (path @ [ index ]) element.initializer_element_value)
            state
+  | Frontend.Ast.Unbraced_array_initializer unbraced ->
+      unbraced.unbraced_initializer_elements
+      |> List.mapi (fun index element -> (index, element))
+      |> fold_result
+           (fun state (index, (element : Frontend.Ast.initializer_element)) ->
+             record_initializer state ~declaration_index ~declarator_index
+               (path @ [ index ]) element.initializer_element_value)
+           state
 
 let record_local_declaration state
     (declaration : Frontend.Ast.local_declaration) =

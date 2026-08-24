@@ -242,7 +242,8 @@ let self_and_comma_source_order () =
 let prior_module_and_nested_paths () =
   let prepared =
     prepare ~path:"global-initializer-nested.HC"
-      "I64 First=1;I64 Values[4]={First,{Outer,First},Outer};"
+      "I64 First=1;I64 Values[4]={First,{Outer,First},Outer};I64 \
+       Unbraced[2]=First,Outer;"
   in
   let outer =
     jit_environment prepared
@@ -261,7 +262,14 @@ let prior_module_and_nested_paths () =
       ("First", "module:global-variable:First", "1.1");
       ("Outer", "outer:jit-task-0:global-variable:Outer", "2");
     ]
-    (signature (occurrences result "Values"))
+    (signature (occurrences result "Values"));
+  Alcotest.(check (list (triple string string string)))
+    "unbraced array paths"
+    [
+      ("First", "module:global-variable:First", "0");
+      ("Outer", "outer:jit-task-0:global-variable:Outer", "1");
+    ]
+    (signature (occurrences result "Unbraced"))
 
 let mode_specific_outer_chains () =
   let check mode expected_near =

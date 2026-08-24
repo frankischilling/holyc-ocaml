@@ -291,11 +291,18 @@ let expect_global_initial_value (declarator : Ast.global_declarator) =
 
 let expect_scalar_initial_value = function
   | Ast.Scalar_initializer expression -> expression
-  | Ast.Braced_initializer _ -> Alcotest.fail "expected a scalar initializer"
+  | Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _ ->
+      Alcotest.fail "expected a scalar initializer"
 
 let expect_braced_initial_value = function
   | Ast.Braced_initializer braced -> braced
-  | Ast.Scalar_initializer _ -> Alcotest.fail "expected a braced initializer"
+  | Ast.Scalar_initializer _ | Ast.Unbraced_array_initializer _ ->
+      Alcotest.fail "expected a braced initializer"
+
+let expect_unbraced_array_initial_value = function
+  | Ast.Unbraced_array_initializer unbraced -> unbraced
+  | Ast.Scalar_initializer _ | Ast.Braced_initializer _ ->
+      Alcotest.fail "expected an unbraced array initializer"
 
 let expect_binary_expression = function
   | Ast.Binary_expression binary -> binary
@@ -2433,6 +2440,9 @@ let aggregate_global_source_behavior () =
     [
       ("initializer parser entry", "U0 PrsVarInit(");
       ("recursive initializer entry", "U0 PrsVarInit2(");
+      ("array opening brace is optional", "if (cc->token=='{') {");
+      ("fixed arrays read the declared count", "for (i=0;i<tmpad1->cnt;i++)");
+      ("an unmatched closing brace is accepted", "if (cc->token=='}')");
       ("aggregate values require a brace", "if (cc->token!='{')");
       ("global initializer wrapper", "U0 PrsGlblInit(");
     ];
@@ -2444,6 +2454,8 @@ let aggregate_global_source_behavior () =
       ("Adam/WallPaper.HC", "} *wall=CAlloc(sizeof(CWallPaperGlbls));");
       ("Demo/RadixSort.HC", "} l[N],*r[RADIX];");
       ("Demo/Games/Talons.HC", "} *panel_head,*panels[MAP_HEIGHT][MAP_WIDTH];");
+      ( "Adam/DolDoc/DocHighlight.HC",
+        "CColorROPU32 highlight_hash_type_colors[HTt_TYPES_NUM]=" );
     ]
 
 let pinned_cinit_attached_global () =
@@ -2622,6 +2634,176 @@ let aggregate_global_provenance_and_dumps () =
   Alcotest.(check bool)
     "JSON generated brace retains provenance" true
     (initial_value |> member "opening_brace" |> member "generated_from" <> `Null)
+
+let unbraced_fixed_array_initializers () =
+  let values_of unbraced =
+    unbraced.Ast.unbraced_initializer_elements
+    |> List.map (fun (element : Ast.initializer_element) ->
+        element.initializer_element_value |> expect_scalar_initial_value
+        |> expect_integer_expression)
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~compilation_mode "I64 values[3]=1,2,3}; I64 following;"
+      in
+      match (expect_ast output).items with
+      | [ Ast.Global_declaration declaration; Ast.Global_variable following ] ->
+          let declarator = List.hd declaration.declarators in
+          let unbraced =
+            expect_global_initial_value declarator |> fun initial ->
+            expect_unbraced_array_initial_value initial.global_initializer_value
+          in
+          Alcotest.(check (list int64))
+            "fixed elements" [ 1L; 2L; 3L ] (values_of unbraced);
+          Alcotest.(check bool)
+            "written closing brace remains present" true
+            (Option.is_some unbraced.unbraced_initializer_closing_brace);
+          Alcotest.(check string)
+            "following declaration remains available" "following"
+            following.name.spelling
+      | items ->
+          Alcotest.failf "unbraced fixed array produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, no_closing_output = parse_string "I64 values[2]=1,2;" in
+  let no_closing =
+    expect_ast no_closing_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  Alcotest.(check bool)
+    "unwritten closing brace remains absent" true
+    (Option.is_none no_closing.unbraced_initializer_closing_brace);
+  let _, _, grouped_output = parse_string "I64 values[2]=1,2}, following;" in
+  let grouped = expect_ast grouped_output |> expect_one_declaration in
+  Alcotest.(check (list string))
+    "declarator comma follows the fixed element count" [ "values"; "following" ]
+    (List.map
+       (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+       grouped.declarators);
+  let _, _, matrix_output = parse_string "I64 matrix[2][2]=1,2,3,4;" in
+  let matrix =
+    expect_ast matrix_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  let rows =
+    matrix.unbraced_initializer_elements
+    |> List.map (fun (element : Ast.initializer_element) ->
+        expect_unbraced_array_initial_value element.initializer_element_value)
+  in
+  Alcotest.(check (list (list int64)))
+    "multidimensional shape"
+    [ [ 1L; 2L ]; [ 3L; 4L ] ]
+    (List.map values_of rows);
+  let pinned_table =
+    "class CColorROPU32 {};\n#define HTt_TYPES_NUM 17\n"
+    ^ pinned_lines "Adam/DolDoc/DocHighlight.HC" ~first:3 ~last:7
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode pinned_table in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition _; Ast.Global_declaration declaration ] ->
+          let table = List.hd declaration.declarators in
+          let unbraced =
+            expect_global_initial_value table |> fun initial ->
+            expect_unbraced_array_initial_value initial.global_initializer_value
+          in
+          Alcotest.(check string)
+            "pinned table name" "highlight_hash_type_colors" table.name.spelling;
+          Alcotest.(check int)
+            "pinned table element count" 17
+            (List.length unbraced.unbraced_initializer_elements)
+      | items ->
+          Alcotest.failf "pinned unbraced table produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated_session, generated_root, generated_output =
+    parse_string "#define VALUES 1,2}\nI64 generated[2]=VALUES;"
+  in
+  let generated =
+    expect_ast generated_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  let closing = generated.unbraced_initializer_closing_brace |> Option.get in
+  Alcotest.(check bool)
+    "generated closing brace leaves the root source" false
+    (Source_id.equal closing.span.source (Source_file.id generated_root));
+  Alcotest.(check bool)
+    "generated closing brace keeps invocation provenance" true
+    (Option.is_some closing.generated_from);
+  Alcotest.(check bool)
+    "generated closing brace keeps definition provenance" true
+    (Option.is_some closing.defined_at);
+  let ast = expect_ast generated_output in
+  let sources = Session.sources generated_session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check bool)
+    "human dump identifies the source form" true
+    (contains human "value kind=unbraced_array");
+  let open Yojson.Safe.Util in
+  let json_value =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "declarators" |> to_list |> List.hd |> member "initializer"
+    |> member "value"
+  in
+  Alcotest.(check string)
+    "JSON initializer kind" "unbraced_array"
+    (json_value |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON has no invented opening brace" true
+    (json_value |> member "opening_brace" = `Null);
+  Alcotest.(check string)
+    "unbraced human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "unbraced JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "values.HC" in
+      write_file root_file "#include \"values\"";
+      write_file declaration_file "I64 included[2]=1,2};";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      let unbraced =
+        expect_ast output |> expect_one_declaration |> fun declaration ->
+        List.hd declaration.declarators |> expect_global_initial_value
+        |> fun initial ->
+        expect_unbraced_array_initial_value initial.global_initializer_value
+      in
+      let included_source =
+        Source_manager.find (Session.sources session)
+          unbraced.unbraced_initializer_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included initializer keeps its canonical source"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source));
+  List.iter
+    (fun (description, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string) description code (first_diagnostic output).code)
+    [
+      ("unsupported bound", "I64 values[Count]=1;", "HCPARSE0159");
+      ("zero bound", "I64 values[0]=1;", "HCPARSE0159");
+      ("missing element", "I64 values[2]=1;", "HCPARSE0160");
+      ("extra element", "I64 values[2]=1,2,3;", "HCPARSE0002");
+    ]
 
 let global_initializer_failures () =
   List.iter
@@ -12697,7 +12879,7 @@ let local_initializer_value (declarator : Ast.local_declarator) =
   | Some initial_value -> (
       match initial_value.local_initializer_value with
       | Ast.Scalar_initializer expression -> expression
-      | Ast.Braced_initializer _ ->
+      | Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _ ->
           Alcotest.failf "expected a scalar initializer for %s"
             declarator.local_name.spelling)
   | None ->
@@ -19914,6 +20096,8 @@ let tests =
       aggregate_global_streaming_visibility;
     Alcotest.test_case "aggregate global provenance and dumps" `Quick
       aggregate_global_provenance_and_dumps;
+    Alcotest.test_case "unbraced fixed-array initializers" `Quick
+      unbraced_fixed_array_initializers;
     Alcotest.test_case "global initializer failures" `Quick
       global_initializer_failures;
     Alcotest.test_case "direct aggregate definitions" `Quick
