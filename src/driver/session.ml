@@ -6,6 +6,7 @@ type t = {
 }
 
 module Symbol_visibility = Frontend.Symbol_visibility
+module Definition = Frontend.Definition
 
 let add_pinned symbols ~name ~kind ~path ~line =
   ignore
@@ -78,6 +79,18 @@ let create () =
     sources = Common.Source_manager.create ();
     definitions = Frontend.Definition.Environment.create ();
     symbols;
+    semantic_symbols;
+  }
+
+let fork_frontend session =
+  let semantic_symbols =
+    Sema.Symbol_table.create ~root_name:"session-task" ()
+  in
+  seed_semantic_symbols semantic_symbols;
+  {
+    sources = session.sources;
+    definitions = Definition.Environment.copy session.definitions;
+    symbols = Symbol_visibility.Environment.copy session.symbols;
     semantic_symbols;
   }
 

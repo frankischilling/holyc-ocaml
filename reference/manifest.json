@@ -13,17 +13,31 @@
     "trailing_payload_bytes": 1266852
   },
   "parser_corpus": {
-    "schema": "holyc-corpus-parse-v1",
+    "schema": "holyc-corpus-parse-comparison-v1",
     "path": "reference/parser-corpus-aot.json",
     "mode": "aot",
     "files": 528,
-    "parses": 21,
-    "frontend_diagnostics": 17,
-    "parser_diagnostics": 490,
-    "read_errors": 0,
-    "internal_errors": 0,
-    "diagnostics": 37183,
-    "baseline_sha256": "323eab1a5630c95d5d810aa5b3f177938f3402d718f90777fca999b6d375548d"
+    "both_parse": 21,
+    "standalone_only": 0,
+    "project_prelude_only": 82,
+    "neither_parses": 425,
+    "standalone": {
+      "parses": 21,
+      "frontend_diagnostics": 17,
+      "parser_diagnostics": 490,
+      "read_errors": 0,
+      "internal_errors": 0,
+      "diagnostics": 37183
+    },
+    "project_prelude": {
+      "parses": 103,
+      "frontend_diagnostics": 63,
+      "parser_diagnostics": 362,
+      "read_errors": 0,
+      "internal_errors": 0,
+      "diagnostics": 15546
+    },
+    "baseline_sha256": "862977d8e2810b6579eb6dcbdb0c9744750c5b1a1f7dfca8882d9977b5d2e6ce"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

@@ -58,6 +58,10 @@ module Environment : sig
 
   val create : unit -> t
 
+  val copy : t -> t
+  (** Copy the visible entries and active local contexts. Later registrations in
+      either environment do not affect the other. *)
+
   val add :
     ?origin:origin ->
     ?function_call_shape:function_call_shape ->

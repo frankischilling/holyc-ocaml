@@ -20,6 +20,10 @@ module Environment : sig
 
   val create : unit -> t
 
+  val copy : t -> t
+  (** Copy the current definitions and identity counter. Later definitions in
+      either environment do not affect the other. *)
+
   val define :
     t ->
     name:string ->

@@ -1,6 +1,11 @@
 type t
 
 val create : unit -> t
+
+val fork_frontend : t -> t
+(** Copy the frontend definition and symbol state while sharing source files.
+    Semantic state starts fresh. *)
+
 val sources : t -> Common.Source_manager.t
 val definitions : t -> Frontend.Definition.Environment.t
 val symbols : t -> Frontend.Symbol_visibility.Environment.t
