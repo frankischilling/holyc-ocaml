@@ -11426,6 +11426,9 @@ let contextual_keyword_operand_source_behavior () =
       ( "global declarations enter the compilation table",
         variable_parser,
         "HashAdd(tmpg,cc->htc.glbl_hash_table);" );
+      ( "function declarations enter the compilation table",
+        variable_parser,
+        "HashAdd(tmpf,cc->htc.glbl_hash_table);" );
       ("hash insertion puts the newest record first", hash, "MOV\tU64 [RAX],RCX");
       ( "AOT searches compilation globals before assembler keywords",
         compilation,
@@ -11439,6 +11442,9 @@ let contextual_keyword_operand_source_behavior () =
       ( "expression dispatch has a distinct global-variable branch",
         expression_parser,
         "case HTt_GLBL_VAR:" );
+      ( "expression dispatch has a distinct function branch",
+        expression_parser,
+        "case HTt_FUN:" );
       ( "statement dispatch routes a local to expression parsing",
         statement_parser,
         "if (cc->local_var_entry)" );
@@ -11601,6 +11607,104 @@ let contextual_keyword_global_provenance () =
     (contains
        (Ast_dump.human (Session.sources session) (expect_ast output))
        "identifier spelling=\"start\"")
+
+let contextual_keyword_global_function_operands () =
+  let source =
+    "I64 sizeof(I64 value=4)\n{return value;}\n"
+    ^ "sizeof(7);\nsizeof;\n&sizeof;"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let explicit, implicit, address =
+        match (expect_ast output).items with
+        | [
+         Ast.Function_definition _;
+         Ast.Top_level_statement explicit;
+         Ast.Top_level_statement implicit;
+         Ast.Top_level_statement address;
+        ] -> (explicit, implicit, address)
+        | items ->
+            Alcotest.failf
+              "expected one function and three top-level expressions, got %d \
+               items"
+              (List.length items)
+      in
+      let explicit =
+        expect_expression_statement explicit |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+      in
+      expect_parenthesized_call explicit;
+      Alcotest.(check string)
+        "parenthesized call keeps the keyword spelling" "sizeof"
+        (expect_identifier_expression explicit.call_callee).spelling;
+      Alcotest.(check int64)
+        "parenthesized call keeps its argument" 7L
+        (explicit.call_arguments |> List.hd |> expect_provided_call_argument
+       |> expect_integer_expression);
+      let implicit =
+        expect_expression_statement implicit |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+      in
+      expect_parenthesis_free_call implicit;
+      Alcotest.(check string)
+        "parenthesis-free call keeps the keyword spelling" "sizeof"
+        (expect_identifier_expression implicit.call_callee).spelling;
+      expect_omitted_call_argument (List.hd implicit.call_arguments);
+      let address =
+        expect_expression_statement address |> fun statement ->
+        statement.expression_statement_expression |> expect_prefix_expression
+      in
+      Alcotest.(check bool)
+        "address-of keeps its operator" true
+        (address.prefix_operator_kind = Ast.Address_of);
+      Alcotest.(check string)
+        "address-of keeps the function operand" "sizeof"
+        (expect_identifier_expression address.prefix_operand).spelling)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, outside = parse_string "sizeof(7);" in
+  Alcotest.(check string)
+    "same spelling remains a keyword before function publication" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_global_function_provenance () =
+  let session, _, output =
+    parse_string "#define NAME sizeof\nextern I64 NAME(I64 value=1);\nNAME;"
+  in
+  let call =
+    match (expect_ast output).items with
+    | [ Ast.Function_prototype _; Ast.Top_level_statement statement ] ->
+        expect_expression_statement statement |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+    | items ->
+        Alcotest.failf
+          "expected one generated prototype and one call, got %d items"
+          (List.length items)
+  in
+  expect_parenthesis_free_call call;
+  Alcotest.(check string)
+    "generated function operand spelling" "sizeof"
+    (expect_identifier_expression call.call_callee).spelling;
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("generated function", Ast.expression_location call.call_callee);
+      ( "generated default slot",
+        (List.hd call.call_arguments).call_argument_location );
+    ];
+  Alcotest.(check bool)
+    "human dump retains the generated function call" true
+    (contains
+       (Ast_dump.human (Session.sources session) (expect_ast output))
+       "expression kind=identifier spelling=\"sizeof\"")
 
 let contextual_keyword_nested_block_visibility () =
   let source = "U0 Nested()\n{\n{ I64 start; }\nstart;\n}" in
@@ -18868,6 +18972,10 @@ let tests =
       contextual_keyword_global_operands;
     Alcotest.test_case "contextual keyword global provenance" `Quick
       contextual_keyword_global_provenance;
+    Alcotest.test_case "contextual keyword global function operands" `Quick
+      contextual_keyword_global_function_operands;
+    Alcotest.test_case "contextual keyword global function provenance" `Quick
+      contextual_keyword_global_function_provenance;
     Alcotest.test_case "contextual keyword nested block visibility" `Quick
       contextual_keyword_nested_block_visibility;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick

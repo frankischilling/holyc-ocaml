@@ -2558,11 +2558,56 @@ definition_provenance = "preserved"
 corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
 corpus_effect = "recovery after unsupported function headers publishes local declarations at top level in Adam/DolDoc/DocGet.HC, Apps/Psalmody/JukePuppet.HC, and Kernel/FunSeg.HC; accumulated diagnostics fall from 37,194 to 37,183 without changing phase counts or first errors"
 limitations = [
-  "keyword-spelled global functions are outside this parser slice",
   "aggregate type and base names remain planned under issue 361",
   "storage, lowering, and execution are not implemented"
 ]
 native_oracle_status = "not required; the pinned hash insertion, table-chain, lexer, statement, and expression paths state the selection order directly"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-GLOBAL-FUNCTION-OPERANDS"
+description = "A source-visible global function with a language-keyword spelling is parsed as a direct function operand before keyword dispatch."
+sources = [
+  "Compiler/PrsStmt.HC:62-138 function lookup and construction",
+  "Compiler/PrsStmt.HC:PrsFunJoin named-function HashAdd",
+  "Kernel/KHashA.HC:40-106 first-match lookup in table-chain order",
+  "Kernel/KHashA.HC:169-189 head insertion by HashAdd",
+  "Compiler/CMain.HC:60-75 JIT and AOT global-table chains",
+  "Compiler/Lex.HC:493-514 selected hash entry",
+  "Compiler/PrsLib.HC:31-38 keyword recognition on the selected entry",
+  "Compiler/PrsExp.HC:842-865 direct-function operand branch"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 366
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "global function prototypes and definitions published earlier in the current compilation"
+]
+accepted_expression_contexts = [
+  "parenthesized direct calls",
+  "parenthesis-free calls with defaults",
+  "address-of operands",
+  "statement-leading direct calls"
+]
+dispatch_order = "active local binding, selected global-variable or function record, then ordinary keyword behavior"
+hash_behavior = "the function and keyword records coexist; HashAdd and table-chain order select the function without replacing the keyword record"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved on the callee and generated default slots"
+corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
+corpus_effect = "the reviewed 528-file AOT parser report is byte-for-byte unchanged"
+limitations = [
+  "aggregate type and base names remain planned under issue 361",
+  "labels and unrelated visible record kinds remain excluded",
+  "call lowering and execution are not implemented"
+]
+native_oracle_status = "not required; the pinned function insertion, table-chain, lexer, and expression paths state the selection order directly"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
