@@ -16,6 +16,7 @@ module Semantic_register_request = Sema.Register_request
 module Semantic_symbol = Sema.Symbol
 module Semantic_symbol_table = Sema.Symbol_table
 module Ir_opcode = Ir.Opcode
+module Ir_instruction_sequence = Ir.Instruction_sequence
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
