@@ -310,7 +310,7 @@ let global_ast (module_ : Frontend.Ast.module_) =
                   ~declaration_kind:
                     Sema.Declaration_collection.Aggregate_attached_global
                   ~item_index ~type_source:(Attached_aggregate definition.name)
-                  ~trailing_semicolon:(Some definition.semicolon)
+                  ~trailing_semicolon:definition.semicolon
                   ~last_declarator_index)
       | Frontend.Ast.Aggregate_forward_declaration _
       | Frontend.Ast.Function_prototype _

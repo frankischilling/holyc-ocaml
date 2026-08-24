@@ -58,8 +58,8 @@
       "failed": 504,
       "unresolved_name_failures": 479,
       "other_failures": 25,
-      "diagnostics": 37010,
-      "errors": 37010,
+      "diagnostics": 37009,
+      "errors": 37009,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
@@ -81,7 +81,6 @@
         "HCPARSE0095": 4,
         "HCPARSE0098": 1,
         "HCPARSE0112": 63,
-        "HCPARSE0115": 1,
         "HCPARSE0121": 13,
         "HCPARSE0147": 187,
         "HCPP0003": 349,
@@ -98,10 +97,10 @@
       "read_errors": 0,
       "internal_errors": 0,
       "failed": 406,
-      "unresolved_name_failures": 369,
-      "other_failures": 37,
-      "diagnostics": 21019,
-      "errors": 21019,
+      "unresolved_name_failures": 370,
+      "other_failures": 36,
+      "diagnostics": 21018,
+      "errors": 21018,
       "warnings": 0,
       "notes": 0,
       "diagnostic_codes": {
@@ -124,7 +123,6 @@
         "HCPARSE0102": 2,
         "HCPARSE0105": 16,
         "HCPARSE0112": 48,
-        "HCPARSE0115": 1,
         "HCPARSE0147": 104,
         "HCPP0003": 166,
         "HCPP0008": 58,
@@ -15999,8 +15997,8 @@
       "bytes": 6556,
       "standalone": {
         "status": "parser-diagnostics",
-        "diagnostics": 68,
-        "errors": 68,
+        "diagnostics": 67,
+        "errors": 67,
         "warnings": 0,
         "notes": 0,
         "diagnostic_codes": {
@@ -16009,8 +16007,7 @@
           "HCPARSE0048": 31,
           "HCPARSE0050": 12,
           "HCPARSE0082": 1,
-          "HCPARSE0112": 1,
-          "HCPARSE0115": 1
+          "HCPARSE0112": 1
         },
         "first_error": {
           "code": "HCPARSE0112",
@@ -16024,18 +16021,18 @@
       },
       "project_prelude": {
         "status": "parser-diagnostics",
-        "diagnostics": 19,
-        "errors": 19,
+        "diagnostics": 18,
+        "errors": 18,
         "warnings": 0,
         "notes": 0,
-        "diagnostic_codes": { "HCPARSE0048": 18, "HCPARSE0115": 1 },
+        "diagnostic_codes": { "HCPARSE0048": 18 },
         "first_error": {
-          "code": "HCPARSE0115",
+          "code": "HCPARSE0048",
           "severity": "error",
-          "message": "expected ';' or a global declarator after aggregate definition \"PCSprite\", but found \"class\"",
+          "message": "label or declaration syntax for unresolved identifier \"DCDepthBufAlloc\" after a statement comma is not implemented",
           "path": "Demo/Graphics/Pick3D.HC",
-          "line": 37,
-          "column": 1
+          "line": 83,
+          "column": 3
         },
         "failure_message": null
       }
