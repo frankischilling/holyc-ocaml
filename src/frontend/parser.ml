@@ -3207,7 +3207,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     Some
                       ( [],
                         [ semicolon_item.token ],
-                        token_location semicolon_item.token )
+                        Some (token_location semicolon_item.token) )
+                | Token_kind.Keyword (Keyword.Class | Keyword.Union) ->
+                    Some ([], [], None)
                 | Token_kind.Identifier | Token_kind.Punctuation ('*' | '(')
                   -> (
                     match
@@ -3226,8 +3228,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                         in
                         let semicolon =
                           match parsed_declarators.trailing_semicolon with
-                          | Some item -> token_location item.token
-                          | None -> last.node.delimiter.location
+                          | Some item -> Some (token_location item.token)
+                          | None -> Some last.node.delimiter.location
                         in
                         Some
                           ( List.map

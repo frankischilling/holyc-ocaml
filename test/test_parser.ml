@@ -34,6 +34,17 @@ let contains text needle =
   in
   needle_length = 0 || loop 0
 
+let count_occurrences text needle =
+  let text_length = String.length text in
+  let needle_length = String.length needle in
+  let rec loop index count =
+    if needle_length = 0 || index + needle_length > text_length then count
+    else if String.equal (String.sub text index needle_length) needle then
+      loop (index + needle_length) (count + 1)
+    else loop (index + 1) count
+  in
+  loop 0 0
+
 let pinned path =
   [ "third_party/TempleOS"; "../third_party/TempleOS" ]
   |> List.map (fun root -> Filename.concat root path)
@@ -2522,7 +2533,8 @@ let aggregate_globals_and_initializer_trees () =
         (active.delimiter.kind = Ast.Semicolon);
       Alcotest.(check int)
         "definition reaches the declaration semicolon"
-        definition.semicolon.span.stop definition.location.span.stop;
+        (definition.semicolon |> Option.get |> fun item -> item.span.stop)
+        definition.location.span.stop;
       let outer =
         expect_global_initial_value entries |> fun value ->
         expect_braced_initial_value value.global_initializer_value
@@ -2927,7 +2939,8 @@ let direct_aggregate_definitions () =
       | _ -> Alcotest.fail "the extra member semicolon was not retained");
       Alcotest.(check int) "class begins at public" 0 node.location.span.start;
       Alcotest.(check int)
-        "class ends at final semicolon" node.semicolon.span.stop
+        "class ends at final semicolon"
+        (node.semicolon |> Option.get |> fun item -> item.span.stop)
         node.location.span.stop;
       ignore (expect_named_specifier "Node" head.type_specifier)
   | items ->
@@ -2993,6 +3006,132 @@ let aggregate_definition_modes () =
           Alcotest.failf "expected a definition and global, got %d items"
             (List.length items))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let adjacent_aggregate_definition_semicolons () =
+  let pinned_source = pinned "Demo/Graphics/Pick3D.HC" in
+  Alcotest.(check bool)
+    "pinned source omits the PCSprite terminator" true
+    (contains pinned_source
+       "class PCSprite\n\
+        {\n\
+       \  PObj\t*p;\n\
+       \  U8\t*img;\n\
+       \  I64\t*r,\n\
+        \t*dr; //Rounding error might eventually screw this up\n\
+        }\n\n\
+        class PObj");
+  List.iter
+    (fun (mode, first_kind, second_kind) ->
+      let source =
+        Printf.sprintf "%s First { I64 value; } %s Second { I64 value; };"
+          first_kind second_kind
+      in
+      let session, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+          Alcotest.(check bool)
+            "first semicolon is omitted" true
+            (Option.is_none first.semicolon);
+          Alcotest.(check bool)
+            "second semicolon is retained" true
+            (Option.is_some second.semicolon);
+          Alcotest.(check int)
+            "omitted definition ends at its closing brace"
+            first.closing_brace.span.stop first.location.span.stop;
+          let human =
+            Ast_dump.human (Session.sources session) (expect_ast output)
+          in
+          Alcotest.(check int)
+            "human dump has only the written semicolon" 1
+            (count_occurrences human "    semicolon span=");
+          let open Yojson.Safe.Util in
+          let items =
+            Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+            |> member "module" |> member "items" |> to_list
+          in
+          Alcotest.(check bool)
+            "JSON omits the first semicolon" true
+            (List.hd items |> member "semicolon" = `Null);
+          Alcotest.(check bool)
+            "JSON retains the second semicolon" true
+            (List.nth items 1 |> member "semicolon" <> `Null)
+      | items ->
+          Alcotest.failf "expected two adjacent aggregates, got %d items"
+            (List.length items))
+    (List.concat_map
+       (fun mode ->
+         [
+           (mode, "class", "class");
+           (mode, "class", "union");
+           (mode, "union", "class");
+           (mode, "union", "union");
+         ])
+       [ Preprocessor.Jit; Preprocessor.Aot ]);
+  let generated_session, generated_root, generated =
+    parse_string
+      "#define AGG class\n\
+       AGG Generated { I64 value; } AGG Following { I64 value; };"
+  in
+  (match (expect_ast generated).items with
+  | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+      Alcotest.(check bool)
+        "generated boundary omits the first semicolon" true
+        (Option.is_none first.semicolon);
+      Alcotest.(check bool)
+        "generated keyword has invocation provenance" true
+        (Option.is_some second.aggregate_keyword_location.generated_from);
+      Alcotest.(check bool)
+        "generated keyword comes from another frame" false
+        (Source_id.equal second.aggregate_keyword_location.span.source
+           (Source_file.id generated_root));
+      ignore generated_session
+  | items ->
+      Alcotest.failf "expected two generated aggregates, got %d items"
+        (List.length items));
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "adjacent.HC" in
+      write_file root_file "#include \"adjacent\"";
+      write_file definition_file
+        "class IncludedFirst { I64 value; } union IncludedSecond { I64 value; \
+         };";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+          Alcotest.(check bool)
+            "included boundary omits the first semicolon" true
+            (Option.is_none first.semicolon);
+          let included =
+            Source_manager.find (Session.sources session)
+              second.name.location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "second definition keeps the included path"
+            (Unix.realpath definition_file)
+            (Source_file.path included)
+      | items ->
+          Alcotest.failf "expected two included aggregates, got %d items"
+            (List.length items));
+  List.iter
+    (fun (source, expected_code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        "invalid omission has no AST" true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        "invalid omission keeps its diagnostic" expected_code
+        (first_diagnostic output).code)
+    [
+      ("class Missing { I64 value; }", "HCPARSE0115");
+      ("class Missing { I64 value; } I64 after;", "HCPARSE0003");
+    ]
 
 let pinned_kernel_ordinary_class_slice () =
   let source =
@@ -20106,6 +20245,8 @@ let tests =
       aggregate_definition_forward_completion;
     Alcotest.test_case "aggregate definition modes" `Quick
       aggregate_definition_modes;
+    Alcotest.test_case "adjacent aggregate definition semicolons" `Quick
+      adjacent_aggregate_definition_semicolons;
     Alcotest.test_case "pinned kernel ordinary class slice" `Quick
       pinned_kernel_ordinary_class_slice;
     Alcotest.test_case "aggregate definition provenance" `Quick

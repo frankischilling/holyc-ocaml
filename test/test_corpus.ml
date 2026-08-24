@@ -567,9 +567,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_010
+    "diagnostics" 37_009
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_010 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_009 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -607,7 +607,7 @@ let pinned_parser_reference () =
     "prelude parser failures" 376
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 21_019
+    "prelude diagnostics" 21_018
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -676,6 +676,7 @@ let pinned_parser_reference () =
       ("Demo/Games/BattleLines.HC", "HCPARSE0048", 77);
       ("Demo/Games/FlatTops.HC", "HCPARSE0048", 169);
       ("Demo/Graphics/EdSprite.HC", "HCPARSE0048", 61);
+      ("Demo/Graphics/Pick3D.HC", "HCPARSE0048", 83);
       ("Demo/Graphics/WallPaperFish.HC", "HCPARSE0048", 67);
     ];
   let expected =

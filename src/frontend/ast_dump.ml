@@ -1584,8 +1584,11 @@ let human sources module_ =
             (print_global_declarator buffer sources ~indent:"    "
                ~label:"attached_declarator")
             definition.attached_declarators;
-          Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources definition.semicolon)
+          Option.iter
+            (fun semicolon ->
+              Printf.bprintf buffer "    semicolon span=%s\n"
+                (location_text sources semicolon))
+            definition.semicolon
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
@@ -3278,10 +3281,11 @@ let item_to_yojson sources = function
                 ( "attached_declarators",
                   `List (List.map (declarator_to_yojson sources) declarators) );
               ])
-        @ [
-            ("semicolon", location_to_yojson sources definition.semicolon);
-            ("location", location_to_yojson sources definition.location);
-          ])
+        @ (match definition.semicolon with
+          | None -> []
+          | Some semicolon ->
+              [ ("semicolon", location_to_yojson sources semicolon) ])
+        @ [ ("location", location_to_yojson sources definition.location) ])
   | Ast.Global_variable variable ->
       `Assoc
         ([ ("kind", `String "global_variable") ]

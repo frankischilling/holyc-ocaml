@@ -461,7 +461,7 @@ type aggregate_definition = private {
   members : aggregate_member list;
   closing_brace : location;
   attached_declarators : global_declarator list;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -1057,7 +1057,7 @@ val make_aggregate_definition :
   members:aggregate_member list ->
   closing_brace:location ->
   attached_declarators:global_declarator list ->
-  semicolon:location ->
+  semicolon:location option ->
   location:location ->
   aggregate_definition
 
