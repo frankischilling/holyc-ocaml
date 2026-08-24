@@ -64,7 +64,7 @@ aggregate-forward-declaration := declaration-modifier* "extern"
                                  aggregate-keyword identifier ";"
 aggregate-definition := declaration-modifier* aggregate-backing? aggregate-keyword identifier
                         aggregate-base? "{" aggregate-member* "}" aggregate-tail
-aggregate-tail       := ";" | global-declarator ("," global-declarator)* ";"
+aggregate-tail       := ";" | global-declarator ("," global-declarator)* [","] ";"
 aggregate-backing  := type-specifier pointer-star{0,4}
 aggregate-base     := ":" visible-class-name
 aggregate-member   := member-declaration | aggregate-offset-directive
@@ -85,7 +85,7 @@ aggregate-offset-directive := "$$" "=" core-expression ";"
 anonymous-union    := "union" "{" aggregate-member* "}" ";"?
 aggregate-keyword  := "class" | "union"
 global-declaration := declaration-modifier* declaration-binding? type-specifier
-                      global-declarator ("," global-declarator)* ";"
+                      global-declarator ("," global-declarator)* [","] ";"
 bound-function-prototype := declaration-modifier* declaration-binding type-specifier return-declarator
                              "(" parameter-list? ")" ";"
 unbound-function-definition := declaration-modifier* type-specifier return-declarator
@@ -341,6 +341,8 @@ This syntax slice does not execute default, dimension, `_intern`, call, index, m
 `holyc parse` and `holyc dump-ast` emit the same `holyc-ast-v1` human or JSON representation. The library exposes `parse`, `parse_with_config`, and `parse_detailed`; the detailed form keeps nonfatal preprocessor warnings beside a successful AST.
 
 `Kernel/KernelA.HH:877-887` keeps a global record's class, callback header, dimensions, and storage address together. `Sema.Outer_environment` accepts the semantic subset of that payload: a checked type reference, object or callback kind, and array rank. When the caller supplies the exact `Outer_expression_binding` batch, function-expression typing retains both the original occurrence and the selected JIT task or AOT parent entry before applying the ordinary expression rules. Metadata-free records remain unavailable. Function-expression paths can bind scalar and fully indexed outer callback arguments without reading or invoking the stored address. Executable top-level paths bind scalar callbacks directly and callback arrays after an exact bracket chain; the indexed record keeps its completed callee and integer-target subscripts. Runtime address selection and execution remain separate work.
+
+A global variable list may end with a comma immediately before its semicolon. `Compiler/PrsStmt.HC:PrsGlblVarLst` consumes that comma before it restarts the list, and `Compiler/PrsVar.HC:PrsType` may then return no global identifier. The semicolon ends the group without creating an empty declarator or phantom symbol. The AST retains the comma on the last concrete declarator and records the semicolon separately; semantic declaration facts expose the semicolon as that variable's effective terminator. `Demo/Graphics/Life.HC:4` supplies the pinned `I64 cur_dc,;` form.
 
 ## Local declarations
 
