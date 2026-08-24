@@ -31,19 +31,20 @@ let label_symbol =
     ~name:"entry\npoint" ~kind:Symbol.Label
     ~origin:(Symbol.Synthesized "IR test")
 
-let description ?(operands = []) ?result ?payload ?(flags = 0L) ?span id opcode
-    =
+let description ?(operands = []) ?result ?target_type ?payload ?(flags = 0L)
+    ?span id opcode =
   {
     Ir.instruction_id = instruction_id id;
     opcode;
     operands;
     result;
+    target_type;
     payload;
     flags;
     span;
   }
 
-let result id value_type = Ir.{ value_id = value_id id; value_type }
+let result id = Ir.{ value_id = value_id id }
 
 let require_sequence descriptions =
   match Ir.create descriptions with
@@ -76,15 +77,19 @@ let ids_are_checked () =
   Alcotest.(check int) "block round trip" 6 (Ir.Block_id.to_int (block_id 6))
 
 let metadata_shapes_are_enforced () =
-  let zero = description ~result:(result 0 i64) 0 Opcode.Ic_imm_i64 in
+  let zero =
+    description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64
+  in
   ignore (require_sequence [ zero ]);
   let one = description ~operands:[ value_id 0 ] 1 Opcode.Ic_end_exp in
   ignore (require_sequence [ zero; one ]);
-  let second = description ~result:(result 1 i64) 2 Opcode.Ic_imm_i64 in
+  let second =
+    description ~result:(result 1) ~target_type:i64 2 Opcode.Ic_imm_i64
+  in
   let two =
     description
       ~operands:[ value_id 0; value_id 1 ]
-      ~result:(result 2 i64) 3 Opcode.Ic_add
+      ~result:(result 2) ~target_type:i64 3 Opcode.Ic_add
   in
   ignore (require_sequence [ zero; second; two ]);
   let variable =
@@ -107,17 +112,19 @@ let every_opcode_accepts_its_declared_shape () =
       in
       let inputs =
         List.init operand_count (fun index ->
-            description ~result:(result index i64) index Opcode.Ic_imm_i64)
+            description ~result:(result index) ~target_type:i64 index
+              Opcode.Ic_imm_i64)
       in
       let target =
         description
           ~operands:(List.init operand_count value_id)
           ?result:
             (if info.result_count = 0 then None
-             else if info.result_count = 1 then Some (result 100 i64)
+             else if info.result_count = 1 then Some (result 100)
              else
                Alcotest.failf "%s declares unsupported result count %d"
                  info.source_name info.result_count)
+          ?target_type:(if info.result_count = 1 then Some i64 else None)
           100 opcode
       in
       ignore (require_sequence (inputs @ [ target ])))
@@ -128,19 +135,27 @@ let operand_count_errors_are_stable () =
   error_codes [ invalid ] |> has_code "HCIR0004"
 
 let result_count_errors_are_stable () =
-  let missing = description 0 Opcode.Ic_imm_i64 in
+  let missing = description ~target_type:i64 0 Opcode.Ic_imm_i64 in
   error_codes [ missing ] |> has_code "HCIR0005";
-  let extra = description ~result:(result 0 i64) 0 Opcode.Ic_end in
+  let extra = description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_end in
   error_codes [ extra ] |> has_code "HCIR0005"
 
+let value_results_require_a_type () =
+  let invalid = description ~result:(result 0) 0 Opcode.Ic_imm_i64 in
+  error_codes [ invalid ] |> has_code "HCIR0010";
+  let typed_no_result = description ~target_type:i64 0 Opcode.Ic_end in
+  ignore (require_sequence [ typed_no_result ])
+
 let duplicate_ids_are_rejected () =
-  let first = description ~result:(result 0 i64) 0 Opcode.Ic_imm_i64 in
+  let first =
+    description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64
+  in
   let duplicate_instruction =
-    description ~result:(result 1 i64) 0 Opcode.Ic_imm_i64
+    description ~result:(result 1) ~target_type:i64 0 Opcode.Ic_imm_i64
   in
   error_codes [ first; duplicate_instruction ] |> has_code "HCIR0006";
   let duplicate_value =
-    description ~result:(result 0 i64) 1 Opcode.Ic_imm_i64
+    description ~result:(result 0) ~target_type:i64 1 Opcode.Ic_imm_i64
   in
   error_codes [ first; duplicate_value ] |> has_code "HCIR0007"
 
@@ -148,9 +163,11 @@ let invalid_value_uses_are_rejected () =
   let forward =
     description
       ~operands:[ value_id 1; value_id 1 ]
-      ~result:(result 0 i64) 0 Opcode.Ic_add
+      ~result:(result 0) ~target_type:i64 0 Opcode.Ic_add
   in
-  let later = description ~result:(result 1 i64) 1 Opcode.Ic_imm_i64 in
+  let later =
+    description ~result:(result 1) ~target_type:i64 1 Opcode.Ic_imm_i64
+  in
   error_codes [ forward; later ] |> has_code "HCIR0008";
   let undefined = description ~operands:[ value_id 9 ] 0 Opcode.Ic_end_exp in
   error_codes [ undefined ] |> has_code "HCIR0009"
@@ -183,13 +200,14 @@ let deterministic_human_dump () =
   let span = Holyc_lib.Span.unsafe_make ~source ~start:2 ~stop:9 in
   let descriptions =
     [
-      description ~result:(result 0 i64) ~payload:(Ir.Integer Int64.min_int)
-        ~span 0 Opcode.Ic_imm_i64;
-      description ~result:(result 1 f64)
+      description ~result:(result 0) ~target_type:i64
+        ~payload:(Ir.Integer Int64.min_int) ~span 0 Opcode.Ic_imm_i64;
+      description ~result:(result 1) ~target_type:f64
         ~payload:(Ir.Float_bits 0x3ff0000000000000L) 1 Opcode.Ic_imm_f64;
-      description ~result:(result 2 u8_pointer)
+      description ~result:(result 2) ~target_type:u8_pointer
         ~payload:(Ir.Bytes "A\000\n\"\\\255") 2 Opcode.Ic_str_const;
-      description ~payload:(Ir.Symbol label_symbol) 3 Opcode.Ic_label;
+      description ~target_type:i64 ~payload:(Ir.Symbol label_symbol) 3
+        Opcode.Ic_label;
       description ~payload:(Ir.Block (block_id 2)) 4 Opcode.Ic_jmp;
     ]
   in
@@ -202,7 +220,8 @@ let deterministic_human_dump () =
      !i1 %v1:internal:F64 = IC_IMM_F64 f64:0x3ff0000000000000 flags=0x000000000\n\
      !i2 %v2:public:U8* = IC_STR_CONST bytes:\"A\\x00\\n\\\"\\\\\\xff\" \
      flags=0x000000000\n\
-     !i3 IC_LABEL symbol:@s9:label:\"entry\\npoint\" flags=0x000000000\n\
+     !i3 IC_LABEL type=internal:I64 symbol:@s9:label:\"entry\\npoint\" \
+     flags=0x000000000\n\
      !i4 IC_JMP block:^b2 flags=0x000000000\n"
   in
   Alcotest.(check string) "versioned dump" expected (Ir.human sequence);
@@ -217,22 +236,23 @@ let deterministic_human_dump () =
 
 let valid_chain values =
   let initial =
-    description ~result:(result 0 i64) ~payload:(Ir.Integer 0L) 0
+    description ~result:(result 0) ~target_type:i64 ~payload:(Ir.Integer 0L) 0
       Opcode.Ic_imm_i64
   in
   let _, reversed =
     List.fold_left
       (fun (next, instructions) value ->
         let constant =
-          description ~result:(result next i64) ~payload:(Ir.Integer value)
+          description ~result:(result next) ~target_type:i64
+            ~payload:(Ir.Integer value)
             ((next * 2) - 1)
             Opcode.Ic_imm_i64
         in
         let added =
           description
             ~operands:[ value_id (next - 1); value_id next ]
-            ~result:(result (next + 1) i64)
-            (next * 2) Opcode.Ic_add
+            ~result:(result (next + 1))
+            ~target_type:i64 (next * 2) Opcode.Ic_add
         in
         (next + 2, added :: constant :: instructions))
       (1, [ initial ]) values
@@ -275,6 +295,7 @@ let tests =
       operand_count_errors_are_stable;
     Alcotest.test_case "result count errors" `Quick
       result_count_errors_are_stable;
+    Alcotest.test_case "result target types" `Quick value_results_require_a_type;
     Alcotest.test_case "duplicate IDs" `Quick duplicate_ids_are_rejected;
     Alcotest.test_case "value use order" `Quick invalid_value_uses_are_rejected;
     Alcotest.test_case "span and flag validation" `Quick

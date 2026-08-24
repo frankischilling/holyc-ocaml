@@ -39,13 +39,14 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Block of Block_id.t
 
-type value_definition = { value_id : Value_id.t; value_type : Sema.Type.t }
+type value_definition = { value_id : Value_id.t }
 
 type description = {
   instruction_id : Instruction_id.t;
   opcode : Opcode.t;
   operands : Value_id.t list;
   result : value_definition option;
+  target_type : Sema.Type.t option;
   payload : payload option;
   flags : int64;
   span : Common.Span.t option;

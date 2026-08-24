@@ -46,13 +46,14 @@ type payload =
   | Symbol of Sema.Symbol.t
   | Block of Block_id.t
 
-type value_definition = { value_id : Value_id.t; value_type : Sema.Type.t }
+type value_definition = { value_id : Value_id.t }
 
 type description = {
   instruction_id : Instruction_id.t;
   opcode : Opcode.t;
   operands : Value_id.t list;
   result : value_definition option;
+  target_type : Sema.Type.t option;
   payload : payload option;
   flags : int64;
   span : Common.Span.t option;
@@ -107,6 +108,10 @@ let validate_shape description =
          info.source_name info.result_count
          (if info.result_count = 1 then "" else "s")
          actual_results);
+  if actual_results > 0 && Option.is_none description.target_type then
+    add "HCIR0010"
+      (Printf.sprintf "%s produces a value but has no target type"
+         info.source_name);
   (match description.span with
   | Some span when span.start < 0 || span.stop < span.start ->
       add "HCIR0002"
@@ -243,13 +248,18 @@ let add_instruction buffer description =
   (match description.result with
   | None -> ()
   | Some result ->
+      let target_type = Option.get description.target_type in
       Printf.bprintf buffer "%%v%d:%s = "
         (Value_id.to_int result.value_id)
-        (type_name result.value_type));
+        (type_name target_type));
   Buffer.add_string buffer (Opcode.to_source_name description.opcode);
   List.iter
     (fun operand -> Printf.bprintf buffer " %%v%d" (Value_id.to_int operand))
     description.operands;
+  (match (description.result, description.target_type) with
+  | None, Some target_type ->
+      Printf.bprintf buffer " type=%s" (type_name target_type)
+  | Some _, _ | None, None -> ());
   Option.iter (add_payload buffer) description.payload;
   Printf.bprintf buffer " flags=0x%09Lx" description.flags;
   (match description.span with
