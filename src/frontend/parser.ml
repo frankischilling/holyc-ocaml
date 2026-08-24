@@ -297,6 +297,8 @@ let assembly_token_kind token =
   | Token_kind.Integer -> Ast.Assembly_integer_token
   | Token_kind.Float -> Ast.Assembly_float_token
   | Token_kind.String -> Ast.Assembly_string_token
+  | Token_kind.Inserted_binary -> Ast.Assembly_string_token
+  | Token_kind.Inserted_binary_size -> Ast.Assembly_integer_token
   | Token_kind.Character -> Ast.Assembly_character_token
   | Token_kind.Operator _ -> Ast.Assembly_operator_token
   | Token_kind.Punctuation _ -> Ast.Assembly_punctuation_token
@@ -1060,9 +1062,10 @@ let make_expression_operator token =
   Ast.make_expression_operator ~spelling:token.Token.raw
     ~location:(token_location token)
 
-let make_literal token value constructor =
+let make_literal ?origin token value constructor =
+  let origin = Option.value origin ~default:Ast.Source_literal in
   constructor
-    (Ast.make_expression_literal ~spelling:token.Token.raw ~value
+    (Ast.make_expression_literal ~origin ~spelling:token.Token.raw ~value
        ~location:(token_location token))
 
 let take_string_literal_sequence cursor : parsed_expression =
@@ -1242,13 +1245,13 @@ and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
 
 and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   let item = peek cursor in
-  let take_literal value
+  let take_literal ?origin value
       (constructor : Ast.expression_literal -> Ast.expression) :
       parsed_expression option =
     let item = take cursor in
     Some
       ({
-         node = make_literal item.token value constructor;
+         node = make_literal ?origin item.token value constructor;
          tokens = [ item.token ];
        }
         : parsed_expression)
@@ -1265,6 +1268,28 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
           Ast.Character_literal literal)
   | Token_kind.String, Token.Bytes _ ->
       Some (take_string_literal_sequence cursor)
+  | Token_kind.Inserted_binary, Token.Bytes value ->
+      let record = Option.get item.token.binary_record in
+      let origin : Ast.inserted_binary_origin =
+        {
+          record_number = record.number;
+          declared_size = record.declared_size;
+          payload_complete = record.payload_complete;
+        }
+      in
+      take_literal ~origin:(Ast.Inserted_binary_literal origin)
+        (Ast.Bytes_value value) (fun literal -> Ast.String_literal literal)
+  | Token_kind.Inserted_binary_size, Token.Int64 value ->
+      let record = Option.get item.token.binary_record in
+      let origin : Ast.inserted_binary_origin =
+        {
+          record_number = record.number;
+          declared_size = record.declared_size;
+          payload_complete = record.payload_complete;
+        }
+      in
+      take_literal ~origin:(Ast.Inserted_binary_size_literal origin)
+        (Ast.Integer_value value) (fun literal -> Ast.Integer_literal literal)
   | (Token_kind.Identifier | Token_kind.Keyword _), _
     when token_is_contextual_identifier_operand cursor item.token ->
       let item = take cursor in
@@ -2957,8 +2982,8 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
             | Token_kind.String, Token.Bytes value ->
                 let item = take cursor in
                 let segment =
-                  Ast.make_expression_literal ~spelling:item.token.raw
-                    ~value:(Ast.Bytes_value value)
+                  Ast.make_expression_literal ~origin:Ast.Source_literal
+                    ~spelling:item.token.raw ~value:(Ast.Bytes_value value)
                     ~location:(token_location item.token)
                 in
                 take_segments (segment :: segments_rev) (item :: items_rev)
@@ -4740,6 +4765,8 @@ let token_cannot_start_inline_assembly_operand cursor token =
   | Token_kind.Integer
   | Token_kind.Float
   | Token_kind.String
+  | Token_kind.Inserted_binary
+  | Token_kind.Inserted_binary_size
   | Token_kind.Character
   | Token_kind.Operator _
   | Token_kind.Punctuation _

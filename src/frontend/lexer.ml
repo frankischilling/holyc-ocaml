@@ -9,6 +9,8 @@ type t = {
   generated_from : Common.Span.t option;
   defined_at : Common.Span.t option;
   nul_terminates : bool;
+  recover_normalized_doldoc : bool;
+  binary_table : (Doldoc_binary.t, Doldoc_binary.error) result Lazy.t option;
   caller : t option;
   mutable offset : int;
   mutable emitted_eof : bool;
@@ -29,14 +31,23 @@ type definition_replacement = {
 }
 
 let create ?(mode = Token.Raw) ?generated_from ?defined_at ?caller
-    ?(nul_terminates = false) source =
+    ?(nul_terminates = false) ?(recover_normalized_doldoc = false) source =
+  let contents = Common.Source_file.contents source in
   {
     source;
-    contents = Common.Source_file.contents source;
+    contents;
     mode;
     generated_from;
     defined_at;
     nul_terminates;
+    recover_normalized_doldoc;
+    binary_table =
+      (if nul_terminates then
+         Some
+           (lazy
+             (Doldoc_binary.decode ~recover_normalized:recover_normalized_doldoc
+                contents))
+       else None);
     caller;
     offset = 0;
     emitted_eof = false;
@@ -289,6 +300,16 @@ let make_diagnostic lexer ?help ~code ~message ~start () =
   Common.Diagnostic.make ?help ~secondary ~code
     ~severity:Common.Diagnostic.Error ~message ~primary ()
 
+let binary_table_diagnostic lexer (error : Doldoc_binary.error) =
+  let stop = min (String.length lexer.contents) (error.offset + 1) in
+  let primary = local_span lexer error.offset stop in
+  Common.Diagnostic.make ~code:"HCLEX0008" ~severity:Common.Diagnostic.Error
+    ~message:error.message ~primary
+    ~help:
+      "Read the file as binary data and check the CDocBin headers and payload \
+       lengths after its text terminator."
+    ()
+
 let is_whitespace = function
   | ' ' | '\t' | '\n' | '\r' | '\x1f' -> true
   | _ -> false
@@ -317,6 +338,128 @@ let trivia lexer kind start =
     span = List.hd source_segments;
     source_segments;
   }
+
+type inserted_command_kind = Insert_binary | Insert_binary_size
+
+type inserted_command = {
+  command_kind : inserted_command_kind;
+  record_number : int64;
+  stop_offset : int;
+}
+
+type inserted_command_scan =
+  | Not_inserted_command
+  | Inserted_command of inserted_command
+  | Invalid_inserted_command of { stop_offset : int; message : string }
+
+let local_has_prefix owner offset prefix =
+  let prefix_length = String.length prefix in
+  offset + prefix_length <= String.length owner.contents
+  && String.equal (String.sub owner.contents offset prefix_length) prefix
+
+let split_command_fields contents start stop =
+  let rec loop index field_start in_string fields =
+    if index = stop then
+      List.rev (String.sub contents field_start (stop - field_start) :: fields)
+    else
+      match contents.[index] with
+      | '"' -> loop (index + 1) field_start (not in_string) fields
+      | ',' when not in_string ->
+          let field = String.sub contents field_start (index - field_start) in
+          loop (index + 1) (index + 1) in_string (field :: fields)
+      | _ -> loop (index + 1) field_start in_string fields
+  in
+  loop start start false []
+
+let uint32_decimal text =
+  let length = String.length text in
+  let rec loop index value =
+    if index = length then Some value
+    else
+      match text.[index] with
+      | '0' .. '9' as digit ->
+          let digit = Int64.of_int (Char.code digit - Char.code '0') in
+          if value > 429496729L then None
+          else
+            let value = Int64.add (Int64.mul value 10L) digit in
+            if value > 0xffff_ffffL then None else loop (index + 1) value
+      | _ -> None
+  in
+  if length = 0 then None else loop 0 0L
+
+let classify_inserted_command lexer =
+  match owner_at_distance lexer 0 with
+  | None -> Not_inserted_command
+  | Some (owner, start_offset) -> (
+      if not owner.nul_terminates then Not_inserted_command
+      else
+        let command_kind, command_prefix =
+          if local_has_prefix owner start_offset "$IB," then
+            (Some Insert_binary, "$IB,")
+          else if local_has_prefix owner start_offset "$IS," then
+            (Some Insert_binary_size, "$IS,")
+          else (None, "")
+        in
+        match command_kind with
+        | None -> Not_inserted_command
+        | Some command_kind -> (
+            let command_start = start_offset + 1 in
+            let rec find_stop offset in_string =
+              if offset >= String.length owner.contents then None
+              else
+                match owner.contents.[offset] with
+                | '"' -> find_stop (offset + 1) (not in_string)
+                | '$' when not in_string -> Some offset
+                | _ -> find_stop (offset + 1) in_string
+            in
+            match
+              find_stop (start_offset + String.length command_prefix) false
+            with
+            | None -> Not_inserted_command
+            | Some closing_offset -> (
+                let fields =
+                  split_command_fields owner.contents command_start
+                    closing_offset
+                  |> List.map String.trim
+                in
+                if
+                  List.exists
+                    (fun field -> String.starts_with ~prefix:"BP=" field)
+                    fields
+                then Not_inserted_command
+                else
+                  let binary_fields =
+                    List.filter
+                      (fun field -> String.starts_with ~prefix:"BI=" field)
+                      fields
+                  in
+                  match binary_fields with
+                  | [] -> Not_inserted_command
+                  | [ field ] -> (
+                      let spelling =
+                        String.sub field 3 (String.length field - 3)
+                      in
+                      let stop_offset = closing_offset + 1 in
+                      match uint32_decimal spelling with
+                      | Some record_number ->
+                          Inserted_command
+                            { command_kind; record_number; stop_offset }
+                      | None ->
+                          Invalid_inserted_command
+                            {
+                              stop_offset;
+                              message =
+                                "this hosted frontend requires BI= to contain \
+                                 one unsigned 32-bit decimal record number";
+                            })
+                  | _ ->
+                      Invalid_inserted_command
+                        {
+                          stop_offset = closing_offset + 1;
+                          message =
+                            "a DolDoc inserted-binary command contains more \
+                             than one BI= field";
+                        })))
 
 let rec skip_trivia lexer accumulated =
   match (peek lexer 0, peek lexer 1) with
@@ -367,28 +510,33 @@ let rec skip_trivia lexer accumulated =
             ~message:"unterminated block comment" ~start ()
         in
         (List.rev accumulated, Some diagnostic)
-  | Some '$', Some next when not (Char.equal next '$') ->
-      let start = cursor lexer in
-      ignore (advance lexer);
-      while
-        Option.fold ~none:false
-          ~some:(fun byte -> not (Char.equal byte '$'))
-          (peek lexer 0)
-      do
-        ignore (advance lexer)
-      done;
-      if at_end lexer then
-        let diagnostic =
-          make_diagnostic lexer ~code:"HCLEX0007"
-            ~message:"unterminated dollar comment" ~start ()
-        in
-        (List.rev accumulated, Some diagnostic)
-      else (
-        ignore (advance lexer);
-        skip_trivia lexer (trivia lexer Dollar_comment start :: accumulated))
+  | Some '$', Some next when not (Char.equal next '$') -> (
+      match classify_inserted_command lexer with
+      | Inserted_command _ | Invalid_inserted_command _ ->
+          (List.rev accumulated, None)
+      | Not_inserted_command ->
+          let start = cursor lexer in
+          ignore (advance lexer);
+          while
+            Option.fold ~none:false
+              ~some:(fun byte -> not (Char.equal byte '$'))
+              (peek lexer 0)
+          do
+            ignore (advance lexer)
+          done;
+          if at_end lexer then
+            let diagnostic =
+              make_diagnostic lexer ~code:"HCLEX0007"
+                ~message:"unterminated dollar comment" ~start ()
+            in
+            (List.rev accumulated, Some diagnostic)
+          else (
+            ignore (advance lexer);
+            skip_trivia lexer (trivia lexer Dollar_comment start :: accumulated))
+      )
   | _ -> (List.rev accumulated, None)
 
-let make_token lexer leading_trivia ~kind ~value start =
+let make_token ?binary_record lexer leading_trivia ~kind ~value start =
   let stop = cursor lexer in
   let source_segments = source_segments_between start stop in
   let owner, _ = point_owner start in
@@ -396,6 +544,7 @@ let make_token lexer leading_trivia ~kind ~value start =
     Token.kind;
     raw = raw_between start stop;
     value;
+    binary_record;
     span = List.hd source_segments;
     source_segments;
     origin =
@@ -407,6 +556,82 @@ let make_token lexer leading_trivia ~kind ~value start =
     leading_trivia;
     mode = owner.mode;
   }
+
+let consume_to_local_offset lexer (owner : t) stop_offset =
+  while owner.offset < stop_offset do
+    ignore (advance lexer)
+  done
+
+let scan_inserted_command lexer leading_trivia command_scan =
+  let start = cursor lexer in
+  let owner, _ = Option.get (owner_at_distance lexer 0) in
+  match command_scan with
+  | Not_inserted_command ->
+      invalid_arg "scan_inserted_command requires a recognized command"
+  | Invalid_inserted_command { stop_offset; message } ->
+      consume_to_local_offset lexer owner stop_offset;
+      Diagnostic
+        (make_diagnostic lexer ~code:"HCLEX0009" ~message
+           ~help:
+             "Use one BI=<decimal record number> field, or leave the command \
+              as ordinary DolDoc text."
+           ~start ())
+  | Inserted_command { command_kind; record_number; stop_offset } -> (
+      consume_to_local_offset lexer owner stop_offset;
+      match Option.map Lazy.force owner.binary_table with
+      | Some (Error error) -> Diagnostic (binary_table_diagnostic owner error)
+      | Some (Ok table) -> (
+          match Doldoc_binary.find table record_number with
+          | None when not owner.recover_normalized_doldoc ->
+              Diagnostic
+                (make_diagnostic lexer ~code:"HCLEX0010"
+                   ~message:
+                     (Printf.sprintf
+                        "DolDoc binary record %Ld is referenced here but is \
+                         not present after the text terminator"
+                        record_number)
+                   ~help:
+                     "Restore the matching CDocBin record or use the canonical \
+                      binary Git object instead of a newline-converted \
+                      worktree copy."
+                   ~start ())
+          | None ->
+              let kind, value =
+                match command_kind with
+                | Insert_binary -> (Token_kind.Inserted_binary, Token.Bytes "")
+                | Insert_binary_size ->
+                    (Token_kind.Inserted_binary_size, Token.Int64 0L)
+              in
+              Token
+                (make_token
+                   ~binary_record:
+                     {
+                       Token.number = record_number;
+                       declared_size = 0L;
+                       payload_complete = false;
+                     }
+                   lexer leading_trivia ~kind ~value start)
+          | Some record ->
+              let kind, value =
+                match command_kind with
+                | Insert_binary ->
+                    (Token_kind.Inserted_binary, Token.Bytes record.payload)
+                | Insert_binary_size ->
+                    ( Token_kind.Inserted_binary_size,
+                      Token.Int64 record.declared_size )
+              in
+              Token
+                (make_token
+                   ~binary_record:
+                     {
+                       Token.number = record_number;
+                       declared_size = record.declared_size;
+                       payload_complete = record.payload_complete;
+                     }
+                   lexer leading_trivia ~kind ~value start))
+      | None ->
+          invalid_arg
+            "an inserted-binary command was recognized without DolDoc decoding")
 
 let scan_to_directive_marker lexer =
   let rec scan () =
@@ -805,7 +1030,13 @@ let next lexer =
             | _ -> scan_operator_or_punctuation lexer leading_trivia)
         | Some '"' -> scan_string lexer leading_trivia
         | Some '\'' -> scan_character lexer leading_trivia
-        | Some byte when punctuation byte || Char.equal byte '$' ->
+        | Some '$' -> (
+            match classify_inserted_command lexer with
+            | (Inserted_command _ | Invalid_inserted_command _) as command ->
+                scan_inserted_command lexer leading_trivia command
+            | Not_inserted_command ->
+                scan_operator_or_punctuation lexer leading_trivia)
+        | Some byte when punctuation byte ->
             scan_operator_or_punctuation lexer leading_trivia
         | Some byte ->
             let start = cursor lexer in
@@ -819,8 +1050,8 @@ let next lexer =
                     literal."
                  ~start ()))
 
-let lex_all ?mode ?nul_terminates source =
-  let lexer = create ?mode ?nul_terminates source in
+let lex_all ?mode ?nul_terminates ?recover_normalized_doldoc source =
+  let lexer = create ?mode ?nul_terminates ?recover_normalized_doldoc source in
   let rec loop tokens diagnostics =
     match next lexer with
     | Token token when token.Token.kind = Token_kind.Eof ->

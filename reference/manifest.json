@@ -8,7 +8,7 @@
     "extensions": [".HC", ".HH", ".PRJ"],
     "files": 528,
     "canonical_bytes": 4190323,
-    "tokens": 719304,
+    "tokens": 719621,
     "nul_terminated_files": 54,
     "trailing_payload_bytes": 1266852
   },
@@ -27,7 +27,7 @@
       "parser_diagnostics": 488,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 37083
+      "diagnostics": 37029
     },
     "project_prelude": {
       "parses": 117,
@@ -35,9 +35,9 @@
       "parser_diagnostics": 348,
       "read_errors": 0,
       "internal_errors": 0,
-      "diagnostics": 15279
+      "diagnostics": 15165
     },
-    "baseline_sha256": "531d7a53e0dec441c00376849017119b4a41b4c74f041e11ef92957de38c61f6"
+    "baseline_sha256": "583d574731bbdeb20b7c23bf2254620d397d47b808b3e1b2d387cc870d3ede93"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

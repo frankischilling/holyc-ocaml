@@ -74,6 +74,17 @@ type literal_value =
   | Float_value of float
   | Bytes_value of string
 
+type inserted_binary_origin = {
+  record_number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
+type literal_origin =
+  | Source_literal
+  | Inserted_binary_literal of inserted_binary_origin
+  | Inserted_binary_size_literal of inserted_binary_origin
+
 type unary_operator_kind =
   | Unary_plus
   | Unary_minus
@@ -112,6 +123,7 @@ and expression_literal = private {
   literal_value : literal_value;
   literal_location : location;
   literal_segments : expression_literal_segment list;
+  literal_origin : literal_origin;
 }
 
 and expression_literal_segment = private {
@@ -1055,6 +1067,7 @@ val make_register_qualifier :
   register_qualifier
 
 val make_expression_literal :
+  origin:literal_origin ->
   spelling:string ->
   value:literal_value ->
   location:location ->

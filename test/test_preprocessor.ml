@@ -437,8 +437,9 @@ let frame_metadata () =
     Span.unsafe_make ~source:(Source_file.id root) ~start:0 ~stop:4
   in
   let child_frame =
-    Lexer_frame.push_include ~nul_terminates:false ~caller:root_frame
-      ~source:child ~include_origin:origin ~include_spelling:"child"
+    Lexer_frame.push_include ~nul_terminates:false
+      ~recover_normalized_doldoc:false ~caller:root_frame ~source:child
+      ~include_origin:origin ~include_spelling:"child"
   in
   Alcotest.(check int)
     "root source depth" (-1)

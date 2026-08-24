@@ -15,6 +15,7 @@ module Config = struct
     max_generated_bytes : int;
     max_expression_nodes : int;
     physical_nul_terminates : bool;
+    recover_normalized_doldoc : bool;
     predefined : Predefined.Settings.t;
   }
 
@@ -23,7 +24,8 @@ module Config = struct
       ?(max_include_depth = 64) ?(max_source_bytes = 64 * 1024 * 1024)
       ?(max_definition_depth = 64) ?(max_generated_bytes = 16 * 1024 * 1024)
       ?(max_expression_nodes = 512) ?(physical_nul_terminates = false)
-      ?predefined_date ?predefined_time ?(command_line_source = false) () =
+      ?(recover_normalized_doldoc = false) ?predefined_date ?predefined_time
+      ?(command_line_source = false) () =
     if max_conditional_depth < 0 then
       Error "conditional depth limit must be nonnegative"
     else if max_include_depth < 0 then
@@ -60,6 +62,7 @@ module Config = struct
                   max_generated_bytes;
                   max_expression_nodes;
                   physical_nul_terminates;
+                  recover_normalized_doldoc;
                   predefined;
                 })
 
@@ -72,6 +75,7 @@ module Config = struct
   let max_generated_bytes config = config.max_generated_bytes
   let max_expression_nodes config = config.max_expression_nodes
   let physical_nul_terminates config = config.physical_nul_terminates
+  let recover_normalized_doldoc config = config.recover_normalized_doldoc
   let predefined config = config.predefined
 end
 
@@ -122,6 +126,7 @@ let create ~sources ~definitions ~symbols ~config source =
     current =
       Lexer_frame.root
         ~nul_terminates:(Config.physical_nul_terminates config)
+        ~recover_normalized_doldoc:(Config.recover_normalized_doldoc config)
         ~mode:Token.Holyc source;
     lookahead = None;
     generated_bytes = 0;
@@ -515,6 +520,8 @@ let push_include stream token spelling =
                   Lexer_frame.push_include
                     ~nul_terminates:
                       (Config.physical_nul_terminates stream.config)
+                    ~recover_normalized_doldoc:
+                      (Config.recover_normalized_doldoc stream.config)
                     ~caller:stream.current ~source ~include_origin:token.span
                     ~include_spelling:spelling;
                 Ok ()))

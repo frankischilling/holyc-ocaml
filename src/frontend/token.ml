@@ -13,10 +13,17 @@ type origin = {
   defined_at : Common.Span.t option;
 }
 
+type binary_record = {
+  number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
 type t = {
   kind : Token_kind.t;
   raw : string;
   value : value;
+  binary_record : binary_record option;
   span : Common.Span.t;
   source_segments : Common.Span.t list;
   origin : origin;
@@ -90,6 +97,14 @@ let human sources token =
     | None -> ""
     | Some text -> Printf.sprintf " value=%S" text
   in
+  let binary_record =
+    match token.binary_record with
+    | None -> ""
+    | Some record ->
+        Printf.sprintf
+          " binary_record=%Ld declared_size=%Ld payload_complete=%b"
+          record.number record.declared_size record.payload_complete
+  in
   let source_segments =
     segments_text sources "source_segments" token.source_segments
   in
@@ -120,10 +135,10 @@ let human sources token =
         Printf.sprintf " leading_trivia_segments=[%s]"
           (String.concat ";" segments)
   in
-  Printf.sprintf "%s:%d:%d..%d:%d %s raw=%S%s%s%s" path start_line start_column
-    stop_line stop_column
+  Printf.sprintf "%s:%d:%d..%d:%d %s raw=%S%s%s%s%s" path start_line
+    start_column stop_line stop_column
     (Token_kind.name token.kind)
-    token.raw value source_segments trivia_segments
+    token.raw value binary_record source_segments trivia_segments
 
 let span_json sources span =
   let fields =
@@ -160,6 +175,21 @@ let to_yojson sources token =
     | spans ->
         [ ("source_segments", `List (List.map (span_json sources) spans)) ]
   in
+  let binary_record =
+    match token.binary_record with
+    | None -> []
+    | Some record ->
+        [
+          ( "binary_record",
+            `Assoc
+              [
+                ("number", `String (Printf.sprintf "0x%08Lx" record.number));
+                ( "declared_size",
+                  `String (Printf.sprintf "0x%08Lx" record.declared_size) );
+                ("payload_complete", `Bool record.payload_complete);
+              ] );
+        ]
+  in
   `Assoc
     ([
        ("kind", `String (Token_kind.name token.kind));
@@ -167,7 +197,7 @@ let to_yojson sources token =
        ("value", value_json token.value);
        ("span", span_json sources token.span);
      ]
-    @ source_segments
+    @ binary_record @ source_segments
     @ [
         ( "origin",
           `Assoc

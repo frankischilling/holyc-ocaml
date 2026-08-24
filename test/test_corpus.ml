@@ -444,7 +444,7 @@ let pinned_reference () =
   Alcotest.(check int64)
     "canonical lexed bytes" 2_923_417L
     (Corpus.total_lexed_bytes report);
-  Alcotest.(check int64) "token count" 719_304L (Corpus.total_tokens report);
+  Alcotest.(check int64) "token count" 719_621L (Corpus.total_tokens report);
   Alcotest.(check int)
     "NUL-terminated files" 54
     (Corpus.nul_terminated_count report);
@@ -503,9 +503,9 @@ let pinned_parser_reference () =
     "canonical source bytes" 4_190_323L
     (Corpus.Parse.total_bytes report);
   Alcotest.(check int)
-    "diagnostics" 37_083
+    "diagnostics" 37_029
     (Corpus.Parse.diagnostic_count report);
-  Alcotest.(check int) "errors" 37_083 (Corpus.Parse.error_count report);
+  Alcotest.(check int) "errors" 37_029 (Corpus.Parse.error_count report);
   Alcotest.(check int) "warnings" 0 (Corpus.Parse.warning_count report);
   Alcotest.(check int) "notes" 0 (Corpus.Parse.note_count report);
   Alcotest.(check bool)
@@ -543,7 +543,7 @@ let pinned_parser_reference () =
     "prelude parser failures" 348
     (Corpus.Parse.parser_diagnostic_count prelude);
   Alcotest.(check int)
-    "prelude diagnostics" 15_279
+    "prelude diagnostics" 15_165
     (Corpus.Parse.diagnostic_count prelude);
   Alcotest.(check int)
     "prelude read errors" 0
@@ -551,6 +551,23 @@ let pinned_parser_reference () =
   Alcotest.(check int)
     "prelude internal errors" 0
     (Corpus.Parse.internal_error_count prelude);
+  List.iter
+    (fun (path, code, line) ->
+      let result = parse_file prelude path in
+      match result.first_error with
+      | Some diagnostic ->
+          Alcotest.(check string) (path ^ " first error") code diagnostic.code;
+          Alcotest.(check int) (path ^ " first-error line") line diagnostic.line
+      | None -> Alcotest.fail ("expected a parser boundary for " ^ path))
+    [
+      ("Apps/KeepAway/KeepAway.HC", "HCPARSE0001", 221);
+      ("Apps/Logic/Logic.HC", "HCPARSE0048", 190);
+      ("Apps/Psalmody/PsalmodyDraw.HC", "HCPARSE0048", 88);
+      ("Demo/Games/BattleLines.HC", "HCPARSE0048", 77);
+      ("Demo/Games/FlatTops.HC", "HCPARSE0048", 169);
+      ("Demo/Graphics/EdSprite.HC", "HCPARSE0048", 61);
+      ("Demo/Graphics/WallPaperFish.HC", "HCPARSE0048", 67);
+    ];
   let expected =
     Filename.concat (workspace ()) "reference/parser-corpus-aot.json"
     |> read_file |> String.trim
