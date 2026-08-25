@@ -58,6 +58,10 @@ val of_bit_index : int -> t option
 val info : t -> info
 val information : info list
 val mask : t -> int64
+
+val known_mask : int64
+(** Union of every source-backed compiler option bit. *)
+
 val initial_mask : int64
 val is_enabled : mask:int64 -> t -> bool
 val set : mask:int64 -> t -> bool -> int64 * bool

@@ -217,6 +217,11 @@ let info option =
 
 let mask option = (info option).mask
 
+let known_mask =
+  List.fold_left
+    (fun result (entry : info) -> Int64.logor result entry.mask)
+    0L information
+
 let of_bit_index bit_index =
   List.find_opt (fun (entry : info) -> entry.bit_index = bit_index) information
   |> Option.map (fun (entry : info) -> entry.option)
