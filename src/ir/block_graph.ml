@@ -346,10 +346,8 @@ let block_id block = block.block_id
 let instructions block = block.instructions
 let successors block = block.successors
 
-let human graph =
+let human_body graph =
   let buffer = Buffer.create 512 in
-  Printf.bprintf buffer "holyc-ir-graph-v1 reference=%s\n"
-    Sequence.reference_commit;
   Printf.bprintf buffer "entry=^b%d\n" (block_number graph.entry.block_id);
   List.iter
     (fun block ->
@@ -364,3 +362,7 @@ let human graph =
       Buffer.add_string buffer "]\n")
     graph.blocks;
   Buffer.contents buffer
+
+let human graph =
+  Printf.sprintf "holyc-ir-graph-v1 reference=%s\n%s" Sequence.reference_commit
+    (human_body graph)

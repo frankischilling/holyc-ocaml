@@ -73,3 +73,6 @@ val human : t -> string
 val human_body : t -> string
 (** Render instructions without the schema header. This is used by enclosing IR
     containers that provide their own versioned header. *)
+
+val type_name : Sema.Type.t -> string
+(** Render the stable type spelling shared by enclosing IR dumps. *)

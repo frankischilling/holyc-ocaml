@@ -7436,6 +7436,38 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-NAMED-FUNCTION-BODY"
+description = "Named HolyC functions retain checked signatures, member inventories, compiler state, and verified graph bodies."
+sources = [
+  "Compiler/PrsStmt.HC:PrsFunJoin return type, arguments, and function flags",
+  "Compiler/PrsStmt.HC:PrsFun private function code stream and enter or leave boundary",
+  "Compiler/PrsLib.HC:COCCompile function-stream consumer",
+  "Compiler/CMain.HC:LexStmt2Bin separate executable top-level statement path",
+  "Kernel/KernelA.HH:CCodeCtrl function compiler state"
+]
+implementation = [
+  "src/ir/function_body.ml",
+  "src/ir/function_body.mli",
+  "src/ir/block_graph.ml",
+  "src/ir/block_graph.mli"
+]
+tests = ["test/test_ir_function_body.ml"]
+status = "implemented"
+issue = 407
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one named function around an existing checked block graph"
+retained_identity = ["stable function ID", "function symbol", "declaration scope", "distinct function-body scope"]
+retained_signature = ["return type", "source-ordered parameters", "source-ordered locals", "member positions", "member symbols", "member types", "source spans"]
+retained_compiler_state = ["stored function flags", "compiler-option snapshot"]
+validation = ["function, parameter, and local symbol kinds", "member scope ownership", "nonnegative identities and positions", "duplicate positions within an inventory", "duplicate symbols across inventories", "known stored function flags", "known compiler options", "argument cleanup and interrupt flag combinations", "source span shape", "x87 stack discipline"]
+diagnostics = ["HCIR0026 negative function ID", "HCIR0027 invalid function symbol or scope", "HCIR0028 invalid source span", "HCIR0029 unknown flag or option bits", "HCIR0030 incompatible function flags", "HCIR0031 negative member position", "HCIR0032 invalid member symbol or scope", "HCIR0033 duplicate member position or symbol", "HCIR0021 through HCIR0025 propagated x87 failures"]
+deterministic_dump = "holyc-ir-function-v1"
+focused_tests = 8
+mutation = "none"
+frontend_lowering_storage_layout_abi_linkage_execution_and_top_level_ir = "not implemented"
+native_oracle_status = "not required for this construction boundary; PrsFunJoin, PrsFun, COCCompile, and LexStmt2Bin establish the retained function metadata and the top-level distinction"
+
+[[feature]]
 id = "HC-IR-X87-STACK-DISCIPLINE"
 description = "Checked function graphs retain source-grounded x87 operations and reject inconsistent stack depth."
 sources = [
@@ -7502,7 +7534,7 @@ access_values = ["none", "read", "write", "read-write", "opaque"]
 call_values = ["none", "local", "direct", "indirect", "import", "extern"]
 source_fact = "prevents_constant_folding retains CInit.HC not_const without asserting semantic purity"
 conservative_rules = ["calls cover opaque memory and machine state", "inline assembly is opaque on every access axis", "memory and machine reads are reorder barriers"]
-instruction_operand_refinement_alias_regions_exceptions_locks_relocations_and_x87_stack = "not implemented"
+instruction_operand_refinement_alias_regions_exceptions_locks_and_relocations = "not implemented; x87 stack structure is tracked separately by HC-IR-X87-STACK-DISCIPLINE"
 native_oracle_status = "not required for this conservative compiler-internal boundary; every classification cites pinned optimizer or backend consumers"
 
 [[feature]]
