@@ -164,6 +164,20 @@ let literal_value_text = function
   | Ast.Float_value value -> Printf.sprintf "%.17g" value
   | Ast.Bytes_value value -> escaped_bytes value
 
+let literal_kind fallback (literal : Ast.expression_literal) =
+  match literal.literal_origin with
+  | Ast.Source_literal -> fallback
+  | Ast.Inserted_binary_literal _ -> "inserted_binary_literal"
+  | Ast.Inserted_binary_size_literal _ -> "inserted_binary_size_literal"
+
+let literal_record_text (literal : Ast.expression_literal) =
+  match literal.literal_origin with
+  | Ast.Source_literal -> ""
+  | Ast.Inserted_binary_literal record | Ast.Inserted_binary_size_literal record
+    ->
+      Printf.sprintf " binary_record=%Ld declared_size=%Ld payload_complete=%b"
+        record.record_number record.declared_size record.payload_complete
+
 let binding_kind_name = function
   | Ast.Extern -> "extern"
   | Ast.Import -> "import"
@@ -531,10 +545,21 @@ and print_call_argument buffer sources ~indent index
 
 and print_literal buffer sources ~indent ~kind
     (literal : Ast.expression_literal) =
-  Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S span=%s\n"
-    indent kind literal.literal_spelling
+  Printf.bprintf buffer "%sexpression kind=%s spelling=%S value=%S%s span=%s\n"
+    indent
+    (literal_kind kind literal)
+    literal.literal_spelling
     (literal_value_text literal.literal_value)
-    (location_text sources literal.literal_location)
+    (literal_record_text literal)
+    (location_text sources literal.literal_location);
+  List.iteri
+    (fun index (segment : Ast.expression_literal_segment) ->
+      Printf.bprintf buffer
+        "%s  segment index=%d spelling=%S value=%S span=%s\n" indent index
+        segment.literal_segment_spelling
+        (escaped_bytes segment.literal_segment_value)
+        (location_text sources segment.literal_segment_location))
+    literal.literal_segments
 
 and print_expression_operator buffer sources ~indent
     (operator : Ast.expression_operator) =
@@ -943,7 +968,8 @@ let rec print_statement buffer sources ~indent = function
               | Ast.Scalar_initializer expression ->
                   print_expression buffer sources
                     ~indent:(declarator_indent ^ "  ") expression
-              | Ast.Braced_initializer _ as value ->
+              | (Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _) as
+                value ->
                   print_initializer buffer sources
                     ~indent:(declarator_indent ^ "  ") value)
             declarator.local_initializer;
@@ -1234,6 +1260,30 @@ and print_initializer buffer sources ~indent = function
         braced.initializer_elements;
       Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
         (location_text sources braced.initializer_closing_brace)
+  | Ast.Unbraced_array_initializer unbraced ->
+      let child_indent = indent ^ "  " in
+      Printf.bprintf buffer "%svalue kind=unbraced_array span=%s elements=%d\n"
+        indent
+        (location_text sources unbraced.unbraced_initializer_location)
+        (List.length unbraced.unbraced_initializer_elements);
+      List.iteri
+        (fun index (element : Ast.initializer_element) ->
+          Printf.bprintf buffer "%selement index=%d span=%s\n" child_indent
+            index
+            (location_text sources element.initializer_element_location);
+          print_initializer buffer sources ~indent:(child_indent ^ "  ")
+            element.initializer_element_value;
+          Option.iter
+            (fun comma ->
+              Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+                (location_text sources comma))
+            element.initializer_element_comma)
+        unbraced.unbraced_initializer_elements;
+      Option.iter
+        (fun closing_brace ->
+          Printf.bprintf buffer "%sclosing_brace span=%s\n" child_indent
+            (location_text sources closing_brace))
+        unbraced.unbraced_initializer_closing_brace
 
 and print_array_dimensions buffer sources ~indent dimensions =
   List.iteri
@@ -1403,6 +1453,15 @@ and print_function_parameter buffer sources ~indent index
         (location_text sources delimiter.location))
     parameter.delimiter
 
+and print_empty_parameter_entry buffer sources ~indent index
+    (entry : Ast.empty_parameter_entry) =
+  let delimiter = entry.empty_parameter_delimiter in
+  Printf.bprintf buffer
+    "%sempty_parameter_entry index=%d preceding_parameters=%d spelling=%S \
+     span=%s\n"
+    indent index entry.preceding_parameter_count delimiter.spelling
+    (location_text sources delimiter.location)
+
 and print_function_pointer buffer sources ~indent ~name
     (function_pointer : Ast.function_pointer_declarator) =
   let child_indent = indent ^ "  " in
@@ -1423,6 +1482,9 @@ and print_function_pointer buffer sources ~indent ~name
   List.iteri
     (print_function_parameter buffer sources ~indent:child_indent)
     function_pointer.signature_parameters;
+  List.iteri
+    (print_empty_parameter_entry buffer sources ~indent:child_indent)
+    function_pointer.signature_empty_parameter_entries;
   Option.iter
     (print_variadic_marker buffer sources ~indent:child_indent)
     function_pointer.signature_variadic;
@@ -1522,8 +1584,11 @@ let human sources module_ =
             (print_global_declarator buffer sources ~indent:"    "
                ~label:"attached_declarator")
             definition.attached_declarators;
-          Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources definition.semicolon)
+          Option.iter
+            (fun semicolon ->
+              Printf.bprintf buffer "    semicolon span=%s\n"
+                (location_text sources semicolon))
+            definition.semicolon
       | Ast.Global_variable variable ->
           Printf.bprintf buffer "  global_variable span=%s\n"
             (location_text sources variable.location);
@@ -1549,7 +1614,12 @@ let human sources module_ =
           List.iteri
             (print_global_declarator buffer sources ~indent:"    "
                ~label:"declarator")
-            declaration.declarators
+            declaration.declarators;
+          Option.iter
+            (fun location ->
+              Printf.bprintf buffer "    trailing_semicolon span=%s\n"
+                (location_text sources location))
+            declaration.trailing_semicolon
       | Ast.Function_prototype prototype ->
           Printf.bprintf buffer
             "  function_prototype span=%s parameters=%d variadic=%b\n"
@@ -1569,13 +1639,19 @@ let human sources module_ =
           List.iteri
             (print_function_parameter buffer sources ~indent:"    ")
             prototype.parameters;
+          List.iteri
+            (print_empty_parameter_entry buffer sources ~indent:"    ")
+            prototype.empty_parameter_entries;
           Option.iter
             (print_variadic_marker buffer sources ~indent:"    ")
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
             (location_text sources prototype.closing_parenthesis);
-          Printf.bprintf buffer "    semicolon span=%s\n"
-            (location_text sources prototype.semicolon)
+          Option.iter
+            (fun semicolon ->
+              Printf.bprintf buffer "    semicolon span=%s\n"
+                (location_text sources semicolon))
+            prototype.semicolon
       | Ast.Function_definition definition ->
           Printf.bprintf buffer
             "  function_definition span=%s parameters=%d variadic=%b body=%s\n"
@@ -1595,6 +1671,9 @@ let human sources module_ =
           List.iteri
             (print_function_parameter buffer sources ~indent:"    ")
             definition.parameters;
+          List.iteri
+            (print_empty_parameter_entry buffer sources ~indent:"    ")
+            definition.empty_parameter_entries;
           Option.iter
             (print_variadic_marker buffer sources ~indent:"    ")
             definition.variadic;
@@ -1760,13 +1839,50 @@ let literal_value_to_yojson = function
   | Ast.Bytes_value value -> `String (escaped_bytes value)
 
 let literal_to_yojson sources ~kind (literal : Ast.expression_literal) =
+  let binary_record =
+    match literal.literal_origin with
+    | Ast.Source_literal -> []
+    | Ast.Inserted_binary_literal record
+    | Ast.Inserted_binary_size_literal record ->
+        [
+          ( "binary_record",
+            `Assoc
+              [
+                ( "number",
+                  `String (Printf.sprintf "0x%08Lx" record.record_number) );
+                ( "declared_size",
+                  `String (Printf.sprintf "0x%08Lx" record.declared_size) );
+                ("payload_complete", `Bool record.payload_complete);
+              ] );
+        ]
+  in
   `Assoc
-    [
-      ("kind", `String kind);
-      ("spelling", `String literal.literal_spelling);
-      ("value", literal_value_to_yojson literal.literal_value);
-      ("location", location_to_yojson sources literal.literal_location);
-    ]
+    ([
+       ("kind", `String (literal_kind kind literal));
+       ("spelling", `String literal.literal_spelling);
+       ("value", literal_value_to_yojson literal.literal_value);
+       ("location", location_to_yojson sources literal.literal_location);
+     ]
+    @ binary_record
+    @
+    if literal.literal_segments = [] then []
+    else
+      [
+        ( "segments",
+          `List
+            (List.map
+               (fun (segment : Ast.expression_literal_segment) ->
+                 `Assoc
+                   [
+                     ("spelling", `String segment.literal_segment_spelling);
+                     ( "value",
+                       `String (escaped_bytes segment.literal_segment_value) );
+                     ( "location",
+                       location_to_yojson sources
+                         segment.literal_segment_location );
+                   ])
+               literal.literal_segments) );
+      ])
 
 let expression_operator_to_yojson sources (operator : Ast.expression_operator) =
   `Assoc
@@ -2464,8 +2580,8 @@ let rec statement_to_yojson sources = function
           match initial_value.local_initializer_value with
           | Ast.Scalar_initializer expression ->
               expression_to_yojson sources expression
-          | Ast.Braced_initializer _ as value ->
-              initializer_to_yojson sources value
+          | (Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _) as
+            value -> initializer_to_yojson sources value
         in
         `Assoc
           [
@@ -2770,6 +2886,25 @@ and initializer_to_yojson sources = function
             location_to_yojson sources braced.initializer_closing_brace );
           ("location", location_to_yojson sources braced.initializer_location);
         ]
+  | Ast.Unbraced_array_initializer unbraced ->
+      `Assoc
+        ([
+           ("kind", `String "unbraced_array");
+           ( "elements",
+             `List
+               (List.map
+                  (initializer_element_to_yojson sources)
+                  unbraced.unbraced_initializer_elements) );
+         ]
+        @ (match unbraced.unbraced_initializer_closing_brace with
+          | None -> []
+          | Some closing_brace ->
+              [ ("closing_brace", location_to_yojson sources closing_brace) ])
+        @ [
+            ( "location",
+              location_to_yojson sources unbraced.unbraced_initializer_location
+            );
+          ])
 
 and initializer_element_to_yojson sources (element : Ast.initializer_element) =
   `Assoc
@@ -3002,6 +3137,14 @@ and parameter_to_yojson sources (parameter : Ast.function_parameter) =
           [ ("delimiter", delimiter_to_yojson sources delimiter) ])
     @ [ ("location", location_to_yojson sources parameter.location) ])
 
+and empty_parameter_entry_to_yojson sources (entry : Ast.empty_parameter_entry)
+    =
+  `Assoc
+    [
+      ("preceding_parameter_count", `Int entry.preceding_parameter_count);
+      ("delimiter", delimiter_to_yojson sources entry.empty_parameter_delimiter);
+    ]
+
 and function_pointer_to_yojson sources ~name
     (function_pointer : Ast.function_pointer_declarator) =
   `Assoc
@@ -3028,6 +3171,14 @@ and function_pointer_to_yojson sources ~name
                (parameter_to_yojson sources)
                function_pointer.signature_parameters) );
       ]
+    @ (match function_pointer.signature_empty_parameter_entries with
+      | [] -> []
+      | entries ->
+          [
+            ( "empty_parameter_entries",
+              `List (List.map (empty_parameter_entry_to_yojson sources) entries)
+            );
+          ])
     @ (match function_pointer.signature_variadic with
       | None -> []
       | Some variadic -> [ ("variadic", variadic_to_yojson sources variadic) ])
@@ -3130,10 +3281,11 @@ let item_to_yojson sources = function
                 ( "attached_declarators",
                   `List (List.map (declarator_to_yojson sources) declarators) );
               ])
-        @ [
-            ("semicolon", location_to_yojson sources definition.semicolon);
-            ("location", location_to_yojson sources definition.location);
-          ])
+        @ (match definition.semicolon with
+          | None -> []
+          | Some semicolon ->
+              [ ("semicolon", location_to_yojson sources semicolon) ])
+        @ [ ("location", location_to_yojson sources definition.location) ])
   | Ast.Global_variable variable ->
       `Assoc
         ([ ("kind", `String "global_variable") ]
@@ -3159,8 +3311,12 @@ let item_to_yojson sources = function
                 (List.map
                    (declarator_to_yojson sources)
                    declaration.declarators) );
-            ("location", location_to_yojson sources declaration.location);
-          ])
+          ]
+        @ (match declaration.trailing_semicolon with
+          | None -> []
+          | Some location ->
+              [ ("trailing_semicolon", location_to_yojson sources location) ])
+        @ [ ("location", location_to_yojson sources declaration.location) ])
   | Ast.Function_prototype prototype ->
       `Assoc
         ([ ("kind", `String "function_prototype") ]
@@ -3176,6 +3332,15 @@ let item_to_yojson sources = function
               `List
                 (List.map (parameter_to_yojson sources) prototype.parameters) );
           ]
+        @ (match prototype.empty_parameter_entries with
+          | [] -> []
+          | entries ->
+              [
+                ( "empty_parameter_entries",
+                  `List
+                    (List.map (empty_parameter_entry_to_yojson sources) entries)
+                );
+              ])
         @ (match prototype.variadic with
           | None -> []
           | Some variadic ->
@@ -3183,9 +3348,12 @@ let item_to_yojson sources = function
         @ [
             ( "closing_parenthesis",
               location_to_yojson sources prototype.closing_parenthesis );
-            ("semicolon", location_to_yojson sources prototype.semicolon);
-            ("location", location_to_yojson sources prototype.location);
-          ])
+          ]
+        @ (match prototype.semicolon with
+          | None -> []
+          | Some semicolon ->
+              [ ("semicolon", location_to_yojson sources semicolon) ])
+        @ [ ("location", location_to_yojson sources prototype.location) ])
   | Ast.Function_definition definition ->
       `Assoc
         ([ ("kind", `String "function_definition") ]
@@ -3201,6 +3369,15 @@ let item_to_yojson sources = function
                 (List.map (parameter_to_yojson sources) definition.parameters)
             );
           ]
+        @ (match definition.empty_parameter_entries with
+          | [] -> []
+          | entries ->
+              [
+                ( "empty_parameter_entries",
+                  `List
+                    (List.map (empty_parameter_entry_to_yojson sources) entries)
+                );
+              ])
         @ (match definition.variadic with
           | None -> []
           | Some variadic ->

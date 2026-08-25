@@ -150,6 +150,9 @@ let git_raw root arguments =
     let stdout, stdin, stderr =
       Unix.open_process_args_full "git" arguments (Unix.environment ())
     in
+    set_binary_mode_in stdout true;
+    set_binary_mode_out stdin true;
+    set_binary_mode_in stderr true;
     let output = read_all stdout in
     let error_output = read_all stderr in
     match Unix.close_process_full (stdout, stdin, stderr) with
@@ -342,7 +345,10 @@ let diagnostic_summary source (item : Common.Diagnostic.t) =
   }
 
 let lex_source source =
-  let lexer = Frontend.Lexer.create ~nul_terminates:true source in
+  let lexer =
+    Frontend.Lexer.create ~nul_terminates:true ~recover_normalized_doldoc:true
+      source
+  in
   let rec loop tokens diagnostic_count first_diagnostic =
     match Frontend.Lexer.next lexer with
     | Frontend.Lexer.Token token
@@ -916,12 +922,13 @@ module Parse = struct
       failure_message = Some (report_message root message);
     }
 
-  let make_config ~root ~max_file_bytes ~compilation_mode =
+  let make_config ~root ~working_directory ~max_file_bytes ~compilation_mode =
     match
-      Frontend.Preprocessor.Config.create ~working_directory:root
-        ~templeos_root:root ~compilation_mode ~max_source_bytes:max_file_bytes
+      Frontend.Preprocessor.Config.create ~working_directory ~templeos_root:root
+        ~compilation_mode ~max_source_bytes:max_file_bytes
         ~physical_nul_terminates:true ~predefined_date:"01/01/70"
-        ~predefined_time:"00:00:00" ~command_line_source:false ()
+        ~recover_normalized_doldoc:true ~predefined_time:"00:00:00"
+        ~command_line_source:false ()
     with
     | Ok config -> Ok config
     | Error message -> Error (report_message root message)
@@ -1046,7 +1053,10 @@ module Parse = struct
       match canonical_directory root with
       | Error _ as error -> error
       | Ok root -> (
-          match make_config ~root ~max_file_bytes ~compilation_mode with
+          match
+            make_config ~root ~working_directory:root ~max_file_bytes
+              ~compilation_mode
+          with
           | Error _ as error -> error
           | Ok config -> (
               match discover root with
@@ -1065,7 +1075,10 @@ module Parse = struct
       match validate_reference root expected_commit with
       | Error _ as error -> error
       | Ok root -> (
-          match make_config ~root ~max_file_bytes ~compilation_mode with
+          match
+            make_config ~root ~working_directory:root ~max_file_bytes
+              ~compilation_mode
+          with
           | Error _ as error -> error
           | Ok config -> (
               match discover_reference root with
@@ -1208,4 +1221,550 @@ module Parse = struct
     |> List.filter (fun file -> file.status <> Parses)
     |> List.iter (write_failure buffer);
     Buffer.contents buffer
+
+  module Comparison = struct
+    type outcome = file_result
+    type parse_report = t
+
+    type project_order = {
+      path : string;
+      directory : string;
+      includes : string list;
+    }
+
+    type comparison =
+      | Both_parse
+      | Standalone_only
+      | Project_prelude_only
+      | Neither_parses
+
+    type compared_file = {
+      path : string;
+      effective_project_directory : string;
+      comparison : comparison;
+      standalone : outcome;
+      project_prelude : outcome;
+    }
+
+    type comparison_report = {
+      standalone : parse_report;
+      project_prelude : parse_report;
+      project_orders : project_order list;
+      prelude_source : string;
+      prelude_files : string list;
+      prelude_diagnostic_count : int;
+      files : compared_file list;
+    }
+
+    type nonrec t = comparison_report
+
+    let schema = "holyc-corpus-parse-comparison-v2"
+    let directory_policy = "source-directory"
+    let project_paths = [ "Compiler/Compiler.PRJ"; "Kernel/Kernel.PRJ" ]
+
+    let source_directory path =
+      let directory = Filename.dirname path |> normalize_path in
+      if String.equal directory "" then "." else directory
+
+    let source_working_directory ~root path =
+      match source_directory path with
+      | "." -> root
+      | directory -> Filename.concat root directory
+
+    let starts_with_include line =
+      let line = String.trim line in
+      if not (String.starts_with ~prefix:"#include" line) then None
+      else
+        let after_keyword = String.sub line 8 (String.length line - 8) in
+        let after_keyword = String.trim after_keyword in
+        if String.length after_keyword < 2 || after_keyword.[0] <> '"' then None
+        else
+          match String.index_from_opt after_keyword 1 '"' with
+          | None -> None
+          | Some closing -> Some (String.sub after_keyword 1 (closing - 1))
+
+    let project_includes contents =
+      contents |> String.split_on_char '\n'
+      |> List.filter_map starts_with_include
+
+    let project_order read path =
+      Result.map
+        (fun contents ->
+          {
+            path;
+            directory = source_directory path;
+            includes = project_includes contents;
+          })
+        (read path)
+
+    let read_orders read =
+      let rec loop found = function
+        | [] -> Ok (List.rev found)
+        | path :: rest -> (
+            match project_order read path with
+            | Error _ as error -> error
+            | Ok order -> loop (order :: found) rest)
+      in
+      loop [] project_paths
+
+    let header_include spelling =
+      String.equal (String.uppercase_ascii (Filename.extension spelling)) ".HH"
+
+    let compiler_prelude orders =
+      match
+        List.find_opt
+          (fun (order : project_order) ->
+            String.equal order.path "Compiler/Compiler.PRJ")
+          orders
+      with
+      | None -> Error "the parser corpus did not read Compiler/Compiler.PRJ"
+      | Some order ->
+          let headers = List.filter header_include order.includes in
+          if headers = [] then
+            Error
+              "Compiler/Compiler.PRJ does not contain a direct header include"
+          else Ok headers
+
+    let prelude_contents headers =
+      headers
+      |> List.map (fun spelling -> Printf.sprintf "#include %S\n" spelling)
+      |> String.concat ""
+
+    let build_prelude ~config ~root headers =
+      let session = Session.create () in
+      let path = Filename.concat root ".holyc-corpus-project-prelude.PRJ" in
+      let source =
+        Session.add_source session ~path ~contents:(prelude_contents headers)
+      in
+      try
+        let output =
+          Frontend.Parser.parse ~sources:(Session.sources session)
+            ~definitions:(Session.definitions session)
+            ~symbols:(Session.symbols session) ~config source
+        in
+        Ok (session, List.length output.diagnostics)
+      with error ->
+        Error
+          ("could not build the parser corpus project prelude: "
+         ^ Printexc.to_string error)
+
+    let scan_file_with_prelude seed ~root ~max_file_bytes ~compilation_mode
+        (path, absolute) =
+      let working_directory = source_working_directory ~root path in
+      match
+        make_config ~root ~working_directory ~max_file_bytes ~compilation_mode
+      with
+      | Error message -> read_error ~root ~path message
+      | Ok config -> (
+          let session = Session.fork_frontend seed in
+          match
+            Session.load_source ~max_bytes:max_file_bytes ~display_path:path
+              session ~path:absolute
+          with
+          | Error message ->
+              read_error ~root ~path (report_message root message)
+          | Ok source -> parse_source session ~config ~root ~path source)
+
+    let scan_reference_file_with_prelude seed ~root ~max_file_bytes
+        ~compilation_mode (entry : reference_entry) =
+      if entry.bytes > Int64.of_int max_file_bytes then
+        read_error ~bytes:entry.bytes ~root ~path:entry.path
+          (Printf.sprintf "source exceeds the %d-byte corpus file limit"
+             max_file_bytes)
+      else
+        match git_raw root [ "cat-file"; "blob"; entry.object_id ] with
+        | Error message ->
+            read_error ~bytes:entry.bytes ~root ~path:entry.path
+              ("could not read reference object: " ^ message)
+        | Ok contents -> (
+            if Int64.of_int (String.length contents) <> entry.bytes then
+              read_error ~bytes:entry.bytes ~root ~path:entry.path
+                "Git returned a reference object with an unexpected byte count"
+            else
+              let working_directory =
+                source_working_directory ~root entry.path
+              in
+              match
+                make_config ~root ~working_directory ~max_file_bytes
+                  ~compilation_mode
+              with
+              | Error message -> read_error ~root ~path:entry.path message
+              | Ok config ->
+                  let session = Session.fork_frontend seed in
+                  let source =
+                    Session.add_source session
+                      ~path:(Filename.concat root entry.path)
+                      ~contents
+                  in
+                  parse_source session ~config ~root ~path:entry.path source)
+
+    let comparison left right =
+      match (left.status = Parses, right.status = Parses) with
+      | true, true -> Both_parse
+      | true, false -> Standalone_only
+      | false, true -> Project_prelude_only
+      | false, false -> Neither_parses
+
+    let comparison_name = function
+      | Both_parse -> "both-parse"
+      | Standalone_only -> "standalone-only"
+      | Project_prelude_only -> "project-prelude-only"
+      | Neither_parses -> "neither-parses"
+
+    let compare_files (standalone : parse_report)
+        (project_prelude : parse_report) =
+      let rec loop (found : compared_file list) (left : outcome list)
+          (right : outcome list) =
+        match (left, right) with
+        | [], [] -> Ok (List.rev found)
+        | standalone :: left, project_prelude :: right
+          when String.equal standalone.path project_prelude.path ->
+            let item =
+              {
+                path = standalone.path;
+                effective_project_directory = source_directory standalone.path;
+                comparison = comparison standalone project_prelude;
+                standalone;
+                project_prelude;
+              }
+            in
+            loop (item :: found) left right
+        | standalone :: _, project_prelude :: _ ->
+            Error
+              (Printf.sprintf
+                 "parser corpus reports disagree on file order at %s and %s"
+                 standalone.path project_prelude.path)
+        | [], _ :: _ | _ :: _, [] ->
+            Error "parser corpus reports contain different file counts"
+      in
+      loop [] standalone.files project_prelude.files
+
+    let make ~standalone ~project_prelude ~project_orders ~prelude_source
+        ~prelude_files ~prelude_diagnostic_count =
+      Result.map
+        (fun files ->
+          {
+            standalone;
+            project_prelude;
+            project_orders;
+            prelude_source;
+            prelude_files;
+            prelude_diagnostic_count;
+            files;
+          })
+        (compare_files standalone project_prelude)
+
+    let read_tree_project ~root ~max_file_bytes path =
+      let absolute = Filename.concat root path in
+      let session = Session.create () in
+      match
+        Session.load_source ~max_bytes:max_file_bytes session ~path:absolute
+      with
+      | Error message ->
+          Error (Printf.sprintf "could not read %s: %s" path message)
+      | Ok source -> Ok (Common.Source_file.contents source)
+
+    let find_reference_entry (entries : reference_entry list) path =
+      match
+        List.find_opt
+          (fun (entry : reference_entry) -> String.equal entry.path path)
+          entries
+      with
+      | None ->
+          Error (Printf.sprintf "the reference tree does not contain %s" path)
+      | Some entry -> Ok entry
+
+    let read_reference_project ~root ~max_file_bytes entries path =
+      match find_reference_entry entries path with
+      | Error _ as error -> error
+      | Ok entry when entry.bytes > Int64.of_int max_file_bytes ->
+          Error
+            (Printf.sprintf "%s exceeds the %d-byte corpus file limit" path
+               max_file_bytes)
+      | Ok entry -> (
+          match git_raw root [ "cat-file"; "blob"; entry.object_id ] with
+          | Error message ->
+              Error (Printf.sprintf "could not read %s: %s" path message)
+          | Ok contents when Int64.of_int (String.length contents) = entry.bytes
+            -> Ok contents
+          | Ok _ ->
+              Error
+                (Printf.sprintf
+                   "Git returned an unexpected byte count while reading %s" path)
+          )
+
+    let tree ?(max_file_bytes = 64 * 1024 * 1024) ~reference_commit
+        ~compilation_mode ~root () =
+      let ( let* ) = Result.bind in
+      if max_file_bytes < 0 then
+        Error "parser corpus file byte limit must be nonnegative"
+      else
+        let* root = canonical_directory root in
+        let* config =
+          make_config ~root ~working_directory:root ~max_file_bytes
+            ~compilation_mode
+        in
+        let* paths = discover root in
+        let* standalone =
+          tree ~max_file_bytes ~reference_commit ~compilation_mode ~root ()
+        in
+        let* project_orders =
+          read_orders (read_tree_project ~root ~max_file_bytes)
+        in
+        let* prelude_files = compiler_prelude project_orders in
+        let* seed, prelude_diagnostic_count =
+          build_prelude ~config ~root prelude_files
+        in
+        let* project_prelude =
+          paths
+          |> List.map
+               (scan_file_with_prelude seed ~root ~max_file_bytes
+                  ~compilation_mode)
+          |> summarize ~input:"filesystem-tree+project-prelude"
+               ~reference_commit ~compilation_mode
+        in
+        make ~standalone ~project_prelude ~project_orders
+          ~prelude_source:"Compiler/Compiler.PRJ" ~prelude_files
+          ~prelude_diagnostic_count
+
+    let reference ?(max_file_bytes = 64 * 1024 * 1024) ~expected_commit
+        ~compilation_mode ~root () =
+      let ( let* ) = Result.bind in
+      if max_file_bytes < 0 then
+        Error "parser corpus file byte limit must be nonnegative"
+      else
+        let* root = validate_reference root expected_commit in
+        let* config =
+          make_config ~root ~working_directory:root ~max_file_bytes
+            ~compilation_mode
+        in
+        let* entries = discover_reference root in
+        let* standalone =
+          reference ~max_file_bytes ~expected_commit ~compilation_mode ~root ()
+        in
+        let* project_orders =
+          read_orders (read_reference_project ~root ~max_file_bytes entries)
+        in
+        let* prelude_files = compiler_prelude project_orders in
+        let* seed, prelude_diagnostic_count =
+          build_prelude ~config ~root prelude_files
+        in
+        let* project_prelude =
+          entries
+          |> List.map
+               (scan_reference_file_with_prelude seed ~root ~max_file_bytes
+                  ~compilation_mode)
+          |> summarize ~input:"verified-git-tree+project-prelude"
+               ~reference_commit:expected_commit ~compilation_mode
+        in
+        let* report =
+          make ~standalone ~project_prelude ~project_orders
+            ~prelude_source:"Compiler/Compiler.PRJ" ~prelude_files
+            ~prelude_diagnostic_count
+        in
+        let* _ = validate_reference root expected_commit in
+        Ok report
+
+    let standalone report = report.standalone
+    let project_prelude report = report.project_prelude
+    let project_orders report = report.project_orders
+    let prelude_source report = report.prelude_source
+    let prelude_files report = report.prelude_files
+    let prelude_diagnostic_count report = report.prelude_diagnostic_count
+    let files report = report.files
+
+    let count comparison report =
+      List.fold_left
+        (fun total file ->
+          if file.comparison = comparison then total + 1 else total)
+        0 report.files
+
+    let both_parse_count report = count Both_parse report
+    let standalone_only_count report = count Standalone_only report
+    let project_prelude_only_count report = count Project_prelude_only report
+    let neither_parses_count report = count Neither_parses report
+
+    let unresolved_name_codes =
+      [ "HCPARSE0001"; "HCPARSE0009"; "HCPARSE0048"; "HCPARSE0112" ]
+
+    let unresolved_name_failure file =
+      match file.first_error with
+      | Some diagnostic -> List.mem diagnostic.code unresolved_name_codes
+      | None -> false
+
+    let unresolved_name_count (report : parse_report) =
+      List.fold_left
+        (fun count file ->
+          if unresolved_name_failure file then count + 1 else count)
+        0 report.files
+
+    let other_failure_count (report : parse_report) =
+      failure_count report - unresolved_name_count report
+
+    let outcome_json file =
+      `Assoc
+        [
+          ("status", `String (status_name file.status));
+          ("diagnostics", `Int file.diagnostic_count);
+          ("errors", `Int file.error_count);
+          ("warnings", `Int file.warning_count);
+          ("notes", `Int file.note_count);
+          ("diagnostic_codes", code_counts_json file.diagnostic_codes);
+          ( "first_error",
+            match file.first_error with
+            | None -> `Null
+            | Some diagnostic -> diagnostic_json diagnostic );
+          ( "failure_message",
+            match file.failure_message with
+            | None -> `Null
+            | Some message -> `String message );
+        ]
+
+    let summary_json (report : parse_report) =
+      `Assoc
+        [
+          ("parses", `Int report.parses_count);
+          ("frontend_diagnostics", `Int report.frontend_diagnostic_count);
+          ("parser_diagnostics", `Int report.parser_diagnostic_count);
+          ("read_errors", `Int report.read_error_count);
+          ("internal_errors", `Int report.internal_error_count);
+          ("failed", `Int (failure_count report));
+          ("unresolved_name_failures", `Int (unresolved_name_count report));
+          ("other_failures", `Int (other_failure_count report));
+          ("diagnostics", `Int report.total_diagnostic_count);
+          ("errors", `Int report.total_error_count);
+          ("warnings", `Int report.total_warning_count);
+          ("notes", `Int report.total_note_count);
+          ("diagnostic_codes", code_counts_json report.diagnostic_codes);
+        ]
+
+    let project_order_json (order : project_order) =
+      `Assoc
+        [
+          ("path", `String order.path);
+          ("directory", `String order.directory);
+          ( "includes",
+            `List (List.map (fun path -> `String path) order.includes) );
+        ]
+
+    let compared_file_json (file : compared_file) =
+      `Assoc
+        [
+          ("path", `String file.path);
+          ( "effective_project_directory",
+            `String file.effective_project_directory );
+          ("comparison", `String (comparison_name file.comparison));
+          ( "bytes",
+            match file.standalone.bytes with
+            | None -> `Null
+            | Some bytes -> int64_json bytes );
+          ("standalone", outcome_json file.standalone);
+          ("project_prelude", outcome_json file.project_prelude);
+        ]
+
+    let to_yojson report =
+      `Assoc
+        [
+          ("schema", `String schema);
+          ("phase", `String "parse");
+          ("input", `String report.standalone.input);
+          ("reference_commit", `String report.standalone.reference_commit);
+          ( "compilation_mode",
+            `String
+              (Frontend.Preprocessor.compilation_mode_name
+                 report.standalone.compilation_mode) );
+          ("directory_policy", `String directory_policy);
+          ( "project_orders",
+            `List (List.map project_order_json report.project_orders) );
+          ( "prelude",
+            `Assoc
+              [
+                ("source", `String report.prelude_source);
+                ( "files",
+                  `List
+                    (List.map (fun path -> `String path) report.prelude_files)
+                );
+                ("diagnostics", `Int report.prelude_diagnostic_count);
+              ] );
+          ( "summary",
+            `Assoc
+              [
+                ("files", `Int (List.length report.files));
+                ("both_parse", `Int (both_parse_count report));
+                ("standalone_only", `Int (standalone_only_count report));
+                ( "project_prelude_only",
+                  `Int (project_prelude_only_count report) );
+                ("neither_parses", `Int (neither_parses_count report));
+                ("standalone", summary_json report.standalone);
+                ("project_prelude", summary_json report.project_prelude);
+              ] );
+          ("files", `List (List.map compared_file_json report.files));
+        ]
+
+    let json report = to_yojson report |> Yojson.Safe.pretty_to_string
+
+    let write_summary buffer label (report : parse_report) =
+      Printf.bprintf buffer "%s-parses %d\n" label report.parses_count;
+      Printf.bprintf buffer "%s-failed %d\n" label (failure_count report);
+      Printf.bprintf buffer "%s-unresolved-name-failures %d\n" label
+        (unresolved_name_count report);
+      Printf.bprintf buffer "%s-other-failures %d\n" label
+        (other_failure_count report)
+
+    let write_outcome_failure buffer label file =
+      if file.status <> Parses then
+        match (file.first_error, file.failure_message) with
+        | Some diagnostic, _ ->
+            Printf.bprintf buffer "%s-failure %s %s at %s:%d:%d %s %s\n" label
+              file.path (status_name file.status) diagnostic.path
+              diagnostic.line diagnostic.column diagnostic.code
+              diagnostic.message
+        | None, Some message ->
+            Printf.bprintf buffer "%s-failure %s %s %s\n" label file.path
+              (status_name file.status) message
+        | None, None ->
+            Printf.bprintf buffer "%s-failure %s %s\n" label file.path
+              (status_name file.status)
+
+    let human report =
+      let buffer = Buffer.create 1024 in
+      Printf.bprintf buffer "%s\n" schema;
+      Printf.bprintf buffer "phase parse\n";
+      Printf.bprintf buffer "input %s\n" report.standalone.input;
+      Printf.bprintf buffer "templeos-reference %s\n"
+        report.standalone.reference_commit;
+      Printf.bprintf buffer "compilation-mode %s\n"
+        (Frontend.Preprocessor.compilation_mode_name
+           report.standalone.compilation_mode);
+      Printf.bprintf buffer "directory-policy %s\n" directory_policy;
+      Printf.bprintf buffer "files %d\n" (List.length report.files);
+      Printf.bprintf buffer "prelude-source %s\n" report.prelude_source;
+      List.iter (Printf.bprintf buffer "prelude-file %s\n") report.prelude_files;
+      Printf.bprintf buffer "prelude-diagnostics %d\n"
+        report.prelude_diagnostic_count;
+      Printf.bprintf buffer "both-parse %d\n" (both_parse_count report);
+      Printf.bprintf buffer "standalone-only %d\n"
+        (standalone_only_count report);
+      Printf.bprintf buffer "project-prelude-only %d\n"
+        (project_prelude_only_count report);
+      Printf.bprintf buffer "neither-parses %d\n" (neither_parses_count report);
+      write_summary buffer "standalone" report.standalone;
+      write_summary buffer "project-prelude" report.project_prelude;
+      List.iter
+        (fun file ->
+          Printf.bprintf buffer "project-directory %s %s\n" file.path
+            file.effective_project_directory;
+          if file.comparison <> Both_parse then
+            Printf.bprintf buffer "comparison %s %s standalone=%s prelude=%s\n"
+              file.path
+              (comparison_name file.comparison)
+              (status_name file.standalone.status)
+              (status_name file.project_prelude.status);
+          write_outcome_failure buffer "standalone" file.standalone;
+          write_outcome_failure buffer "project-prelude" file.project_prelude)
+        report.files;
+      Buffer.contents buffer
+
+    let has_failures report = has_failures report.project_prelude
+  end
 end

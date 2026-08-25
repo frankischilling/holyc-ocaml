@@ -69,6 +69,17 @@ type literal_value =
   | Float_value of float
   | Bytes_value of string
 
+type inserted_binary_origin = {
+  record_number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
+type literal_origin =
+  | Source_literal
+  | Inserted_binary_literal of inserted_binary_origin
+  | Inserted_binary_size_literal of inserted_binary_origin
+
 type unary_operator_kind =
   | Unary_plus
   | Unary_minus
@@ -106,6 +117,14 @@ and expression_literal = {
   literal_spelling : string;
   literal_value : literal_value;
   literal_location : location;
+  literal_segments : expression_literal_segment list;
+  literal_origin : literal_origin;
+}
+
+and expression_literal_segment = {
+  literal_segment_spelling : string;
+  literal_segment_value : string;
+  literal_segment_location : location;
 }
 
 and expression_operator = {
@@ -289,12 +308,19 @@ type aggregate_base = {
 type initial_value =
   | Scalar_initializer of expression
   | Braced_initializer of braced_initializer
+  | Unbraced_array_initializer of unbraced_array_initializer
 
 and braced_initializer = {
   initializer_opening_brace : location;
   initializer_elements : initializer_element list;
   initializer_closing_brace : location;
   initializer_location : location;
+}
+
+and unbraced_array_initializer = {
+  unbraced_initializer_elements : initializer_element list;
+  unbraced_initializer_closing_brace : location option;
+  unbraced_initializer_location : location;
 }
 
 and initializer_element = {
@@ -335,12 +361,18 @@ type function_parameter = {
   location : location;
 }
 
+and empty_parameter_entry = {
+  preceding_parameter_count : int;
+  empty_parameter_delimiter : declaration_delimiter;
+}
+
 and function_pointer_declarator = {
   declarator_opening_parenthesis : location;
   indirection_layers : pointer_layer list;
   declarator_closing_parenthesis : location;
   signature_opening_parenthesis : location;
   signature_parameters : function_parameter list;
+  signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
   signature_closing_parenthesis : location;
   function_pointer_location : location;
@@ -424,7 +456,7 @@ type aggregate_definition = {
   members : aggregate_member list;
   closing_brace : location;
   attached_declarators : global_declarator list;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -444,6 +476,7 @@ type global_declaration = {
   binding : declaration_binding option;
   type_specifier : type_specifier;
   declarators : global_declarator list;
+  trailing_semicolon : location option;
   location : location;
 }
 
@@ -455,9 +488,10 @@ type function_prototype = {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -824,6 +858,7 @@ type function_definition = {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   body : statement option;
@@ -981,6 +1016,13 @@ let make_braced_initializer ~opening_brace ~elements ~closing_brace ~location =
     initializer_location = location;
   }
 
+let make_unbraced_array_initializer ~elements ~closing_brace ~location =
+  {
+    unbraced_initializer_elements = elements;
+    unbraced_initializer_closing_brace = closing_brace;
+    unbraced_initializer_location = location;
+  }
+
 let make_initializer_element ~value ~comma ~location =
   {
     initializer_element_value = value;
@@ -1041,18 +1083,43 @@ let make_global_variable ~modifiers ~binding ~type_specifier ~pointer_layers
   }
 
 let make_global_declaration ~modifiers ~binding ~type_specifier ~declarators
-    ~location =
-  { modifiers; binding; type_specifier; declarators; location }
+    ~trailing_semicolon ~location =
+  {
+    modifiers;
+    binding;
+    type_specifier;
+    declarators;
+    trailing_semicolon;
+    location;
+  }
 
 let make_register_qualifier ~kind ~position ~spelling ~explicit_register
     ~location =
   { kind; position; spelling; explicit_register; location }
 
-let make_expression_literal ~spelling ~value ~location =
+let make_expression_literal_segment ~spelling ~value ~location =
+  {
+    literal_segment_spelling = spelling;
+    literal_segment_value = value;
+    literal_segment_location = location;
+  }
+
+let make_expression_literal ~origin ~spelling ~value ~location =
   {
     literal_spelling = spelling;
     literal_value = value;
     literal_location = location;
+    literal_segments = [];
+    literal_origin = origin;
+  }
+
+let make_segmented_expression_literal ~segments ~spelling ~value ~location =
+  {
+    literal_spelling = spelling;
+    literal_value = value;
+    literal_location = location;
+    literal_segments = segments;
+    literal_origin = Source_literal;
   }
 
 let make_expression_operator ~spelling ~location =
@@ -1217,6 +1284,8 @@ let expression_location = function
 let initial_value_location = function
   | Scalar_initializer expression -> expression_location expression
   | Braced_initializer braced -> braced.initializer_location
+  | Unbraced_array_initializer unbraced ->
+      unbraced.unbraced_initializer_location
 
 let make_parameter_default ~equals ~value ~location =
   { equals; value; location }
@@ -1237,9 +1306,13 @@ let make_function_parameter ~register_qualifiers ~type_specifier ~pointer_layers
     location;
   }
 
+let make_empty_parameter_entry ~preceding_parameter_count ~delimiter =
+  { preceding_parameter_count; empty_parameter_delimiter = delimiter }
+
 let make_function_pointer_declarator ~declarator_opening_parenthesis
     ~indirection_layers ~declarator_closing_parenthesis
-    ~signature_opening_parenthesis ~signature_parameters ~signature_variadic
+    ~signature_opening_parenthesis ~signature_parameters
+    ~signature_empty_parameter_entries ~signature_variadic
     ~signature_closing_parenthesis ~function_pointer_location =
   {
     declarator_opening_parenthesis;
@@ -1247,6 +1320,7 @@ let make_function_pointer_declarator ~declarator_opening_parenthesis
     declarator_closing_parenthesis;
     signature_opening_parenthesis;
     signature_parameters;
+    signature_empty_parameter_entries;
     signature_variadic;
     signature_closing_parenthesis;
     function_pointer_location;
@@ -1257,8 +1331,9 @@ let make_variadic_marker ~register_qualifiers ~spelling ~location :
   { register_qualifiers; spelling; location }
 
 let make_function_prototype ~modifiers ~binding ~return_type
-    ~return_pointer_layers ~name ~opening_parenthesis ~parameters ~variadic
-    ~closing_parenthesis ~semicolon ~location =
+    ~return_pointer_layers ~name ~opening_parenthesis ~parameters
+    ~empty_parameter_entries ~variadic ~closing_parenthesis ~semicolon ~location
+    =
   {
     modifiers;
     binding;
@@ -1267,6 +1342,7 @@ let make_function_prototype ~modifiers ~binding ~return_type
     name;
     opening_parenthesis;
     parameters;
+    empty_parameter_entries;
     variadic;
     closing_parenthesis;
     semicolon;
@@ -1566,8 +1642,8 @@ let make_statement_sequence ~leading_commas ~elements ~location =
   }
 
 let make_function_definition ~modifiers ~return_type ~return_pointer_layers
-    ~name ~opening_parenthesis ~parameters ~variadic ~closing_parenthesis ~body
-    ~location =
+    ~name ~opening_parenthesis ~parameters ~empty_parameter_entries ~variadic
+    ~closing_parenthesis ~body ~location =
   {
     modifiers;
     return_type;
@@ -1575,6 +1651,7 @@ let make_function_definition ~modifiers ~return_type ~return_pointer_layers
     name;
     opening_parenthesis;
     parameters;
+    empty_parameter_entries;
     variadic;
     closing_parenthesis;
     body;

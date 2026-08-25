@@ -182,9 +182,38 @@ files = 528
 tokenizes = 528
 lexer_diagnostics = 0
 internal_errors = 0
-tokens = 719304
+tokens = 719471
 nul_terminated_files = 54
 trailing_payload_bytes = 1266852
+
+[[feature]]
+id = "HC-LEX-DOLDOC-STRING-COMMANDS"
+description = "Complete single-dollar DolDoc commands with an uppercase command name inside HolyC strings retain their delimiters, quotes, backslashes, and command text as literal decoded bytes."
+sources = [
+  "Compiler/Lex.HC:93-105 LexDollar",
+  "Compiler/Lex.HC:367-439 LexInStr",
+  "Demo/DolDoc/TextDemo.HC:15-22",
+  "Demo/MsgLoop.HC:1-5",
+  "Adam/Opt/Utils/MemRep.HC:201-208"
+]
+implementation = ["src/frontend/lexer.ml:scan_string"]
+tests = [
+  "test/test_lexer.ml:doldoc_commands_inside_strings",
+  "test/test_parser.ml:doldoc_string_commands_source_behavior",
+  "test/test_parser.ml:doldoc_string_commands_in_pinned_examples",
+  "test/test_parser.ml:doldoc_string_command_provenance",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 390
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+plain_source_equivalence = "a complete $...$ range is copied literally; authored $$...$$ with ordinary HolyC quote escapes decodes to the same bytes"
+recognition = "the command name contains uppercase ASCII letters, digits, plus, or minus and ends at a dollar or continues into a comma payload with a later dollar delimiter"
+unmatched_dollar_behavior = "an unrecognized command or a dollar with no later delimiter remains a literal dollar through the raw string path"
+outside_string_behavior = "unchanged dollar-comment and saved inserted-binary rules"
+corpus_effect = "raw token count falls from 719621 to 719471; TextDemo.HC parses in both views; MemRep.HC and MsgLoop.HC parse with the project prelude; standalone MsgLoop.HC advances to unresolved Fs at line 10"
+semantic_compatibility = "DolDoc rendering and command execution are not implemented"
 
 [[feature]]
 id = "HC-TYPE-PRIMITIVES"
@@ -416,6 +445,28 @@ implementation = [
 tests = ["test/test_preprocessor.ml"]
 status = "implemented"
 issue = 23
+
+[[feature]]
+id = "HC-PREPROCESSOR-NAMELESS-STRING-DEFINE"
+description = "A #define followed by a string token consumes that token without creating a definition, then resumes the ordinary token stream."
+sources = [
+  "Compiler/Lex.HC:686-712",
+  "Kernel/KernelA.HH:3723",
+  "Kernel/KernelA.HH:3728"
+]
+implementation = ["src/frontend/preprocessor.ml"]
+tests = [
+  "test/test_preprocessor.ml",
+  "test/test_corpus.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 394
+ordinary_named_definitions = "unchanged"
+string_heading_effect = "consumed without a hash-table entry"
+other_invalid_name_tokens = "rejected with HCPP0010 pending separate source audit"
+corpus_effect = "HCPP0010 disappears from the comparison; phase classifications stay fixed, standalone diagnostics fall from 37005 to 36999, project-prelude diagnostics fall from 20989 to 20981, and prelude-seed diagnostics fall from 25 to 23."
+native_oracle = "not required because the pinned lexer branch and both authored headings state the token flow directly"
 
 [[feature]]
 id = "HC-PREPROCESSOR-MODE-CONDITIONALS"
@@ -771,7 +822,7 @@ function_type_checking_storage_layout_indirect_call_lowering_and_execution = "pl
 
 [[feature]]
 id = "HC-PARSER-COMMA-GLOBALS"
-description = "A primitive global declaration can contain several comma-separated names, with one shared base type and an independent pointer depth for each name."
+description = "A primitive global declaration can contain several comma-separated names, with one shared base type, an independent pointer depth for each name, and an optional comma immediately before its semicolon."
 sources = [
   "Compiler/PrsStmt.HC:PrsGlblVarLst",
   "Compiler/PrsVar.HC:PrsType",
@@ -796,12 +847,47 @@ tests = [
 status = "implemented"
 issue = 53
 ast_schema = "holyc-ast-v1"
-accepted_grammar = "global-declaration := primitive declarator (',' declarator)* ';'"
+accepted_grammar = "global-declaration := primitive declarator (',' declarator)* [','] ';'"
 delimiter_provenance = "implemented"
 streaming_symbol_publication = "implemented"
 initializer_status = "planned"
 array_suffix_status = "implemented in HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
 function_declarator_status = "bound primitive prototypes implemented in HC-PARSER-BOUND-FUNCTION-PROTOTYPES"
+extended_by = [382]
+
+[[feature]]
+id = "HC-PARSER-TERMINAL-GLOBAL-COMMA"
+description = "A global variable list may end with a comma before its semicolon; the comma does not create a declarator or symbol."
+sources = [
+  "Compiler/PrsStmt.HC:PrsGlblVarLst",
+  "Compiler/PrsVar.HC:PrsType",
+  "Demo/Graphics/Life.HC:4"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/driver/global_type_resolution.ml"
+]
+tests = [
+  "test/test_parser.ml:terminal_global_comma",
+  "test/test_global_type_resolution.ml:terminal_comma_is_semantically_terminated",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 382
+ast_schema = "holyc-ast-v1"
+accepted_grammar = "global-declaration := prefix type-specifier declarator (',' declarator)* [','] ';'"
+source_behavior = "After PrsGlblVarLst consumes a comma, PrsType may return a null global identifier; the following semicolon ends the list without adding a variable."
+ast_shape = "The final concrete declarator retains its comma, and the declaration retains the separate terminal semicolon."
+semantic_shape = "Global type resolution exposes the terminal semicolon as the final variable's effective declaration delimiter without inventing a variable."
+ordinary_global_status = "implemented in JIT and AOT modes"
+aggregate_attached_status = "implemented in JIT and AOT modes"
+definition_and_include_provenance = "implemented"
+missing_first_name = "rejected with HCPARSE0002"
+non_semicolon_after_terminal_comma = "rejected with HCPARSE0002"
+corpus_result = "Demo/Graphics/Life.HC loses one recovered diagnostic in both views and advances from HCPARSE0002 at line 4 to unresolved GrBlot at line 10 with the project prelude; standalone diagnostics fall from 37016 to 37015 and project-prelude diagnostics fall from 21141 to 21140."
+native_oracle_status = "not required; PrsGlblVarLst and PrsType state the control flow directly"
 
 [[feature]]
 id = "HC-PARSER-GLOBAL-ARRAY-DECLARATORS"
@@ -2293,7 +2379,7 @@ tests = [
 status = "implemented"
 issue = 129
 ast_schema = "holyc-ast-v1"
-accepted_forms = ["modifier* class identifier { aggregate-member* } ;", "modifier* union identifier { aggregate-member* } ;"]
+accepted_forms = ["modifier* class identifier { aggregate-member* } semicolon?", "modifier* union identifier { aggregate-member* } semicolon?"]
 ordinary_member_shape = "one primitive, internal storage, or visible named type followed by one or more pointer, function-pointer, and array declarators"
 member_delimiters = "commas continue a shared type group; a semicolon completes it"
 anonymous_union_shape = "recursive union { aggregate-member* } with an optional following semicolon"
@@ -2307,7 +2393,7 @@ missing_name_diagnostic = "HCPARSE0109"
 missing_opening_brace_diagnostic = "HCPARSE0110"
 missing_closing_brace_diagnostic = "HCPARSE0111"
 invalid_member_diagnostics = "HCPARSE0112 through HCPARSE0114"
-missing_final_semicolon_diagnostic = "HCPARSE0115"
+missing_final_semicolon_diagnostic = "HCPARSE0115 unless another class or union definition begins immediately"
 deferred_form_diagnostics = "HCPARSE0116 for nested named aggregate definitions"
 anonymous_union_depth_diagnostic = "HCPARSE0122 at a fixed hosted limit of 256"
 native_oracle_status = "not required; dispatch, publication, and member-loop behavior are explicit in the pinned sources"
@@ -2319,6 +2405,39 @@ nested_named_definitions = "planned"
 attached_global_declarators = "implemented in HC-PARSER-AGGREGATE-GLOBALS"
 function_pointer_members = "implemented in HC-PARSER-FUNCTION-POINTER-MEMBERS"
 semantic_identity_layout_overlap_and_linkage = "planned"
+
+[[feature]]
+id = "HC-PARSER-ADJACENT-AGGREGATE-DEFINITIONS"
+description = "A global class or union definition may omit its semicolon when another class or union definition follows immediately."
+sources = [
+  "Compiler/PrsStmt.HC:PrsStmt KW_CLASS and KW_UNION branches",
+  "Compiler/PrsVar.HC:PrsType nested class and union type path",
+  "Demo/Graphics/Pick3D.HC:27-38 PCSprite and PObj"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/frontend/parser.ml",
+  "src/driver/global_type_resolution.ml"
+]
+tests = [
+  "test/test_parser.ml:adjacent_aggregate_definition_semicolons",
+  "test/cli/parse-aggregate-definition.hc",
+  "test/cli/parse-aggregate-definition.human",
+  "test/cli/parse-aggregate-definition.json",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 388
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+accepted_boundary = "the next preprocessed token is class or union"
+written_semicolon = "retained with its source location"
+omitted_semicolon = "represented as absent; no punctuation is synthesized or consumed"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+corpus_effect = "Pick3D.HC advances from HCPARSE0115 at line 37 to unresolved DCDepthBufAlloc at line 83; phase counts do not change and one diagnostic is removed from each corpus view"
+semantic_compatibility = "aggregate layout behavior is unchanged"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-OFFSET-DIRECTIVES"
@@ -2411,11 +2530,12 @@ pinned_ckernel_slice = "Kernel/KernelA.HH:430-449 parses through start, the expl
 compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 unaffected_name_contexts = [
-  "aggregate type names",
-  "aggregate base names",
   "labels"
 ]
-extended_by = "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES"
+extended_by = [
+  "HC-PARSER-CONTEXTUAL-DECLARATOR-NAMES",
+  "HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
+]
 native_oracle_status = "not required; the pinned lexer and PrsKeyWord contract make the contextual identity behavior explicit"
 semantic_member_identity_layout_and_duplicates = "planned"
 
@@ -2466,14 +2586,177 @@ compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 corpus_effect = "eight AOT corpus files move past a name position; accumulated diagnostics fall from 37,414 to 37,264"
 unaffected_name_contexts = [
-  "aggregate type names",
-  "aggregate base names",
-  "expression operands",
+  "operands without an active parameter, local, or global-variable binding",
   "labels"
 ]
 native_oracle_status = "not required; PrsKeyWord and the TK_IDENT name slots state the contract directly"
-aggregate_type_name_slot = "planned"
-expression_operand_slot = "planned"
+aggregate_type_name_slot = "implemented by HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
+expression_operand_slot = "implemented by HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS and HC-PARSER-CONTEXTUAL-GLOBAL-OPERANDS for active variable bindings"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-AGGREGATE-TYPE-NAMES"
+description = "Class and union declarations retain language-keyword spellings as names, and a visible aggregate wins before keyword dispatch in later type and base positions."
+sources = [
+  "Compiler/PrsStmt.HC:1-5 PrsClass aggregate-name requirement",
+  "Compiler/PrsStmt.HC:44-50 PrsClass base lookup",
+  "Compiler/PrsStmt.HC:935-942,1156-1179 selected-class statement route",
+  "Compiler/PrsLib.HC:31-38 PrsKeyWord"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 361
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_contexts = [
+  "class and union definition names",
+  "extern class and union forward-declaration names",
+  "global named-type uses",
+  "local named-type uses",
+  "single aggregate base names"
+]
+dispatch_order = "visible aggregate symbol, then ordinary keyword behavior"
+compilation_modes = ["jit", "aot"]
+definition_and_include_provenance = "preserved"
+lexer_behavior = "the OCaml lexer retains explicit keyword tokens; token dumps and keyword identities do not change"
+authored_corpus_occurrences = 0
+corpus_effect = "the reviewed 528-file AOT parser report is content-identical after platform line-ending normalization"
+semantic_scope = "syntax and streaming name visibility only; aggregate identity and layout remain separate semantic passes"
+native_oracle_status = "not required; PrsClass and the selected hash-entry dispatch state the lookup order directly"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-LOCAL-OPERANDS"
+description = "A visible parameter or local with a language-keyword spelling is parsed as an ordinary expression operand before keyword dispatch."
+sources = [
+  "Compiler/Lex.HC:493-499 local member lookup before hash-table lookup",
+  "Compiler/PrsExp.HC:761-766 local-variable operand before keyword dispatch",
+  "Compiler/PrsExp.HC:910-947 keyword expression dispatch",
+  "Compiler/PrsStmt.HC:1183-1184 local-variable statement route",
+  "Adam/Gr/GrMath.HC:9 parameter named start",
+  "Adam/Gr/GrMath.HC:57 comparison operand start",
+  "Demo/TimeIns.HC:10 locals named start and end"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 362
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "fixed parameters",
+  "synthetic variadic parameters",
+  "locals published earlier in source order",
+  "locals published inside an earlier nested block"
+]
+accepted_expression_contexts = [
+  "arithmetic and comparison operands",
+  "call arguments",
+  "index expressions",
+  "statement-leading expressions"
+]
+dispatch_order = "active local binding, then ordinary keyword behavior"
+function_scope = "the parser mirrors TempleOS's function member list rather than introducing block-local routing"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+corpus_effect = "Adam/Gr/GrMath.HC advances from line 57 to line 96; Demo/TimeIns.HC advances to #exe; accumulated diagnostics fall from 37,264 to 37,194"
+native_oracle_status = "not required; the pinned lexer, expression parser, and statement parser state the local-first order directly"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-GLOBAL-OPERANDS"
+description = "A source-visible global variable with a language-keyword spelling is parsed as an ordinary expression operand before keyword dispatch."
+sources = [
+  "Compiler/PrsStmt.HC:209-409 global-variable construction and insertion",
+  "Kernel/KHashA.HC:40-106 first-match lookup in table-chain order",
+  "Kernel/KHashA.HC:169-189 head insertion by HashAdd",
+  "Compiler/CMain.HC:60-75 JIT and AOT global-table chains",
+  "Compiler/Lex.HC:493-514 selected hash entry",
+  "Compiler/PrsLib.HC:31-38 keyword recognition on the selected entry",
+  "Compiler/PrsStmt.HC:935-942,1156-1179 non-keyword global statement route",
+  "Compiler/PrsExp.HC:810-904 global-variable operand branch"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 363
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "global variables published earlier in the current compilation"
+]
+accepted_expression_contexts = [
+  "top-level arithmetic operands",
+  "statement-leading expressions",
+  "function-body operands"
+]
+dispatch_order = "active local binding, selected global-variable record, then ordinary keyword behavior"
+hash_behavior = "the global and keyword records coexist; HashAdd and table-chain order select the global without replacing the keyword record"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved"
+corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
+corpus_effect = "recovery after unsupported function headers publishes local declarations at top level in Adam/DolDoc/DocGet.HC, Apps/Psalmody/JukePuppet.HC, and Kernel/FunSeg.HC; accumulated diagnostics fall from 37,194 to 37,183 without changing phase counts or first errors"
+limitations = [
+  "storage, lowering, and execution are not implemented"
+]
+native_oracle_status = "not required; the pinned hash insertion, table-chain, lexer, statement, and expression paths state the selection order directly"
+
+[[feature]]
+id = "HC-PARSER-CONTEXTUAL-GLOBAL-FUNCTION-OPERANDS"
+description = "A source-visible global function with a language-keyword spelling is parsed as a direct function operand before keyword dispatch."
+sources = [
+  "Compiler/PrsStmt.HC:62-138 function lookup and construction",
+  "Compiler/PrsStmt.HC:PrsFunJoin named-function HashAdd",
+  "Kernel/KHashA.HC:40-106 first-match lookup in table-chain order",
+  "Kernel/KHashA.HC:169-189 head insertion by HashAdd",
+  "Compiler/CMain.HC:60-75 JIT and AOT global-table chains",
+  "Compiler/Lex.HC:493-514 selected hash entry",
+  "Compiler/PrsLib.HC:31-38 keyword recognition on the selected entry",
+  "Compiler/PrsExp.HC:842-865 direct-function operand branch"
+]
+implementation = [
+  "src/frontend/parser.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 366
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+ast_schema = "holyc-ast-v1"
+accepted_bindings = [
+  "global function prototypes and definitions published earlier in the current compilation"
+]
+accepted_expression_contexts = [
+  "parenthesized direct calls",
+  "parenthesis-free calls with defaults",
+  "address-of operands",
+  "statement-leading direct calls"
+]
+dispatch_order = "active local binding, selected global-variable or function record, then ordinary keyword behavior"
+hash_behavior = "the function and keyword records coexist; HashAdd and table-chain order select the function without replacing the keyword record"
+compilation_modes = ["jit", "aot"]
+definition_provenance = "preserved on the callee and generated default slots"
+corpus_examples = "no authored top-level example found among pinned Compiler, Kernel, Adam, and Demo sources"
+corpus_effect = "the reviewed 528-file AOT parser report is byte-for-byte unchanged"
+limitations = [
+  "labels and unrelated visible record kinds remain excluded",
+  "call lowering and execution are not implemented"
+]
+native_oracle_status = "not required; the pinned function insertion, table-chain, lexer, and expression paths state the selection order directly"
 
 [[feature]]
 id = "HC-PARSER-AGGREGATE-MEMBER-METADATA"
@@ -3185,6 +3468,9 @@ segment_prefixes = "retained when a visible segment register is followed by a co
 separator = "the comma between two operands is retained"
 alias_identity = "source spelling and canonical opcode are both retained"
 symbol_visibility = "a visible local or newer symbol can shadow an opcode or register spelling"
+size_prefix_visibility = "a checked integer spelling that resolves to a class or internal type falls back to the assembler keyword table; locals and unrelated source symbols still shadow it"
+size_prefix_fallback_issue = 392
+size_prefix_corpus_effect = "Kernel/KInts.HC parses with the four-header project prelude; Kernel.PRJ loses the same recovered HCPARSE0047 diagnostic"
 definition_and_include_provenance = "preserved"
 top_level_diagnostic = "HCPARSE0147"
 operand_diagnostics = ["HCPARSE0149", "HCPARSE0150", "HCPARSE0151", "HCPARSE0152"]
@@ -5889,10 +6175,42 @@ provenance = ["source span", "include source", "generated invocation origin", "d
 native_oracle_status = "not required for this boundary; the root increments, member decrements, defined test, reset, and warning thresholds are direct pinned-source statements"
 
 [[feature]]
+id = "HC-STRING-LITERAL-SEQUENCES"
+description = "Consecutive string tokens form one expression while every physical token remains available for diagnostics and dumps."
+sources = [
+  "Compiler/LexLib.HC:248-270 LexExtStr",
+  "Compiler/PrsExp.HC:680-700 string primary",
+  "Compiler/PrsStmt.HC:1201-1204 statement literal dispatch",
+  "Compiler/PrsVar.HC:24-45 and 126-142 global string initializers"
+]
+implementation = [
+  "src/frontend/ast.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml:adjacent_string_expression_contexts_and_modes",
+  "test/test_parser.ml:adjacent_string_token_boundaries",
+  "test/test_parser.ml:pinned_adjacent_string_contexts",
+  "test/test_parser.ml:adjacent_string_provenance_and_dumps",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 370
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+combination = "decoded bytes concatenate in token order, matching LexExtStr's removal of intermediate terminators"
+contexts = ["ordinary expressions", "call arguments", "global initializers", "statement-position Print markers"]
+provenance = "the combined literal has a full source-segment list; each physical string token also has its own spelling, decoded bytes, and location"
+empty_marker_behavior = "emptiness is tested after the complete string run is combined"
+corpus_effect = "standalone parsing rises from 21 to 23 files and project-prelude parsing rises from 103 to 117 files at the pinned commit"
+semantic_compatibility = "value typing is unchanged; storage, lowering, and execution remain separate work"
+
+[[feature]]
 id = "HC-PARSER-CORPUS"
 description = "Every committed HolyC source object in the pinned tree receives a deterministic parser result without an exclusion list."
 sources = [
   "Compiler/Compiler.PRJ",
+  "Kernel/Kernel.PRJ",
   "Compiler/PrsLib.HC",
   "Compiler/PrsExp.HC",
   "Compiler/PrsVar.HC",
@@ -5908,25 +6226,233 @@ tests = [
   ".github/workflows/corpus.yml"
 ]
 status = "implemented"
-issue = 153
+issue = 359
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-report_schema = "holyc-corpus-parse-v1"
+report_schema = "holyc-corpus-parse-comparison-v2"
 default_mode = "aot"
 source_objects = 528
-parses = 21
-frontend_diagnostics = 16
-parser_diagnostics = 491
-read_errors = 0
-internal_errors = 0
-diagnostics = 37414
-baseline_sha256 = "876c46d4dbbb08d4c6057e76b7d9e2ce8093107630d2dd4794ff59c41116dc8a"
+standalone_parses = 25
+standalone_diagnostics = 36999
+project_prelude_parses = 126
+project_prelude_only = 101
+project_prelude_frontend_diagnostics = 30
+project_prelude_parser_diagnostics = 372
+project_prelude_unresolved_name_failures = 370
+project_prelude_other_failures = 32
+project_prelude_read_errors = 0
+project_prelude_internal_errors = 0
+project_prelude_diagnostics = 20981
+prelude_diagnostics = 23
+baseline_sha256 = "5e3ae43dfd8ccb9fa75e9c516966fe7a94104ef06a45b891599a71706bb3064a"
 root_source_bytes = "Git blob"
 include_source_bytes = "clean verified checkout"
-physical_nul_behavior = "ends root and included source before any trailing payload"
-session_scope = "one fresh session per root object"
+physical_nul_behavior = "ends source text, then decodes referenced CDocBin records from the trailing payload"
+session_scope = "one fresh standalone session at the corpus root and one copy of the compiler-project header state with the measured source directory as its explicit working directory per root object"
+project_directory_policy = "source-directory"
+project_directory_scope = "project-aware comparison only; ordinary standalone parsing remains rooted at the configured corpus directory"
+project_directory_confinement = "the measured directory and every resolved include remain inside the verified TempleOS root"
+project_order_sources = ["Compiler/Compiler.PRJ", "Kernel/Kernel.PRJ"]
+prelude_source = "the direct .HH includes in Compiler/Compiler.PRJ order"
 exclusions = 0
-strict_gate = "--require-all"
+strict_gate = "--require-all gates project-prelude parsing"
 semantic_compatibility = "not evaluated"
+remaining_issue_numbers = [3, 33, 46, 48, 361, 375]
+
+[[feature]]
+id = "HC-CORPUS-PROJECT-DIRECTORY"
+description = "Project-aware corpus parsing resolves relative includes from the measured source directory while retaining the verified TempleOS root as the filesystem boundary."
+sources = [
+  "Compiler/Compiler.PRJ:1-7 project-local Cd(__DIR__) and relative includes",
+  "Kernel/Kernel.PRJ:4-11 project-local Cd(__DIR__) and relative includes",
+  "Compiler/CMisc.HC:82-90 StreamDir derives __DIR__ from the active lexical frame",
+  "Compiler/Lex.HC:698-707 include extension and FileNameAbs resolution",
+  "Compiler/CMain.HC:419-432 Cmp starts compilation through an include",
+  "Kernel/BlkDev/DskDirB.HC:9-70 task current-directory mutation",
+  "Kernel/BlkDev/DskStrA.HC:108-203 DirNameAbs and FileNameAbs"
+]
+implementation = [
+  "src/driver/corpus.ml",
+  "src/driver/corpus.mli"
+]
+tests = [
+  "test/test_corpus.ml:parser_project_prelude_comparison",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 369
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+report_schema = "holyc-corpus-parse-comparison-v2"
+directory_policy = "source-directory"
+ordinary_single_file_resolution = "unchanged"
+outside_root_behavior = "HCPP0004"
+machine_readable_fields = ["directory_policy", "project_orders[].directory", "files[].effective_project_directory"]
+corpus_effect = "all 38 HCPP0003 project-prelude first failures advance; 33 become parser first failures and five reach HCPP0022; accepted-file counts do not change"
+semantic_compatibility = "parser-corpus instrumentation only; arbitrary Cd execution is not modeled"
+
+[[feature]]
+id = "HC-FUNCTION-PARAMETER-SEMICOLON"
+description = "A semicolon after a fixed function parameter separates the next parameter group and remains distinct from a comma in the AST."
+sources = [
+  "Compiler/PrsVar.HC:428 leading variable-list semicolon loop",
+  "Compiler/PrsVar.HC:692-713 delimiter dispatch",
+  "Compiler/PrsStmt.HC:62-124 PrsFunJoin",
+  "Kernel/KernelC.HH:106 StrPrintHex prototype",
+  "Kernel/StrA.HC:1 StrPrintHex definition"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml",
+  "test/test_corpus.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 372
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+ast_delimiter = "semicolon"
+trailing_semicolon = "implemented"
+leading_or_repeated_empty_semicolons = "implemented by HC-FUNCTION-PARAMETER-EMPTY-SEMICOLON"
+corpus_effect = "Kernel/StrA.HC parses in both modes; the separated KernelC signature is retained for the optional prototype terminator implemented by HC-FUNCTION-PROTOTYPE-OPTIONAL-SEMICOLON"
+semantic_compatibility = "syntax only; parameter storage and ABI behavior are not evaluated"
+
+[[feature]]
+id = "HC-FUNCTION-PARAMETER-EMPTY-SEMICOLON"
+description = "Leading and repeated semicolons in a function parameter list remain ordered, source-spanned empty entries without changing the concrete parameter list."
+sources = [
+  "Compiler/PrsVar.HC:428 leading variable-list semicolon loop",
+  "Compiler/PrsVar.HC:692-713 function-argument delimiter dispatch",
+  "Compiler/PrsStmt.HC:62-124 PrsFunJoin"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml"
+]
+tests = ["test/test_parser.ml"]
+status = "implemented"
+issue = 377
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+ast_schema = "holyc-ast-v1"
+entry_order = "each empty entry records the number of preceding concrete parameters"
+ordinary_delimiters = "remain attached to concrete parameters and are not duplicated"
+empty_comma_entries = "rejected with HCPARSE0009"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+authored_corpus_occurrences = 0
+corpus_effect = "none"
+semantic_compatibility = "syntax only; parameter storage and ABI behavior are unchanged"
+
+[[feature]]
+id = "HC-FUNCTION-PROTOTYPE-OPTIONAL-SEMICOLON"
+description = "A bound function prototype may end at its closing parenthesis without consuming or inventing a semicolon."
+sources = [
+  "Compiler/PrsStmt.HC:62-124 PrsFunJoin parses the argument list and does not inspect a following delimiter",
+  "Compiler/PrsStmt.HC:242-279 every bound function branch returns immediately after PrsFunJoin",
+  "Kernel/KernelC.HH:179-180 semicolon-free B prototype followed by B2",
+  "Demo/AcctExample/TOS/TOSExt.HC:306-307 semicolon-free GodWebIdx prototype followed by GodWordBatch"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml"
+]
+tests = [
+  "test/test_parser.ml:optional_prototype_semicolons",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 384
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+bindings = ["extern", "_extern", "_intern", "import", "_import"]
+ast_schema = "holyc-ast-v1"
+written_semicolon = "retained with its source location"
+omitted_semicolon = "represented as absent and consumes no following token"
+function_body_interpretation = "a body after a bound prototype is a separate top-level statement"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+native_oracle = "not required because the compiler control flow and two authored corpus examples are explicit"
+corpus_effect = "project-prelude parsing rises from 118 to 121 files; Kernel/KernelC.HH, Kernel/KMisc.HC, and Demo/AcctExample/TOS/TOSExt.HC parse; MakeTOS advances into TOSMisc; project-prelude diagnostics fall from 21140 to 21021"
+semantic_compatibility = "prototype syntax and source boundaries only; ABI and linkage behavior are not evaluated"
+
+[[feature]]
+id = "HC-GLOBAL-FIXED-ARRAY-UNBRACED-INITIALIZER"
+description = "A fixed-size global array may read its declared number of initializer elements without an opening brace."
+sources = [
+  "Compiler/PrsVar.HC:123-204 PrsVarInit2",
+  "Compiler/PrsVar.HC:154-158 consumes an opening brace only when present",
+  "Compiler/PrsVar.HC:190-197 reads the fixed dimension count and accepts a closing brace",
+  "Adam/DolDoc/DocHighlight.HC:3-7 highlight_hash_type_colors initializer",
+  "Kernel/KernelA.HH:673 HTt_TYPES_NUM definition"
+]
+implementation = [
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast.mli",
+  "src/frontend/ast_dump.ml",
+  "src/driver/global_initializer_binding.ml"
+]
+tests = [
+  "test/test_parser.ml:unbraced_fixed_array_initializers",
+  "test/test_global_initializer_binding.ml:prior_module_and_nested_paths",
+  "test/test_corpus.ml:pinned_parser_reference",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 386
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+ast_schema = "holyc-ast-v1"
+opening_brace = "absent and never synthesized"
+closing_brace = "optional and retained when written"
+dimension_count = "positive literal after definition expansion, limited to 1000000 elements per dimension"
+multidimensional_shape = "nested unbraced array nodes retain each fixed dimension"
+strings = "continue through the existing scalar string initializer path"
+unsupported_bound_diagnostic = "HCPARSE0159"
+missing_element_separator_diagnostic = "HCPARSE0160"
+provenance = ["primary span", "source segments", "generated source origin", "definition origin", "included source"]
+corpus_effect = "Adam/DolDoc/DocHighlight.HC parses with the project prelude; project-prelude parsing rises from 121 to 122 files and diagnostics fall from 21021 to 21019"
+semantic_compatibility = "syntax, initializer shape, and expression binding only; storage bytes and runtime initialization are not evaluated"
+
+[[feature]]
+id = "HC-DOLDOC-INSERTED-BINARY"
+description = "Saved DolDoc IB and IS commands produce source-positioned byte and size literals from numbered CDocBin records."
+sources = [
+  "Kernel/KernelA.HH:1118-1129 CDocBin saved fields",
+  "Kernel/KernelA.HH:2120-2121 token identities",
+  "Adam/DolDoc/DocFile.HC:5-24 saved record loading",
+  "Adam/DolDoc/DocInit.HC:12,31 IB and IS command registration",
+  "Compiler/Lex.HC:158-180 inserted-binary token creation",
+  "Compiler/PrsExp.HC:681,698-706 literal lowering"
+]
+implementation = [
+  "src/frontend/doldoc_binary.ml",
+  "src/frontend/lexer.ml",
+  "src/frontend/token.ml",
+  "src/frontend/parser.ml",
+  "src/frontend/ast.ml",
+  "src/frontend/ast_dump.ml",
+  "src/driver/corpus.ml"
+]
+tests = [
+  "test/test_lexer.ml",
+  "test/test_parser.ml",
+  "test/test_corpus.ml",
+  "reference/parser-corpus-aot.json"
+]
+status = "implemented"
+issue = 371
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+strict_mode = "requires complete CDocBin headers, payloads, and referenced record numbers"
+corpus_recovery = "retains newline-normalized archive bytes and marks shortened or missing payloads incomplete"
+semantic_compatibility = "literal construction only; storage, lowering, and execution are not evaluated"
 
 [[feature]]
 id = "HC-PREPROCESSOR-INTEGRATED"
@@ -6908,6 +7434,136 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 9
 format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_and_top_level_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
+
+[[feature]]
+id = "HC-IR-OPCODE-EFFECT-CLASSIFICATION"
+description = "Every checked opcode has a conservative effect record independent from its source constant-fold barrier."
+sources = [
+  "Compiler/CInit.HC:17-201 intermediate-code structural classes, float-pop behavior, and not_const",
+  "Kernel/KernelA.HH:1602-1684 ICF fields, CICArg, and CIntermediateCode",
+  "Compiler/OptPass012.HC:20-67,275-305,866-938,1185-1252 constant-fold barrier and opcode consumers",
+  "Compiler/OptPass3.HC:119-246,274-293,406-504 memory, call, and assembly consumers",
+  "Compiler/OptPass4.HC:206-402,540-670 memory rewrites and preserved operations",
+  "Compiler/OptPass6.HC:39-135 call boundaries and assignment fusion",
+  "Compiler/OptPass789A.HC final memory, stack, machine, port, cache, TLB, clock, call, and assembly emission"
+]
+implementation = [
+  "src/ir/effects.ml",
+  "src/ir/effects.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_effects.ml"]
+status = "implemented"
+issue = 403
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "total opcode-potential classification over all 185 checked intermediate-code operations"
+access_axes = ["memory", "stack", "machine", "port", "cache_tlb", "clock"]
+access_values = ["none", "read", "write", "read-write", "opaque"]
+call_values = ["none", "local", "direct", "indirect", "import", "extern"]
+source_fact = "prevents_constant_folding retains CInit.HC not_const without asserting semantic purity"
+conservative_rules = ["calls cover opaque memory and machine state", "inline assembly is opaque on every access axis", "memory and machine reads are reorder barriers"]
+instruction_operand_refinement_alias_regions_exceptions_locks_relocations_and_x87_stack = "not implemented"
+native_oracle_status = "not required for this conservative compiler-internal boundary; every classification cites pinned optimizer or backend consumers"
+
+[[feature]]
+id = "HC-IR-CHECKED-BLOCK-GRAPH"
+description = "A function owns an explicit entry and source-ordered immutable blocks with checked transfer targets and deterministic successors."
+sources = [
+  "Kernel/KernelA.HH:1647-1684 linked intermediate-code records and tree links",
+  "Kernel/KernelA.HH:1706-1733 label forwarding, default target, switch origin, and jump-table fields",
+  "Compiler/PrsLib.HC:79-97 source-ordered ICAdd insertion",
+  "Compiler/OptPass012.HC:1089-1185 label forwarding and branch targets",
+  "Compiler/OptPass3.HC:269-390,497-504 switch, branch, jump, end, and label consumers",
+  "Compiler/OptPass4.HC:520-545 dead-code boundary after jump and return",
+  "Compiler/OptPass789A.HC:152-294,418,1037 transfer emission and label addresses",
+  "Compiler/BackC.HC:649-742 switch default and jump-table targets"
+]
+implementation = [
+  "src/ir/block_graph.ml",
+  "src/ir/block_graph.mli",
+  "src/ir/instruction_sequence.ml",
+  "src/ir/instruction_sequence.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_block_graph.ml"]
+status = "implemented"
+issue = 401
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked function-local block graph over source-ordered immutable instruction sequences"
+validation = ["defined entry", "unique block, instruction, and value IDs", "valid child instruction sequences", "no instruction after a terminator", "single-target payload shape", "ordered switch-target payload shape", "all transfer targets defined in the same function", "ordinary and conditional fallthrough to the next source block", "no final fallthrough", "one terminal IC_END with no later content"]
+successor_order = "explicit target order followed by conditional fallthrough; repeated switch destinations collapse in the graph view but remain in the instruction payload"
+diagnostics = ["HCIR0001 through HCIR0010 child-sequence errors with block context", "HCIR0011 duplicate block", "HCIR0012 duplicate function-wide instruction", "HCIR0013 duplicate function-wide value", "HCIR0014 missing entry", "HCIR0015 instruction after terminator", "HCIR0016 wrong target payload", "HCIR0017 undefined target", "HCIR0018 final fallthrough", "HCIR0019 repeated IC_END", "HCIR0020 content after IC_END"]
+deterministic_text_schema = "holyc-ir-graph-v1"
+focused_tests = 11
+property_cases = 1000
+mutation = "none after construction"
+function_signatures_lowering_effects_exceptions_locks_relocations_floating_stack_optimization_interpretation_and_codegen = "not implemented"
+native_oracle_status = "not required for this host-side graph boundary; the pinned optimizer and backend consumers state target and fallthrough behavior directly"
+
+[[feature]]
+id = "HC-IR-CHECKED-INSTRUCTION-SEQUENCE"
+description = "Source-ordered IR instructions receive stable identities and pass metadata-driven structural checks before becoming immutable."
+sources = [
+  "Kernel/KernelA.HH:1602-1684 ICF fields, CICArg, tree links, and CIntermediateCode",
+  "Compiler/CompilerA.HH:1-218 complete IC numeric domain",
+  "Compiler/CInit.HC:intermediate_code_table argument, result, structural, floating-pop, and constant-folding metadata",
+  "Compiler/PrsLib.HC:79-97 ICAdd source order and retained fields",
+  "Compiler/OptPass012.HC argument-tree construction from arg_cnt and res_cnt"
+]
+implementation = [
+  "src/ir/instruction_sequence.ml",
+  "src/ir/instruction_sequence.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_instruction_sequence.ml"]
+status = "implemented"
+issue = 397
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "immutable source-ordered instruction sequences over every checked opcode"
+validation = ["nonnegative public IDs", "fixed and variable operand counts", "exact zero-or-one result count", "target type required for a produced value and retained independently for no-result instructions", "nonnegative ordered byte span", "pinned ICF fields only", "unique instruction and value IDs", "value definition precedes every use"]
+diagnostics = ["HCIR0001 invalid ID", "HCIR0002 invalid source span", "HCIR0003 unsupported flag bits", "HCIR0004 wrong operand count", "HCIR0005 wrong result count", "HCIR0006 duplicate instruction ID", "HCIR0007 duplicate value ID", "HCIR0008 forward value use", "HCIR0009 missing value definition", "HCIR0010 produced value without a target type"]
+deterministic_text_schema = "holyc-ir-v1"
+focused_tests = 12
+property_cases = 1000
+opcode_shapes_checked = 185
+mutation = "none after construction"
+basic_blocks_control_flow_effects_payload_opcode_rules_relocations_lowering_optimization_interpretation_and_codegen = "not implemented"
+native_oracle_status = "not required for this host-side structural boundary; operand and result shapes and flag fields come directly from the pinned source tables"
+
+[[feature]]
+id = "HC-IR-CONTROL-FLOW-CLASSIFICATION"
+description = "Every checked opcode has one source-audited control-flow class, block-target shape, and boundary behavior."
+sources = [
+  "Compiler/CompilerA.HH:20-218 control-flow opcode identities and contiguous conditional branch range",
+  "Kernel/KernelA.HH:1706-1733 CCodeMisc label, forwarding, switch, default, and jump-table fields",
+  "Compiler/OptPass012.HC:1089-1185 label forwarding and branch consumers",
+  "Compiler/OptPass3.HC:269-390,497-504 switch, branch, jump, end, and label consumers",
+  "Compiler/OptPass4.HC:520-545 dead-code boundary after jump and return",
+  "Compiler/OptPass789A.HC:152-294,418,1037 branch, jump, label, return, and zero-byte end emission",
+  "Compiler/BackC.HC:649-742 switch default and jump-table targets"
+]
+implementation = [
+  "src/ir/control_flow.ml",
+  "src/ir/control_flow.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_control_flow.ml"]
+status = "implemented"
+issue = 399
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "total control-flow classification over all 185 checked opcodes"
+classes = ["fallthrough", "label", "unconditional-branch", "conditional-branch", "switch", "return", "end"]
+class_counts = [147, 1, 1, 32, 2, 1, 1]
+target_shapes = ["none", "single", "switch-targets"]
+source_distinctions = ["IC_RETURN_VAL and IC_RETURN_VAL2 fall through before the epilogue", "IC_SUB_CALL is a returning local call", "IC_END terminates the IC stream but emits no bytes"]
+focused_tests = 8
+mutation = "none"
+block_construction_target_payload_validation_calls_exceptions_memory_relocations_floating_state_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated classification boundary; optimizer and backend consumers identify each transfer directly"
 
 [[feature]]
 id = "HC-SEMA-TOP-LEVEL-CONDITION-RESULTS"

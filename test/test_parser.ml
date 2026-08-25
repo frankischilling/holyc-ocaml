@@ -34,6 +34,17 @@ let contains text needle =
   in
   needle_length = 0 || loop 0
 
+let count_occurrences text needle =
+  let text_length = String.length text in
+  let needle_length = String.length needle in
+  let rec loop index count =
+    if needle_length = 0 || index + needle_length > text_length then count
+    else if String.equal (String.sub text index needle_length) needle then
+      loop (index + needle_length) (count + 1)
+    else loop (index + 1) count
+  in
+  loop 0 0
+
 let pinned path =
   [ "third_party/TempleOS"; "../third_party/TempleOS" ]
   |> List.map (fun root -> Filename.concat root path)
@@ -291,11 +302,18 @@ let expect_global_initial_value (declarator : Ast.global_declarator) =
 
 let expect_scalar_initial_value = function
   | Ast.Scalar_initializer expression -> expression
-  | Ast.Braced_initializer _ -> Alcotest.fail "expected a scalar initializer"
+  | Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _ ->
+      Alcotest.fail "expected a scalar initializer"
 
 let expect_braced_initial_value = function
   | Ast.Braced_initializer braced -> braced
-  | Ast.Scalar_initializer _ -> Alcotest.fail "expected a braced initializer"
+  | Ast.Scalar_initializer _ | Ast.Unbraced_array_initializer _ ->
+      Alcotest.fail "expected a braced initializer"
+
+let expect_unbraced_array_initial_value = function
+  | Ast.Unbraced_array_initializer unbraced -> unbraced
+  | Ast.Scalar_initializer _ | Ast.Braced_initializer _ ->
+      Alcotest.fail "expected an unbraced array initializer"
 
 let expect_binary_expression = function
   | Ast.Binary_expression binary -> binary
@@ -823,6 +841,146 @@ let comma_declaration_group () =
        declaration.declarators);
   Alcotest.(check int) "group start" 0 declaration.location.span.start;
   Alcotest.(check int) "group stop" 27 declaration.location.span.stop
+
+let terminal_global_comma () =
+  List.iter
+    (fun compilation_mode ->
+      let session, _, output =
+        parse_string ~path:"Demo/Graphics/Life.HC" ~compilation_mode
+          (pinned_lines "Demo/Graphics/Life.HC" ~first:4 ~last:4)
+      in
+      let declaration = expect_ast output |> expect_one_declaration in
+      match declaration.declarators with
+      | [ declarator ] ->
+          Alcotest.(check string)
+            "Life global name" "cur_dc" declarator.name.spelling;
+          Alcotest.(check string)
+            "Life declarator delimiter" "," declarator.delimiter.spelling;
+          Alcotest.(check string)
+            "Life terminal semicolon" ";"
+            ( declaration.trailing_semicolon |> Option.get |> fun location ->
+              let source =
+                Source_manager.find (Session.sources session)
+                  location.span.source
+                |> Option.get
+              in
+              String.sub
+                (Source_file.contents source)
+                location.span.start
+                (Span.length location.span) )
+      | declarators ->
+          Alcotest.failf "Life terminal comma produced %d declarators"
+            (List.length declarators))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let coverage =
+    "public I64 initialized=1,;\n\
+     extern I64 forwarded,;\n\
+     I64 (*callback)(),;\n\
+     class Payload { I64 member; } payload,;"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode coverage in
+      match (expect_ast output).items with
+      | [
+       Ast.Global_declaration initialized;
+       Ast.Global_declaration forwarded;
+       Ast.Global_declaration callback;
+       Ast.Aggregate_definition payload;
+      ] ->
+          List.iter
+            (fun declaration ->
+              Alcotest.(check int)
+                "terminal group has one named declarator" 1
+                (List.length declaration.Ast.declarators);
+              Alcotest.(check bool)
+                "terminal group retains semicolon" true
+                (Option.is_some declaration.trailing_semicolon))
+            [ initialized; forwarded; callback ];
+          Alcotest.(check int)
+            "aggregate terminal group has one named declarator" 1
+            (List.length payload.attached_declarators);
+          Alcotest.(check string)
+            "aggregate attached delimiter" ","
+            (List.hd payload.attached_declarators).delimiter.spelling
+      | items ->
+          Alcotest.failf "terminal comma coverage produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun (description, source) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string)
+        description "HCPARSE0002" (first_diagnostic output).code)
+    [
+      ("missing first name remains invalid", "I64 ;");
+      ("non-semicolon after comma remains invalid", "I64 value,+1;");
+    ];
+  let generated_session, generated_root, generated =
+    parse_string "#define END ,;\nI64 value END"
+  in
+  let generated_declaration = expect_ast generated |> expect_one_declaration in
+  let generated_semicolon =
+    generated_declaration.trailing_semicolon |> Option.get
+  in
+  Alcotest.(check bool)
+    "generated terminal semicolon uses its definition frame" false
+    (Source_id.equal generated_semicolon.span.source
+       (Source_file.id generated_root));
+  Alcotest.(check bool)
+    "generated terminal semicolon keeps its invocation" true
+    (Option.is_some generated_semicolon.generated_from);
+  Alcotest.(check bool)
+    "generated terminal semicolon keeps its definition" true
+    (Option.is_some generated_semicolon.defined_at);
+  let human =
+    Ast_dump.human (Session.sources generated_session) (expect_ast generated)
+  in
+  let json =
+    Ast_dump.json (Session.sources generated_session) (expect_ast generated)
+  in
+  Alcotest.(check bool)
+    "human dump retains the terminal semicolon" true
+    (contains human "trailing_semicolon span=");
+  let open Yojson.Safe.Util in
+  let json_semicolon =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "trailing_semicolon"
+  in
+  Alcotest.(check bool)
+    "JSON terminal semicolon keeps provenance" true
+    (json_semicolon |> member "generated_from" <> `Null);
+  Alcotest.(check string)
+    "terminal comma human dump is deterministic" human
+    (Ast_dump.human (Session.sources generated_session) (expect_ast generated));
+  Alcotest.(check string)
+    "terminal comma JSON dump is deterministic" json
+    (Ast_dump.json (Session.sources generated_session) (expect_ast generated));
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "terminal.HC" in
+      write_file root_file "#include \"terminal\"";
+      write_file declaration_file "I64 included,;";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      let semicolon =
+        (expect_ast output |> expect_one_declaration).trailing_semicolon
+        |> Option.get
+      in
+      let included_source =
+        Source_manager.find (Session.sources session) semicolon.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "terminal semicolon keeps its included source"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source))
 
 let definition_backed_comma_group () =
   let session, root, output =
@@ -1464,7 +1622,210 @@ let function_parameter_register_failures () =
         "extern U0 Narrow(I64 reg EAX value);",
         "Narrow",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
+    ]
+
+let semicolon_separated_function_parameters () =
+  let check_parameters description (parameters : Ast.function_parameter list) =
+    Alcotest.(check int)
+      (description ^ " parameter count")
+      3 (List.length parameters);
+    let first = List.nth parameters 0 in
+    let second = List.nth parameters 1 in
+    let third = List.nth parameters 2 in
+    Alcotest.(check bool)
+      (description ^ " first comma")
+      true
+      ((Option.get first.Ast.delimiter).kind = Ast.Comma);
+    let separator = Option.get second.Ast.delimiter in
+    Alcotest.(check bool)
+      (description ^ " second semicolon")
+      true
+      (separator.kind = Ast.Semicolon);
+    Alcotest.(check string)
+      (description ^ " semicolon spelling")
+      ";" separator.spelling;
+    Alcotest.(check bool)
+      (description ^ " final parameter has no delimiter")
+      true
+      (Option.is_none third.Ast.delimiter)
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, header =
+        parse_string ~path:"Kernel/KernelC.HH" ~compilation_mode
+          (pinned_lines "Kernel/KernelC.HH" ~first:106 ~last:106)
+      in
+      let prototype = expect_ast header |> expect_one_prototype in
+      check_parameters "pinned header" prototype.parameters;
+      let human =
+        Ast_dump.human (Session.sources session) (expect_ast header)
+      in
+      let json = Ast_dump.json (Session.sources session) (expect_ast header) in
+      Alcotest.(check bool)
+        "human dump retains semicolon" true
+        (contains human "delimiter kind=semicolon spelling=\";\"");
+      Alcotest.(check bool)
+        "JSON dump retains semicolon" true
+        (contains json "\"kind\": \"semicolon\"");
+      let _, _, definition =
+        parse_string ~path:"Kernel/StrA.HC" ~compilation_mode
+          (pinned_lines "Kernel/StrA.HC" ~first:1 ~last:10)
+      in
+      let definition = expect_ast definition |> expect_one_definition in
+      check_parameters "pinned definition" definition.parameters)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, trailing = parse_string "extern U0 Trailing(I64 value;);" in
+  let parameter =
+    expect_ast trailing |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.parameters
+  in
+  Alcotest.(check bool)
+    "source permits a trailing semicolon" true
+    ((Option.get parameter.delimiter).kind = Ast.Semicolon);
+  Alcotest.(check bool)
+    "pinned parser accepts semicolon list entries" true
+    (contains (pinned "Compiler/PrsVar.HC") "case ';':")
+
+let empty_semicolon_function_parameter_entries () =
+  let check_entries description expected
+      (entries : Ast.empty_parameter_entry list) =
+    Alcotest.(check (list int))
+      (description ^ " positions")
+      expected
+      (List.map (fun entry -> entry.Ast.preceding_parameter_count) entries);
+    List.iter
+      (fun entry ->
+        Alcotest.(check bool)
+          (description ^ " semicolon kind")
+          true
+          (entry.Ast.empty_parameter_delimiter.kind = Ast.Semicolon);
+        Alcotest.(check string)
+          (description ^ " spelling")
+          ";" entry.empty_parameter_delimiter.spelling)
+      entries
+  in
+  List.iter
+    (fun compilation_mode ->
+      let session, _, prototype_output =
+        parse_string ~compilation_mode
+          "extern U0 Entries(;;I64 first;;;I64 second;;);"
+      in
+      let prototype = expect_ast prototype_output |> expect_one_prototype in
+      Alcotest.(check int)
+        "concrete parameter count" 2
+        (List.length prototype.parameters);
+      check_entries "prototype empty entries" [ 0; 0; 1; 1; 2 ]
+        prototype.empty_parameter_entries;
+      let ast = expect_ast prototype_output in
+      let human = Ast_dump.human (Session.sources session) ast in
+      let json = Ast_dump.json (Session.sources session) ast in
+      let second_session, _, second_output =
+        parse_string ~compilation_mode
+          "extern U0 Entries(;;I64 first;;;I64 second;;);"
+      in
+      Alcotest.(check string)
+        "empty-entry human dump is deterministic" human
+        (Ast_dump.human
+           (Session.sources second_session)
+           (expect_ast second_output));
+      Alcotest.(check string)
+        "empty-entry JSON dump is deterministic" json
+        (Ast_dump.json
+           (Session.sources second_session)
+           (expect_ast second_output));
+      Alcotest.(check bool)
+        "human dump retains empty entries" true
+        (contains human
+           "empty_parameter_entry index=4 preceding_parameters=2 spelling=\";\"");
+      Alcotest.(check bool)
+        "JSON dump retains empty entries" true
+        (contains json "\"preceding_parameter_count\": 2");
+      let _, _, definition_output =
+        parse_string ~compilation_mode "U0 Defined(;;I64 value;;){}"
+      in
+      let definition = expect_ast definition_output |> expect_one_definition in
+      check_entries "definition empty entries" [ 0; 0; 1 ]
+        definition.empty_parameter_entries;
+      let _, _, nested_output =
+        parse_string ~compilation_mode
+          "extern U0 Outer(U0 (*callback)(;;I64 value;;));"
+      in
+      let nested =
+        expect_ast nested_output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.parameters |> expect_function_pointer
+      in
+      check_entries "nested empty entries" [ 0; 0; 1 ]
+        nested.signature_empty_parameter_entries;
+      let _, _, empty_only_output =
+        parse_string ~compilation_mode "extern U0 EmptyOnly(;;);"
+      in
+      let empty_only = expect_ast empty_only_output |> expect_one_prototype in
+      Alcotest.(check int)
+        "empty-only concrete parameter count" 0
+        (List.length empty_only.parameters);
+      check_entries "empty-only entries" [ 0; 0 ]
+        empty_only.empty_parameter_entries)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let session, root, generated =
+    parse_string "#define EMPTY ;\nextern U0 Generated(EMPTY I64 value);"
+  in
+  let generated_entry =
+    expect_ast generated |> expect_one_prototype |> fun prototype ->
+    List.hd prototype.empty_parameter_entries
+  in
+  let generated_location = generated_entry.empty_parameter_delimiter.location in
+  Alcotest.(check bool)
+    "definition entry uses generated source" false
+    (Source_id.equal generated_location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "definition entry keeps invocation provenance" true
+    (Option.is_some generated_location.generated_from);
+  Alcotest.(check bool)
+    "definition entry keeps definition provenance" true
+    (Option.is_some generated_location.defined_at);
+  let generated_json =
+    Ast_dump.json (Session.sources session) (expect_ast generated)
+  in
+  Alcotest.(check bool)
+    "generated entry JSON keeps provenance" true
+    (contains generated_json "\"defined_at\"");
+  with_temp_directory (fun directory ->
+      let root_path = Filename.concat directory "root.HC" in
+      let included_path = Filename.concat directory "entries.HC" in
+      write_file root_path "#include \"entries\"";
+      write_file included_path "extern U0 Included(;;I64 value);";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_path |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config directory) ~source
+      in
+      let entry =
+        expect_ast output |> expect_one_prototype |> fun prototype ->
+        List.hd prototype.empty_parameter_entries
+      in
+      let entry_path =
+        Source_manager.find (Session.sources session)
+          entry.empty_parameter_delimiter.location.span.source
+        |> Option.get |> Source_file.display_path
+      in
+      Alcotest.(check bool)
+        "included entry has its own source" false
+        (Source_id.equal entry.empty_parameter_delimiter.location.span.source
+           (Source_file.id source));
+      Alcotest.(check string) "included entry source" "entries" entry_path);
+  List.iter
+    (fun (description, source) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string)
+        description "HCPARSE0009" (first_diagnostic output).code)
+    [
+      ("leading comma", "extern U0 Leading(,I64 value);");
+      ("repeated comma", "extern U0 Repeated(I64 first,,I64 second);");
+      ( "semicolon after an empty comma slot",
+        "extern U0 AfterComma(I64 first,;I64 second);" );
     ]
 
 let modifier_declaration_group () =
@@ -2090,6 +2451,9 @@ let aggregate_global_source_behavior () =
     [
       ("initializer parser entry", "U0 PrsVarInit(");
       ("recursive initializer entry", "U0 PrsVarInit2(");
+      ("array opening brace is optional", "if (cc->token=='{') {");
+      ("fixed arrays read the declared count", "for (i=0;i<tmpad1->cnt;i++)");
+      ("an unmatched closing brace is accepted", "if (cc->token=='}')");
       ("aggregate values require a brace", "if (cc->token!='{')");
       ("global initializer wrapper", "U0 PrsGlblInit(");
     ];
@@ -2101,6 +2465,8 @@ let aggregate_global_source_behavior () =
       ("Adam/WallPaper.HC", "} *wall=CAlloc(sizeof(CWallPaperGlbls));");
       ("Demo/RadixSort.HC", "} l[N],*r[RADIX];");
       ("Demo/Games/Talons.HC", "} *panel_head,*panels[MAP_HEIGHT][MAP_WIDTH];");
+      ( "Adam/DolDoc/DocHighlight.HC",
+        "CColorROPU32 highlight_hash_type_colors[HTt_TYPES_NUM]=" );
     ]
 
 let pinned_cinit_attached_global () =
@@ -2167,7 +2533,8 @@ let aggregate_globals_and_initializer_trees () =
         (active.delimiter.kind = Ast.Semicolon);
       Alcotest.(check int)
         "definition reaches the declaration semicolon"
-        definition.semicolon.span.stop definition.location.span.stop;
+        (definition.semicolon |> Option.get |> fun item -> item.span.stop)
+        definition.location.span.stop;
       let outer =
         expect_global_initial_value entries |> fun value ->
         expect_braced_initial_value value.global_initializer_value
@@ -2279,6 +2646,176 @@ let aggregate_global_provenance_and_dumps () =
   Alcotest.(check bool)
     "JSON generated brace retains provenance" true
     (initial_value |> member "opening_brace" |> member "generated_from" <> `Null)
+
+let unbraced_fixed_array_initializers () =
+  let values_of unbraced =
+    unbraced.Ast.unbraced_initializer_elements
+    |> List.map (fun (element : Ast.initializer_element) ->
+        element.initializer_element_value |> expect_scalar_initial_value
+        |> expect_integer_expression)
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~compilation_mode "I64 values[3]=1,2,3}; I64 following;"
+      in
+      match (expect_ast output).items with
+      | [ Ast.Global_declaration declaration; Ast.Global_variable following ] ->
+          let declarator = List.hd declaration.declarators in
+          let unbraced =
+            expect_global_initial_value declarator |> fun initial ->
+            expect_unbraced_array_initial_value initial.global_initializer_value
+          in
+          Alcotest.(check (list int64))
+            "fixed elements" [ 1L; 2L; 3L ] (values_of unbraced);
+          Alcotest.(check bool)
+            "written closing brace remains present" true
+            (Option.is_some unbraced.unbraced_initializer_closing_brace);
+          Alcotest.(check string)
+            "following declaration remains available" "following"
+            following.name.spelling
+      | items ->
+          Alcotest.failf "unbraced fixed array produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, no_closing_output = parse_string "I64 values[2]=1,2;" in
+  let no_closing =
+    expect_ast no_closing_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  Alcotest.(check bool)
+    "unwritten closing brace remains absent" true
+    (Option.is_none no_closing.unbraced_initializer_closing_brace);
+  let _, _, grouped_output = parse_string "I64 values[2]=1,2}, following;" in
+  let grouped = expect_ast grouped_output |> expect_one_declaration in
+  Alcotest.(check (list string))
+    "declarator comma follows the fixed element count" [ "values"; "following" ]
+    (List.map
+       (fun (declarator : Ast.global_declarator) -> declarator.name.spelling)
+       grouped.declarators);
+  let _, _, matrix_output = parse_string "I64 matrix[2][2]=1,2,3,4;" in
+  let matrix =
+    expect_ast matrix_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  let rows =
+    matrix.unbraced_initializer_elements
+    |> List.map (fun (element : Ast.initializer_element) ->
+        expect_unbraced_array_initial_value element.initializer_element_value)
+  in
+  Alcotest.(check (list (list int64)))
+    "multidimensional shape"
+    [ [ 1L; 2L ]; [ 3L; 4L ] ]
+    (List.map values_of rows);
+  let pinned_table =
+    "class CColorROPU32 {};\n#define HTt_TYPES_NUM 17\n"
+    ^ pinned_lines "Adam/DolDoc/DocHighlight.HC" ~first:3 ~last:7
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode pinned_table in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition _; Ast.Global_declaration declaration ] ->
+          let table = List.hd declaration.declarators in
+          let unbraced =
+            expect_global_initial_value table |> fun initial ->
+            expect_unbraced_array_initial_value initial.global_initializer_value
+          in
+          Alcotest.(check string)
+            "pinned table name" "highlight_hash_type_colors" table.name.spelling;
+          Alcotest.(check int)
+            "pinned table element count" 17
+            (List.length unbraced.unbraced_initializer_elements)
+      | items ->
+          Alcotest.failf "pinned unbraced table produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let generated_session, generated_root, generated_output =
+    parse_string "#define VALUES 1,2}\nI64 generated[2]=VALUES;"
+  in
+  let generated =
+    expect_ast generated_output |> expect_one_declaration |> fun declaration ->
+    List.hd declaration.declarators |> expect_global_initial_value
+    |> fun initial ->
+    expect_unbraced_array_initial_value initial.global_initializer_value
+  in
+  let closing = generated.unbraced_initializer_closing_brace |> Option.get in
+  Alcotest.(check bool)
+    "generated closing brace leaves the root source" false
+    (Source_id.equal closing.span.source (Source_file.id generated_root));
+  Alcotest.(check bool)
+    "generated closing brace keeps invocation provenance" true
+    (Option.is_some closing.generated_from);
+  Alcotest.(check bool)
+    "generated closing brace keeps definition provenance" true
+    (Option.is_some closing.defined_at);
+  let ast = expect_ast generated_output in
+  let sources = Session.sources generated_session in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check bool)
+    "human dump identifies the source form" true
+    (contains human "value kind=unbraced_array");
+  let open Yojson.Safe.Util in
+  let json_value =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "declarators" |> to_list |> List.hd |> member "initializer"
+    |> member "value"
+  in
+  Alcotest.(check string)
+    "JSON initializer kind" "unbraced_array"
+    (json_value |> member "kind" |> to_string);
+  Alcotest.(check bool)
+    "JSON has no invented opening brace" true
+    (json_value |> member "opening_brace" = `Null);
+  Alcotest.(check string)
+    "unbraced human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "unbraced JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "values.HC" in
+      write_file root_file "#include \"values\"";
+      write_file declaration_file "I64 included[2]=1,2};";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      let unbraced =
+        expect_ast output |> expect_one_declaration |> fun declaration ->
+        List.hd declaration.declarators |> expect_global_initial_value
+        |> fun initial ->
+        expect_unbraced_array_initial_value initial.global_initializer_value
+      in
+      let included_source =
+        Source_manager.find (Session.sources session)
+          unbraced.unbraced_initializer_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included initializer keeps its canonical source"
+        (Unix.realpath declaration_file)
+        (Source_file.path included_source));
+  List.iter
+    (fun (description, source, code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check string) description code (first_diagnostic output).code)
+    [
+      ("unsupported bound", "I64 values[Count]=1;", "HCPARSE0159");
+      ("zero bound", "I64 values[0]=1;", "HCPARSE0159");
+      ("missing element", "I64 values[2]=1;", "HCPARSE0160");
+      ("extra element", "I64 values[2]=1,2,3;", "HCPARSE0002");
+    ]
 
 let global_initializer_failures () =
   List.iter
@@ -2402,7 +2939,8 @@ let direct_aggregate_definitions () =
       | _ -> Alcotest.fail "the extra member semicolon was not retained");
       Alcotest.(check int) "class begins at public" 0 node.location.span.start;
       Alcotest.(check int)
-        "class ends at final semicolon" node.semicolon.span.stop
+        "class ends at final semicolon"
+        (node.semicolon |> Option.get |> fun item -> item.span.stop)
         node.location.span.stop;
       ignore (expect_named_specifier "Node" head.type_specifier)
   | items ->
@@ -2468,6 +3006,132 @@ let aggregate_definition_modes () =
           Alcotest.failf "expected a definition and global, got %d items"
             (List.length items))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let adjacent_aggregate_definition_semicolons () =
+  let pinned_source = pinned "Demo/Graphics/Pick3D.HC" in
+  Alcotest.(check bool)
+    "pinned source omits the PCSprite terminator" true
+    (contains pinned_source
+       "class PCSprite\n\
+        {\n\
+       \  PObj\t*p;\n\
+       \  U8\t*img;\n\
+       \  I64\t*r,\n\
+        \t*dr; //Rounding error might eventually screw this up\n\
+        }\n\n\
+        class PObj");
+  List.iter
+    (fun (mode, first_kind, second_kind) ->
+      let source =
+        Printf.sprintf "%s First { I64 value; } %s Second { I64 value; };"
+          first_kind second_kind
+      in
+      let session, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+          Alcotest.(check bool)
+            "first semicolon is omitted" true
+            (Option.is_none first.semicolon);
+          Alcotest.(check bool)
+            "second semicolon is retained" true
+            (Option.is_some second.semicolon);
+          Alcotest.(check int)
+            "omitted definition ends at its closing brace"
+            first.closing_brace.span.stop first.location.span.stop;
+          let human =
+            Ast_dump.human (Session.sources session) (expect_ast output)
+          in
+          Alcotest.(check int)
+            "human dump has only the written semicolon" 1
+            (count_occurrences human "    semicolon span=");
+          let open Yojson.Safe.Util in
+          let items =
+            Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+            |> member "module" |> member "items" |> to_list
+          in
+          Alcotest.(check bool)
+            "JSON omits the first semicolon" true
+            (List.hd items |> member "semicolon" = `Null);
+          Alcotest.(check bool)
+            "JSON retains the second semicolon" true
+            (List.nth items 1 |> member "semicolon" <> `Null)
+      | items ->
+          Alcotest.failf "expected two adjacent aggregates, got %d items"
+            (List.length items))
+    (List.concat_map
+       (fun mode ->
+         [
+           (mode, "class", "class");
+           (mode, "class", "union");
+           (mode, "union", "class");
+           (mode, "union", "union");
+         ])
+       [ Preprocessor.Jit; Preprocessor.Aot ]);
+  let generated_session, generated_root, generated =
+    parse_string
+      "#define AGG class\n\
+       AGG Generated { I64 value; } AGG Following { I64 value; };"
+  in
+  (match (expect_ast generated).items with
+  | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+      Alcotest.(check bool)
+        "generated boundary omits the first semicolon" true
+        (Option.is_none first.semicolon);
+      Alcotest.(check bool)
+        "generated keyword has invocation provenance" true
+        (Option.is_some second.aggregate_keyword_location.generated_from);
+      Alcotest.(check bool)
+        "generated keyword comes from another frame" false
+        (Source_id.equal second.aggregate_keyword_location.span.source
+           (Source_file.id generated_root));
+      ignore generated_session
+  | items ->
+      Alcotest.failf "expected two generated aggregates, got %d items"
+        (List.length items));
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let definition_file = Filename.concat include_root "adjacent.HC" in
+      write_file root_file "#include \"adjacent\"";
+      write_file definition_file
+        "class IncludedFirst { I64 value; } union IncludedSecond { I64 value; \
+         };";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      match (expect_ast output).items with
+      | [ Ast.Aggregate_definition first; Ast.Aggregate_definition second ] ->
+          Alcotest.(check bool)
+            "included boundary omits the first semicolon" true
+            (Option.is_none first.semicolon);
+          let included =
+            Source_manager.find (Session.sources session)
+              second.name.location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "second definition keeps the included path"
+            (Unix.realpath definition_file)
+            (Source_file.path included)
+      | items ->
+          Alcotest.failf "expected two included aggregates, got %d items"
+            (List.length items));
+  List.iter
+    (fun (source, expected_code) ->
+      let _, _, output = parse_string source in
+      Alcotest.(check bool)
+        "invalid omission has no AST" true
+        (Option.is_none output.ast);
+      Alcotest.(check string)
+        "invalid omission keeps its diagnostic" expected_code
+        (first_diagnostic output).code)
+    [
+      ("class Missing { I64 value; }", "HCPARSE0115");
+      ("class Missing { I64 value; } I64 after;", "HCPARSE0003");
+    ]
 
 let pinned_kernel_ordinary_class_slice () =
   let source =
@@ -3612,18 +4276,6 @@ let aggregate_member_keyword_provenance_and_scope () =
         "included keyword name keeps its canonical path"
         (Unix.realpath definition_file)
         (Source_file.path included_source));
-  List.iter
-    (fun (description, rejected, code) ->
-      let _, _, rejected_output = parse_string rejected in
-      Alcotest.(check string)
-        description code (first_diagnostic rejected_output).code)
-    [
-      (* PrsStmt.HC:4 accepts any TK_IDENT here, so this rejection is a known
-         difference tracked separately from the declarator-name rule. *)
-      ( "aggregate type names remain strict",
-        "class start { I64 value; };",
-        "HCPARSE0109" );
-    ];
   let _, _, switch_output = parse_string "switch[value]{start:case 1:;end:}" in
   ignore (expect_ast switch_output)
 
@@ -9394,12 +10046,12 @@ let function_pointer_parameter_failures () =
          second));",
         "MissingNestedDelimiter",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "missing signature closing parenthesis",
         "extern U0 MissingSignatureClose(I64 (*callback)(I64 value;",
         "MissingSignatureClose",
-        "HCPARSE0010",
-        "expected ',' or ')'" );
+        "HCPARSE0009",
+        "parameter type" );
       ( "function-pointer depth",
         "extern U0 TooDeep(I64 (*****callback)());",
         "TooDeep",
@@ -9502,7 +10154,8 @@ let direct_function_prototypes () =
         "variadic spelling" "..."
         (format.variadic |> Option.get |> fun item -> item.spelling);
       Alcotest.(check int)
-        "prototype covers its semicolon" format.semicolon.span.stop
+        "prototype covers its semicolon"
+        (format.semicolon |> Option.get |> fun semicolon -> semicolon.span.stop)
         format.location.span.stop;
       Alcotest.(check int)
         "four pointer layers are accepted" 4
@@ -9553,6 +10206,159 @@ let function_import_mode_boundary () =
       | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "accepted AOT prototype %s is not visible" name)
     [ "OrdinaryImport"; "AlternateImport" ]
+
+let optional_prototype_semicolons () =
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output =
+        parse_string ~compilation_mode
+          "extern U0 First()\nextern U0 Second();\nI64 following;"
+      in
+      match (expect_ast output).items with
+      | [
+       Ast.Function_prototype first;
+       Ast.Function_prototype second;
+       Ast.Global_variable following;
+      ] ->
+          Alcotest.(check bool)
+            "omitted semicolon remains absent" true
+            (Option.is_none first.semicolon);
+          Alcotest.(check bool)
+            "written semicolon remains present" true
+            (Option.is_some second.semicolon);
+          Alcotest.(check string)
+            "following declaration remains available" "following"
+            following.name.spelling;
+          Alcotest.(check int)
+            "omitted prototype ends at its closing parenthesis"
+            first.closing_parenthesis.span.stop first.location.span.stop
+      | items ->
+          Alcotest.failf "optional prototype delimiters produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, bindings =
+    parse_string ~compilation_mode:Preprocessor.Aot
+      "extern U0 Ordinary()\n\
+       _extern REMOTE U0 Alternate()\n\
+       _intern 42 U0 Internal()\n\
+       import U0 Imported()\n\
+       _import REMOTE_IMPORT U0 AlternateImport()"
+  in
+  let binding_prototypes =
+    (expect_ast bindings).items
+    |> List.map (function
+      | Ast.Function_prototype prototype -> prototype
+      | _ -> Alcotest.fail "expected a bound function prototype")
+  in
+  Alcotest.(check (list string))
+    "every binding form accepts omission"
+    [ "Ordinary"; "Alternate"; "Internal"; "Imported"; "AlternateImport" ]
+    (List.map
+       (fun (prototype : Ast.function_prototype) -> prototype.name.spelling)
+       binding_prototypes);
+  Alcotest.(check bool)
+    "every omitted binding delimiter remains absent" true
+    (List.for_all
+       (fun (prototype : Ast.function_prototype) ->
+         Option.is_none prototype.semicolon)
+       binding_prototypes);
+  let kernel_source =
+    "extern class CTask;\n"
+    ^ pinned_lines "Kernel/KernelC.HH" ~first:179 ~last:180
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode kernel_source in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_forward_declaration _;
+       Ast.Function_prototype breakpoint;
+       Ast.Function_prototype breakpoint_two;
+      ] ->
+          Alcotest.(check string)
+            "pinned prototype" "B" breakpoint.name.spelling;
+          Alcotest.(check bool)
+            "pinned omitted semicolon" true
+            (Option.is_none breakpoint.semicolon);
+          Alcotest.(check string)
+            "following pinned prototype" "B2" breakpoint_two.name.spelling
+      | items ->
+          Alcotest.failf "pinned header produced %d items" (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _generated_session, generated_root, generated =
+    parse_string "#define HEADER extern U0 Generated()\nHEADER\nI64 next;"
+  in
+  (match (expect_ast generated).items with
+  | [ Ast.Function_prototype prototype; Ast.Global_variable _ ] ->
+      Alcotest.(check bool)
+        "generated omitted semicolon" true
+        (Option.is_none prototype.semicolon);
+      Alcotest.(check bool)
+        "generated prototype leaves the root source" false
+        (Source_id.equal prototype.name.location.span.source
+           (Source_file.id generated_root));
+      Alcotest.(check bool)
+        "generated prototype keeps invocation provenance" true
+        (Option.is_some prototype.name.location.generated_from);
+      Alcotest.(check bool)
+        "generated prototype keeps definition provenance" true
+        (Option.is_some prototype.name.location.defined_at)
+  | items ->
+      Alcotest.failf "generated omitted semicolon produced %d items"
+        (List.length items));
+  let dump_session, _, dump_output =
+    parse_string "#define HEADER extern U0 Generated()\nHEADER"
+  in
+  let dump_ast = expect_ast dump_output in
+  let dump_sources = Session.sources dump_session in
+  let human = Ast_dump.human dump_sources dump_ast in
+  let json = Ast_dump.json dump_sources dump_ast in
+  Alcotest.(check bool)
+    "human dump omits an unwritten delimiter" false
+    (contains human "semicolon span=");
+  let open Yojson.Safe.Util in
+  let prototype_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+  in
+  Alcotest.(check bool)
+    "JSON dump omits an unwritten delimiter" true
+    (prototype_json |> member "semicolon" = `Null);
+  Alcotest.(check string)
+    "optional delimiter human dump is deterministic" human
+    (Ast_dump.human dump_sources dump_ast);
+  Alcotest.(check string)
+    "optional delimiter JSON dump is deterministic" json
+    (Ast_dump.json dump_sources dump_ast);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let declaration_file = Filename.concat include_root "prototype.HC" in
+      write_file root_file "#include \"prototype\"\nI64 following;";
+      write_file declaration_file "extern U0 Included()";
+      let session = Session.create () in
+      let source =
+        Session.load_source session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed session ~config:(config include_root) ~source
+      in
+      match (expect_ast output).items with
+      | [ Ast.Function_prototype prototype; Ast.Global_variable following ] ->
+          let included_source =
+            Source_manager.find (Session.sources session)
+              prototype.name.location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included prototype keeps its canonical source"
+            (Unix.realpath declaration_file)
+            (Source_file.path included_source);
+          Alcotest.(check string)
+            "root declaration remains available after include" "following"
+            following.name.spelling
+      | items ->
+          Alcotest.failf "included omitted semicolon produced %d items"
+            (List.length items))
 
 let definition_backed_function_prototype () =
   let source =
@@ -10170,17 +10976,17 @@ let lastclass_default_failures () =
         "extern U0 Added(U8 *value,U8 *name=lastclass+1);",
         "Added",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "call continuation",
         "extern U0 Called(U8 *value,U8 *name=lastclass());",
         "Called",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "keyword after an ordinary expression",
         "extern U0 Later(U8 *name=1 lastclass);",
         "Later",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "ordinary binding expression",
         "_intern lastclass I64 Bound();",
         "Bound",
@@ -10635,17 +11441,12 @@ let function_prototype_failures () =
         "extern U0 NoComma(I64 first U8 second);",
         "NoComma",
         "HCPARSE0010",
-        "expected ',' or ')'" );
+        "expected ',', ';', or ')'" );
       ( "missing closing parenthesis",
         "extern U0 NoClose(I64 value;",
         "NoClose",
-        "HCPARSE0010",
-        "expected ',' or ')'" );
-      ( "missing prototype semicolon",
-        "extern U0 NoSemicolon()",
-        "NoSemicolon",
-        "HCPARSE0016",
-        "expected ';'" );
+        "HCPARSE0009",
+        "parameter type" );
       ( "trailing parameter comma",
         "extern U0 Trailing(I64 value,);",
         "Trailing",
@@ -10975,9 +11776,15 @@ let function_definition_failures () =
   | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
       Alcotest.fail "a definition with a rejected header became visible");
   let _, _, bound_body = parse_string "extern U0 Prototype(){}" in
-  Alcotest.(check string)
-    "a bound form remains a prototype" "HCPARSE0016"
-    (first_diagnostic bound_body).code;
+  (match (expect_ast bound_body).items with
+  | [ Ast.Function_prototype prototype; Ast.Top_level_statement _ ] ->
+      Alcotest.(check bool)
+        "a bound form remains a prototype" true
+        (Option.is_none prototype.semicolon)
+  | items ->
+      Alcotest.failf
+        "expected a bound prototype and separate top-level block, got %d items"
+        (List.length items));
   let depth = Parser.max_block_depth + 1 in
   let nested_source =
     "U0 TooDeep()" ^ String.make depth '{' ^ String.make depth '}'
@@ -11162,6 +11969,120 @@ let function_body_statements (definition : Ast.function_definition) =
             sequence.sequence_elements
       | statement -> [ statement ])
     body.block_statements
+
+let keyword_spelled_aggregate_types () =
+  let source =
+    "class start { I64 value; };\n\
+     union end { I64 value; };\n\
+     start global_start;\n\
+     end global_end;\n\
+     class Derived:start { I64 value; };\n\
+     U0 Use() { start local_start; end local_end; }"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      match (expect_ast output).items with
+      | [
+       Ast.Aggregate_definition start_type;
+       Ast.Aggregate_definition end_type;
+       Ast.Global_variable global_start;
+       Ast.Global_variable global_end;
+       Ast.Aggregate_definition derived;
+       Ast.Function_definition use;
+      ] ->
+          Alcotest.(check string)
+            "keyword class name" "start" start_type.name.spelling;
+          Alcotest.(check string)
+            "keyword union name" "end" end_type.name.spelling;
+          ignore (expect_named_specifier "start" global_start.type_specifier);
+          ignore (expect_named_specifier "end" global_end.type_specifier);
+          ignore (expect_aggregate_base "start" derived);
+          let locals =
+            function_body_statements use |> List.map expect_local_declaration
+          in
+          Alcotest.(check int) "keyword local count" 2 (List.length locals);
+          ignore
+            (expect_named_specifier "start"
+               (List.nth locals 0).local_type_specifier);
+          ignore
+            (expect_named_specifier "end"
+               (List.nth locals 1).local_type_specifier)
+      | items ->
+          Alcotest.failf "keyword aggregate fixture produced %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, missing_base = parse_string "class Derived:start { I64 value; };" in
+  Alcotest.(check string)
+    "unresolved keyword base diagnostic" "HCPARSE0121"
+    (first_diagnostic missing_base).code;
+  Alcotest.(check bool)
+    "unresolved keyword base is a lookup error" true
+    (contains (first_diagnostic missing_base).message
+       "is not a visible class or union");
+  let _, _, ordinary_keyword = parse_string "U0 Use(){start value;}" in
+  Alcotest.(check string)
+    "ordinary keyword remains a statement keyword" "HCPARSE0048"
+    (first_diagnostic ordinary_keyword).code;
+  let _, _, forward = parse_string "extern class catch; catch forward_value;" in
+  (match (expect_ast forward).items with
+  | [ Ast.Aggregate_forward_declaration declaration; Ast.Global_variable value ]
+    ->
+      Alcotest.(check string)
+        "keyword forward declaration name" "catch" declaration.name.spelling;
+      ignore (expect_named_specifier "catch" value.type_specifier)
+  | items ->
+      Alcotest.failf "keyword aggregate forward fixture produced %d items"
+        (List.length items));
+  let _, root, generated =
+    parse_string "#define AGG_NAME start\nclass AGG_NAME { I64 value; };"
+  in
+  let generated_name =
+    expect_ast generated |> expect_one_aggregate_definition |> fun definition ->
+    definition.name
+  in
+  Alcotest.(check bool)
+    "generated aggregate name uses generated source" false
+    (Source_id.equal generated_name.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated aggregate name keeps invocation provenance" true
+    (Option.is_some generated_name.location.generated_from);
+  Alcotest.(check bool)
+    "generated aggregate name keeps definition provenance" true
+    (Option.is_some generated_name.location.defined_at);
+  with_temp_directory (fun include_root ->
+      let root_file = Filename.concat include_root "root.HC" in
+      let aggregate_file = Filename.concat include_root "aggregate.HC" in
+      write_file root_file "#include \"aggregate\"";
+      write_file aggregate_file
+        "class start { I64 value; };\nstart included_value;";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let output =
+        Holyc_lib.parse_detailed include_session ~config:(config include_root)
+          ~source:include_source
+      in
+      let included_name =
+        match (expect_ast output).items with
+        | [ Ast.Aggregate_definition definition; Ast.Global_variable value ] ->
+            ignore (expect_named_specifier "start" value.type_specifier);
+            definition.name
+        | items ->
+            Alcotest.failf "keyword aggregate include produced %d items"
+              (List.length items)
+      in
+      let included_source =
+        Source_manager.find
+          (Session.sources include_session)
+          included_name.location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "keyword aggregate keeps its included source"
+        (Unix.realpath aggregate_file)
+        (Source_file.path included_source))
 
 (* Compiler/PrsLib.HC:31-38 keeps keyword identity in the hash entry, so the
    name positions that read TK_IDENT directly accept a keyword spelling:
@@ -11352,7 +12273,7 @@ let contextual_keyword_name_limits () =
     ]
 
 let contextual_keyword_local_provenance () =
-  let source = "#define NAME start\nU0 Ins()\n{\nI64 NAME;\n}" in
+  let source = "#define NAME start\nU0 Ins()\n{\nI64 NAME;\nNAME+1;\n}" in
   let session, root, output = parse_string source in
   let definition =
     List.find_map
@@ -11384,7 +12305,339 @@ let contextual_keyword_local_provenance () =
     (Ast_dump.human sources ast);
   Alcotest.(check bool)
     "human dump retains the contextual local" true
-    (contains (Ast_dump.human sources ast) "name spelling=\"start\"")
+    (contains (Ast_dump.human sources ast) "name spelling=\"start\"");
+  let operand =
+    function_body_statements definition |> fun statements ->
+    List.nth statements 1 |> expect_expression_statement |> fun statement ->
+    statement.expression_statement_expression |> expect_binary_expression
+    |> fun binary -> expect_identifier_expression binary.binary_left
+  in
+  Alcotest.(check string) "generated operand spelling" "start" operand.spelling;
+  Alcotest.(check bool)
+    "generated operand uses its definition frame" false
+    (Source_id.equal operand.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated operand keeps its invocation" true
+    (Option.is_some operand.location.generated_from);
+  Alcotest.(check bool)
+    "generated operand keeps its definition" true
+    (Option.is_some operand.location.defined_at)
+
+let contextual_keyword_operand_source_behavior () =
+  let lexer = pinned "Compiler/Lex.HC" in
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  let variable_parser = pinned "Compiler/PrsStmt.HC" in
+  let statement_parser = pinned "Compiler/PrsStmt.HC" in
+  let compilation = pinned "Compiler/CMain.HC" in
+  let hash = pinned "Kernel/KHashA.HC" in
+  let parser_library = pinned "Compiler/PrsLib.HC" in
+  List.iter
+    (fun (description, source, fragment) ->
+      Alcotest.(check bool) description true (contains source fragment))
+    [
+      ( "the lexer searches function locals first",
+        lexer,
+        "cc->local_var_entry=MemberFind(buf,cc->htc.local_var_lst);" );
+      ( "global and keyword lookup follows the local lookup",
+        lexer,
+        "if (!cc->local_var_entry && cc->htc.hash_table_lst)" );
+      ( "expression dispatch checks the local entry first",
+        expression_parser,
+        "if (tmpm=cc->local_var_entry)" );
+      ( "global declarations enter the compilation table",
+        variable_parser,
+        "HashAdd(tmpg,cc->htc.glbl_hash_table);" );
+      ( "function declarations enter the compilation table",
+        variable_parser,
+        "HashAdd(tmpf,cc->htc.glbl_hash_table);" );
+      ("hash insertion puts the newest record first", hash, "MOV\tU64 [RAX],RCX");
+      ( "AOT searches compilation globals before assembler keywords",
+        compilation,
+        "cc->htc.glbl_hash_table->next=cmp.asm_hash;" );
+      ( "JIT searches compilation globals before the task table",
+        compilation,
+        "cc->htc.glbl_hash_table->next=Fs->hash_table;" );
+      ( "keyword dispatch requires the selected keyword record",
+        parser_library,
+        "tmph->type&HTT_KEYWORD" );
+      ( "expression dispatch has a distinct global-variable branch",
+        expression_parser,
+        "case HTt_GLBL_VAR:" );
+      ( "expression dispatch has a distinct function branch",
+        expression_parser,
+        "case HTt_FUN:" );
+      ( "statement dispatch routes a local to expression parsing",
+        statement_parser,
+        "if (cc->local_var_entry)" );
+    ]
+
+let contextual_keyword_local_operands () =
+  let source =
+    "extern U0 Sink(I64 value);\n"
+    ^ "U0 Read(I64 start,I64 offset,I64 *values)\n{\n" ^ "I64 end=1,switch=2;\n"
+    ^ "start+end;\n" ^ "offset<start;\n" ^ "Sink(end);\n" ^ "values[switch];\n}"
+  in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let definition =
+        (expect_ast output).items
+        |> List.find_map (function
+          | Ast.Function_definition definition -> Some definition
+          | _ -> None)
+        |> Option.get
+      in
+      let statements = function_body_statements definition in
+      let expression index =
+        List.nth statements index |> expect_expression_statement
+        |> fun statement -> statement.expression_statement_expression
+      in
+      let arithmetic = expression 1 |> expect_binary_expression in
+      Alcotest.(check (pair string string))
+        "arithmetic reads parameter and local" ("start", "end")
+        (identifier arithmetic.binary_left, identifier arithmetic.binary_right);
+      let comparison = expression 2 |> expect_binary_expression in
+      Alcotest.(check (pair string string))
+        "comparison reads two parameters" ("offset", "start")
+        (identifier comparison.binary_left, identifier comparison.binary_right);
+      let call = expression 3 |> expect_call_expression in
+      Alcotest.(check string)
+        "call argument reads local" "end"
+        (call.call_arguments |> List.hd |> expect_provided_call_argument
+       |> identifier);
+      let index = expression 4 |> expect_index_expression in
+      Alcotest.(check string)
+        "index reads keyword-spelled local" "switch"
+        (identifier index.index_value))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let contextual_keyword_statement_dispatch () =
+  let source =
+    "U0 Shadow(I64 if,I64 sizeof,I64 offset)\n{\n" ^ "if+1;\nsizeof+offset;\n}"
+  in
+  let _, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let expressions =
+    function_body_statements definition
+    |> List.map (fun statement ->
+        statement |> expect_expression_statement |> fun expression ->
+        expression.expression_statement_expression |> expect_binary_expression)
+  in
+  let first = List.hd expressions in
+  let second = List.nth expressions 1 in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  Alcotest.(check (list string))
+    "statement keywords are local operands"
+    [ "if"; "sizeof"; "offset" ]
+    [
+      identifier first.binary_left;
+      identifier second.binary_left;
+      identifier second.binary_right;
+    ];
+  let _, _, outside = parse_string "sizeof;" in
+  Alcotest.(check string)
+    "sizeof keeps its keyword meaning outside local scope" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_global_operands () =
+  let source =
+    "I64 start=1,offset=2,sizeof=3;\n" ^ "start+offset;\n" ^ "sizeof;\n"
+    ^ "U0 Read()\n{\noffset+start;\n}"
+  in
+  let identifier expression =
+    (expect_identifier_expression expression).spelling
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let first, second, definition =
+        match (expect_ast output).items with
+        | [
+         Ast.Global_declaration _;
+         Ast.Top_level_statement first;
+         Ast.Top_level_statement second;
+         Ast.Function_definition definition;
+        ] -> (first, second, definition)
+        | items ->
+            Alcotest.failf
+              "expected one global group, two top-level expressions, and one \
+               function, got %d items"
+              (List.length items)
+      in
+      let first =
+        expect_expression_statement first |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+      in
+      Alcotest.(check (pair string string))
+        "top-level expression reads keyword-spelled globals" ("start", "offset")
+        (identifier first.binary_left, identifier first.binary_right);
+      let second =
+        expect_expression_statement second |> fun statement ->
+        statement.expression_statement_expression
+      in
+      Alcotest.(check string)
+        "statement keyword resolves to the visible global" "sizeof"
+        (identifier second);
+      let inside =
+        function_body_statements definition
+        |> List.hd |> expect_expression_statement
+        |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+      in
+      Alcotest.(check (pair string string))
+        "function expression reads keyword-spelled globals" ("offset", "start")
+        (identifier inside.binary_left, identifier inside.binary_right))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, outside = parse_string "sizeof;" in
+  Alcotest.(check string)
+    "same spelling remains a keyword without a visible global" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_global_provenance () =
+  let source = "#define NAME start\nI64 NAME;\nNAME+1;" in
+  let session, root, output = parse_string source in
+  let operand =
+    match (expect_ast output).items with
+    | [ Ast.Global_variable _; Ast.Top_level_statement statement ] ->
+        expect_expression_statement statement |> fun statement ->
+        statement.expression_statement_expression |> expect_binary_expression
+        |> fun binary -> expect_identifier_expression binary.binary_left
+    | items ->
+        Alcotest.failf
+          "expected one generated global and one expression, got %d items"
+          (List.length items)
+  in
+  Alcotest.(check string)
+    "generated global operand spelling" "start" operand.spelling;
+  Alcotest.(check bool)
+    "generated global operand uses its definition frame" false
+    (Source_id.equal operand.location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "generated global operand keeps its invocation" true
+    (Option.is_some operand.location.generated_from);
+  Alcotest.(check bool)
+    "generated global operand keeps its definition" true
+    (Option.is_some operand.location.defined_at);
+  Alcotest.(check bool)
+    "human dump retains the generated global operand" true
+    (contains
+       (Ast_dump.human (Session.sources session) (expect_ast output))
+       "identifier spelling=\"start\"")
+
+let contextual_keyword_global_function_operands () =
+  let source =
+    "I64 sizeof(I64 value=4)\n{return value;}\n"
+    ^ "sizeof(7);\nsizeof;\n&sizeof;"
+  in
+  List.iter
+    (fun compilation_mode ->
+      let _, _, output = parse_string ~compilation_mode source in
+      let explicit, implicit, address =
+        match (expect_ast output).items with
+        | [
+         Ast.Function_definition _;
+         Ast.Top_level_statement explicit;
+         Ast.Top_level_statement implicit;
+         Ast.Top_level_statement address;
+        ] -> (explicit, implicit, address)
+        | items ->
+            Alcotest.failf
+              "expected one function and three top-level expressions, got %d \
+               items"
+              (List.length items)
+      in
+      let explicit =
+        expect_expression_statement explicit |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+      in
+      expect_parenthesized_call explicit;
+      Alcotest.(check string)
+        "parenthesized call keeps the keyword spelling" "sizeof"
+        (expect_identifier_expression explicit.call_callee).spelling;
+      Alcotest.(check int64)
+        "parenthesized call keeps its argument" 7L
+        (explicit.call_arguments |> List.hd |> expect_provided_call_argument
+       |> expect_integer_expression);
+      let implicit =
+        expect_expression_statement implicit |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+      in
+      expect_parenthesis_free_call implicit;
+      Alcotest.(check string)
+        "parenthesis-free call keeps the keyword spelling" "sizeof"
+        (expect_identifier_expression implicit.call_callee).spelling;
+      expect_omitted_call_argument (List.hd implicit.call_arguments);
+      let address =
+        expect_expression_statement address |> fun statement ->
+        statement.expression_statement_expression |> expect_prefix_expression
+      in
+      Alcotest.(check bool)
+        "address-of keeps its operator" true
+        (address.prefix_operator_kind = Ast.Address_of);
+      Alcotest.(check string)
+        "address-of keeps the function operand" "sizeof"
+        (expect_identifier_expression address.prefix_operand).spelling)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, outside = parse_string "sizeof(7);" in
+  Alcotest.(check string)
+    "same spelling remains a keyword before function publication" "HCPARSE0031"
+    (first_diagnostic outside).code
+
+let contextual_keyword_global_function_provenance () =
+  let session, _, output =
+    parse_string "#define NAME sizeof\nextern I64 NAME(I64 value=1);\nNAME;"
+  in
+  let call =
+    match (expect_ast output).items with
+    | [ Ast.Function_prototype _; Ast.Top_level_statement statement ] ->
+        expect_expression_statement statement |> fun statement ->
+        statement.expression_statement_expression |> expect_call_expression
+    | items ->
+        Alcotest.failf
+          "expected one generated prototype and one call, got %d items"
+          (List.length items)
+  in
+  expect_parenthesis_free_call call;
+  Alcotest.(check string)
+    "generated function operand spelling" "sizeof"
+    (expect_identifier_expression call.call_callee).spelling;
+  List.iter
+    (fun ((description, location) : string * Ast.location) ->
+      Alcotest.(check bool)
+        (description ^ " keeps invocation provenance")
+        true
+        (Option.is_some location.generated_from);
+      Alcotest.(check bool)
+        (description ^ " keeps definition provenance")
+        true
+        (Option.is_some location.defined_at))
+    [
+      ("generated function", Ast.expression_location call.call_callee);
+      ( "generated default slot",
+        (List.hd call.call_arguments).call_argument_location );
+    ];
+  Alcotest.(check bool)
+    "human dump retains the generated function call" true
+    (contains
+       (Ast_dump.human (Session.sources session) (expect_ast output))
+       "expression kind=identifier spelling=\"sizeof\"")
+
+let contextual_keyword_nested_block_visibility () =
+  let source = "U0 Nested()\n{\n{ I64 start; }\nstart;\n}" in
+  let _, _, output = parse_string source in
+  let definition = expect_ast output |> expect_one_definition in
+  let operand =
+    function_body_statements definition |> fun statements ->
+    List.nth statements 1 |> expect_expression_statement |> fun statement ->
+    statement.expression_statement_expression |> expect_identifier_expression
+  in
+  Alcotest.(check string)
+    "nested-block local remains function-visible" "start" operand.spelling
 
 let pinned_function_pointer_locals () =
   let source =
@@ -11765,7 +13018,7 @@ let local_initializer_value (declarator : Ast.local_declarator) =
   | Some initial_value -> (
       match initial_value.local_initializer_value with
       | Ast.Scalar_initializer expression -> expression
-      | Ast.Braced_initializer _ ->
+      | Ast.Braced_initializer _ | Ast.Unbraced_array_initializer _ ->
           Alcotest.failf "expected a scalar initializer for %s"
             declarator.local_name.spelling)
   | None ->
@@ -12607,6 +13860,23 @@ let declarations_update_symbol_conditionals () =
        ast.items)
 
 let implicit_output_source_behavior () =
+  let lexer_library = pinned "Compiler/LexLib.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains lexer_library fragment))
+    [
+      ("LexExtStr consumes a string run", "while (cc->token==TK_STR)");
+      ("LexExtStr removes the prior terminator", "len=len1+len2-1;");
+      ("LexExtStr appends the next bytes", "MemCpy(st+len1-1,st2,len2);");
+    ];
+  let expression_parser = pinned "Compiler/PrsExp.HC" in
+  Alcotest.(check bool)
+    "string constants use LexExtStr" true
+    (contains expression_parser "cm->str=LexExtStr(cc,&cm->st_len);");
+  let variable_parser = pinned "Compiler/PrsVar.HC" in
+  Alcotest.(check bool)
+    "global string initializers use LexExtStr" true
+    (contains variable_parser "machine_code=LexExtStr(cc,&i);");
   let statement_parser =
     pinned "Compiler/PrsStmt.HC"
     |> String.split_on_char '\r' |> String.concat ""
@@ -12655,6 +13925,502 @@ let implicit_output_source_behavior () =
   Alcotest.(check bool)
     "PutChars prototype is pinned" true
     (contains headers "extern U0 PutChars(U64 ch);")
+
+let check_combined_string ~description ~value ~segments
+    (literal : Ast.expression_literal) =
+  Alcotest.(check string)
+    (description ^ " combined bytes")
+    value
+    (expect_bytes_value literal);
+  Alcotest.(check (list string))
+    (description ^ " segment bytes")
+    segments
+    (List.map
+       (fun (segment : Ast.expression_literal_segment) ->
+         segment.literal_segment_value)
+       literal.literal_segments);
+  Alcotest.(check int)
+    (description ^ " source segment count")
+    (List.length segments)
+    (List.length literal.literal_location.source_segments)
+
+let adjacent_string_expression_contexts_and_modes () =
+  let source =
+    "extern U0 Sink(U8 *value,...);\n\
+     U8 *message=\"left\" \" right\";\n\
+     Sink(\"call\" \" argument\");\n\
+     \"\" \"ready\";"
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      match (expect_ast output).Ast.items with
+      | [
+       Ast.Function_prototype _;
+       Ast.Global_declaration declaration;
+       Ast.Top_level_statement (Ast.Expression_statement call_statement);
+       Ast.Top_level_statement (Ast.Implicit_output_statement output_statement);
+      ] ->
+          let global_literal =
+            List.hd declaration.declarators |> expect_global_initial_value
+            |> fun initial_value ->
+            expect_scalar_initial_value initial_value.global_initializer_value
+            |> expect_string_literal
+          in
+          check_combined_string ~description:"global initializer"
+            ~value:"left right" ~segments:[ "left"; " right" ] global_literal;
+          let call =
+            call_statement.expression_statement_expression
+            |> expect_call_expression
+          in
+          let call_literal =
+            List.hd call.call_arguments
+            |> expect_provided_call_argument |> expect_string_literal
+          in
+          check_combined_string ~description:"call argument"
+            ~value:"call argument" ~segments:[ "call"; " argument" ]
+            call_literal;
+          check_combined_string ~description:"implicit output marker"
+            ~value:"ready" ~segments:[ ""; "ready" ] output_statement.marker;
+          ignore
+            (expect_marker_fixed_argument output_statement
+            |> expect_string_literal)
+      | items ->
+          Alcotest.failf "expected a prototype and three contexts, got %d items"
+            (List.length items))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let adjacent_string_token_boundaries () =
+  let source =
+    "extern U0 Sink(U8 *first,U8 *second);\n\
+     Sink(\"a\",\"b\");\n\
+     U8 *separate=\"a\"+\"b\";"
+  in
+  let _, _, output = parse_string source in
+  match (expect_ast output).Ast.items with
+  | [
+   Ast.Function_prototype _;
+   Ast.Top_level_statement (Ast.Expression_statement call_statement);
+   Ast.Global_declaration declaration;
+  ] ->
+      let call =
+        call_statement.expression_statement_expression |> expect_call_expression
+      in
+      Alcotest.(check int)
+        "a comma keeps two arguments" 2
+        (List.length call.call_arguments);
+      List.iter
+        (fun argument ->
+          let literal =
+            expect_provided_call_argument argument |> expect_string_literal
+          in
+          Alcotest.(check int)
+            "a comma-delimited string has no combined segments" 0
+            (List.length literal.literal_segments))
+        call.call_arguments;
+      let binary =
+        List.hd declaration.declarators |> expect_global_initial_value
+        |> fun initial_value ->
+        expect_scalar_initial_value initial_value.global_initializer_value
+        |> expect_binary_expression
+      in
+      List.iter
+        (fun expression ->
+          let literal = expect_string_literal expression in
+          Alcotest.(check int)
+            "an operator-delimited string has no combined segments" 0
+            (List.length literal.literal_segments))
+        [ binary.binary_left; binary.binary_right ]
+  | items ->
+      Alcotest.failf "expected a prototype, call, and global, got %d items"
+        (List.length items)
+
+let pinned_adjacent_string_contexts () =
+  let fixtures =
+    [
+      ( "global initializer in DocWidgetWiz.HC",
+        pinned_lines "Adam/DolDoc/DocWidgetWiz.HC" ~first:3 ~last:5 );
+      ( "global initializer in KCfg.HC",
+        pinned_lines "Kernel/KCfg.HC" ~first:3 ~last:4 );
+      ( "call argument in DocInit.HC",
+        "extern U0 DefineLstLoad(U8 *name,U8 *values);\nU0 Slice(){\n"
+        ^ pinned_lines "Adam/DolDoc/DocInit.HC" ~first:9 ~last:12
+        ^ "\n}" );
+      ( "implicit output in DskChk.HC",
+        "U0 Slice(){\n"
+        ^ pinned_lines "Adam/ABlkDev/DskChk.HC" ~first:224 ~last:227
+        ^ "\n}" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (description, source) ->
+          let _, _, output = parse_string ~compilation_mode:mode source in
+          ignore (expect_ast output);
+          Alcotest.(check (list string))
+            (description ^ " diagnostics")
+            []
+            (List.map
+               (fun diagnostic -> diagnostic.Diagnostic.code)
+               output.diagnostics))
+        fixtures)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let doldoc_string_commands_source_behavior () =
+  let lexer = pinned "Compiler/Lex.HC" in
+  List.iter
+    (fun (description, fragment) ->
+      Alcotest.(check bool) description true (contains lexer fragment))
+    [
+      ("Lex marks quoted input", "cc->flags|=CCF_IN_QUOTES;");
+      ("LexDollar quotes a saved command", "cc->dollar_buf=MStrPrint");
+      ("LexDollar records both delimiters", "cc->dollar_cnt=2;");
+      ("LexInStr consumes reconstructed dollars", "if (cc->dollar_cnt)");
+    ]
+
+let doldoc_string_commands_in_pinned_examples () =
+  let text_demo = pinned_lines "Demo/DolDoc/TextDemo.HC" ~first:15 ~last:22 in
+  let message_loop = pinned_lines "Demo/MsgLoop.HC" ~first:1 ~last:5 ^ "\n}" in
+  List.iter
+    (fun mode ->
+      let _, _, text_output = parse_string ~compilation_mode:mode text_demo in
+      Alcotest.(check (list string))
+        "TextDemo diagnostics" []
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           text_output.diagnostics);
+      let text_statement =
+        expect_ast text_output |> expect_one_implicit_output
+      in
+      let text_value = expect_bytes_value text_statement.marker in
+      Alcotest.(check bool)
+        "TextDemo link bytes" true
+        (contains text_value "$LK,\"Genesis,1:1\",A=\"BF:Genesis,1:1\"$");
+      Alcotest.(check bool)
+        "TextDemo button bytes" true
+        (contains text_value "$BT,\"OKAY\",LE=1$");
+      Alcotest.(check int)
+        "TextDemo physical strings" 6
+        (List.length text_statement.marker.literal_segments);
+      let _, _, message_output =
+        parse_string ~compilation_mode:mode message_loop
+      in
+      Alcotest.(check (list string))
+        "MsgLoop diagnostics" []
+        (List.map
+           (fun diagnostic -> diagnostic.Diagnostic.code)
+           message_output.diagnostics);
+      let statements =
+        expect_ast message_output |> expect_one_definition
+        |> function_body_statements
+      in
+      match statements with
+      | [
+       Ast.Local_declaration_statement _; Ast.Implicit_output_statement print;
+      ] ->
+          Alcotest.(check string)
+            "MsgLoop decoded bytes"
+            "Use $LK,\"msg_code\",A=\"MN:MSG_CMD\"$ defines in your programs \
+             instead of hardcoded nums.\n\
+             <ESC> to Exit\n"
+            (expect_bytes_value print.marker);
+          Alcotest.(check int)
+            "MsgLoop physical strings" 2
+            (List.length print.marker.literal_segments)
+      | statements ->
+          Alcotest.failf "expected MsgLoop declaration and output, got %d items"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let doldoc_string_command_provenance () =
+  let _, root, output =
+    parse_string "#define DOC \"Use $LK,\"name\",A=\"MN:name\"$\"\nDOC;"
+  in
+  let marker = (expect_ast output |> expect_one_implicit_output).marker in
+  Alcotest.(check string)
+    "definition-backed bytes" "Use $LK,\"name\",A=\"MN:name\"$"
+    (expect_bytes_value marker);
+  Alcotest.(check bool)
+    "definition uses a generated source" false
+    (Source_id.equal marker.literal_location.span.source (Source_file.id root));
+  Alcotest.(check bool)
+    "definition keeps its invocation" true
+    (Option.is_some marker.literal_location.generated_from);
+  Alcotest.(check bool)
+    "definition keeps its declaration" true
+    (Option.is_some marker.literal_location.defined_at);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let included_file = Filename.concat directory "included.HC" in
+      write_file root_file "#include \"included\"";
+      write_file included_file "\"$BT,\"OKAY\",LE=1$\";";
+      let include_session = Session.create () in
+      let root_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:root_source
+      in
+      let included = expect_ast include_output |> expect_one_implicit_output in
+      Alcotest.(check string)
+        "included bytes" "$BT,\"OKAY\",LE=1$"
+        (expect_bytes_value included.marker);
+      let source =
+        Source_manager.find
+          (Session.sources include_session)
+          included.marker.literal_location.span.source
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "included canonical path"
+        (Unix.realpath included_file)
+        (Source_file.path source))
+
+let add_doldoc_uint32 buffer value =
+  for shift = 0 to 3 do
+    Buffer.add_char buffer (Char.chr ((value lsr (shift * 8)) land 0xff))
+  done
+
+let saved_binary_source text records =
+  let buffer = Buffer.create (String.length text + 64) in
+  Buffer.add_string buffer text;
+  Buffer.add_char buffer '\x00';
+  List.iter
+    (fun (number, payload) ->
+      add_doldoc_uint32 buffer number;
+      add_doldoc_uint32 buffer 0;
+      add_doldoc_uint32 buffer (String.length payload);
+      add_doldoc_uint32 buffer 1;
+      Buffer.add_string buffer payload)
+    records;
+  Buffer.contents buffer
+
+let parse_saved_binary ~compilation_mode ?(recover = false) contents =
+  let session = Session.create () in
+  let source = Session.add_source session ~path:"saved-binary.HC" ~contents in
+  let config =
+    Preprocessor.Config.create ~compilation_mode ~physical_nul_terminates:true
+      ~recover_normalized_doldoc:recover ()
+    |> Result.get_ok
+  in
+  let output = Holyc_lib.parse_detailed session ~config ~source in
+  (session, output)
+
+let expect_single_global_declarator ast =
+  match ast.Ast.items with
+  | [ Ast.Global_declaration declaration ] -> List.hd declaration.declarators
+  | [ Ast.Global_variable variable ] ->
+      Alcotest.failf "expected a grouped global, got %s" variable.name.spelling
+  | items ->
+      Alcotest.failf "expected one global declaration, got %d items"
+        (List.length items)
+
+let inserted_binary_initializer_expressions () =
+  List.iter
+    (fun compilation_mode ->
+      let source =
+        saved_binary_source
+          "U8 *imgs[2]={$IB,\"<one>\",BI=1$,$IS,\"<two>\",BI=2$};"
+          [ (1, "sprite"); (2, "abcd") ]
+      in
+      let session, output = parse_saved_binary ~compilation_mode source in
+      Alcotest.(check (list string))
+        "saved initializer diagnostics" []
+        (List.map (fun item -> item.Diagnostic.code) output.diagnostics);
+      let declarator = expect_ast output |> expect_single_global_declarator in
+      let braced =
+        expect_global_initial_value declarator |> fun value ->
+        expect_braced_initial_value value.global_initializer_value
+      in
+      let expressions =
+        List.map
+          (fun element ->
+            expect_scalar_initial_value element.Ast.initializer_element_value)
+          braced.initializer_elements
+      in
+      let binary = List.nth expressions 0 |> expect_string_literal in
+      let size =
+        match List.nth expressions 1 with
+        | Ast.Integer_literal literal -> literal
+        | _ -> Alcotest.fail "expected an inserted binary size literal"
+      in
+      (match binary.literal_origin with
+      | Ast.Inserted_binary_literal record ->
+          Alcotest.(check int64) "binary record" 1L record.record_number;
+          Alcotest.(check int64) "binary declared size" 6L record.declared_size;
+          Alcotest.(check bool)
+            "binary payload complete" true record.payload_complete
+      | Ast.Source_literal | Ast.Inserted_binary_size_literal _ ->
+          Alcotest.fail "expected inserted binary origin");
+      (match size.literal_origin with
+      | Ast.Inserted_binary_size_literal record ->
+          Alcotest.(check int64) "size record" 2L record.record_number;
+          Alcotest.(check int64)
+            "size literal value" 4L
+            (match size.literal_value with
+            | Ast.Integer_value value -> value
+            | Ast.Float_value _ | Ast.Bytes_value _ ->
+                Alcotest.fail "inserted size has a non-integer value")
+      | Ast.Source_literal | Ast.Inserted_binary_literal _ ->
+          Alcotest.fail "expected inserted binary size origin");
+      let sources = Session.sources session in
+      let ast = expect_ast output in
+      let human = Ast_dump.human sources ast in
+      let json = Ast_dump.json sources ast in
+      Alcotest.(check bool)
+        "human dump names binary literal" true
+        (contains human "kind=inserted_binary_literal");
+      Alcotest.(check bool)
+        "JSON dump names binary size" true
+        (contains json "inserted_binary_size_literal");
+      Alcotest.(check string)
+        "binary JSON is deterministic" json
+        (Ast_dump.json sources ast))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inserted_binary_initializer_boundaries () =
+  let source =
+    saved_binary_source "U8 *item=$IB,\"missing\",BI=9$;" [ (1, "x") ]
+  in
+  let _, strict =
+    parse_saved_binary ~compilation_mode:Preprocessor.Aot source
+  in
+  Alcotest.(check (list string))
+    "strict missing record"
+    [ "HCLEX0010"; "HCPARSE0127" ]
+    (List.map (fun item -> item.Diagnostic.code) strict.diagnostics);
+  let _, recovered =
+    parse_saved_binary ~compilation_mode:Preprocessor.Aot ~recover:true source
+  in
+  let literal =
+    expect_ast recovered |> expect_single_global_declarator
+    |> expect_global_initial_value
+    |> fun value ->
+    expect_scalar_initial_value value.global_initializer_value
+    |> expect_string_literal
+  in
+  (match literal.literal_origin with
+  | Ast.Inserted_binary_literal record ->
+      Alcotest.(check bool)
+        "missing archive record stays incomplete" false record.payload_complete;
+      Alcotest.(check int64)
+        "missing archive record number" 9L record.record_number
+  | Ast.Source_literal | Ast.Inserted_binary_size_literal _ ->
+      Alcotest.fail "expected a recovered inserted binary literal");
+  let _, _, omitted = parse_string "I64 values[2]={,1};" in
+  Alcotest.(check string)
+    "genuine omitted initializer still fails" "HCPARSE0127"
+    (List.hd omitted.diagnostics).Diagnostic.code
+
+let inserted_binary_source_behavior () =
+  let kernel = pinned "Kernel/KernelA.HH" in
+  let lexer = pinned "Compiler/Lex.HC" in
+  let expressions = pinned "Compiler/PrsExp.HC" in
+  let document_file = pinned "Adam/DolDoc/DocFile.HC" in
+  let document_init = pinned "Adam/DolDoc/DocInit.HC" in
+  List.iter
+    (fun (name, source, fragment) ->
+      Alcotest.(check bool) name true (contains source fragment))
+    [
+      ("saved CDocBin fields", kernel, "U32\tnum,flags,size,use_cnt;");
+      ("inserted binary token", lexer, "cc->last_U16=TK_INS_BIN;");
+      ("inserted size token", lexer, "cc->last_U16=TK_INS_BIN_SIZE;");
+      ("binary expression case", expressions, "case TK_INS_BIN:");
+      ("size expression case", expressions, "case TK_INS_BIN_SIZE:");
+      ( "saved record header copy",
+        document_file,
+        "offset(CDocBin.end)-offset(CDocBin.start)" );
+      ("IB and IS registration", document_init, "SP+T;IB+T;IS+T;SO+T;HC+T;");
+    ];
+  List.iter
+    (fun path ->
+      Alcotest.(check bool)
+        (path ^ " contains an inserted binary command")
+        true
+        (contains (pinned path) "$IB,"))
+    [
+      "Apps/KeepAway/KeepAway.HC";
+      "Apps/Logic/Logic.HC";
+      "Apps/Psalmody/PsalmodyDraw.HC";
+      "Demo/Games/BattleLines.HC";
+      "Demo/Games/FlatTops.HC";
+      "Demo/Graphics/EdSprite.HC";
+      "Demo/Graphics/WallPaperFish.HC";
+    ]
+
+let adjacent_string_provenance_and_dumps () =
+  let session, root, output =
+    parse_string "#define LEFT \"left\"\n#define RIGHT \"right\"\nLEFT RIGHT;"
+  in
+  let statement = expect_ast output |> expect_one_implicit_output in
+  check_combined_string ~description:"definition-backed marker"
+    ~value:"leftright" ~segments:[ "left"; "right" ] statement.marker;
+  List.iter
+    (fun (segment : Ast.expression_literal_segment) ->
+      Alcotest.(check bool)
+        "definition segment uses generated source" false
+        (Source_id.equal segment.literal_segment_location.span.source
+           (Source_file.id root));
+      Alcotest.(check bool)
+        "definition segment keeps invocation provenance" true
+        (Option.is_some segment.literal_segment_location.generated_from);
+      Alcotest.(check bool)
+        "definition segment keeps definition provenance" true
+        (Option.is_some segment.literal_segment_location.defined_at))
+    statement.marker.literal_segments;
+  let sources = Session.sources session in
+  let ast = expect_ast output in
+  let human = Ast_dump.human sources ast in
+  let json = Ast_dump.json sources ast in
+  Alcotest.(check string)
+    "human dump is deterministic" human
+    (Ast_dump.human sources ast);
+  Alcotest.(check string)
+    "JSON dump is deterministic" json
+    (Ast_dump.json sources ast);
+  Alcotest.(check bool)
+    "human dump lists physical segments" true
+    (contains human "segment index=1 spelling=\"\\\"right\\\"\"");
+  let open Yojson.Safe.Util in
+  let marker_json =
+    Yojson.Safe.from_string json
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "statement" |> member "marker"
+  in
+  Alcotest.(check int)
+    "JSON lists both physical segments" 2
+    (marker_json |> member "segments" |> to_list |> List.length);
+  with_temp_directory (fun directory ->
+      let root_file = Filename.concat directory "root.HC" in
+      let strings_file = Filename.concat directory "strings.HC" in
+      write_file root_file "#include \"strings\"";
+      write_file strings_file "\"in\" \"cluded\";";
+      let include_session = Session.create () in
+      let include_source =
+        Session.load_source include_session ~path:root_file |> Result.get_ok
+      in
+      let include_output =
+        Holyc_lib.parse_detailed include_session ~config:(config directory)
+          ~source:include_source
+      in
+      let included = expect_ast include_output |> expect_one_implicit_output in
+      check_combined_string ~description:"included marker" ~value:"included"
+        ~segments:[ "in"; "cluded" ] included.marker;
+      List.iter
+        (fun (segment : Ast.expression_literal_segment) ->
+          let segment_source =
+            Source_manager.find
+              (Session.sources include_session)
+              segment.literal_segment_location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "included segment keeps its canonical path"
+            (Unix.realpath strings_file)
+            (Source_file.path segment_source))
+        included.marker.literal_segments)
 
 let implicit_output_shapes () =
   let source =
@@ -15064,7 +16830,10 @@ let assembly_block_inventory () =
       Source_file.create ~id:source_id ~path ~display_path:path ~contents
     in
     let tokens =
-      match Lexer.lex_all ~mode:Token.Holyc ~nul_terminates:true source with
+      match
+        Lexer.lex_all ~mode:Token.Holyc ~nul_terminates:true
+          ~recover_normalized_doldoc:true source
+      with
       | Ok tokens -> tokens
       | Error diagnostics ->
           Alcotest.failf "raw assembly audit could not lex %s: %s" path
@@ -15494,6 +17263,12 @@ let inline_assembly_source_behavior () =
       Alcotest.(check bool) description true (contains operand_parser fragment))
     [
       ("register operands return directly", "arg->reg1=tmpr->reg_num;");
+      ( "source classes fall back to assembler size keywords",
+        "tmph->type&HTG_TYPE_MASK==HTT_CLASS||" );
+      ( "internal types share the assembler size fallback",
+        "tmph->type&HTG_TYPE_MASK==HTT_INTERNAL_TYPE)" );
+      ( "the fallback consults the assembler keyword table",
+        "HashFind(cc->cur_str,cmp.asm_hash,HTT_ASM_KEYWORD)" );
       ("size prefixes set an explicit width", "arg->size=8;");
       ("brackets mark an indirect operand", "arg->indirect=TRUE;");
       ("assembly immediates use expression parsing", "PrsAsmImm(cc,arg);");
@@ -15837,6 +17612,82 @@ let pinned_inline_assembly_operand_snippets () =
                body.block_statements))
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inline_assembly_intrinsic_class_size_prefix () =
+  let source =
+    pinned_lines "Kernel/KernelA.HH" ~first:95 ~last:103
+    ^ "\n\
+       I64 dbg,mp_cnt;\n\
+       I64 GetRAX();\n\
+       U0 MPInt(I64 vector,I64 cpu);\n\
+       U0 SysHlt();\n\
+       U0 throw(I64 value);\n"
+    ^ pinned_lines "Kernel/KInts.HC" ~first:150 ~last:164
+  in
+  List.iter
+    (fun mode ->
+      let _, _, output = parse_string ~compilation_mode:mode source in
+      let body =
+        expect_ast output |> fun ast ->
+        match List.rev ast.Ast.items with
+        | Ast.Function_definition definition :: _ ->
+            definition |> expect_function_body |> expect_block_statement
+        | items ->
+            Alcotest.failf "expected the trailing function, got %d items"
+              (List.length items)
+      in
+      match body.block_statements with
+      | [ Ast.If_statement statement; Ast.Expression_statement _ ] ->
+          let branch = statement.if_then_branch |> expect_block_statement in
+          let assembly, following =
+            match branch.block_statements with
+            | _ :: _ :: _ :: assembly :: following :: _ -> (assembly, following)
+            | statements ->
+                Alcotest.failf
+                  "expected the pinned assembly transition, got %d trailing \
+                   statements"
+                  (List.length statements)
+          in
+          let operation =
+            assembly |> expect_inline_assembly_statement
+            |> inline_assembly_instructions |> List.hd
+          in
+          let memory = List.nth operation.inline_assembly_operands 1 in
+          Alcotest.(check (option string))
+            "the intrinsic-backed U64 class retains the size prefix"
+            (Some "U64")
+            (Option.map
+               (fun (token : Ast.assembly_token) ->
+                 token.assembly_source_token.raw)
+               memory.inline_assembly_size_prefix);
+          ignore (following |> expect_expression_statement)
+      | statements ->
+          Alcotest.failf
+            "expected direct assembly and a following C statement, got %d"
+            (List.length statements))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let _, _, shadowed = parse_string "U0 Shadowed(){I64 U64;MOV RAX,U64;}" in
+  let operation =
+    expect_ast shadowed |> expect_one_definition |> expect_function_body
+    |> expect_block_statement
+    |> fun block ->
+    match block.block_statements with
+    | [ Ast.Sequence_statement sequence ] -> (
+        match sequence.sequence_elements with
+        | [ _; assembly ] ->
+            assembly.sequence_statement |> expect_inline_assembly_statement
+            |> inline_assembly_instructions |> List.hd
+        | elements ->
+            Alcotest.failf "expected two shadowing elements, got %d"
+              (List.length elements))
+    | statements ->
+        Alcotest.failf "expected one shadowing sequence, got %d statements"
+          (List.length statements)
+  in
+  let operand = List.nth operation.inline_assembly_operands 1 in
+  Alcotest.(check bool)
+    "a local named U64 suppresses the assembler size prefix" true
+    (Option.is_none operand.inline_assembly_size_prefix)
 
 let inline_assembly_directive_shapes () =
   let source =
@@ -18513,6 +20364,7 @@ let tests =
     Alcotest.test_case "pinned comma declaration behavior" `Quick
       comma_source_behavior;
     Alcotest.test_case "comma declaration group" `Quick comma_declaration_group;
+    Alcotest.test_case "terminal global comma" `Quick terminal_global_comma;
     Alcotest.test_case "definition-backed comma declaration" `Quick
       definition_backed_comma_group;
     Alcotest.test_case "comma declarations update symbol conditionals" `Quick
@@ -18576,6 +20428,8 @@ let tests =
       aggregate_global_streaming_visibility;
     Alcotest.test_case "aggregate global provenance and dumps" `Quick
       aggregate_global_provenance_and_dumps;
+    Alcotest.test_case "unbraced fixed-array initializers" `Quick
+      unbraced_fixed_array_initializers;
     Alcotest.test_case "global initializer failures" `Quick
       global_initializer_failures;
     Alcotest.test_case "direct aggregate definitions" `Quick
@@ -18584,6 +20438,8 @@ let tests =
       aggregate_definition_forward_completion;
     Alcotest.test_case "aggregate definition modes" `Quick
       aggregate_definition_modes;
+    Alcotest.test_case "adjacent aggregate definition semicolons" `Quick
+      adjacent_aggregate_definition_semicolons;
     Alcotest.test_case "pinned kernel ordinary class slice" `Quick
       pinned_kernel_ordinary_class_slice;
     Alcotest.test_case "aggregate definition provenance" `Quick
@@ -18630,6 +20486,22 @@ let tests =
       contextual_keyword_name_limits;
     Alcotest.test_case "contextual keyword local provenance" `Quick
       contextual_keyword_local_provenance;
+    Alcotest.test_case "contextual keyword operand source behavior" `Quick
+      contextual_keyword_operand_source_behavior;
+    Alcotest.test_case "contextual keyword local operands" `Quick
+      contextual_keyword_local_operands;
+    Alcotest.test_case "contextual keyword statement dispatch" `Quick
+      contextual_keyword_statement_dispatch;
+    Alcotest.test_case "contextual keyword global operands" `Quick
+      contextual_keyword_global_operands;
+    Alcotest.test_case "contextual keyword global provenance" `Quick
+      contextual_keyword_global_provenance;
+    Alcotest.test_case "contextual keyword global function operands" `Quick
+      contextual_keyword_global_function_operands;
+    Alcotest.test_case "contextual keyword global function provenance" `Quick
+      contextual_keyword_global_function_provenance;
+    Alcotest.test_case "contextual keyword nested block visibility" `Quick
+      contextual_keyword_nested_block_visibility;
     Alcotest.test_case "pinned aggregate backing behavior" `Quick
       aggregate_backing_source_behavior;
     Alcotest.test_case "internal type specifiers" `Quick
@@ -18658,6 +20530,8 @@ let tests =
       aggregate_inheritance_failures_recover;
     Alcotest.test_case "aggregate inheritance provenance and dumps" `Quick
       aggregate_inheritance_provenance_and_dumps;
+    Alcotest.test_case "keyword-spelled aggregate types" `Quick
+      keyword_spelled_aggregate_types;
     Alcotest.test_case "pinned named type behavior" `Quick
       named_type_source_behavior;
     Alcotest.test_case "direct named type declarations" `Quick
@@ -18799,6 +20673,8 @@ let tests =
       function_prototype_source_behavior;
     Alcotest.test_case "bound primitive function prototypes" `Quick
       direct_function_prototypes;
+    Alcotest.test_case "optional prototype semicolons" `Quick
+      optional_prototype_semicolons;
     Alcotest.test_case "function import compilation mode boundary" `Quick
       function_import_mode_boundary;
     Alcotest.test_case "definition-backed function prototype" `Quick
@@ -18837,6 +20713,26 @@ let tests =
       deterministic_lastclass_dumps;
     Alcotest.test_case "pinned implicit output behavior" `Quick
       implicit_output_source_behavior;
+    Alcotest.test_case "adjacent string expression contexts" `Quick
+      adjacent_string_expression_contexts_and_modes;
+    Alcotest.test_case "adjacent string token boundaries" `Quick
+      adjacent_string_token_boundaries;
+    Alcotest.test_case "pinned adjacent string contexts" `Quick
+      pinned_adjacent_string_contexts;
+    Alcotest.test_case "pinned DolDoc string command behavior" `Quick
+      doldoc_string_commands_source_behavior;
+    Alcotest.test_case "pinned DolDoc string command examples" `Quick
+      doldoc_string_commands_in_pinned_examples;
+    Alcotest.test_case "DolDoc string command provenance" `Quick
+      doldoc_string_command_provenance;
+    Alcotest.test_case "adjacent string provenance and dumps" `Quick
+      adjacent_string_provenance_and_dumps;
+    Alcotest.test_case "DolDoc binary initializer expressions" `Quick
+      inserted_binary_initializer_expressions;
+    Alcotest.test_case "DolDoc binary initializer boundaries" `Quick
+      inserted_binary_initializer_boundaries;
+    Alcotest.test_case "DolDoc binary source behavior" `Quick
+      inserted_binary_source_behavior;
     Alcotest.test_case "implicit output shapes" `Quick implicit_output_shapes;
     Alcotest.test_case "implicit output fixed expressions" `Quick
       implicit_output_fixed_expressions;
@@ -18950,6 +20846,8 @@ let tests =
       inline_assembly_operand_shapes;
     Alcotest.test_case "pinned inline assembly operand snippets" `Quick
       pinned_inline_assembly_operand_snippets;
+    Alcotest.test_case "intrinsic class assembly size prefixes" `Quick
+      inline_assembly_intrinsic_class_size_prefix;
     Alcotest.test_case "inline assembly directive shapes" `Quick
       inline_assembly_directive_shapes;
     Alcotest.test_case "inline assembly directive provenance and shadowing"
@@ -19099,6 +20997,10 @@ let tests =
       function_parameter_register_visibility;
     Alcotest.test_case "parameter register qualifier failures" `Quick
       function_parameter_register_failures;
+    Alcotest.test_case "semicolon-separated function parameters" `Quick
+      semicolon_separated_function_parameters;
+    Alcotest.test_case "empty semicolon parameter entries" `Quick
+      empty_semicolon_function_parameter_entries;
     Alcotest.test_case "deterministic function dumps" `Quick
       deterministic_function_dumps;
     Alcotest.test_case "pinned function definition behavior" `Quick

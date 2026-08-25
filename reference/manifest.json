@@ -8,22 +8,36 @@
     "extensions": [".HC", ".HH", ".PRJ"],
     "files": 528,
     "canonical_bytes": 4190323,
-    "tokens": 719304,
+    "tokens": 719471,
     "nul_terminated_files": 54,
     "trailing_payload_bytes": 1266852
   },
   "parser_corpus": {
-    "schema": "holyc-corpus-parse-v1",
+    "schema": "holyc-corpus-parse-comparison-v2",
     "path": "reference/parser-corpus-aot.json",
     "mode": "aot",
     "files": 528,
-    "parses": 21,
-    "frontend_diagnostics": 16,
-    "parser_diagnostics": 491,
-    "read_errors": 0,
-    "internal_errors": 0,
-    "diagnostics": 37264,
-    "baseline_sha256": "fcacb8d1375dea269bac6c2228678a1937c2efda2dadf93399a9d7541904de5e"
+    "both_parse": 25,
+    "standalone_only": 0,
+    "project_prelude_only": 101,
+    "neither_parses": 402,
+    "standalone": {
+      "parses": 25,
+      "frontend_diagnostics": 17,
+      "parser_diagnostics": 486,
+      "read_errors": 0,
+      "internal_errors": 0,
+      "diagnostics": 36999
+    },
+    "project_prelude": {
+      "parses": 126,
+      "frontend_diagnostics": 30,
+      "parser_diagnostics": 372,
+      "read_errors": 0,
+      "internal_errors": 0,
+      "diagnostics": 20981
+    },
+    "baseline_sha256": "5e3ae43dfd8ccb9fa75e9c516966fe7a94104ef06a45b891599a71706bb3064a"
   },
   "assembly_block_inventory": {
     "schema": "holyc-reference-assembly-blocks-v1",

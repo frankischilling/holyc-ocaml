@@ -138,4 +138,71 @@ module Parse : sig
   val human : t -> string
   val json : t -> string
   val error_json : string -> string
+
+  module Comparison : sig
+    type outcome = file_result
+    type parse_report = t
+
+    type project_order = {
+      path : string;
+      directory : string;
+      includes : string list;
+    }
+
+    type comparison =
+      | Both_parse
+      | Standalone_only
+      | Project_prelude_only
+      | Neither_parses
+
+    type compared_file = {
+      path : string;
+      effective_project_directory : string;
+      comparison : comparison;
+      standalone : outcome;
+      project_prelude : outcome;
+    }
+
+    type t
+
+    val tree :
+      ?max_file_bytes:int ->
+      reference_commit:string ->
+      compilation_mode:Frontend.Preprocessor.compilation_mode ->
+      root:string ->
+      unit ->
+      (t, string) result
+    (** Parse the filesystem corpus once in isolated sessions and once with the
+        direct project headers read from the TempleOS project files. The
+        project-aware side gives each root its source directory as an explicit
+        compiler working directory; standalone parsing remains rooted at the
+        configured corpus directory. *)
+
+    val reference :
+      ?max_file_bytes:int ->
+      expected_commit:string ->
+      compilation_mode:Frontend.Preprocessor.compilation_mode ->
+      root:string ->
+      unit ->
+      (t, string) result
+    (** Verify the pinned tree and compare isolated parsing with parsing from a
+        copied project-header symbol and definition state. Relative includes on
+        the project-aware side use the measured source directory while staying
+        confined to the verified root. *)
+
+    val standalone : t -> parse_report
+    val project_prelude : t -> parse_report
+    val project_orders : t -> project_order list
+    val prelude_source : t -> string
+    val prelude_files : t -> string list
+    val prelude_diagnostic_count : t -> int
+    val files : t -> compared_file list
+    val both_parse_count : t -> int
+    val standalone_only_count : t -> int
+    val project_prelude_only_count : t -> int
+    val neither_parses_count : t -> int
+    val has_failures : t -> bool
+    val human : t -> string
+    val json : t -> string
+  end
 end

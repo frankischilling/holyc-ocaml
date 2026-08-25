@@ -21,6 +21,25 @@ let write_file path contents =
     ~finally:(fun () -> close_out_noerr channel)
     (fun () -> output_string channel contents)
 
+let read_file path =
+  let channel = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr channel)
+    (fun () -> really_input_string channel (in_channel_length channel))
+
+let pinned path =
+  [ "third_party/TempleOS"; "../third_party/TempleOS" ]
+  |> List.map (fun root -> Filename.concat root path)
+  |> List.find_opt Sys.file_exists
+  |> function
+  | Some source -> read_file source
+  | None -> Alcotest.failf "pinned source is unavailable: %s" path
+
+let pinned_lines path ~first ~last =
+  pinned path |> String.split_on_char '\n'
+  |> List.filteri (fun index _ -> index + 1 >= first && index + 1 <= last)
+  |> String.concat "\n"
+
 let create_config ?include_roots ?templeos_root ?max_include_depth
     ?compilation_mode ?max_conditional_depth ?max_source_bytes
     ?max_definition_depth ?max_generated_bytes ?max_expression_nodes
@@ -437,8 +456,9 @@ let frame_metadata () =
     Span.unsafe_make ~source:(Source_file.id root) ~start:0 ~stop:4
   in
   let child_frame =
-    Lexer_frame.push_include ~nul_terminates:false ~caller:root_frame
-      ~source:child ~include_origin:origin ~include_spelling:"child"
+    Lexer_frame.push_include ~nul_terminates:false
+      ~recover_normalized_doldoc:false ~caller:root_frame ~source:child
+      ~include_origin:origin ~include_spelling:"child"
   in
   Alcotest.(check int)
     "root source depth" (-1)
@@ -549,6 +569,37 @@ let empty_definitions () =
       Alcotest.(check (list string))
         "empty replacement disappears" [ "left"; "right" ]
         (Result.get_ok result |> token_raw))
+
+let string_definition_headings () =
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "root.HC" in
+      write_file root_file
+        (pinned_lines "Kernel/KernelA.HH" ~first:3723 ~last:3729
+        ^ "\nGSF_SHIFT_ESC_EXIT GSF_WITH_NEW_LINE tail");
+      let session, _, result = preprocess root root_file in
+      let tokens = Result.get_ok result |> without_eof in
+      Alcotest.(check (list string))
+        "pinned headings emit no token and named definitions still expand"
+        [ "1"; "2"; "tail" ] (token_raw tokens);
+      Alcotest.(check (list string))
+        "only the two named definitions are published"
+        [ "GSF_SHIFT_ESC_EXIT"; "GSF_WITH_NEW_LINE" ]
+        (Definition.Environment.all (Session.definitions session)
+        |> List.map Definition.name);
+      let tail = List.nth tokens 2 in
+      let tail_position = position session tail in
+      Alcotest.(check int)
+        "preprocessing resumes after both pinned headings" 8 tail_position.line);
+  with_temp_directory (fun root ->
+      let root_file = Filename.concat root "same-line.HC" in
+      write_file root_file "#define \"Heading\" tail";
+      let session, _, result = preprocess root root_file in
+      Alcotest.(check (list string))
+        "same-line source resumes after the consumed heading" [ "tail" ]
+        (Result.get_ok result |> token_raw);
+      Alcotest.(check int)
+        "a heading does not create a definition" 0
+        (Definition.Environment.all (Session.definitions session) |> List.length))
 
 let replacement_lexical_content () =
   with_temp_directory (fun root ->
@@ -1574,6 +1625,8 @@ let tests =
     Alcotest.test_case "basic definition expansion" `Quick
       basic_definition_expansion;
     Alcotest.test_case "empty definitions" `Quick empty_definitions;
+    Alcotest.test_case "string definition headings" `Quick
+      string_definition_headings;
     Alcotest.test_case "replacement lexical content" `Quick
       replacement_lexical_content;
     Alcotest.test_case "definition capture edges" `Quick

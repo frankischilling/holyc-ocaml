@@ -243,8 +243,16 @@ type ast_global = {
 
 type global_event = { ast : ast_global; symbol : Sema.Symbol.t }
 
-let declarator_ast ~declaration_kind ~item_index ~type_source declarator_index
+let declarator_ast ~declaration_kind ~item_index ~type_source
+    ~trailing_semicolon ~last_declarator_index declarator_index
     (declarator : Frontend.Ast.global_declarator) =
+  let delimiter_kind, delimiter_origin =
+    match trailing_semicolon with
+    | Some semicolon when declarator_index = last_declarator_index ->
+        (Frontend.Ast.Semicolon, origin semicolon)
+    | None | Some _ ->
+        (declarator.delimiter.kind, origin declarator.delimiter.location)
+  in
   {
     declaration_kind;
     item_index;
@@ -255,8 +263,8 @@ let declarator_ast ~declaration_kind ~item_index ~type_source declarator_index
     function_pointer = declarator.function_pointer;
     array_dimensions = declarator.array_dimensions;
     initial_value = declarator.global_initial_value;
-    delimiter_kind = declarator.delimiter.kind;
-    delimiter_origin = origin declarator.delimiter.location;
+    delimiter_kind;
+    delimiter_origin;
     declarator_origin = origin declarator.location;
   }
 
@@ -283,19 +291,27 @@ let global_ast (module_ : Frontend.Ast.module_) =
             };
           ]
       | Frontend.Ast.Global_declaration declaration ->
+          let last_declarator_index = List.length declaration.declarators - 1 in
           declaration.declarators
           |> List.mapi
                (declarator_ast
                   ~declaration_kind:Sema.Declaration_collection.Global_variable
                   ~item_index
-                  ~type_source:(Explicit_type declaration.type_specifier))
+                  ~type_source:(Explicit_type declaration.type_specifier)
+                  ~trailing_semicolon:declaration.trailing_semicolon
+                  ~last_declarator_index)
       | Frontend.Ast.Aggregate_definition definition ->
+          let last_declarator_index =
+            List.length definition.attached_declarators - 1
+          in
           definition.attached_declarators
           |> List.mapi
                (declarator_ast
                   ~declaration_kind:
                     Sema.Declaration_collection.Aggregate_attached_global
-                  ~item_index ~type_source:(Attached_aggregate definition.name))
+                  ~item_index ~type_source:(Attached_aggregate definition.name)
+                  ~trailing_semicolon:definition.semicolon
+                  ~last_declarator_index)
       | Frontend.Ast.Aggregate_forward_declaration _
       | Frontend.Ast.Function_prototype _
       | Frontend.Ast.Function_definition _
@@ -489,6 +505,9 @@ let initializer_fact (initial_value : Frontend.Ast.global_initializer) =
     | Frontend.Ast.Braced_initializer braced ->
         ( Sema.Global_type_resolution.Braced_initializer,
           origin braced.initializer_location )
+    | Frontend.Ast.Unbraced_array_initializer unbraced ->
+        ( Sema.Global_type_resolution.Braced_initializer,
+          origin unbraced.unbraced_initializer_location )
   in
   Sema.Global_type_resolution.make_initializer ~kind
     ~origin:(origin initial_value.global_initializer_location)

@@ -1,7 +1,7 @@
 schema holyc-ast-v1
 reference c26482bb6ad3f80106d28504ec5db3c6a360732c
 module span=cli/parse-aggregate-definition.hc:1:1..9:1 items=3
-  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-definition.hc:1:1..6:3 members=3
+  aggregate_definition aggregate_kind=class span=cli/parse-aggregate-definition.hc:1:1..6:2 members=3
     modifier kind=public spelling="public" span=cli/parse-aggregate-definition.hc:1:1..1:7
     aggregate_keyword spelling="class" span=cli/parse-aggregate-definition.hc:1:8..1:13
     name spelling="Node" span=cli/parse-aggregate-definition.hc:1:14..1:18
@@ -37,7 +37,6 @@ module span=cli/parse-aggregate-definition.hc:1:1..9:1 items=3
       closing_brace span=cli/parse-aggregate-definition.hc:5:49..5:50
       semicolon span=cli/parse-aggregate-definition.hc:5:50..5:51
     closing_brace span=cli/parse-aggregate-definition.hc:6:1..6:2
-    semicolon span=cli/parse-aggregate-definition.hc:6:2..6:3
   aggregate_definition aggregate_kind=union span=cli/parse-aggregate-definition.hc:7:1..7:44 members=2
     aggregate_keyword spelling="union" span=cli/parse-aggregate-definition.hc:7:1..7:6
     name spelling="Payload" span=cli/parse-aggregate-definition.hc:7:7..7:14

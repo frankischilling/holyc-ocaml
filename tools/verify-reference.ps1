@@ -97,10 +97,18 @@ if ($parserReport.schema -ne $parserCorpus.schema -or
     $parserReport.compilation_mode -ne $parserCorpus.mode) {
   throw 'The reviewed AOT parser corpus metadata does not match the manifest.'
 }
-foreach ($field in @('files', 'parses', 'frontend_diagnostics',
-    'parser_diagnostics', 'read_errors', 'internal_errors', 'diagnostics')) {
+foreach ($field in @('files', 'both_parse', 'standalone_only',
+    'project_prelude_only', 'neither_parses')) {
   if ($parserReport.summary.$field -ne $parserCorpus.$field) {
     throw "The reviewed AOT parser corpus summary differs at $field."
+  }
+}
+foreach ($scope in @('standalone', 'project_prelude')) {
+  foreach ($field in @('parses', 'frontend_diagnostics',
+      'parser_diagnostics', 'read_errors', 'internal_errors', 'diagnostics')) {
+    if ($parserReport.summary.$scope.$field -ne $parserCorpus.$scope.$field) {
+      throw "The reviewed AOT parser corpus $scope summary differs at $field."
+    }
   }
 }
 

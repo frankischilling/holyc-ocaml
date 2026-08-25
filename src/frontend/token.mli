@@ -13,10 +13,17 @@ type origin = {
   defined_at : Common.Span.t option;
 }
 
+type binary_record = {
+  number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
 type t = {
   kind : Token_kind.t;
   raw : string;
   value : value;
+  binary_record : binary_record option;
   span : Common.Span.t;
   source_segments : Common.Span.t list;
   origin : origin;

@@ -9,7 +9,7 @@
       "column": 1,
       "source_id": 0,
       "start": 0,
-      "stop": 159
+      "stop": 158
     },
     "items": [
       {
@@ -1075,26 +1075,6 @@
             }
           ]
         },
-        "semicolon": {
-          "span": {
-            "path": "cli/parse-aggregate-definition.hc",
-            "line": 6,
-            "column": 2,
-            "source_id": 0,
-            "start": 101,
-            "stop": 102
-          },
-          "source_segments": [
-            {
-              "path": "cli/parse-aggregate-definition.hc",
-              "line": 6,
-              "column": 2,
-              "source_id": 0,
-              "start": 101,
-              "stop": 102
-            }
-          ]
-        },
         "location": {
           "span": {
             "path": "cli/parse-aggregate-definition.hc",
@@ -1102,7 +1082,7 @@
             "column": 1,
             "source_id": 0,
             "start": 0,
-            "stop": 102
+            "stop": 101
           },
           "source_segments": [
             {
@@ -1304,14 +1284,6 @@
               "source_id": 0,
               "start": 100,
               "stop": 101
-            },
-            {
-              "path": "cli/parse-aggregate-definition.hc",
-              "line": 6,
-              "column": 2,
-              "source_id": 0,
-              "start": 101,
-              "stop": 102
             }
           ]
         }
@@ -1327,8 +1299,8 @@
               "line": 7,
               "column": 1,
               "source_id": 0,
-              "start": 103,
-              "stop": 108
+              "start": 102,
+              "stop": 107
             },
             "source_segments": [
               {
@@ -1336,8 +1308,8 @@
                 "line": 7,
                 "column": 1,
                 "source_id": 0,
-                "start": 103,
-                "stop": 108
+                "start": 102,
+                "stop": 107
               }
             ]
           }
@@ -1350,8 +1322,8 @@
               "line": 7,
               "column": 7,
               "source_id": 0,
-              "start": 109,
-              "stop": 116
+              "start": 108,
+              "stop": 115
             },
             "source_segments": [
               {
@@ -1359,8 +1331,8 @@
                 "line": 7,
                 "column": 7,
                 "source_id": 0,
-                "start": 109,
-                "stop": 116
+                "start": 108,
+                "stop": 115
               }
             ]
           }
@@ -1371,8 +1343,8 @@
             "line": 7,
             "column": 15,
             "source_id": 0,
-            "start": 117,
-            "stop": 118
+            "start": 116,
+            "stop": 117
           },
           "source_segments": [
             {
@@ -1380,8 +1352,8 @@
               "line": 7,
               "column": 15,
               "source_id": 0,
-              "start": 117,
-              "stop": 118
+              "start": 116,
+              "stop": 117
             }
           ]
         },
@@ -1398,8 +1370,8 @@
                   "line": 7,
                   "column": 17,
                   "source_id": 0,
-                  "start": 119,
-                  "stop": 122
+                  "start": 118,
+                  "stop": 121
                 },
                 "source_segments": [
                   {
@@ -1407,8 +1379,8 @@
                     "line": 7,
                     "column": 17,
                     "source_id": 0,
-                    "start": 119,
-                    "stop": 122
+                    "start": 118,
+                    "stop": 121
                   }
                 ]
               }
@@ -1423,8 +1395,8 @@
                       "line": 7,
                       "column": 21,
                       "source_id": 0,
-                      "start": 123,
-                      "stop": 129
+                      "start": 122,
+                      "stop": 128
                     },
                     "source_segments": [
                       {
@@ -1432,8 +1404,8 @@
                         "line": 7,
                         "column": 21,
                         "source_id": 0,
-                        "start": 123,
-                        "stop": 129
+                        "start": 122,
+                        "stop": 128
                       }
                     ]
                   }
@@ -1447,8 +1419,8 @@
                       "line": 7,
                       "column": 27,
                       "source_id": 0,
-                      "start": 129,
-                      "stop": 130
+                      "start": 128,
+                      "stop": 129
                     },
                     "source_segments": [
                       {
@@ -1456,8 +1428,8 @@
                         "line": 7,
                         "column": 27,
                         "source_id": 0,
-                        "start": 129,
-                        "stop": 130
+                        "start": 128,
+                        "stop": 129
                       }
                     ]
                   }
@@ -1468,8 +1440,8 @@
                     "line": 7,
                     "column": 21,
                     "source_id": 0,
-                    "start": 123,
-                    "stop": 130
+                    "start": 122,
+                    "stop": 129
                   },
                   "source_segments": [
                     {
@@ -1477,16 +1449,16 @@
                       "line": 7,
                       "column": 21,
                       "source_id": 0,
-                      "start": 123,
-                      "stop": 129
+                      "start": 122,
+                      "stop": 128
                     },
                     {
                       "path": "cli/parse-aggregate-definition.hc",
                       "line": 7,
                       "column": 27,
                       "source_id": 0,
-                      "start": 129,
-                      "stop": 130
+                      "start": 128,
+                      "stop": 129
                     }
                   ]
                 }
@@ -1498,8 +1470,8 @@
                 "line": 7,
                 "column": 17,
                 "source_id": 0,
-                "start": 119,
-                "stop": 130
+                "start": 118,
+                "stop": 129
               },
               "source_segments": [
                 {
@@ -1507,24 +1479,24 @@
                   "line": 7,
                   "column": 17,
                   "source_id": 0,
-                  "start": 119,
-                  "stop": 122
+                  "start": 118,
+                  "stop": 121
                 },
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
                   "column": 21,
                   "source_id": 0,
-                  "start": 123,
-                  "stop": 129
+                  "start": 122,
+                  "stop": 128
                 },
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
                   "column": 27,
                   "source_id": 0,
-                  "start": 129,
-                  "stop": 130
+                  "start": 128,
+                  "stop": 129
                 }
               ]
             }
@@ -1541,8 +1513,8 @@
                   "line": 7,
                   "column": 29,
                   "source_id": 0,
-                  "start": 131,
-                  "stop": 133
+                  "start": 130,
+                  "stop": 132
                 },
                 "source_segments": [
                   {
@@ -1550,8 +1522,8 @@
                     "line": 7,
                     "column": 29,
                     "source_id": 0,
-                    "start": 131,
-                    "stop": 133
+                    "start": 130,
+                    "stop": 132
                   }
                 ]
               }
@@ -1566,8 +1538,8 @@
                       "line": 7,
                       "column": 32,
                       "source_id": 0,
-                      "start": 134,
-                      "stop": 139
+                      "start": 133,
+                      "stop": 138
                     },
                     "source_segments": [
                       {
@@ -1575,8 +1547,8 @@
                         "line": 7,
                         "column": 32,
                         "source_id": 0,
-                        "start": 134,
-                        "stop": 139
+                        "start": 133,
+                        "stop": 138
                       }
                     ]
                   }
@@ -1589,8 +1561,8 @@
                         "line": 7,
                         "column": 37,
                         "source_id": 0,
-                        "start": 139,
-                        "stop": 140
+                        "start": 138,
+                        "stop": 139
                       },
                       "source_segments": [
                         {
@@ -1598,8 +1570,8 @@
                           "line": 7,
                           "column": 37,
                           "source_id": 0,
-                          "start": 139,
-                          "stop": 140
+                          "start": 138,
+                          "stop": 139
                         }
                       ]
                     },
@@ -1613,8 +1585,8 @@
                           "line": 7,
                           "column": 38,
                           "source_id": 0,
-                          "start": 140,
-                          "stop": 141
+                          "start": 139,
+                          "stop": 140
                         },
                         "source_segments": [
                           {
@@ -1622,8 +1594,8 @@
                             "line": 7,
                             "column": 38,
                             "source_id": 0,
-                            "start": 140,
-                            "stop": 141
+                            "start": 139,
+                            "stop": 140
                           }
                         ]
                       }
@@ -1634,8 +1606,8 @@
                         "line": 7,
                         "column": 39,
                         "source_id": 0,
-                        "start": 141,
-                        "stop": 142
+                        "start": 140,
+                        "stop": 141
                       },
                       "source_segments": [
                         {
@@ -1643,8 +1615,8 @@
                           "line": 7,
                           "column": 39,
                           "source_id": 0,
-                          "start": 141,
-                          "stop": 142
+                          "start": 140,
+                          "stop": 141
                         }
                       ]
                     },
@@ -1654,8 +1626,8 @@
                         "line": 7,
                         "column": 37,
                         "source_id": 0,
-                        "start": 139,
-                        "stop": 142
+                        "start": 138,
+                        "stop": 141
                       },
                       "source_segments": [
                         {
@@ -1663,24 +1635,24 @@
                           "line": 7,
                           "column": 37,
                           "source_id": 0,
-                          "start": 139,
-                          "stop": 140
+                          "start": 138,
+                          "stop": 139
                         },
                         {
                           "path": "cli/parse-aggregate-definition.hc",
                           "line": 7,
                           "column": 38,
                           "source_id": 0,
-                          "start": 140,
-                          "stop": 141
+                          "start": 139,
+                          "stop": 140
                         },
                         {
                           "path": "cli/parse-aggregate-definition.hc",
                           "line": 7,
                           "column": 39,
                           "source_id": 0,
-                          "start": 141,
-                          "stop": 142
+                          "start": 140,
+                          "stop": 141
                         }
                       ]
                     }
@@ -1695,8 +1667,8 @@
                       "line": 7,
                       "column": 40,
                       "source_id": 0,
-                      "start": 142,
-                      "stop": 143
+                      "start": 141,
+                      "stop": 142
                     },
                     "source_segments": [
                       {
@@ -1704,8 +1676,8 @@
                         "line": 7,
                         "column": 40,
                         "source_id": 0,
-                        "start": 142,
-                        "stop": 143
+                        "start": 141,
+                        "stop": 142
                       }
                     ]
                   }
@@ -1716,8 +1688,8 @@
                     "line": 7,
                     "column": 32,
                     "source_id": 0,
-                    "start": 134,
-                    "stop": 143
+                    "start": 133,
+                    "stop": 142
                   },
                   "source_segments": [
                     {
@@ -1725,13 +1697,21 @@
                       "line": 7,
                       "column": 32,
                       "source_id": 0,
-                      "start": 134,
-                      "stop": 139
+                      "start": 133,
+                      "stop": 138
                     },
                     {
                       "path": "cli/parse-aggregate-definition.hc",
                       "line": 7,
                       "column": 37,
+                      "source_id": 0,
+                      "start": 138,
+                      "stop": 139
+                    },
+                    {
+                      "path": "cli/parse-aggregate-definition.hc",
+                      "line": 7,
+                      "column": 38,
                       "source_id": 0,
                       "start": 139,
                       "stop": 140
@@ -1739,7 +1719,7 @@
                     {
                       "path": "cli/parse-aggregate-definition.hc",
                       "line": 7,
-                      "column": 38,
+                      "column": 39,
                       "source_id": 0,
                       "start": 140,
                       "stop": 141
@@ -1747,18 +1727,10 @@
                     {
                       "path": "cli/parse-aggregate-definition.hc",
                       "line": 7,
-                      "column": 39,
+                      "column": 40,
                       "source_id": 0,
                       "start": 141,
                       "stop": 142
-                    },
-                    {
-                      "path": "cli/parse-aggregate-definition.hc",
-                      "line": 7,
-                      "column": 40,
-                      "source_id": 0,
-                      "start": 142,
-                      "stop": 143
                     }
                   ]
                 }
@@ -1770,8 +1742,8 @@
                 "line": 7,
                 "column": 29,
                 "source_id": 0,
-                "start": 131,
-                "stop": 143
+                "start": 130,
+                "stop": 142
               },
               "source_segments": [
                 {
@@ -1779,21 +1751,29 @@
                   "line": 7,
                   "column": 29,
                   "source_id": 0,
-                  "start": 131,
-                  "stop": 133
+                  "start": 130,
+                  "stop": 132
                 },
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
                   "column": 32,
                   "source_id": 0,
-                  "start": 134,
-                  "stop": 139
+                  "start": 133,
+                  "stop": 138
                 },
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
                   "column": 37,
+                  "source_id": 0,
+                  "start": 138,
+                  "stop": 139
+                },
+                {
+                  "path": "cli/parse-aggregate-definition.hc",
+                  "line": 7,
+                  "column": 38,
                   "source_id": 0,
                   "start": 139,
                   "stop": 140
@@ -1801,7 +1781,7 @@
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
-                  "column": 38,
+                  "column": 39,
                   "source_id": 0,
                   "start": 140,
                   "stop": 141
@@ -1809,18 +1789,10 @@
                 {
                   "path": "cli/parse-aggregate-definition.hc",
                   "line": 7,
-                  "column": 39,
+                  "column": 40,
                   "source_id": 0,
                   "start": 141,
                   "stop": 142
-                },
-                {
-                  "path": "cli/parse-aggregate-definition.hc",
-                  "line": 7,
-                  "column": 40,
-                  "source_id": 0,
-                  "start": 142,
-                  "stop": 143
                 }
               ]
             }
@@ -1832,8 +1804,8 @@
             "line": 7,
             "column": 42,
             "source_id": 0,
-            "start": 144,
-            "stop": 145
+            "start": 143,
+            "stop": 144
           },
           "source_segments": [
             {
@@ -1841,8 +1813,8 @@
               "line": 7,
               "column": 42,
               "source_id": 0,
-              "start": 144,
-              "stop": 145
+              "start": 143,
+              "stop": 144
             }
           ]
         },
@@ -1852,8 +1824,8 @@
             "line": 7,
             "column": 43,
             "source_id": 0,
-            "start": 145,
-            "stop": 146
+            "start": 144,
+            "stop": 145
           },
           "source_segments": [
             {
@@ -1861,8 +1833,8 @@
               "line": 7,
               "column": 43,
               "source_id": 0,
-              "start": 145,
-              "stop": 146
+              "start": 144,
+              "stop": 145
             }
           ]
         },
@@ -1872,8 +1844,8 @@
             "line": 7,
             "column": 1,
             "source_id": 0,
-            "start": 103,
-            "stop": 146
+            "start": 102,
+            "stop": 145
           },
           "source_segments": [
             {
@@ -1881,69 +1853,77 @@
               "line": 7,
               "column": 1,
               "source_id": 0,
-              "start": 103,
-              "stop": 108
+              "start": 102,
+              "stop": 107
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 7,
               "source_id": 0,
-              "start": 109,
-              "stop": 116
+              "start": 108,
+              "stop": 115
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 15,
               "source_id": 0,
-              "start": 117,
-              "stop": 118
+              "start": 116,
+              "stop": 117
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 17,
               "source_id": 0,
-              "start": 119,
-              "stop": 122
+              "start": 118,
+              "stop": 121
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 21,
               "source_id": 0,
-              "start": 123,
-              "stop": 129
+              "start": 122,
+              "stop": 128
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 27,
               "source_id": 0,
-              "start": 129,
-              "stop": 130
+              "start": 128,
+              "stop": 129
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 29,
               "source_id": 0,
-              "start": 131,
-              "stop": 133
+              "start": 130,
+              "stop": 132
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 32,
               "source_id": 0,
-              "start": 134,
-              "stop": 139
+              "start": 133,
+              "stop": 138
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 37,
+              "source_id": 0,
+              "start": 138,
+              "stop": 139
+            },
+            {
+              "path": "cli/parse-aggregate-definition.hc",
+              "line": 7,
+              "column": 38,
               "source_id": 0,
               "start": 139,
               "stop": 140
@@ -1951,7 +1931,7 @@
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
-              "column": 38,
+              "column": 39,
               "source_id": 0,
               "start": 140,
               "stop": 141
@@ -1959,7 +1939,7 @@
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
-              "column": 39,
+              "column": 40,
               "source_id": 0,
               "start": 141,
               "stop": 142
@@ -1967,26 +1947,18 @@
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
-              "column": 40,
-              "source_id": 0,
-              "start": 142,
-              "stop": 143
-            },
-            {
-              "path": "cli/parse-aggregate-definition.hc",
-              "line": 7,
               "column": 42,
               "source_id": 0,
-              "start": 144,
-              "stop": 145
+              "start": 143,
+              "stop": 144
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 7,
               "column": 43,
               "source_id": 0,
-              "start": 145,
-              "stop": 146
+              "start": 144,
+              "stop": 145
             }
           ]
         }
@@ -2002,8 +1974,8 @@
               "line": 8,
               "column": 1,
               "source_id": 0,
-              "start": 147,
-              "stop": 151
+              "start": 146,
+              "stop": 150
             },
             "source_segments": [
               {
@@ -2011,8 +1983,8 @@
                 "line": 8,
                 "column": 1,
                 "source_id": 0,
-                "start": 147,
-                "stop": 151
+                "start": 146,
+                "stop": 150
               }
             ]
           }
@@ -2027,8 +1999,8 @@
                 "line": 8,
                 "column": 6,
                 "source_id": 0,
-                "start": 152,
-                "stop": 153
+                "start": 151,
+                "stop": 152
               },
               "source_segments": [
                 {
@@ -2036,8 +2008,8 @@
                   "line": 8,
                   "column": 6,
                   "source_id": 0,
-                  "start": 152,
-                  "stop": 153
+                  "start": 151,
+                  "stop": 152
                 }
               ]
             }
@@ -2051,8 +2023,8 @@
               "line": 8,
               "column": 7,
               "source_id": 0,
-              "start": 153,
-              "stop": 157
+              "start": 152,
+              "stop": 156
             },
             "source_segments": [
               {
@@ -2060,8 +2032,8 @@
                 "line": 8,
                 "column": 7,
                 "source_id": 0,
-                "start": 153,
-                "stop": 157
+                "start": 152,
+                "stop": 156
               }
             ]
           }
@@ -2071,8 +2043,8 @@
           "line": 8,
           "column": 11,
           "source_id": 0,
-          "start": 157,
-          "stop": 158
+          "start": 156,
+          "stop": 157
         },
         "location": {
           "span": {
@@ -2080,8 +2052,8 @@
             "line": 8,
             "column": 1,
             "source_id": 0,
-            "start": 147,
-            "stop": 158
+            "start": 146,
+            "stop": 157
           },
           "source_segments": [
             {
@@ -2089,32 +2061,32 @@
               "line": 8,
               "column": 1,
               "source_id": 0,
-              "start": 147,
-              "stop": 151
+              "start": 146,
+              "stop": 150
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 8,
               "column": 6,
               "source_id": 0,
-              "start": 152,
-              "stop": 153
+              "start": 151,
+              "stop": 152
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 8,
               "column": 7,
               "source_id": 0,
-              "start": 153,
-              "stop": 157
+              "start": 152,
+              "stop": 156
             },
             {
               "path": "cli/parse-aggregate-definition.hc",
               "line": 8,
               "column": 11,
               "source_id": 0,
-              "start": 157,
-              "stop": 158
+              "start": 156,
+              "stop": 157
             }
           ]
         }

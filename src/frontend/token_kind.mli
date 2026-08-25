@@ -5,6 +5,8 @@ type t =
   | Integer
   | Float
   | String
+  | Inserted_binary
+  | Inserted_binary_size
   | Character
   | Operator of Operator.t
   | Punctuation of char

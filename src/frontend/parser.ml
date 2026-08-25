@@ -20,6 +20,11 @@ type cursor = {
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
 
+type parsed_declarator_list = {
+  declarators : parsed_declarator list;
+  trailing_semicolon : located_token option;
+}
+
 type parsed_declarator_prefix = {
   pointer_layers : Ast.pointer_layer list;
   name : Ast.identifier;
@@ -163,6 +168,7 @@ type parsed_register_qualifiers = {
 
 type parsed_parameter_list = {
   parameters : Ast.function_parameter list;
+  empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
   tokens : Token.t list;
   closing_parenthesis : Ast.location;
@@ -199,6 +205,7 @@ let max_try_depth = 256
 let max_switch_depth = 256
 let max_aggregate_depth = 256
 let max_initializer_depth = 256
+let max_unbraced_initializer_elements = 1_000_000
 
 let resolve_assembly_opcode token =
   match token.Token.kind with
@@ -297,6 +304,8 @@ let assembly_token_kind token =
   | Token_kind.Integer -> Ast.Assembly_integer_token
   | Token_kind.Float -> Ast.Assembly_float_token
   | Token_kind.String -> Ast.Assembly_string_token
+  | Token_kind.Inserted_binary -> Ast.Assembly_string_token
+  | Token_kind.Inserted_binary_size -> Ast.Assembly_integer_token
   | Token_kind.Character -> Ast.Assembly_character_token
   | Token_kind.Operator _ -> Ast.Assembly_operator_token
   | Token_kind.Punctuation _ -> Ast.Assembly_punctuation_token
@@ -704,7 +713,7 @@ let internal_type_of_token cursor token =
 
 let token_is_named_type cursor token =
   match token.Token.kind with
-  | Token_kind.Identifier -> (
+  | Token_kind.Identifier | Token_kind.Keyword _ -> (
       match
         Symbol_visibility.Environment.find_preprocessor cursor.symbols
           (token_text token)
@@ -837,6 +846,36 @@ let delimiter_kind token =
 let token_is_name_position_identifier token =
   match token.Token.kind with
   | Token_kind.Identifier | Token_kind.Keyword _ -> true
+  | _ -> false
+
+let token_is_contextual_identifier_operand cursor token =
+  match token.Token.kind with
+  | Token_kind.Identifier | Token_kind.Keyword _ -> (
+      match
+        Symbol_visibility.Environment.find_preprocessor cursor.symbols
+          (token_text token)
+      with
+      | Symbol_visibility.Shadowed_by_local -> true
+      | Symbol_visibility.Present entry -> (
+          match Symbol_visibility.kind entry with
+          | Symbol_visibility.Global_variable | Symbol_visibility.Function ->
+              true
+          | Symbol_visibility.Export_system_symbol
+          | Symbol_visibility.Import_system_symbol
+          | Symbol_visibility.Definition
+          | Symbol_visibility.Class
+          | Symbol_visibility.Internal_type
+          | Symbol_visibility.Word
+          | Symbol_visibility.Dictionary_word
+          | Symbol_visibility.Keyword
+          | Symbol_visibility.Assembly_keyword
+          | Symbol_visibility.Opcode
+          | Symbol_visibility.Register
+          | Symbol_visibility.File
+          | Symbol_visibility.Module
+          | Symbol_visibility.Help_file
+          | Symbol_visibility.Frame_pointer -> false)
+      | Symbol_visibility.Absent -> false)
   | _ -> false
 
 let declaration_modifier_kind token =
@@ -1030,10 +1069,48 @@ let make_expression_operator token =
   Ast.make_expression_operator ~spelling:token.Token.raw
     ~location:(token_location token)
 
-let make_literal token value constructor =
+let make_literal ?origin token value constructor =
+  let origin = Option.value origin ~default:Ast.Source_literal in
   constructor
-    (Ast.make_expression_literal ~spelling:token.Token.raw ~value
+    (Ast.make_expression_literal ~origin ~spelling:token.Token.raw ~value
        ~location:(token_location token))
+
+let take_string_literal_sequence cursor : parsed_expression =
+  let rec take_segments segments_rev tokens_rev values_rev spellings_rev =
+    let item = peek cursor in
+    match (item.token.Token.kind, item.token.value) with
+    | Token_kind.String, Token.Bytes value ->
+        let item = take cursor in
+        let segment =
+          Ast.make_expression_literal_segment ~spelling:item.token.raw ~value
+            ~location:(token_location item.token)
+        in
+        take_segments (segment :: segments_rev) (item.token :: tokens_rev)
+          (value :: values_rev)
+          (item.token.raw :: spellings_rev)
+    | _ ->
+        ( List.rev segments_rev,
+          List.rev tokens_rev,
+          String.concat "" (List.rev values_rev),
+          String.concat "" (List.rev spellings_rev) )
+  in
+  let segments, tokens, value, spelling = take_segments [] [] [] [] in
+  match tokens with
+  | [] -> invalid_arg "a string literal sequence needs at least one token"
+  | [ token ] ->
+      {
+        node =
+          make_literal token (Ast.Bytes_value value) (fun literal ->
+              Ast.String_literal literal);
+        tokens;
+      }
+  | _ ->
+      let literal =
+        Ast.make_segmented_expression_literal ~segments ~spelling
+          ~value:(Ast.Bytes_value value)
+          ~location:(location_from_expression_tokens tokens)
+      in
+      { node = Ast.String_literal literal; tokens }
 
 let rebuild_prefix prefix operand =
   let location =
@@ -1175,13 +1252,13 @@ and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
 
 and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   let item = peek cursor in
-  let take_literal value
+  let take_literal ?origin value
       (constructor : Ast.expression_literal -> Ast.expression) :
       parsed_expression option =
     let item = take cursor in
     Some
       ({
-         node = make_literal item.token value constructor;
+         node = make_literal ?origin item.token value constructor;
          tokens = [ item.token ];
        }
         : parsed_expression)
@@ -1196,9 +1273,39 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   | Token_kind.Character, Token.Int64 value ->
       take_literal (Ast.Integer_value value) (fun literal ->
           Ast.Character_literal literal)
-  | Token_kind.String, Token.Bytes value ->
-      take_literal (Ast.Bytes_value value) (fun literal ->
-          Ast.String_literal literal)
+  | Token_kind.String, Token.Bytes _ ->
+      Some (take_string_literal_sequence cursor)
+  | Token_kind.Inserted_binary, Token.Bytes value ->
+      let record = Option.get item.token.binary_record in
+      let origin : Ast.inserted_binary_origin =
+        {
+          record_number = record.number;
+          declared_size = record.declared_size;
+          payload_complete = record.payload_complete;
+        }
+      in
+      take_literal ~origin:(Ast.Inserted_binary_literal origin)
+        (Ast.Bytes_value value) (fun literal -> Ast.String_literal literal)
+  | Token_kind.Inserted_binary_size, Token.Int64 value ->
+      let record = Option.get item.token.binary_record in
+      let origin : Ast.inserted_binary_origin =
+        {
+          record_number = record.number;
+          declared_size = record.declared_size;
+          payload_complete = record.payload_complete;
+        }
+      in
+      take_literal ~origin:(Ast.Inserted_binary_size_literal origin)
+        (Ast.Integer_value value) (fun literal -> Ast.Integer_literal literal)
+  | (Token_kind.Identifier | Token_kind.Keyword _), _
+    when token_is_contextual_identifier_operand cursor item.token ->
+      let item = take cursor in
+      let node =
+        Ast.Identifier_expression
+          (Ast.make_identifier ~spelling:item.token.raw
+             ~location:(token_location item.token))
+      in
+      Some { node; tokens = [ item.token ] }
   | Token_kind.Identifier, _ ->
       let item = take cursor in
       let node =
@@ -2190,11 +2297,11 @@ let parse_aggregate_base cursor =
     let colon_item = take cursor in
     let base_item = peek cursor in
     if
-      base_item.token.kind <> Token_kind.Identifier
+      (not (token_is_name_position_identifier base_item.token))
       || not (token_is_named_type cursor base_item.token)
     then (
       let message =
-        if base_item.token.kind = Token_kind.Identifier then
+        if token_is_name_position_identifier base_item.token then
           Printf.sprintf
             "%S is not a visible class or union and cannot be used as a base"
             base_item.token.raw
@@ -2485,15 +2592,129 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
   in
   parse_elements [] []
 
-let parse_global_initializer cursor =
+and parse_unbraced_array_initializer cursor ~declarator_context ~depth
+    ~allow_closing_brace ~dimensions : parsed_initializer option =
+  let item = peek cursor in
+  let count =
+    match dimensions with
+    | [] -> None
+    | (dimension : Ast.array_dimension) :: _ -> (
+        match dimension.dimension_expression with
+        | Some
+            (Ast.Integer_literal { literal_value = Ast.Integer_value value; _ })
+          when Int64.compare value 0L > 0
+               && Int64.compare value
+                    (Int64.of_int max_unbraced_initializer_elements)
+                  <= 0 -> Some (Int64.to_int value)
+        | None | Some _ -> None)
+  in
+  match count with
+  | None ->
+      initializer_failure cursor ~declarator_context item
+        ~local_open_braces:depth ~global_code:"HCPARSE0159"
+        ~local_code:"HCPARSE0159"
+        ~global_message:
+          (Printf.sprintf
+             "an unbraced global array initializer requires a positive, \
+              definition-expanded literal bound no larger than %d"
+             max_unbraced_initializer_elements)
+        ~local_message:
+          "unbraced static local array initializers are not implemented"
+  | Some count ->
+      let remaining_dimensions = List.tl dimensions in
+      let rec parse_elements index elements_rev token_groups_rev =
+        if index = count then
+          let closing_brace, closing_tokens =
+            let closing_item = peek cursor in
+            if
+              allow_closing_brace
+              && closing_item.token.kind = Token_kind.Punctuation '}'
+            then
+              let closing_item = take cursor in
+              (Some (token_location closing_item.token), [ closing_item.token ])
+            else (None, [])
+          in
+          let element_tokens = List.rev token_groups_rev |> List.concat in
+          let tokens = element_tokens @ closing_tokens in
+          let node =
+            Ast.make_unbraced_array_initializer
+              ~elements:(List.rev elements_rev) ~closing_brace
+              ~location:(location_from_expression_tokens tokens)
+            |> fun unbraced -> Ast.Unbraced_array_initializer unbraced
+          in
+          Some ({ node; tokens } : parsed_initializer)
+        else
+          let parsed_value =
+            match remaining_dimensions with
+            | [] ->
+                parse_initializer_value cursor ~declarator_context
+                  ~depth:(depth + 1)
+            | dimensions ->
+                let next_item = peek cursor in
+                if next_item.token.kind = Token_kind.Punctuation '{' then
+                  parse_braced_initializer cursor ~declarator_context
+                    ~depth:(depth + 1)
+                else
+                  parse_unbraced_array_initializer cursor ~declarator_context
+                    ~depth:(depth + 1) ~allow_closing_brace:false ~dimensions
+          in
+          match parsed_value with
+          | None -> None
+          | Some value ->
+              let needs_comma = index + 1 < count in
+              let following_item = peek cursor in
+              let comma, element_tokens =
+                if needs_comma then
+                  if following_item.token.kind = Token_kind.Punctuation ',' then
+                    let comma_item = take cursor in
+                    ( Some (token_location comma_item.token),
+                      value.tokens @ [ comma_item.token ] )
+                  else (None, [])
+                else (None, value.tokens)
+              in
+              if element_tokens = [] then
+                initializer_failure cursor ~declarator_context following_item
+                  ~local_open_braces:depth ~global_code:"HCPARSE0160"
+                  ~local_code:"HCPARSE0160"
+                  ~global_message:
+                    (Printf.sprintf
+                       "expected ',' after element %d of an unbraced global \
+                        array initializer, but found %s"
+                       (index + 1)
+                       (token_description following_item.token))
+                  ~local_message:
+                    "unbraced static local array initializers are not \
+                     implemented"
+              else
+                let element =
+                  Ast.make_initializer_element ~value:value.node ~comma
+                    ~location:(location_from_expression_tokens element_tokens)
+                in
+                parse_elements (index + 1) (element :: elements_rev)
+                  (element_tokens :: token_groups_rev)
+      in
+      parse_elements 0 [] []
+
+let parse_global_initializer cursor ~array_dimensions =
   let equals_item = peek cursor in
   if equals_item.token.kind <> Token_kind.Punctuation '=' then Some (None, [])
   else
     let equals_item = take cursor in
-    match
-      parse_initializer_value cursor
-        ~declarator_context:Global_initializer_declarator ~depth:0
-    with
+    let value =
+      let first_item = peek cursor in
+      if
+        array_dimensions <> []
+        && first_item.token.kind <> Token_kind.Punctuation '{'
+        && first_item.token.kind <> Token_kind.String
+      then
+        parse_unbraced_array_initializer cursor
+          ~declarator_context:Global_initializer_declarator ~depth:0
+          ~allow_closing_brace:true ~dimensions:array_dimensions
+      else
+        parse_initializer_value cursor
+          ~declarator_context:Global_initializer_declarator ~depth:0
+    in
+    match value with
     | None -> None
     | Some value ->
         let tokens = equals_item.token :: value.tokens in
@@ -2509,7 +2730,7 @@ let parse_variable_declarator_suffix cursor prefix =
   match parse_array_dimensions cursor 0 [] [] with
   | None -> None
   | Some (array_dimensions, array_tokens) ->
-      Option.bind (parse_global_initializer cursor)
+      Option.bind (parse_global_initializer cursor ~array_dimensions)
         (fun (initial_value, initializer_tokens) ->
           let delimiter_item = peek cursor in
           match delimiter_kind delimiter_item.token with
@@ -2553,15 +2774,28 @@ let parse_declarator cursor base_spelling ~parse_function_pointer =
 
 let rec parse_declarators cursor base_spelling ~parse_function_pointer
     declarators_rev =
-  match parse_declarator cursor base_spelling ~parse_function_pointer with
-  | None -> None
-  | Some declarator -> (
-      let declarators_rev = declarator :: declarators_rev in
-      match declarator.node.delimiter.kind with
-      | Ast.Semicolon -> Some (List.rev declarators_rev)
-      | Ast.Comma ->
-          parse_declarators cursor base_spelling ~parse_function_pointer
-            declarators_rev)
+  let item = peek cursor in
+  if item.token.kind = Token_kind.Punctuation ';' then
+    Some
+      {
+        declarators = List.rev declarators_rev;
+        trailing_semicolon = Some (take cursor);
+      }
+  else
+    match parse_declarator cursor base_spelling ~parse_function_pointer with
+    | None -> None
+    | Some declarator -> (
+        let declarators_rev = declarator :: declarators_rev in
+        match declarator.node.delimiter.kind with
+        | Ast.Semicolon ->
+            Some
+              {
+                declarators = List.rev declarators_rev;
+                trailing_semicolon = None;
+              }
+        | Ast.Comma ->
+            parse_declarators cursor base_spelling ~parse_function_pointer
+              declarators_rev)
 
 let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
@@ -2882,8 +3116,8 @@ and parse_aggregate_member_metadata cursor ~recovery_depth :
             | Token_kind.String, Token.Bytes value ->
                 let item = take cursor in
                 let segment =
-                  Ast.make_expression_literal ~spelling:item.token.raw
-                    ~value:(Ast.Bytes_value value)
+                  Ast.make_expression_literal ~origin:Ast.Source_literal
+                    ~spelling:item.token.raw ~value:(Ast.Bytes_value value)
                     ~location:(token_location item.token)
                 in
                 take_segments (segment :: segments_rev) (item :: items_rev)
@@ -2927,7 +3161,7 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
     ~aggregate_kind ~parse_function_pointer ~parse_member_function_pointer =
   let aggregate_item = take cursor in
   let name_item = peek cursor in
-  if name_item.token.kind <> Token_kind.Identifier then (
+  if not (token_is_name_position_identifier name_item.token) then (
     report cursor name_item ~code:"HCPARSE0109"
       ~message:
         (Printf.sprintf "expected a name after %S, but found %s"
@@ -2973,7 +3207,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     Some
                       ( [],
                         [ semicolon_item.token ],
-                        token_location semicolon_item.token )
+                        Some (token_location semicolon_item.token) )
+                | Token_kind.Keyword (Keyword.Class | Keyword.Union) ->
+                    Some ([], [], None)
                 | Token_kind.Identifier | Token_kind.Punctuation ('*' | '(')
                   -> (
                     match
@@ -2981,8 +3217,20 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                         ~parse_function_pointer []
                     with
                     | None -> None
-                    | Some declarators ->
+                    | Some parsed_declarators ->
+                        let declarators = parsed_declarators.declarators in
                         let last = List.hd (List.rev declarators) in
+                        let trailing_tokens =
+                          Option.to_list
+                            (Option.map
+                               (fun item -> item.token)
+                               parsed_declarators.trailing_semicolon)
+                        in
+                        let semicolon =
+                          match parsed_declarators.trailing_semicolon with
+                          | Some item -> Some (token_location item.token)
+                          | None -> Some last.node.delimiter.location
+                        in
                         Some
                           ( List.map
                               (fun (declarator : parsed_declarator) ->
@@ -2991,8 +3239,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                             List.concat_map
                               (fun (declarator : parsed_declarator) ->
                                 declarator.tokens)
-                              declarators,
-                            last.node.delimiter.location ))
+                              declarators
+                            @ trailing_tokens,
+                            semicolon ))
                 | _ ->
                     report cursor following_item ~code:"HCPARSE0115"
                       ~message:
@@ -3068,21 +3317,27 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
             declaration_failure cursor following_item ~code:"HCPARSE0010"
               ~message:
                 (Printf.sprintf
-                   "expected ',' or ')' after function parameter, but found %s"
+                   "expected ',', ';', or ')' after function parameter, but \
+                    found %s"
                    (token_description following_item.token))
       in
       match following_item.token.kind with
-      | Token_kind.Punctuation ',' | Token_kind.Punctuation ')' ->
+      | Token_kind.Punctuation (',' | ';') | Token_kind.Punctuation ')' ->
           let delimiter_item =
             match following_item.token.kind with
-            | Token_kind.Punctuation ',' -> Some (take cursor)
+            | Token_kind.Punctuation (',' | ';') -> Some (take cursor)
             | _ -> None
           in
           let delimiter =
             Option.map
               (fun item ->
-                Ast.make_declaration_delimiter ~kind:Ast.Comma
-                  ~spelling:item.token.raw
+                let kind =
+                  match item.token.kind with
+                  | Token_kind.Punctuation ',' -> Ast.Comma
+                  | Token_kind.Punctuation ';' -> Ast.Semicolon
+                  | _ -> invalid_arg "function parameter delimiter"
+                in
+                Ast.make_declaration_delimiter ~kind ~spelling:item.token.raw
                   ~location:(token_location item.token))
               delimiter_item
           in
@@ -3308,7 +3563,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
               else
                 let signature_opening = take cursor in
                 match
-                  parse_function_parameters cursor [] [] ~after_comma:false
+                  parse_function_parameters cursor [] [] [] ~after_comma:false
                     ~function_pointer_depth:(function_pointer_depth + 1)
                 with
                 | None -> None
@@ -3328,6 +3583,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                         ~signature_opening_parenthesis:
                           (token_location signature_opening.token)
                         ~signature_parameters:parsed_parameters.parameters
+                        ~signature_empty_parameter_entries:
+                          parsed_parameters.empty_parameter_entries
                         ~signature_variadic:parsed_parameters.variadic
                         ~signature_closing_parenthesis:
                           parsed_parameters.closing_parenthesis
@@ -3335,8 +3592,8 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                     in
                     Some { node; name; tokens })
 
-and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
-    ~function_pointer_depth : parsed_parameter_list option =
+and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
+    ~after_comma ~function_pointer_depth : parsed_parameter_list option =
   let prefix =
     parse_register_qualifiers cursor ~position:Ast.Before_type [] []
   in
@@ -3347,6 +3604,7 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
       Some
         {
           parameters = List.rev parameters_rev;
+          empty_parameter_entries = List.rev empty_entries_rev;
           variadic = None;
           tokens = List.rev (closing.token :: tokens_rev);
           closing_parenthesis = token_location closing.token;
@@ -3371,10 +3629,27 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
         Some
           {
             parameters = List.rev parameters_rev;
+            empty_parameter_entries = List.rev empty_entries_rev;
             variadic = Some variadic;
             tokens = List.rev (closing.token :: ellipsis.token :: tokens_rev);
             closing_parenthesis = token_location closing.token;
           }
+  | Token_kind.Punctuation ';' when (not after_comma) && prefix.nodes = [] ->
+      let semicolon = take cursor in
+      let delimiter =
+        Ast.make_declaration_delimiter ~kind:Ast.Semicolon
+          ~spelling:semicolon.token.raw
+          ~location:(token_location semicolon.token)
+      in
+      let empty_entry =
+        Ast.make_empty_parameter_entry
+          ~preceding_parameter_count:(List.length parameters_rev)
+          ~delimiter
+      in
+      parse_function_parameters cursor parameters_rev
+        (empty_entry :: empty_entries_rev)
+        (semicolon.token :: tokens_rev)
+        ~after_comma:false ~function_pointer_depth
   | Token_kind.Punctuation ')' ->
       declaration_failure cursor item ~code:"HCPARSE0009"
         ~message:
@@ -3394,53 +3669,50 @@ and parse_function_parameters cursor parameters_rev tokens_rev ~after_comma
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
           match parameter.node.delimiter with
-          | Some _ ->
-              parse_function_parameters cursor parameters_rev tokens_rev
-                ~after_comma:true ~function_pointer_depth
+          | Some delimiter ->
+              parse_function_parameters cursor parameters_rev empty_entries_rev
+                tokens_rev
+                ~after_comma:(delimiter.kind = Ast.Comma)
+                ~function_pointer_depth
           | None ->
-              parse_function_parameters cursor parameters_rev tokens_rev
-                ~after_comma:false ~function_pointer_depth))
+              parse_function_parameters cursor parameters_rev empty_entries_rev
+                tokens_rev ~after_comma:false ~function_pointer_depth))
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
   let opening = take cursor in
   match
-    parse_function_parameters cursor [] [] ~after_comma:false
+    parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
   with
   | None -> None
   | Some parsed_parameters ->
       let semicolon_item = peek cursor in
-      if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
-        report cursor semicolon_item ~code:"HCPARSE0016"
-          ~message:
-            (Printf.sprintf
-               "expected ';' after function prototype %S, but found %s"
-               prefix.name.spelling
-               (token_description semicolon_item.token));
-        recover_declaration cursor;
-        None)
-      else
-        let semicolon_item = take cursor in
-        let declaration_tokens =
-          modifier_tokens @ binding_tokens
-          @ (type_item.token :: prefix.tokens)
-          @ (opening.token :: parsed_parameters.tokens)
-          @ [ semicolon_item.token ]
-        in
-        let prototype =
-          Ast.make_function_prototype ~modifiers ~binding ~return_type
-            ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
-            ~opening_parenthesis:(token_location opening.token)
-            ~parameters:parsed_parameters.parameters
-            ~variadic:parsed_parameters.variadic
-            ~closing_parenthesis:parsed_parameters.closing_parenthesis
-            ~semicolon:(token_location semicolon_item.token)
-            ~location:(location_from_tokens declaration_tokens)
-        in
-        publish_function cursor prefix.name parsed_parameters.parameters
-          parsed_parameters.variadic;
-        Some (Ast.Function_prototype prototype)
+      let semicolon, semicolon_tokens =
+        if semicolon_item.token.kind = Token_kind.Punctuation ';' then
+          let semicolon_item = take cursor in
+          (Some (token_location semicolon_item.token), [ semicolon_item.token ])
+        else (None, [])
+      in
+      let declaration_tokens =
+        modifier_tokens @ binding_tokens
+        @ (type_item.token :: prefix.tokens)
+        @ (opening.token :: parsed_parameters.tokens)
+        @ semicolon_tokens
+      in
+      let prototype =
+        Ast.make_function_prototype ~modifiers ~binding ~return_type
+          ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
+          ~opening_parenthesis:(token_location opening.token)
+          ~parameters:parsed_parameters.parameters
+          ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
+          ~variadic:parsed_parameters.variadic
+          ~closing_parenthesis:parsed_parameters.closing_parenthesis ~semicolon
+          ~location:(location_from_tokens declaration_tokens)
+      in
+      publish_function cursor prefix.name parsed_parameters.parameters
+        parsed_parameters.variadic;
+      Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
   let parse_global_function_pointer () =
@@ -3480,7 +3752,7 @@ let parse_global cursor ~parse_function_definition =
           ~target:Ast.No_binding_target
       in
       let name_item = peek cursor in
-      if name_item.token.kind <> Token_kind.Identifier then (
+      if not (token_is_name_position_identifier name_item.token) then (
         report cursor name_item ~code:"HCPARSE0107"
           ~message:
             (Printf.sprintf "expected a name after %S %S, but found %s"
@@ -3635,7 +3907,12 @@ let parse_global cursor ~parse_function_definition =
                                     match
                                       first_declarator.node.delimiter.kind
                                     with
-                                    | Ast.Semicolon -> Some [ first_declarator ]
+                                    | Ast.Semicolon ->
+                                        Some
+                                          {
+                                            declarators = [ first_declarator ];
+                                            trailing_semicolon = None;
+                                          }
                                     | Ast.Comma ->
                                         parse_declarators cursor spelling
                                           ~parse_function_pointer:
@@ -3644,7 +3921,17 @@ let parse_global cursor ~parse_function_definition =
                                   in
                                   match parsed_declarators with
                                   | None -> None
-                                  | Some declarators -> (
+                                  | Some parsed_declarators -> (
+                                      let declarators =
+                                        parsed_declarators.declarators
+                                      in
+                                      let trailing_tokens =
+                                        Option.to_list
+                                          (Option.map
+                                             (fun item -> item.token)
+                                             parsed_declarators
+                                               .trailing_semicolon)
+                                      in
                                       let declaration_tokens =
                                         modifier_tokens @ binding_tokens
                                         @ type_item.token
@@ -3652,12 +3939,16 @@ let parse_global cursor ~parse_function_definition =
                                                (fun (item : parsed_declarator)
                                                   -> item.tokens)
                                                declarators
+                                        @ trailing_tokens
                                       in
                                       match declarators with
                                       | [ declarator ]
                                         when Option.is_none
-                                               declarator.node
-                                                 .global_initial_value
+                                               parsed_declarators
+                                                 .trailing_semicolon
+                                             && Option.is_none
+                                                  declarator.node
+                                                    .global_initial_value
                                              && Option.is_none
                                                   declarator.node
                                                     .function_pointer ->
@@ -3689,6 +3980,12 @@ let parse_global cursor ~parse_function_definition =
                                                           parsed_declarator) ->
                                                      item.node)
                                                    declarators)
+                                              ~trailing_semicolon:
+                                                (Option.map
+                                                   (fun item ->
+                                                     token_location item.token)
+                                                   parsed_declarators
+                                                     .trailing_semicolon)
                                               ~location:
                                                 (location_from_tokens
                                                    declaration_tokens)
@@ -3737,24 +4034,39 @@ let parse_global cursor ~parse_function_definition =
 
 let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   let marker_item = peek cursor in
-  let target, marker_value, empty_marker =
+  let target =
     match (marker_item.token.Token.kind, marker_item.token.value) with
-    | Token_kind.String, Token.Bytes value ->
-        ( Ast.Print_target,
-          Ast.Bytes_value value,
-          String.length value = 0 || Char.equal value.[0] '\000' )
+    | Token_kind.String, Token.Bytes _ -> Ast.Print_target
+    | Token_kind.Character, Token.Int64 _ -> Ast.Put_chars_target
+    | _ -> invalid_arg "an implicit output statement needs a literal marker"
+  in
+  let marker_expression =
+    match (marker_item.token.Token.kind, marker_item.token.value) with
+    | Token_kind.String, Token.Bytes _ -> take_string_literal_sequence cursor
     | Token_kind.Character, Token.Int64 value ->
-        (Ast.Put_chars_target, Ast.Integer_value value, Int64.equal value 0L)
+        let item = take cursor in
+        {
+          node =
+            make_literal item.token (Ast.Integer_value value) (fun literal ->
+                Ast.Character_literal literal);
+          tokens = [ item.token ];
+        }
     | _ -> invalid_arg "an implicit output statement needs a literal marker"
   in
   let marker =
-    Ast.make_expression_literal ~spelling:marker_item.token.raw
-      ~value:marker_value
-      ~location:(token_location marker_item.token)
+    match marker_expression.node with
+    | Ast.String_literal literal | Ast.Character_literal literal -> literal
+    | _ -> invalid_arg "an implicit output marker must remain a literal"
+  in
+  let empty_marker =
+    match marker.literal_value with
+    | Ast.Bytes_value value ->
+        String.length value = 0 || Char.equal value.[0] '\000'
+    | Ast.Integer_value value -> Int64.equal value 0L
+    | Ast.Float_value _ -> false
   in
   let fixed_argument =
-    if empty_marker then (
-      ignore (take cursor);
+    if empty_marker then
       let next_item = peek cursor in
       match next_item.token.kind with
       | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
@@ -3775,10 +4087,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             ~depth:0 ~minimum_binding_power:0
           |> Option.map (fun (expression : parsed_expression) ->
               ( Ast.Expression_fixed_argument expression.node,
-                marker_item.token :: expression.tokens )))
+                marker_expression.tokens @ expression.tokens ))
     else
-      parse_expression cursor ~context:Implicit_output_argument_expression
-        ~depth:0 ~minimum_binding_power:0
+      parse_expression_tail cursor ~context:Implicit_output_argument_expression
+        ~depth:0 ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
+        marker_expression
       |> Option.map (fun (expression : parsed_expression) ->
           (Ast.Marker_fixed_argument expression.node, expression.tokens))
   in
@@ -4622,13 +4935,13 @@ let token_is_visible_inline_assembly_size cursor token =
   with
   | Symbol_visibility.Present entry -> (
       match Symbol_visibility.kind entry with
-      | Symbol_visibility.Internal_type | Symbol_visibility.Assembly_keyword ->
-          true
+      | Symbol_visibility.Class
+      | Symbol_visibility.Internal_type
+      | Symbol_visibility.Assembly_keyword -> true
       | Symbol_visibility.Export_system_symbol
       | Symbol_visibility.Import_system_symbol
       | Symbol_visibility.Definition
       | Symbol_visibility.Global_variable
-      | Symbol_visibility.Class
       | Symbol_visibility.Function
       | Symbol_visibility.Word
       | Symbol_visibility.Dictionary_word
@@ -4649,6 +4962,8 @@ let token_cannot_start_inline_assembly_operand cursor token =
   | Token_kind.Integer
   | Token_kind.Float
   | Token_kind.String
+  | Token_kind.Inserted_binary
+  | Token_kind.Inserted_binary_size
   | Token_kind.Character
   | Token_kind.Operator _
   | Token_kind.Punctuation _
@@ -5218,6 +5533,13 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
     ~loop_depth ~lock_depth ~try_depth ~switch_depth : parsed_statement option =
   let item = peek cursor in
   match item.token.kind with
+  | (Token_kind.Identifier | Token_kind.Keyword _)
+    when Option.is_some cursor.local_context
+         && token_is_named_type cursor item.token ->
+      parse_local_declaration cursor ~boundary
+  | Token_kind.Keyword _
+    when token_is_contextual_identifier_operand cursor item.token ->
+      parse_expression_statement cursor ~boundary
   | Token_kind.Identifier when token_starts_inline_assembly cursor item.token ->
       parse_inline_assembly_statement cursor ~boundary
   | Token_kind.Keyword Keyword.Asm ->
@@ -6364,7 +6686,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
     ~return_type (prefix : parsed_declarator_prefix) =
   let opening = take cursor in
   match
-    parse_function_parameters cursor [] [] ~after_comma:false
+    parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
   with
   | None -> None
@@ -6397,6 +6719,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
               ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
               ~opening_parenthesis:(token_location opening.token)
               ~parameters:parsed_parameters.parameters
+              ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
               ~variadic:parsed_parameters.variadic
               ~closing_parenthesis:parsed_parameters.closing_parenthesis ~body
               ~location:(location_from_expression_tokens definition_tokens)

@@ -74,6 +74,17 @@ type literal_value =
   | Float_value of float
   | Bytes_value of string
 
+type inserted_binary_origin = {
+  record_number : int64;
+  declared_size : int64;
+  payload_complete : bool;
+}
+
+type literal_origin =
+  | Source_literal
+  | Inserted_binary_literal of inserted_binary_origin
+  | Inserted_binary_size_literal of inserted_binary_origin
+
 type unary_operator_kind =
   | Unary_plus
   | Unary_minus
@@ -111,6 +122,14 @@ and expression_literal = private {
   literal_spelling : string;
   literal_value : literal_value;
   literal_location : location;
+  literal_segments : expression_literal_segment list;
+  literal_origin : literal_origin;
+}
+
+and expression_literal_segment = private {
+  literal_segment_spelling : string;
+  literal_segment_value : string;
+  literal_segment_location : location;
 }
 
 and expression_operator = private {
@@ -294,12 +313,19 @@ type aggregate_base = private {
 type initial_value =
   | Scalar_initializer of expression
   | Braced_initializer of braced_initializer
+  | Unbraced_array_initializer of unbraced_array_initializer
 
 and braced_initializer = private {
   initializer_opening_brace : location;
   initializer_elements : initializer_element list;
   initializer_closing_brace : location;
   initializer_location : location;
+}
+
+and unbraced_array_initializer = private {
+  unbraced_initializer_elements : initializer_element list;
+  unbraced_initializer_closing_brace : location option;
+  unbraced_initializer_location : location;
 }
 
 and initializer_element = private {
@@ -340,12 +366,18 @@ type function_parameter = private {
   location : location;
 }
 
+and empty_parameter_entry = private {
+  preceding_parameter_count : int;
+  empty_parameter_delimiter : declaration_delimiter;
+}
+
 and function_pointer_declarator = private {
   declarator_opening_parenthesis : location;
   indirection_layers : pointer_layer list;
   declarator_closing_parenthesis : location;
   signature_opening_parenthesis : location;
   signature_parameters : function_parameter list;
+  signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
   signature_closing_parenthesis : location;
   function_pointer_location : location;
@@ -429,7 +461,7 @@ type aggregate_definition = private {
   members : aggregate_member list;
   closing_brace : location;
   attached_declarators : global_declarator list;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -449,6 +481,7 @@ type global_declaration = private {
   binding : declaration_binding option;
   type_specifier : type_specifier;
   declarators : global_declarator list;
+  trailing_semicolon : location option;
   location : location;
 }
 
@@ -460,9 +493,10 @@ type function_prototype = private {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
-  semicolon : location;
+  semicolon : location option;
   location : location;
 }
 
@@ -829,6 +863,7 @@ type function_definition = private {
   name : identifier;
   opening_parenthesis : location;
   parameters : function_parameter list;
+  empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
   closing_parenthesis : location;
   body : statement option;
@@ -982,6 +1017,12 @@ val make_braced_initializer :
   location:location ->
   braced_initializer
 
+val make_unbraced_array_initializer :
+  elements:initializer_element list ->
+  closing_brace:location option ->
+  location:location ->
+  unbraced_array_initializer
+
 val make_initializer_element :
   value:initial_value ->
   comma:location option ->
@@ -1016,7 +1057,7 @@ val make_aggregate_definition :
   members:aggregate_member list ->
   closing_brace:location ->
   attached_declarators:global_declarator list ->
-  semicolon:location ->
+  semicolon:location option ->
   location:location ->
   aggregate_definition
 
@@ -1036,6 +1077,7 @@ val make_global_declaration :
   binding:declaration_binding option ->
   type_specifier:type_specifier ->
   declarators:global_declarator list ->
+  trailing_semicolon:location option ->
   location:location ->
   global_declaration
 
@@ -1048,10 +1090,24 @@ val make_register_qualifier :
   register_qualifier
 
 val make_expression_literal :
+  origin:literal_origin ->
   spelling:string ->
   value:literal_value ->
   location:location ->
   expression_literal
+
+val make_segmented_expression_literal :
+  segments:expression_literal_segment list ->
+  spelling:string ->
+  value:literal_value ->
+  location:location ->
+  expression_literal
+
+val make_expression_literal_segment :
+  spelling:string ->
+  value:string ->
+  location:location ->
+  expression_literal_segment
 
 val make_expression_operator :
   spelling:string -> location:location -> expression_operator
@@ -1187,12 +1243,18 @@ val make_function_parameter :
   location:location ->
   function_parameter
 
+val make_empty_parameter_entry :
+  preceding_parameter_count:int ->
+  delimiter:declaration_delimiter ->
+  empty_parameter_entry
+
 val make_function_pointer_declarator :
   declarator_opening_parenthesis:location ->
   indirection_layers:pointer_layer list ->
   declarator_closing_parenthesis:location ->
   signature_opening_parenthesis:location ->
   signature_parameters:function_parameter list ->
+  signature_empty_parameter_entries:empty_parameter_entry list ->
   signature_variadic:variadic_marker option ->
   signature_closing_parenthesis:location ->
   function_pointer_location:location ->
@@ -1212,9 +1274,10 @@ val make_function_prototype :
   name:identifier ->
   opening_parenthesis:location ->
   parameters:function_parameter list ->
+  empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
   closing_parenthesis:location ->
-  semicolon:location ->
+  semicolon:location option ->
   location:location ->
   function_prototype
 
@@ -1485,6 +1548,7 @@ val make_function_definition :
   name:identifier ->
   opening_parenthesis:location ->
   parameters:function_parameter list ->
+  empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
   closing_parenthesis:location ->
   body:statement option ->
