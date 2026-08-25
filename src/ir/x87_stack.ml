@@ -50,14 +50,10 @@ end)
 
 module Error_set = Set.Make (String)
 
-type t = {
-  graph : Graph.t;
-  trace : instruction_trace list;
-}
+type t = { graph : Graph.t; trace : instruction_trace list }
 
 let max_depth = 8
 let pops_float opcode = (Opcode.info opcode).pops_float
-
 let res_to_f64 = 0x000000001L
 let res_to_int = 0x000000002L
 let arg1_to_f64 = 0x000000004L
@@ -72,7 +68,6 @@ let dont_push_shift = 21
 let dont_pop_shift = 24
 let suppression_width = 3
 let suppression_mask = 0x7L
-
 let has flags mask = Int64.logand flags mask <> 0L
 
 let field flags shift =
@@ -90,13 +85,13 @@ let error ?block_id ?instruction_id ?span code message =
     span;
   }
 
-let conversion_name = function To_f64 -> "to-f64" | To_int -> "to-int"
+let conversion_name = function
+  | To_f64 -> "to-f64"
+  | To_int -> "to-int"
 
 let slot_kind_name = function
-  | Operand_2_conversion direction ->
-      "operand-2-" ^ conversion_name direction
-  | Operand_1_conversion direction ->
-      "operand-1-" ^ conversion_name direction
+  | Operand_2_conversion direction -> "operand-2-" ^ conversion_name direction
+  | Operand_1_conversion direction -> "operand-1-" ^ conversion_name direction
   | Operation -> "operation"
   | Result_conversion direction -> "result-" ^ conversion_name direction
 
@@ -122,11 +117,7 @@ let is_comparison = function
   | _ -> false
 
 let is_exit = function
-  | Opcode.Ic_return_val
-  | Ic_return_val2
-  | Ic_leave
-  | Ic_ret
-  | Ic_end -> true
+  | Opcode.Ic_return_val | Ic_return_val2 | Ic_leave | Ic_ret | Ic_end -> true
   | _ -> false
 
 let has_float_target description =
@@ -165,9 +156,9 @@ let conversion_slot flags to_float to_int kind =
 let slots description =
   let flags = description.Sequence.flags in
   conversion_slot flags arg2_to_f64 arg2_to_int (fun direction ->
-        Operand_2_conversion direction)
+      Operand_2_conversion direction)
   @ conversion_slot flags arg1_to_f64 arg1_to_int (fun direction ->
-        Operand_1_conversion direction)
+      Operand_1_conversion direction)
   @ (if operation_uses_x87 description then [ Operation ] else [])
   @
   if description.opcode = Opcode.Ic_push_cmp then []
@@ -191,13 +182,15 @@ let malformed_flag_errors block_id description slot_count =
       (use_f64, use_int, "operation");
     ]
     |> List.filter_map (fun (left, right, subject) ->
-           if conflicting flags left right then
-             Some (make (subject ^ " requests incompatible float and integer paths"))
-           else None)
+        if conflicting flags left right then
+          Some
+            (make (subject ^ " requests incompatible float and integer paths"))
+        else None)
   in
   let comparison_errors =
-    if (has flags push_cmp || has flags pop_cmp)
-       && not (is_comparison description.opcode)
+    if
+      (has flags push_cmp || has flags pop_cmp)
+      && not (is_comparison description.opcode)
     then
       [
         make
@@ -224,7 +217,7 @@ let malformed_flag_errors block_id description slot_count =
   in
   let push_bits = field flags dont_push_shift in
   let pop_bits = field flags dont_pop_shift in
-  let unused = (push_bits lor pop_bits) land lnot active_mask in
+  let unused = push_bits lor pop_bits land lnot active_mask in
   let suppression_errors =
     if unused <> 0 then
       [
@@ -243,9 +236,9 @@ let static_errors graph =
       let block_id = Graph.block_id block in
       Graph.instructions block |> Sequence.instructions
       |> List.concat_map (fun instruction ->
-             let description = Sequence.description instruction in
-             malformed_flag_errors block_id description
-               (List.length (slots description))))
+          let description = Sequence.description instruction in
+          malformed_flag_errors block_id description
+            (List.length (slots description))))
     (Graph.blocks graph)
 
 let slot_effect block_id description depth index kind =
@@ -259,8 +252,7 @@ let slot_effect block_id description depth index kind =
       [
         error ~block_id ~instruction_id:description.instruction_id
           ?span:description.span "HCIR0022"
-          (Printf.sprintf
-             "%s underflows the x87 stack at %s slot %d"
+          (Printf.sprintf "%s underflows the x87 stack at %s slot %d"
              (Opcode.to_source_name description.opcode)
              (slot_kind_name kind) index);
       ]
@@ -274,7 +266,14 @@ let slot_effect block_id description depth index kind =
       ]
     else []
   in
-  ( { index; kind; suppress_push; suppress_pop; before_depth = depth; after_depth },
+  ( {
+      index;
+      kind;
+      suppress_push;
+      suppress_pop;
+      before_depth = depth;
+      after_depth;
+    },
     after_depth,
     errors )
 
@@ -284,7 +283,8 @@ let boundary_errors block_id description after_depth =
   let make boundary depth =
     error ~block_id ~instruction_id ?span:description.span "HCIR0025"
       (Printf.sprintf "%s reaches %s with x87 depth %d; depth must be zero"
-         (Opcode.to_source_name opcode) boundary depth)
+         (Opcode.to_source_name opcode)
+         boundary depth)
   in
   if is_exit opcode && after_depth <> 0 then
     [ make "a function exit" after_depth ]
@@ -310,9 +310,7 @@ let verify_block block incoming_depth =
           errors := List.rev_append slot_errors !errors)
         (slots description);
       errors :=
-        List.rev_append
-          (boundary_errors block_id description !depth)
-          !errors;
+        List.rev_append (boundary_errors block_id description !depth) !errors;
       traces :=
         {
           block_id;
@@ -363,7 +361,8 @@ let verify_depths graph =
           let outgoing, block_trace, block_errors = verify_block block depth in
           traces := Block_map.add id block_trace !traces;
           errors := List.rev_append block_errors !errors;
-          List.iter (fun successor -> enqueue successor outgoing)
+          List.iter
+            (fun successor -> enqueue successor outgoing)
             (Graph.successors block)
     done
   in
@@ -379,8 +378,8 @@ let verify_depths graph =
   let ordered_trace =
     Graph.blocks graph
     |> List.concat_map (fun block ->
-           Block_map.find_opt (Graph.block_id block) !traces
-           |> Option.value ~default:[])
+        Block_map.find_opt (Graph.block_id block) !traces
+        |> Option.value ~default:[])
   in
   (ordered_trace, List.rev !errors)
 
@@ -406,7 +405,8 @@ let human verified =
         (block_number instruction.block_id)
         (instruction_number instruction.instruction_id)
         instruction.before_depth instruction.after_depth;
-      Printf.bprintf buffer " fpop=%b use-f64=%b use-int=%b cmp-push=%b cmp-pop=%b"
+      Printf.bprintf buffer
+        " fpop=%b use-f64=%b use-int=%b cmp-push=%b cmp-pop=%b"
         instruction.opcode_pops_float instruction.use_f64 instruction.use_int
         instruction.push_comparison instruction.pop_comparison;
       List.iter

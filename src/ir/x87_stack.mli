@@ -42,6 +42,7 @@ type error = {
 type t
 
 val max_depth : int
+
 val pops_float : Opcode.t -> bool
 (** Return the pinned [fpop] fact from [Compiler/CInit.HC]. This fact does not
     include operand or result conversions. *)
@@ -53,6 +54,7 @@ val verify : Block_graph.t -> (t, error list) result
 
 val graph : t -> Block_graph.t
 val trace : t -> instruction_trace list
+
 val human : t -> string
 (** Render the source-ordered stack trace used by tests and diagnostics. *)
 

@@ -32,8 +32,8 @@ let i64 = primitive_type Primitive.I64
 let f64 = primitive_type Primitive.F64
 let result value : Sequence.value_definition = { value_id = value_id value }
 
-let description ?(operands = []) ?result ?target_type ?payload ?(flags = 0L)
-    id opcode : Sequence.description =
+let description ?(operands = []) ?result ?target_type ?payload ?(flags = 0L) id
+    opcode : Sequence.description =
   {
     instruction_id = instruction_id id;
     opcode;
@@ -51,11 +51,12 @@ let block id instructions : Graph.block_description =
 let graph ~entry blocks =
   Graph.create ~entry:(block_id entry) blocks
   |> require_ok (fun errors ->
-         String.concat "; " (List.map show_graph_error errors))
+      String.concat "; " (List.map show_graph_error errors))
 
 let verify graph =
   X87.verify graph
-  |> require_ok (fun errors -> String.concat "; " (List.map show_x87_error errors))
+  |> require_ok (fun errors ->
+      String.concat "; " (List.map show_x87_error errors))
 
 let errors graph =
   match X87.verify graph with
@@ -71,8 +72,9 @@ let imm id value =
   description ~result:(result value) ~target_type:f64 id Opcode.Ic_imm_f64
 
 let sqr ?(flags = 0L) id operand output =
-  description ~operands:[ value_id operand ] ~result:(result output)
-    ~target_type:f64 ~flags id Opcode.Ic_sqr
+  description
+    ~operands:[ value_id operand ]
+    ~result:(result output) ~target_type:f64 ~flags id Opcode.Ic_sqr
 
 let arg1_to_f64 = 0x000000004L
 let res_to_f64 = 0x000000001L
@@ -98,7 +100,8 @@ let bits setter mask =
 let popcount value =
   List.init 3 Fun.id
   |> List.fold_left
-       (fun count index -> count + if value land (1 lsl index) = 0 then 0 else 1)
+       (fun count index ->
+         count + if value land (1 lsl index) = 0 then 0 else 1)
        0
 
 let source_fpop_facts_are_retained () =
@@ -107,12 +110,10 @@ let source_fpop_facts_are_retained () =
     (fun opcode ->
       Alcotest.(check bool)
         (Opcode.to_source_name opcode)
-        (Opcode.info opcode).pops_float
-        (X87.pops_float opcode))
+        (Opcode.info opcode).pops_float (X87.pops_float opcode))
     Opcode.all;
   Alcotest.(check bool) "IC_SQR fpop" true (X87.pops_float Opcode.Ic_sqr);
-  Alcotest.(check bool)
-    "IC_LESS fpop" false (X87.pops_float Opcode.Ic_less);
+  Alcotest.(check bool) "IC_LESS fpop" false (X87.pops_float Opcode.Ic_less);
   let expected =
     [
       Opcode.Ic__pp;
@@ -160,7 +161,8 @@ let suppression_combinations_are_independent () =
         |> Int64.logor (bits dont_pop pop_mask)
       in
       let subject =
-        description ~operands:[ value_id operand; value_id operand ]
+        description
+          ~operands:[ value_id operand; value_id operand ]
           ~result:(result value) ~target_type:f64 ~flags:subject_flags
           instruction Opcode.Ic_add
       in
@@ -173,19 +175,21 @@ let suppression_combinations_are_independent () =
         graph ~entry:0
           [
             block 0
-              ([ imm 0 0 ] @ initial @ [ subject ] @ drain
-             @ [ description instruction Opcode.Ic_ret ]);
+              ([ imm 0 0 ]
+              @ initial @ [ subject ] @ drain
+              @ [ description instruction Opcode.Ic_ret ]);
           ]
         |> verify
       in
       let subject_trace =
         X87.trace checked
         |> List.find (fun (trace : X87.instruction_trace) ->
-               Sequence.Instruction_id.to_int trace.instruction_id
-               = instruction - after - 1)
+            Sequence.Instruction_id.to_int trace.instruction_id
+            = instruction - after - 1)
       in
       Alcotest.(check int)
-        "three tracked slots" 3 (List.length subject_trace.slots);
+        "three tracked slots" 3
+        (List.length subject_trace.slots);
       Alcotest.(check (list string))
         "ordered conversion directions"
         [ "operand-2-to-f64"; "operand-1-to-f64"; "operation" ]
@@ -212,10 +216,12 @@ let conversion_directions_are_retained () =
           [
             imm 0 0;
             imm 1 1;
-            description ~operands:[ value_id 0; value_id 1 ]
+            description
+              ~operands:[ value_id 0; value_id 1 ]
               ~result:(result 2) ~target_type:f64 ~flags:first_flags 2
               Opcode.Ic_add;
-            description ~operands:[ value_id 0; value_id 1 ]
+            description
+              ~operands:[ value_id 0; value_id 1 ]
               ~result:(result 3) ~target_type:i64 ~flags:second_flags 3
               Opcode.Ic_add;
             description 4 Opcode.Ic_ret;
@@ -243,7 +249,9 @@ let malformed_flags_are_rejected () =
     graph ~entry:0
       [
         block 0
-          [ imm 0 0; sqr ~flags:(dont_pop 1) 1 0 1; description 2 Opcode.Ic_ret ];
+          [
+            imm 0 0; sqr ~flags:(dont_pop 1) 1 0 1; description 2 Opcode.Ic_ret;
+          ];
       ]
   in
   errors unused_suppression |> has_code "HCIR0021";
@@ -265,7 +273,8 @@ let malformed_flags_are_rejected () =
         block 0
           [
             imm 0 0;
-            description ~operands:[ value_id 0; value_id 0 ]
+            description
+              ~operands:[ value_id 0; value_id 0 ]
               ~result:(result 1) ~target_type:f64 ~flags:push_cmp 1
               Opcode.Ic_add;
             description 2 Opcode.Ic_ret;
@@ -279,7 +288,9 @@ let underflow_and_overflow_are_rejected () =
     graph ~entry:0
       [
         block 0
-          [ imm 0 0; sqr ~flags:(dont_push 0) 1 0 1; description 2 Opcode.Ic_ret ];
+          [
+            imm 0 0; sqr ~flags:(dont_push 0) 1 0 1; description 2 Opcode.Ic_ret;
+          ];
       ]
   in
   errors underflow |> has_code "HCIR0022";
@@ -296,7 +307,8 @@ let underflow_and_overflow_are_rejected () =
     graph ~entry:0
       [
         block 0
-          ([ imm 0 0 ] @ eight_live
+          ([ imm 0 0 ]
+          @ eight_live
           @ [ sqr 9 0 9; description 10 Opcode.Ic_ret ]);
       ]
   in
@@ -309,8 +321,10 @@ let merge_depths_must_agree () =
         block 0
           [
             description ~result:(result 0) ~target_type:i64 0 Opcode.Ic_imm_i64;
-            description ~operands:[ value_id 0 ]
-              ~payload:(Sequence.Block (block_id 2)) 1 Opcode.Ic_br_zero;
+            description
+              ~operands:[ value_id 0 ]
+              ~payload:(Sequence.Block (block_id 2))
+              1 Opcode.Ic_br_zero;
           ];
         block 1
           [
@@ -337,8 +351,10 @@ let balanced_loop_is_accepted () =
             sqr ~flags:(dont_pop 0) 2 0 1;
             sqr ~flags:(dont_push 0) 3 0 2;
             description ~result:(result 3) ~target_type:i64 4 Opcode.Ic_imm_i64;
-            description ~operands:[ value_id 3 ]
-              ~payload:(Sequence.Block (block_id 1)) 5 Opcode.Ic_br_zero;
+            description
+              ~operands:[ value_id 3 ]
+              ~payload:(Sequence.Block (block_id 1))
+              5 Opcode.Ic_br_zero;
           ];
         block 2 [ description 6 Opcode.Ic_ret ];
       ]
@@ -351,7 +367,12 @@ let terminal_marker_requires_empty_stack () =
   ignore (verify balanced);
   let unbalanced =
     graph ~entry:0
-      [ block 0 [ imm 0 0; sqr ~flags:(dont_pop 0) 1 0 1; description 2 Opcode.Ic_end ] ]
+      [
+        block 0
+          [
+            imm 0 0; sqr ~flags:(dont_pop 0) 1 0 1; description 2 Opcode.Ic_end;
+          ];
+      ]
   in
   errors unbalanced |> has_code "HCIR0025"
 
@@ -377,7 +398,9 @@ let calls_preserve_depth_and_exits_require_empty_stack () =
     graph ~entry:0
       [
         block 0
-          [ imm 0 0; sqr ~flags:(dont_pop 0) 1 0 1; description 2 Opcode.Ic_ret ];
+          [
+            imm 0 0; sqr ~flags:(dont_pop 0) 1 0 1; description 2 Opcode.Ic_ret;
+          ];
       ]
   in
   errors exit |> has_code "HCIR0025"
@@ -393,7 +416,8 @@ let comparison_transfers_are_separate () =
               [
                 imm 0 0;
                 imm 1 1;
-                description ~operands:[ value_id 0; value_id 1 ]
+                description
+                  ~operands:[ value_id 0; value_id 1 ]
                   ~result:(result 2) ~target_type:i64 ~flags 2 Opcode.Ic_less;
                 description 3 Opcode.Ic_ret;
               ];
@@ -402,7 +426,8 @@ let comparison_transfers_are_separate () =
       in
       let comparison = List.nth (X87.trace checked) 2 in
       Alcotest.(check int)
-        "one float operation" 1 (List.length comparison.slots);
+        "one float operation" 1
+        (List.length comparison.slots);
       Alcotest.(check int)
         "comparison remains balanced" 0 comparison.after_depth)
     [ push_cmp; pop_cmp; Int64.logor push_cmp pop_cmp ];
@@ -437,10 +462,14 @@ let deterministic_trace () =
   in
   let expected =
     "holyc-ir-x87-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c\n\
-     ^b4 !i0 depth=0->0 fpop=false use-f64=false use-int=false cmp-push=false cmp-pop=false\n\
-     ^b4 !i1 depth=0->1 fpop=true use-f64=false use-int=false cmp-push=false cmp-pop=false 0:operation:no-pop:0->1\n\
-     ^b4 !i2 depth=1->0 fpop=true use-f64=false use-int=false cmp-push=false cmp-pop=false 0:operation:no-push:1->0\n\
-     ^b4 !i3 depth=0->0 fpop=false use-f64=false use-int=false cmp-push=false cmp-pop=false\n"
+     ^b4 !i0 depth=0->0 fpop=false use-f64=false use-int=false cmp-push=false \
+     cmp-pop=false\n\
+     ^b4 !i1 depth=0->1 fpop=true use-f64=false use-int=false cmp-push=false \
+     cmp-pop=false 0:operation:no-pop:0->1\n\
+     ^b4 !i2 depth=1->0 fpop=true use-f64=false use-int=false cmp-push=false \
+     cmp-pop=false 0:operation:no-push:1->0\n\
+     ^b4 !i3 depth=0->0 fpop=false use-f64=false use-int=false cmp-push=false \
+     cmp-pop=false\n"
   in
   Alcotest.(check string) "versioned trace" expected (X87.human checked)
 
@@ -449,7 +478,9 @@ let failures_are_deterministic () =
     graph ~entry:0
       [
         block 0
-          [ imm 0 0; sqr ~flags:(dont_push 0) 1 0 1; description 2 Opcode.Ic_ret ];
+          [
+            imm 0 0; sqr ~flags:(dont_push 0) 1 0 1; description 2 Opcode.Ic_ret;
+          ];
       ]
   in
   let signature errors =
@@ -468,8 +499,7 @@ let failures_are_deterministic () =
 
 let tests =
   [
-    Alcotest.test_case "source fpop facts" `Quick
-      source_fpop_facts_are_retained;
+    Alcotest.test_case "source fpop facts" `Quick source_fpop_facts_are_retained;
     Alcotest.test_case "suppression combinations" `Quick
       suppression_combinations_are_independent;
     Alcotest.test_case "conversion directions" `Quick
