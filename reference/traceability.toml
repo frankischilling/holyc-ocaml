@@ -7436,6 +7436,40 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
+description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
+sources = [
+  "Compiler/CMain.HC:LexStmt2Bin statement stream, final-result rewrite, and return boundary",
+  "Compiler/CMain.HC:Cmp JIT and AOT source-order compilation",
+  "Compiler/PrsStmt.HC:PrsStmt active CCodeCtrl statement parsing",
+  "Compiler/PrsLib.HC:COCCompile code-stream consumer",
+  "Kernel/KernelA.HH:CCodeCtrl compiler state"
+]
+implementation = [
+  "src/ir/top_level_body.ml",
+  "src/ir/top_level_body.mli",
+  "src/sema/compiler_option.ml",
+  "src/sema/compiler_option.mli"
+]
+tests = [
+  "test/test_ir_top_level_body.ml",
+  "test/test_compiler_option.ml"
+]
+status = "implemented"
+issue = 409
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one executable top-level statement around an existing checked block graph"
+retained_identity = ["stable stream ID", "source-item position"]
+retained_state = ["compiler-option snapshot", "source span", "checked graph", "verified x87 result"]
+validation = ["nonnegative stream identity", "nonnegative source-item position", "known compiler options", "source span shape", "x87 stack discipline"]
+diagnostics = ["HCIR0034 negative stream ID", "HCIR0035 negative source-item position", "HCIR0036 invalid source span", "HCIR0037 unknown compiler-option bits", "HCIR0021 through HCIR0025 propagated x87 failures"]
+deterministic_dump = "holyc-ir-top-level-v1"
+focused_tests = 5
+mutation = "none"
+function_symbol_signature_scope_storage_final_result_rewrite_return_emission_module_ownership_and_execution = "not represented"
+native_oracle_status = "not required for this construction boundary; LexStmt2Bin and Cmp state the separate stream and source-order behavior directly"
+
+[[feature]]
 id = "HC-IR-NAMED-FUNCTION-BODY"
 description = "Named HolyC functions retain checked signatures, member inventories, compiler state, and verified graph bodies."
 sources = [
