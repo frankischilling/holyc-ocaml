@@ -21,6 +21,7 @@ module Ir_control_flow = Ir.Control_flow
 module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
+module Ir_function_body = Ir.Function_body
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode

@@ -32,3 +32,6 @@ val successors : block -> Block_id.t list
 
 val human : t -> string
 (** Render the versioned, deterministic graph form used by tests and tools. *)
+
+val human_body : t -> string
+(** Render the entry and blocks without the graph schema header. *)
