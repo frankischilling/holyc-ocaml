@@ -7436,6 +7436,42 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-CHECKED-BLOCK-GRAPH"
+description = "A function owns an explicit entry and source-ordered immutable blocks with checked transfer targets and deterministic successors."
+sources = [
+  "Kernel/KernelA.HH:1647-1684 linked intermediate-code records and tree links",
+  "Kernel/KernelA.HH:1706-1733 label forwarding, default target, switch origin, and jump-table fields",
+  "Compiler/PrsLib.HC:79-97 source-ordered ICAdd insertion",
+  "Compiler/OptPass012.HC:1089-1185 label forwarding and branch targets",
+  "Compiler/OptPass3.HC:269-390,497-504 switch, branch, jump, end, and label consumers",
+  "Compiler/OptPass4.HC:520-545 dead-code boundary after jump and return",
+  "Compiler/OptPass789A.HC:152-294,418,1037 transfer emission and label addresses",
+  "Compiler/BackC.HC:649-742 switch default and jump-table targets"
+]
+implementation = [
+  "src/ir/block_graph.ml",
+  "src/ir/block_graph.mli",
+  "src/ir/instruction_sequence.ml",
+  "src/ir/instruction_sequence.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_block_graph.ml"]
+status = "implemented"
+issue = 401
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked function-local block graph over source-ordered immutable instruction sequences"
+validation = ["defined entry", "unique block, instruction, and value IDs", "valid child instruction sequences", "no instruction after a terminator", "single-target payload shape", "ordered switch-target payload shape", "all transfer targets defined in the same function", "ordinary and conditional fallthrough to the next source block", "no final fallthrough", "one terminal IC_END with no later content"]
+successor_order = "explicit target order followed by conditional fallthrough; repeated switch destinations collapse in the graph view but remain in the instruction payload"
+diagnostics = ["HCIR0001 through HCIR0010 child-sequence errors with block context", "HCIR0011 duplicate block", "HCIR0012 duplicate function-wide instruction", "HCIR0013 duplicate function-wide value", "HCIR0014 missing entry", "HCIR0015 instruction after terminator", "HCIR0016 wrong target payload", "HCIR0017 undefined target", "HCIR0018 final fallthrough", "HCIR0019 repeated IC_END", "HCIR0020 content after IC_END"]
+deterministic_text_schema = "holyc-ir-graph-v1"
+focused_tests = 11
+property_cases = 1000
+mutation = "none after construction"
+function_signatures_lowering_effects_exceptions_locks_relocations_floating_stack_optimization_interpretation_and_codegen = "not implemented"
+native_oracle_status = "not required for this host-side graph boundary; the pinned optimizer and backend consumers state target and fallthrough behavior directly"
+
+[[feature]]
 id = "HC-IR-CHECKED-INSTRUCTION-SEQUENCE"
 description = "Source-ordered IR instructions receive stable identities and pass metadata-driven structural checks before becoming immutable."
 sources = [
