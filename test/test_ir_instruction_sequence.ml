@@ -193,7 +193,7 @@ let spans_and_flags_are_checked () =
             (error.span = Some invalid_span))
         errors);
   Alcotest.(check int64)
-    "source-grounded flag mask" 0x1ffe1ffffL Ir.known_flag_mask
+    "source-grounded flag mask" 0x1ffedffffL Ir.known_flag_mask
 
 let deterministic_human_dump () =
   let source = Holyc_lib.Source_id.of_int 7 |> require_ok Fun.id in

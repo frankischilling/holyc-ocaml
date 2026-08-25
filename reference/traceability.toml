@@ -7436,6 +7436,45 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-X87-STACK-DISCIPLINE"
+description = "Checked function graphs retain source-grounded x87 operations and reject inconsistent stack depth."
+sources = [
+  "Compiler/CInit.HC:17-201 complete fpop table",
+  "Kernel/KernelA.HH:1602-1636 floating conversion, comparison, and suppression flags",
+  "Compiler/OptLib.HC:101-177,302-350,429-477 floating preparation and comparison cleanup",
+  "Compiler/OptPass012.HC:69-160,698-822,859-1086 floating types and conversion flags",
+  "Compiler/OptPass3.HC:220-267,376-393,476 floating operation preparation",
+  "Compiler/BackFA.HC:1-73,525-542 tracked operations and suppression masks",
+  "Compiler/BackFB.HC:226-478 comparison emission and machine-stack transfers",
+  "Compiler/OptPass789A.HC:44-73,189-294,1035-1062 final floating emission"
+]
+implementation = [
+  "src/ir/x87_stack.ml",
+  "src/ir/x87_stack.mli",
+  "src/ir/instruction_sequence.ml",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_ir_x87_stack.ml",
+  "test/test_ir_instruction_sequence.ml"
+]
+status = "implemented"
+issue = 405
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+entry_depth = 0
+maximum_depth = 8
+slot_order = ["operand 2 conversion", "operand 1 conversion", "opcode operation", "result conversion"]
+call_boundary = "IC_SUB_CALL, IC_CALL, IC_CALL_INDIRECT, IC_CALL_INDIRECT2, IC_CALL_IMPORT, and IC_CALL_EXTERN have no implicit x87 action; their explicit conversion slots still apply"
+exit_boundary = "IC_RETURN_VAL, IC_RETURN_VAL2, IC_LEAVE, IC_RET, and IC_END require depth zero after their conversion action"
+comparison_boundary = "ICF_PUSH_CMP and ICF_POP_CMP retain machine-stack transfer state independently from the balanced x87 comparison action"
+diagnostics = ["HCIR0021 malformed floating flags", "HCIR0022 x87 underflow", "HCIR0023 x87 depth above eight", "HCIR0024 inconsistent merge depth", "HCIR0025 nonzero exit boundary"]
+deterministic_trace = "holyc-ir-x87-v1"
+mutation = "none"
+floating_evaluation_machine_encoding_numerical_compatibility = "not implemented"
+native_oracle_status = "not required for this structural verifier; pinned optimizer and backend consumers define stack operations and boundaries directly"
+
+[[feature]]
 id = "HC-IR-OPCODE-EFFECT-CLASSIFICATION"
 description = "Every checked opcode has a conservative effect record independent from its source constant-fold barrier."
 sources = [
