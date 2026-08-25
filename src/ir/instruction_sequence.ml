@@ -64,7 +64,7 @@ type instruction = description
 type t = instruction list
 
 let reference_commit = Opcode.reference_commit
-let known_flag_mask = 0x1ffe1ffffL
+let known_flag_mask = 0x1ffedffffL
 
 module Int_map = Map.Make (Int)
 module Int_set = Set.Make (Int)

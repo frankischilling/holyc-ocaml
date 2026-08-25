@@ -73,6 +73,7 @@
   test_ir_control_flow
   test_ir_block_graph
   test_ir_effects
+  test_ir_x87_stack
   test_function_flag_source
   test_function_flag
   test_global_record_flag_source
