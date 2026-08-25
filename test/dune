@@ -71,6 +71,7 @@
   test_intermediate_code
   test_ir_instruction_sequence
   test_ir_control_flow
+  test_ir_block_graph
   test_function_flag_source
   test_function_flag
   test_global_record_flag_source

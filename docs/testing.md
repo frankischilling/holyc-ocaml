@@ -12,7 +12,7 @@ powershell -File tools/verify-reference.ps1
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
-The current test binary runs 1,229 cases: 1,228 explicitly registered Alcotest cases and one property case. `test/dune` also defines 216 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 80 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
+The current test binary runs 1,266 cases: 1,261 ordinary Alcotest cases and five registered property tests. `test/dune` also defines 222 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 80 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
 
 Twenty-five function-flag source cases validate the function hash type, all shared, stored, and parser-staging flags, source expressions, record transitions, 12 source digests, and consumer anchors. Ten public API cases cover the typed registries and transition helpers. Eight semantic cases replay JIT and AOT records through ordinary and alternate bindings, joined headers, public replacement, sticky private state, varargs and `RET1`, import precedence, invalid inputs, and deterministic classification. They establish record masks and consumer intent; they do not claim header comparison, address binding, fixup or loader-record emission, call lowering, or native ABI behavior.
 
@@ -338,6 +338,12 @@ The IR control-flow group partitions all 185 opcodes into 147 ordinary fallthrou
 
 ```sh
 opam exec -- dune exec test/test_main.exe -- test "IR control flow"
+```
+
+The IR block-graph group covers entry selection, source order that differs from numeric block order, ordinary and conditional fallthrough, forward and backward jumps, ordered switch targets, returns, and the single stream-end marker. Negative cases pin child-sequence context, duplicate block, instruction, and value IDs, unknown or wrongly shaped targets, instructions after terminators, a final fallthrough, repeated `IC_END`, and later blocks after `IC_END`. The reviewed `holyc-ir-graph-v1` fixture fixes entry, block, instruction, and successor order. Two 500-case QCheck properties exercise order, lookup, dumps, and deterministic errors. Run only this group with:
+
+```sh
+opam exec -- dune exec test/test_main.exe -- test "IR block graph"
 ```
 
 Function-flag tests cover the two shared flag positions, all eight stored function bits, all eight parser-staging masks, both source groups, and every modifier transition. The transition test checks all 4,096 possible staging masks. Boundary and truth-table tests cover automatic `RET1`, varargs, caller cleanup, interrupt error-code handling, internal functions, and the distinction between public hash state and stored function flags.

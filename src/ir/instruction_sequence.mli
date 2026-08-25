@@ -38,6 +38,7 @@ type payload =
   | Bytes of string
   | Symbol of Sema.Symbol.t
   | Block of Block_id.t
+  | Block_targets of Block_id.t list
 
 type value_definition = { value_id : Value_id.t }
 
@@ -68,3 +69,7 @@ val length : t -> int
 
 val human : t -> string
 (** Render the versioned, deterministic text form used by tests and tools. *)
+
+val human_body : t -> string
+(** Render instructions without the schema header. This is used by enclosing IR
+    containers that provide their own versioned header. *)

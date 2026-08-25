@@ -18,6 +18,7 @@ module Semantic_symbol_table = Sema.Symbol_table
 module Ir_opcode = Ir.Opcode
 module Ir_instruction_sequence = Ir.Instruction_sequence
 module Ir_control_flow = Ir.Control_flow
+module Ir_block_graph = Ir.Block_graph
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode

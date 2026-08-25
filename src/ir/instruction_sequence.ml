@@ -45,6 +45,7 @@ type payload =
   | Bytes of string
   | Symbol of Sema.Symbol.t
   | Block of Block_id.t
+  | Block_targets of Block_id.t list
 
 type value_definition = { value_id : Value_id.t }
 
@@ -242,6 +243,14 @@ let add_payload buffer = function
         (Sema.Symbol.kind_name (Sema.Symbol.kind symbol));
       add_escaped_bytes buffer (Sema.Symbol.name symbol)
   | Block block -> Printf.bprintf buffer " block:^b%d" (Block_id.to_int block)
+  | Block_targets blocks ->
+      Buffer.add_string buffer " blocks:[";
+      List.iteri
+        (fun index block ->
+          if index > 0 then Buffer.add_char buffer ',';
+          Printf.bprintf buffer "^b%d" (Block_id.to_int block))
+        blocks;
+      Buffer.add_char buffer ']'
 
 let add_instruction buffer description =
   Printf.bprintf buffer "!i%d " (instruction_number description);
@@ -273,5 +282,10 @@ let add_instruction buffer description =
 let human sequence =
   let buffer = Buffer.create 256 in
   Printf.bprintf buffer "holyc-ir-v1 reference=%s\n" reference_commit;
+  List.iter (add_instruction buffer) sequence;
+  Buffer.contents buffer
+
+let human_body sequence =
+  let buffer = Buffer.create 256 in
   List.iter (add_instruction buffer) sequence;
   Buffer.contents buffer
