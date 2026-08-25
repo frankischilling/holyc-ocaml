@@ -7436,6 +7436,37 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-OPCODE-EFFECT-CLASSIFICATION"
+description = "Every checked opcode has a conservative effect record independent from its source constant-fold barrier."
+sources = [
+  "Compiler/CInit.HC:17-201 intermediate-code structural classes, float-pop behavior, and not_const",
+  "Kernel/KernelA.HH:1602-1684 ICF fields, CICArg, and CIntermediateCode",
+  "Compiler/OptPass012.HC:20-67,275-305,866-938,1185-1252 constant-fold barrier and opcode consumers",
+  "Compiler/OptPass3.HC:119-246,274-293,406-504 memory, call, and assembly consumers",
+  "Compiler/OptPass4.HC:206-402,540-670 memory rewrites and preserved operations",
+  "Compiler/OptPass6.HC:39-135 call boundaries and assignment fusion",
+  "Compiler/OptPass789A.HC final memory, stack, machine, port, cache, TLB, clock, call, and assembly emission"
+]
+implementation = [
+  "src/ir/effects.ml",
+  "src/ir/effects.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_effects.ml"]
+status = "implemented"
+issue = 403
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "total opcode-potential classification over all 185 checked intermediate-code operations"
+access_axes = ["memory", "stack", "machine", "port", "cache_tlb", "clock"]
+access_values = ["none", "read", "write", "read-write", "opaque"]
+call_values = ["none", "local", "direct", "indirect", "import", "extern"]
+source_fact = "prevents_constant_folding retains CInit.HC not_const without asserting semantic purity"
+conservative_rules = ["calls cover opaque memory and machine state", "inline assembly is opaque on every access axis", "memory and machine reads are reorder barriers"]
+instruction_operand_refinement_alias_regions_exceptions_locks_relocations_and_x87_stack = "not implemented"
+native_oracle_status = "not required for this conservative compiler-internal boundary; every classification cites pinned optimizer or backend consumers"
+
+[[feature]]
 id = "HC-IR-CHECKED-BLOCK-GRAPH"
 description = "A function owns an explicit entry and source-ordered immutable blocks with checked transfer targets and deterministic successors."
 sources = [
