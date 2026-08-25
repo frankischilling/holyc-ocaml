@@ -93,6 +93,7 @@ let () =
       ("intermediate code", Test_intermediate_code.tests);
       ("IR instruction sequence", Test_ir_instruction_sequence.tests);
       ("IR control flow", Test_ir_control_flow.tests);
+      ("IR block graph", Test_ir_block_graph.tests);
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);
       ("global record flag source", Test_global_record_flag_source.tests);
