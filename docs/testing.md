@@ -12,7 +12,7 @@ powershell -File tools/verify-reference.ps1
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
-The current test binary runs 1,287 cases: 1,282 ordinary Alcotest cases and five registered property tests. `test/dune` also defines 222 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 80 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
+The current test binary runs 1,295 cases: 1,290 ordinary Alcotest cases and five registered property tests. `test/dune` also defines 222 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 80 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
 
 Twenty-five function-flag source cases validate the function hash type, all shared, stored, and parser-staging flags, source expressions, record transitions, 12 source digests, and consumer anchors. Ten public API cases cover the typed registries and transition helpers. Eight semantic cases replay JIT and AOT records through ordinary and alternate bindings, joined headers, public replacement, sticky private state, varargs and `RET1`, import precedence, invalid inputs, and deterministic classification. They establish record masks and consumer intent; they do not claim header comparison, address binding, fixup or loader-record emission, call lowering, or native ABI behavior.
 
@@ -370,6 +370,12 @@ The IR x87 group compares the retained `fpop` fact for all 185 opcodes and pins 
 
 ```text
 dune exec test/test_main.exe -- test "IR x87 stack"
+```
+
+The named-function IR group checks stable nonnegative function IDs, distinct declaration and body scopes, return types, source-ordered parameters and locals, independent member positions, stored function flags, compiler-option snapshots, source spans, and byte-stable `holyc-ir-function-v1` output. Negative cases cover wrong symbol kinds and scopes, duplicate positions and symbols, unknown mask bits, incompatible calling flags, malformed spans, and x87 verifier failures with function context. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test "IR function body"
 ```
 
 Terminal-global-comma cases cover the exact `Demo/Graphics/Life.HC:4` spelling, initialized and bound globals, recursive function pointers, aggregate-attached globals, JIT and AOT modes, definition and include provenance, deterministic dumps, and semantic termination without a phantom symbol. In the earlier negative-case inventory, “trailing declaration commas” means a comma followed by something other than the required semicolon; `name,;` is accepted.
