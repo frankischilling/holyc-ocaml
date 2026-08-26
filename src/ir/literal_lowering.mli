@@ -39,6 +39,16 @@ val lower_expression :
     outermost operator. Other expressions return [Not_literal] without
     constructing IR. *)
 
+val lower_typed_result :
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.expression_result ->
+  (expression_result, Instruction_sequence.error list) result
+(** Lower one direct literal from the shared typed semantic result view. The
+    semantic payload, checked result type, and source location are copied
+    without consulting a frontend AST node. Other semantic expression shapes
+    return [Not_literal]. *)
+
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t
 

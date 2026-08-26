@@ -3,6 +3,8 @@ module Sequence = Holyc_lib.Ir_instruction_sequence
 module Opcode = Holyc_lib.Ir_opcode
 module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
+module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
+module Semantic_symbol = Holyc_lib.Semantic_symbol
 module Ast = Holyc_lib.Ast
 module Parser = Holyc_lib.Parser
 module Preprocessor = Holyc_lib.Preprocessor
@@ -1102,6 +1104,146 @@ let test_deep_mixed_unary_chain_uses_constant_host_stack () =
     "outermost unary span" true
     (last.span = Some wrapper_span)
 
+let semantic_span result =
+  match Semantic_result.result_origin result with
+  | Semantic_symbol.Source_location source -> source.span
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a typed source location"
+
+let lower_typed ~instruction ~value result =
+  Literal.lower_typed_result ~instruction_id:(instruction_id instruction)
+    ~value_id:(value_id value) result
+  |> require_ok (fun errors ->
+      String.concat "; " (List.map show_sequence_error errors))
+
+let check_typed_literal ~index ~expected_payload ~expected_kind result =
+  let instruction = 700 + index in
+  let value = 900 + index in
+  let lowered = lower_typed ~instruction ~value result |> require_lowered in
+  let description = only_description lowered in
+  Alcotest.(check int)
+    "caller-owned instruction ID" instruction
+    (Sequence.Instruction_id.to_int description.instruction_id);
+  Alcotest.(check int)
+    "caller-owned value ID" value
+    (match description.result with
+    | Some result -> Sequence.Value_id.to_int result.value_id
+    | None -> Alcotest.fail "expected a typed literal result value");
+  Alcotest.(check bool)
+    "semantic payload" true
+    (description.payload = Some expected_payload);
+  Alcotest.(check bool)
+    "semantic result type" true
+    (description.target_type = Semantic_result.result_type result);
+  Alcotest.(check bool)
+    "semantic source span" true
+    (description.span = Some (semantic_span result));
+  let kind_line =
+    Literal.human lowered |> String.split_on_char '\n' |> fun lines ->
+    List.nth lines 1
+  in
+  Alcotest.(check bool)
+    "semantic literal kind" true
+    (String.starts_with ~prefix:("kind=" ^ expected_kind ^ " ") kind_line);
+  let repeated = lower_typed ~instruction ~value result |> require_lowered in
+  Alcotest.(check string)
+    "deterministic typed lowering" (Literal.human lowered)
+    (Literal.human repeated)
+
+let test_function_typed_literals_lower_without_ast_join () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-literals.HC"
+      "extern I64 Target(I64 wrapped,I64 character,F64 floating,U8 *text);\n\
+       I64 Caller(){return Target(0xFFFFFFFFFFFFFFFF,'ABC',0.1,\"a\\n\\x42\\d\");}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let roots =
+    Test_function_call_expression_result.root_results results "Caller"
+  in
+  let expected =
+    [
+      (Sequence.Integer (-1L), "integer");
+      (Sequence.Integer 0x434241L, "character");
+      (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+      (Sequence.Bytes "a\nB$", "string");
+    ]
+  in
+  Alcotest.(check int) "typed function literals" 4 (List.length roots);
+  List.iteri
+    (fun index (result, (expected_payload, expected_kind)) ->
+      check_typed_literal ~index ~expected_payload ~expected_kind result)
+    (List.combine roots expected)
+
+let test_top_level_typed_literals_lower_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-literals.HC"
+          "0xFFFFFFFFFFFFFFFF;'ABC';0.1;\"a\\n\\x42\\d\";"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      let roots = Test_top_level_expression_result.root_values results in
+      let expected =
+        [
+          (Sequence.Integer (-1L), "integer");
+          (Sequence.Integer 0x434241L, "character");
+          (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+          (Sequence.Bytes "a\nB$", "string");
+        ]
+      in
+      Alcotest.(check int) "typed top-level literals" 4 (List.length roots);
+      List.iteri
+        (fun index (result, (expected_payload, expected_kind)) ->
+          check_typed_literal ~index:(index + 10) ~expected_payload
+            ~expected_kind result)
+        (List.combine roots expected))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_literal_keeps_generated_source_location () =
+  Test_function_call_expression_result.with_included_source
+    "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
+     extern I64 Target(I64 value);\n\
+     I64 Caller(){return Target(VALUE);}" (fun prepared ->
+      let _, results = Test_function_call_expression_result.analyze prepared in
+      let result =
+        Test_function_call_expression_result.root_results results "Caller"
+        |> List.hd
+      in
+      let source = semantic_span result in
+      (match Semantic_result.result_origin result with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated invocation origin" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "definition origin" true (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated literal provenance");
+      let lowered = lower_typed ~instruction:740 ~value:940 result in
+      let description = lowered |> require_lowered |> only_description in
+      Alcotest.(check bool)
+        "generated semantic span" true (description.span = Some source))
+
+let test_typed_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-nonliteral.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(value);}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match lower_typed ~instruction:750 ~value:950 result with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ -> Alcotest.fail "typed nonliteral produced IR"
+
 let tests =
   [
     Alcotest.test_case "negative integer uses U64" `Quick
@@ -1160,4 +1302,12 @@ let tests =
       test_deep_transparent_wrappers_use_constant_host_stack;
     Alcotest.test_case "deep mixed unary chain" `Quick
       test_deep_mixed_unary_chain_uses_constant_host_stack;
+    Alcotest.test_case "typed function literals" `Quick
+      test_function_typed_literals_lower_without_ast_join;
+    Alcotest.test_case "typed top-level literals" `Quick
+      test_top_level_typed_literals_lower_in_both_modes;
+    Alcotest.test_case "typed generated literal provenance" `Quick
+      test_typed_literal_keeps_generated_source_location;
+    Alcotest.test_case "typed nonliteral is explicit" `Quick
+      test_typed_nonliteral_is_explicit;
   ]
