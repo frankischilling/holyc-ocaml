@@ -113,9 +113,7 @@ let literal_of_expression expression =
       match source.literal_value with
       | Frontend.Ast.Float_value value ->
           Some
-            ( Float_bits (Int64.bits_of_float value),
-              source,
-              unary_minus_spans )
+            (Float_bits (Int64.bits_of_float value), source, unary_minus_spans)
       | Frontend.Ast.Integer_value _ | Frontend.Ast.Bytes_value _ -> None)
   | Frontend.Ast.String_literal source -> (
       match source.literal_value with
@@ -140,9 +138,7 @@ let identity_count_error expression ~expected ~actual =
   {
     Sequence.code = "HCIRL0001";
     message =
-      Printf.sprintf
-        "expected %d unary instruction identit%s, got %d"
-        expected
+      Printf.sprintf "expected %d unary instruction identit%s, got %d" expected
         (if expected = 1 then "y" else "ies")
         actual;
     instruction_id = None;
@@ -153,7 +149,7 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
     expression =
   match literal_of_expression expression with
   | None -> Ok Not_literal
-  | Some (literal, source, unary_minus_spans) ->
+  | Some (literal, source, unary_minus_spans) -> (
       let expected = List.length unary_minus_spans in
       let actual = List.length unary_identities in
       if actual <> expected then
@@ -192,7 +188,7 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
           add_unary [ literal_instruction ] value_id unary_minus_spans
             unary_identities
         in
-        (match Sequence.create descriptions with
+        match Sequence.create descriptions with
         | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
         | Error errors -> Error errors)
 

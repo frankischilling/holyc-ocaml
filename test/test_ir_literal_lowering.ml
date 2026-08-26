@@ -176,10 +176,7 @@ let parsed_literal constructor ~span ~spelling value =
        ~location:(parsed_location span))
 
 let identity instruction value : Literal.identity =
-  {
-    instruction_id = instruction_id instruction;
-    value_id = value_id value;
-  }
+  { instruction_id = instruction_id instruction; value_id = value_id value }
 
 let lower_parsed_result ?(unary_identities = []) expression =
   Literal.lower_expression ~instruction_id:(instruction_id 7)
@@ -446,8 +443,8 @@ let test_unary_minus_parser_literals_emit_instructions () =
   let check plain_text negated_text (operator_start, operator_stop)
       (literal_start, literal_stop) =
     let plain =
-      parse_initializer plain_text |> lower_parsed |> require_lowered
-      |> only_description
+      parse_initializer plain_text
+      |> lower_parsed |> require_lowered |> only_description
     in
     let lowered =
       parse_initializer negated_text
@@ -473,13 +470,11 @@ let test_unary_minus_parser_literals_emit_instructions () =
         Alcotest.(check bool)
           "forwarded result type" true
           (unary.target_type = literal.target_type);
-        Alcotest.(check bool)
-          "no folded payload" true (unary.payload = None);
+        Alcotest.(check bool) "no folded payload" true (unary.payload = None);
         Alcotest.(check bool)
           "literal span" true
           (match literal.span with
-          | Some span ->
-              span.start = literal_start && span.stop = literal_stop
+          | Some span -> span.start = literal_start && span.stop = literal_stop
           | None -> false);
         Alcotest.(check bool)
           "operator span" true
@@ -515,9 +510,7 @@ let test_nested_unary_minus_uses_inner_to_outer_order () =
     |> unary_minus ~location:(parsed_location outer_span)
   in
   let descriptions =
-    lower_parsed
-      ~unary_identities:[ identity 8 12; identity 9 13 ]
-      expression
+    lower_parsed ~unary_identities:[ identity 8 12; identity 9 13 ] expression
     |> require_lowered |> Literal.sequence |> Sequence.instructions
     |> List.map Sequence.description
   in
@@ -549,9 +542,10 @@ let test_unary_identity_count_is_checked () =
   let check expected_message expected_span = function
     | Error [ (error : Sequence.error) ] ->
         Alcotest.(check string) "diagnostic code" "HCIRL0001" error.code;
-        Alcotest.(check string) "diagnostic message" expected_message
-          error.message;
-        Alcotest.(check bool) "diagnostic span" true
+        Alcotest.(check string)
+          "diagnostic message" expected_message error.message;
+        Alcotest.(check bool)
+          "diagnostic span" true
           (error.span = Some expected_span);
         Alcotest.(check (option int))
           "no unchecked instruction" None error.instruction_id
@@ -561,12 +555,10 @@ let test_unary_identity_count_is_checked () =
     | Ok _ -> Alcotest.fail "expected an identity-count error"
   in
   lower_parsed_result unary_expression
-  |> check
-       "expected 1 unary instruction identity, got 0"
+  |> check "expected 1 unary instruction identity, got 0"
        (Ast.expression_location unary_expression).span;
   lower_parsed_result ~unary_identities:[ identity 8 12 ] direct_expression
-  |> check
-       "expected 0 unary instruction identities, got 1"
+  |> check "expected 0 unary instruction identities, got 1"
        (Ast.expression_location direct_expression).span
 
 let test_other_prefixes_and_plus_nonliteral_are_explicit () =
@@ -582,7 +574,8 @@ let test_other_prefixes_and_plus_nonliteral_are_explicit () =
   Ast.Identifier_expression identifier |> unary_plus ~location
   |> require_not_literal "unary-plus nonliteral";
   Ast.Identifier_expression identifier |> unary_minus ~location
-  |> require_not_literal ~unary_identities:[ identity 8 12 ]
+  |> require_not_literal
+       ~unary_identities:[ identity 8 12 ]
        "unary-minus nonliteral";
   let literal =
     parsed_literal
@@ -651,17 +644,15 @@ let test_deep_mixed_unary_chain_uses_constant_host_stack () =
     else expression := unary_plus ~location:wrapper_location !expression
   done;
   let lowered =
-    lower_parsed
-      ~unary_identities:(List.rev !reversed_identities)
-      !expression
+    lower_parsed ~unary_identities:(List.rev !reversed_identities) !expression
     |> require_lowered
   in
   Alcotest.(check int)
     "instruction count" (!unary_count + 1)
     (Literal.sequence lowered |> Sequence.length);
   let last =
-    Literal.sequence lowered |> Sequence.instructions |> List.rev
-    |> List.hd |> Sequence.description
+    Literal.sequence lowered |> Sequence.instructions |> List.rev |> List.hd
+    |> Sequence.description
   in
   Alcotest.(check bool)
     "outermost unary result" true
