@@ -20,7 +20,12 @@ type identity = {
   value_id : Sequence.Value_id.t;
 }
 
-type unary_operation = { opcode : Opcode.t; span : Common.Span.t }
+type unary_operation = {
+  opcode : Opcode.t;
+  span : Common.Span.t;
+  cancels_dereference : bool;
+}
+
 type t = { literal : literal; sequence : Sequence.t; result_type : Type.t }
 type expression_result = Lowered of t | Not_literal
 
@@ -94,6 +99,7 @@ let unwrap_expression expression =
           {
             opcode = Opcode.Ic_unary_minus;
             span = prefix.prefix_operator.operator_location.span;
+            cancels_dereference = false;
           }
           :: !unary_operations;
         current := prefix.prefix_operand
@@ -103,6 +109,7 @@ let unwrap_expression expression =
           {
             opcode = Opcode.Ic_not;
             span = prefix.prefix_operator.operator_location.span;
+            cancels_dereference = false;
           }
           :: !unary_operations;
         current := prefix.prefix_operand
@@ -112,6 +119,7 @@ let unwrap_expression expression =
           {
             opcode = Opcode.Ic_com;
             span = prefix.prefix_operator.operator_location.span;
+            cancels_dereference = false;
           }
           :: !unary_operations;
         current := prefix.prefix_operand
@@ -121,12 +129,35 @@ let unwrap_expression expression =
           {
             opcode = Opcode.Ic_deref;
             span = prefix.prefix_operator.operator_location.span;
+            cancels_dereference = false;
+          }
+          :: !unary_operations;
+        current := prefix.prefix_operand
+    | Frontend.Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Frontend.Ast.Address_of ->
+        unary_operations :=
+          {
+            opcode = Opcode.Ic_addr;
+            span = prefix.prefix_operator.operator_location.span;
+            cancels_dereference = false;
           }
           :: !unary_operations;
         current := prefix.prefix_operand
     | _ -> searching := false
   done;
-  (!current, !unary_operations)
+  let reversed = ref [] in
+  List.iter
+    (fun operation ->
+      if Opcode.equal operation.opcode Opcode.Ic_addr then
+        match !reversed with
+        | previous :: remaining
+          when Opcode.equal previous.opcode Opcode.Ic_deref ->
+            reversed :=
+              { operation with cancels_dereference = true } :: remaining
+        | _ -> reversed := operation :: !reversed
+      else reversed := operation :: !reversed)
+    !unary_operations;
+  (!current, List.rev !reversed)
 
 let literal_of_expression expression =
   let expression, unary_operations = unwrap_expression expression in
@@ -176,15 +207,35 @@ let identity_count_error expression ~expected ~actual =
     span = Some (Frontend.Ast.expression_location expression).span;
   }
 
-let unary_result_type opcode current_type =
-  if Opcode.equal opcode Opcode.Ic_com then i64
+let unary_result_type operation current_type =
+  if Opcode.equal operation.opcode Opcode.Ic_com then Ok i64
   else if
-    Opcode.equal opcode Opcode.Ic_deref && Type.pointer_depth current_type > 0
+    Opcode.equal operation.opcode Opcode.Ic_deref
+    && Type.pointer_depth current_type > 0
   then
     match Type.dereference current_type with
-    | Ok type_ -> type_
+    | Ok type_ -> Ok type_
     | Error message -> invalid_arg message
-  else current_type
+  else if Opcode.equal operation.opcode Opcode.Ic_addr then
+    let operand_type =
+      if operation.cancels_dereference && Type.pointer_depth current_type > 0
+      then
+        match Type.dereference current_type with
+        | Ok type_ -> type_
+        | Error message -> invalid_arg message
+      else current_type
+    in
+    Type.pointer_to operand_type
+  else Ok current_type
+
+let unary_type_error operation identity message =
+  {
+    Sequence.code = "HCIRL0002";
+    message = "cannot lower prefix address-of: " ^ message;
+    instruction_id =
+      Some (Sequence.Instruction_id.to_int identity.instruction_id);
+    span = Some operation.span;
+  }
 
 let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
     expression =
@@ -209,34 +260,37 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
             identities =
           match (operations, identities) with
           | operation :: remaining_operations, identity :: remaining_identities
-            ->
-              let result_type =
-                unary_result_type operation.opcode current_type
-              in
-              let instruction : Sequence.description =
-                {
-                  instruction_id = identity.instruction_id;
-                  opcode = operation.opcode;
-                  operands = [ current_value ];
-                  result = Some { value_id = identity.value_id };
-                  target_type = Some result_type;
-                  payload = None;
-                  flags = 0L;
-                  span = Some operation.span;
-                }
-              in
-              add_unary (instruction :: reversed) identity.value_id result_type
-                remaining_operations remaining_identities
-          | [], [] -> (List.rev reversed, current_type)
+            -> (
+              match unary_result_type operation current_type with
+              | Error message ->
+                  Error [ unary_type_error operation identity message ]
+              | Ok result_type ->
+                  let instruction : Sequence.description =
+                    {
+                      instruction_id = identity.instruction_id;
+                      opcode = operation.opcode;
+                      operands = [ current_value ];
+                      result = Some { value_id = identity.value_id };
+                      target_type = Some result_type;
+                      payload = None;
+                      flags = 0L;
+                      span = Some operation.span;
+                    }
+                  in
+                  add_unary (instruction :: reversed) identity.value_id
+                    result_type remaining_operations remaining_identities)
+          | [], [] -> Ok (List.rev reversed, current_type)
           | _ -> assert false
         in
-        let descriptions, result_type =
+        match
           add_unary [ literal_instruction ] value_id literal_result_type
             unary_operations unary_identities
-        in
-        match Sequence.create descriptions with
-        | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
-        | Error errors -> Error errors)
+        with
+        | Error _ as error -> error
+        | Ok (descriptions, result_type) -> (
+            match Sequence.create descriptions with
+            | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
+            | Error errors -> Error errors))
 
 let sequence lowered = lowered.sequence
 let result_type lowered = lowered.result_type
