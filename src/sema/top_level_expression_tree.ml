@@ -317,10 +317,10 @@ let rec flatten_expression rev expression =
       flatten_expression rev (Function_call_resolution.index_value index)
   | Function_call_resolution.Member_access_expression member ->
       flatten_expression rev (Function_call_resolution.member_base member)
-  | Function_call_resolution.Integer_literal
-  | Function_call_resolution.Float_literal
-  | Function_call_resolution.Character_literal
-  | Function_call_resolution.String_literal
+  | Function_call_resolution.Integer_literal _
+  | Function_call_resolution.Float_literal _
+  | Function_call_resolution.Character_literal _
+  | Function_call_resolution.String_literal _
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
   | Function_call_resolution.Unresolved_expression _ -> rev

@@ -557,6 +557,8 @@ This slice is an executable format specification, not format compatibility. It h
 
 ## Literals
 
+Issue #429 retains literal data before IR construction. `Sema.Function_call_resolution.argument_expression_kind` stores `cur_i64`-shaped target values for integer and character nodes, exact `F64` bits, and decoded string bytes. Both AST adapters validate the frontend literal family before constructing that variant. The function-body call path and `Sema.Top_level_expression_tree` use the same representation, and `Sema.Function_call_expression_result.result_source` carries it into each typed view without changing source origin, grouping, prefix structure, type, category, class, array rank, or result identity. `Compiler/PrsExp.HC:679-700` defines the literal payload branches, `Compiler/CInit.HC:27-29` confirms their zero-argument, one-result leaf shapes, and `Compiler/PrsLib.HC:79-97` attaches source provenance when lowering later creates an instruction. This semantic boundary stores only the future payload. String allocation and termination, prefix lowering, constant folding, and execution remain later work.
+
 `Compiler/Lex.HC:Lex` accumulates integers in a target `I64`, so overflow wraps. Hex and binary prefixes are case insensitive. Character constants store up to eight decoded bytes in little-endian order. `LexInStr` defines the recognized escapes. The hosted lexer diagnoses unterminated literals instead of relying on an in-memory NUL terminator.
 
 ## Comments

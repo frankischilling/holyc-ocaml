@@ -54,10 +54,13 @@ type bound_identifier
 type top_level_bound_identifier
 
 type argument_expression_kind =
-  | Integer_literal
-  | Float_literal
-  | Character_literal
-  | String_literal
+  (* Literal payloads use the values consumed by TempleOS expression lowering:
+      target [I64] values for integers and characters, raw IEEE-754 bits for
+      [F64], and decoded bytes without storage or terminator policy for strings. *)
+  | Integer_literal of int64
+  | Float_literal of int64
+  | Character_literal of int64
+  | String_literal of string
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression

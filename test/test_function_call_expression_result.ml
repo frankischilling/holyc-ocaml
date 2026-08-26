@@ -311,6 +311,38 @@ let type_name result =
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
 
+let rec literal_payload expression =
+  match Semantic_function_call_resolution.argument_expression_kind expression with
+  | Semantic_function_call_resolution.Integer_literal value ->
+      Printf.sprintf "integer:%Ld" value
+  | Semantic_function_call_resolution.Float_literal bits ->
+      Printf.sprintf "f64:%016Lx" bits
+  | Semantic_function_call_resolution.Character_literal value ->
+      Printf.sprintf "character:%016Lx" value
+  | Semantic_function_call_resolution.String_literal bytes ->
+      Printf.sprintf "string:%S" bytes
+  | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+      literal_payload grouped
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      prefix |> Semantic_function_call_resolution.prefix_operand
+      |> literal_payload
+  | kind ->
+      kind |> Semantic_function_call_resolution.argument_expression_kind_name
+      |> Printf.sprintf "nonliteral:%s"
+
+let rec literal_shape expression =
+  match Semantic_function_call_resolution.argument_expression_kind expression with
+  | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+      Printf.sprintf "parenthesized(%s)" (literal_shape grouped)
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      Printf.sprintf "%s(%s)"
+        (prefix |> Semantic_function_call_resolution.prefix_operator
+       |> Semantic_function_call_resolution.prefix_operator_name)
+        (prefix |> Semantic_function_call_resolution.prefix_operand
+       |> literal_shape)
+  | kind ->
+      Semantic_function_call_resolution.argument_expression_kind_name kind
+
 let result_descriptor result =
   String.concat ":"
     [
@@ -561,6 +593,118 @@ let roots_retain_types_and_categories () =
       "integer-result";
     ]
     (class_names roots)
+
+let literal_payloads_reach_typed_function_results () =
+  let prepared =
+    prepare ~path:"call-expression-literal-payloads.HC"
+      "extern I64 Target(I64 wrapped,I64 minimum,I64 negative,I64 character,F64 \
+       floating,U8 *text,I64 grouped);\n\
+       I64 Caller(){return \
+       Target(0xFFFFFFFFFFFFFFFF,0x8000000000000000,-7,'ABC',0.1,\
+       \"a\\n\\x42\\d\",+((42)));}"
+  in
+  let _, results = analyze prepared in
+  let roots = root_results results "Caller" in
+  Alcotest.(check (list string))
+    "typed function roots retain exact literal payloads"
+    [
+      "integer:-1";
+      "integer:-9223372036854775808";
+      "integer:7";
+      "character:0000000000434241";
+      Printf.sprintf "f64:%016Lx" (Int64.bits_of_float 0.1);
+      "string:\"a\\nB$\"";
+      "integer:42";
+    ]
+    (roots
+    |> List.map (fun result ->
+        result |> Semantic_function_call_expression_result.result_source
+        |> literal_payload));
+  Alcotest.(check (list string))
+    "prefixes and grouping remain explicit around literal payloads"
+    [
+      "integer-literal";
+      "integer-literal";
+      "unary-minus(integer-literal)";
+      "character-literal";
+      "float-literal";
+      "string-literal";
+      "unary-plus(parenthesized(parenthesized(integer-literal)))";
+    ]
+    (roots
+    |> List.map (fun result ->
+        result |> Semantic_function_call_expression_result.result_source
+        |> literal_shape));
+  Alcotest.(check (list string))
+    "literal payloads keep their semantic types"
+    [ "I64"; "I64"; "I64"; "I64"; "F64"; "U8*"; "I64" ]
+    (List.map type_name roots);
+  Alcotest.(check (list string))
+    "literal payloads keep their result classes"
+    [
+      "integer-result";
+      "integer-result";
+      "integer-result";
+      "integer-result";
+      "f64-result";
+      "integer-result";
+      "integer-result";
+    ]
+    (class_names roots)
+
+let generated_literal_payloads_keep_provenance_and_replay () =
+  with_included_source
+    "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
+     extern I64 Target(I64 value);\n\
+     I64 Caller(){return Target(+((VALUE)));}" (fun prepared ->
+      let table = Session.semantic_symbols prepared.session in
+      let before = Semantic_symbol_table.all_symbols table |> List.length in
+      let _, first = analyze prepared in
+      let _, second = analyze prepared in
+      let root results = root_results results "Caller" |> List.hd in
+      let source result =
+        Semantic_function_call_expression_result.result_source result
+      in
+      let result_id result =
+        result |> Semantic_function_call_expression_result.result_id
+        |> Semantic_function_call_expression_result.Id.to_int
+      in
+      Alcotest.(check string)
+        "generated literal retains its wrapping target value" "integer:-1"
+        (first |> root |> source |> literal_payload);
+      Alcotest.(check string)
+        "generated literal replay retains the same shape"
+        "unary-plus(parenthesized(parenthesized(integer-literal)))"
+        (second |> root |> source |> literal_shape);
+      Alcotest.(check int)
+        "generated literal replay retains its result identity"
+        (first |> root |> result_id)
+        (second |> root |> result_id);
+      Alcotest.(check int)
+        "literal replay does not mutate the symbol table" before
+        (Semantic_symbol_table.all_symbols table |> List.length);
+      let rec leaf expression =
+        match
+          Semantic_function_call_resolution.argument_expression_kind expression
+        with
+        | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+            leaf grouped
+        | Semantic_function_call_resolution.Prefix_expression prefix ->
+            prefix |> Semantic_function_call_resolution.prefix_operand |> leaf
+        | Semantic_function_call_resolution.Integer_literal _ -> expression
+        | _ -> Alcotest.fail "expected a generated integer literal"
+      in
+      match first |> root |> source |> leaf
+            |> Semantic_function_call_resolution.argument_expression_origin with
+      | Semantic_symbol.Source_location location ->
+          Alcotest.(check bool)
+            "generated literal keeps its invocation origin" true
+            (Option.is_some location.generated_from);
+          Alcotest.(check bool)
+            "generated literal keeps its definition origin" true
+            (Option.is_some location.defined_at)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected generated literal source provenance")
 
 let current_position_results_are_rip_addresses () =
   List.iter
@@ -1631,7 +1775,7 @@ let members_retain_lookup_identity_and_access_kind () =
 let member_constructor_validates_names_and_origins () =
   let base =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:(Semantic_symbol.Synthesized "member base")
   in
   let make ?(operator_origin = Semantic_symbol.Synthesized "member operator")
@@ -5641,6 +5785,10 @@ let tests =
       pointer_transitions_are_checked;
     Alcotest.test_case "root types and categories" `Quick
       roots_retain_types_and_categories;
+    Alcotest.test_case "literal payloads in typed function results" `Quick
+      literal_payloads_reach_typed_function_results;
+    Alcotest.test_case "generated literal payload replay" `Quick
+      generated_literal_payloads_keep_provenance_and_replay;
     Alcotest.test_case "current-position RIP address results" `Quick
       current_position_results_are_rip_addresses;
     Alcotest.test_case "direct function address identity" `Quick

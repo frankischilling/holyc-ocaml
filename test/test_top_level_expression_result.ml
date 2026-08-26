@@ -205,6 +205,38 @@ let descriptor result =
    |> Semantic_function_call_expression_result.result_class_name)
     (Semantic_function_call_expression_result.result_array_rank result)
 
+let rec literal_payload expression =
+  match Semantic_function_call_resolution.argument_expression_kind expression with
+  | Semantic_function_call_resolution.Integer_literal value ->
+      Printf.sprintf "integer:%Ld" value
+  | Semantic_function_call_resolution.Float_literal bits ->
+      Printf.sprintf "f64:%016Lx" bits
+  | Semantic_function_call_resolution.Character_literal value ->
+      Printf.sprintf "character:%016Lx" value
+  | Semantic_function_call_resolution.String_literal bytes ->
+      Printf.sprintf "string:%S" bytes
+  | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+      literal_payload grouped
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      prefix |> Semantic_function_call_resolution.prefix_operand
+      |> literal_payload
+  | kind ->
+      kind |> Semantic_function_call_resolution.argument_expression_kind_name
+      |> Printf.sprintf "nonliteral:%s"
+
+let rec literal_shape expression =
+  match Semantic_function_call_resolution.argument_expression_kind expression with
+  | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+      Printf.sprintf "parenthesized(%s)" (literal_shape grouped)
+  | Semantic_function_call_resolution.Prefix_expression prefix ->
+      Printf.sprintf "%s(%s)"
+        (prefix |> Semantic_function_call_resolution.prefix_operator
+       |> Semantic_function_call_resolution.prefix_operator_name)
+        (prefix |> Semantic_function_call_resolution.prefix_operand
+       |> literal_shape)
+  | kind ->
+      Semantic_function_call_resolution.argument_expression_kind_name kind
+
 let lookup_description result =
   match
     Semantic_function_call_expression_result.result_member_lookup result
@@ -389,6 +421,60 @@ let literals_and_module_values () =
            |> Semantic_function_call_expression_result.top_level_root_result_use
             |> Option.map
                  Semantic_function_call_expression_result.result_use_name)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let literal_payloads_reach_typed_top_level_results () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-literal-payloads.HC"
+          "0xFFFFFFFFFFFFFFFF;0x8000000000000000;-7;'ABC';0.1;\
+           \"a\\n\\x42\\d\";+((42));"
+      in
+      let _, _, _, result = analyze source in
+      let values = root_values result in
+      Alcotest.(check (list string))
+        "typed top-level roots retain exact literal payloads"
+        [
+          "integer:-1";
+          "integer:-9223372036854775808";
+          "integer:7";
+          "character:0000000000434241";
+          Printf.sprintf "f64:%016Lx" (Int64.bits_of_float 0.1);
+          "string:\"a\\nB$\"";
+          "integer:42";
+        ]
+        (values
+        |> List.map (fun value ->
+            value |> Semantic_function_call_expression_result.result_source
+            |> literal_payload));
+      Alcotest.(check (list string))
+        "top-level prefixes and grouping remain explicit"
+        [
+          "integer-literal";
+          "integer-literal";
+          "unary-minus(integer-literal)";
+          "character-literal";
+          "float-literal";
+          "string-literal";
+          "unary-plus(parenthesized(parenthesized(integer-literal)))";
+        ]
+        (values
+        |> List.map (fun value ->
+            value |> Semantic_function_call_expression_result.result_source
+            |> literal_shape));
+      Alcotest.(check (list string))
+        "top-level literal payloads keep existing result metadata"
+        [
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+          "F64:object-value:f64-result:rank-0";
+          "U8*:address-value:integer-result:rank-0";
+          "I64:object-value:integer-result:rank-0";
+        ]
+        (List.map descriptor values))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let top_level_current_positions_are_rip_addresses () =
@@ -2393,6 +2479,8 @@ let tests =
   [
     Alcotest.test_case "literals and module values" `Quick
       literals_and_module_values;
+    Alcotest.test_case "literal payloads in typed top-level results" `Quick
+      literal_payloads_reach_typed_top_level_results;
     Alcotest.test_case "top-level current-position RIP addresses" `Quick
       top_level_current_positions_are_rip_addresses;
     Alcotest.test_case "typed top-level outer globals" `Quick
