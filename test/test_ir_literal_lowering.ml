@@ -4,6 +4,7 @@ module Opcode = Holyc_lib.Ir_opcode
 module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
+module Semantic_source = Holyc_lib.Semantic_function_call_resolution
 module Semantic_symbol = Holyc_lib.Semantic_symbol
 module Ast = Holyc_lib.Ast
 module Parser = Holyc_lib.Parser
@@ -1110,6 +1111,31 @@ let semantic_span result =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a typed source location"
 
+let semantic_literal_span result =
+  let source = ref (Semantic_result.result_source result) in
+  let grouped = ref true in
+  while !grouped do
+    match Semantic_source.argument_expression_kind !source with
+    | Semantic_source.Parenthesized_expression inner -> source := inner
+    | Semantic_source.Integer_literal _
+    | Semantic_source.Float_literal _
+    | Semantic_source.Character_literal _
+    | Semantic_source.String_literal _
+    | Semantic_source.Prefix_expression _
+    | Semantic_source.Postfix_expression _
+    | Semantic_source.Postfix_cast_expression _
+    | Semantic_source.Binary_expression _
+    | Semantic_source.Index_expression _
+    | Semantic_source.Member_access_expression _
+    | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Unresolved_expression _ -> grouped := false
+  done;
+  match Semantic_source.argument_expression_origin !source with
+  | Semantic_symbol.Source_location source -> source.span
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a typed literal source location"
+
 let lower_typed ~instruction ~value result =
   Literal.lower_typed_result
     ~instruction_id:(instruction_id instruction)
@@ -1117,7 +1143,8 @@ let lower_typed ~instruction ~value result =
   |> require_ok (fun errors ->
       String.concat "; " (List.map show_sequence_error errors))
 
-let check_typed_literal ~index ~expected_payload ~expected_kind result =
+let check_typed_literal ?expected_span ~index ~expected_payload ~expected_kind
+    result =
   let instruction = 700 + index in
   let value = 900 + index in
   let lowered = lower_typed ~instruction ~value result |> require_lowered in
@@ -1138,7 +1165,8 @@ let check_typed_literal ~index ~expected_payload ~expected_kind result =
     (description.target_type = Semantic_result.result_type result);
   Alcotest.(check bool)
     "semantic source span" true
-    (description.span = Some (semantic_span result));
+    (description.span
+    = Some (Option.value ~default:(semantic_span result) expected_span));
   let kind_line =
     Literal.human lowered |> String.split_on_char '\n' |> fun lines ->
     List.nth lines 1
@@ -1204,6 +1232,69 @@ let test_top_level_typed_literals_lower_in_both_modes () =
             ~expected_kind result)
         (List.combine roots expected))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let check_grouped_typed_literals ~index roots =
+  let expected =
+    [
+      (Sequence.Integer (-1L), "integer");
+      (Sequence.Integer 0x434241L, "character");
+      (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+      (Sequence.Bytes "a\nB$", "string");
+    ]
+  in
+  Alcotest.(check int) "grouped typed literals" 4 (List.length roots);
+  List.iteri
+    (fun offset (result, (expected_payload, expected_kind)) ->
+      let expected_span = semantic_literal_span result in
+      Alcotest.(check bool)
+        "grouping has an outer source span" true
+        (semantic_span result <> expected_span);
+      check_typed_literal ~expected_span ~index:(index + offset)
+        ~expected_payload ~expected_kind result)
+    (List.combine roots expected)
+
+let test_function_typed_grouping_is_transparent () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-grouping.HC"
+      "extern I64 Target(I64 wrapped,I64 character,F64 floating,U8 *text);\n\
+       I64 Caller(){return \
+       Target((((0xFFFFFFFFFFFFFFFF))),((('ABC'))),(((0.1))),(((\"a\\n\\x42\\d\"))));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  Test_function_call_expression_result.root_results results "Caller"
+  |> check_grouped_typed_literals ~index:30
+
+let test_top_level_typed_grouping_is_transparent_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-grouping.HC"
+          "(((0xFFFFFFFFFFFFFFFF)));((('ABC')));(((0.1)));(((\"a\\n\\x42\\d\")));"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      Test_top_level_expression_result.root_values results
+      |> check_grouped_typed_literals ~index:40)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_grouped_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-grouped-nonliteral.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(((value)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match lower_typed ~instruction:760 ~value:960 result with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ -> Alcotest.fail "typed grouped nonliteral produced IR"
 
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source
@@ -1309,6 +1400,12 @@ let tests =
       test_function_typed_literals_lower_without_ast_join;
     Alcotest.test_case "typed top-level literals" `Quick
       test_top_level_typed_literals_lower_in_both_modes;
+    Alcotest.test_case "typed function grouping" `Quick
+      test_function_typed_grouping_is_transparent;
+    Alcotest.test_case "typed top-level grouping" `Quick
+      test_top_level_typed_grouping_is_transparent_in_both_modes;
+    Alcotest.test_case "typed grouped nonliteral is explicit" `Quick
+      test_typed_grouped_nonliteral_is_explicit;
     Alcotest.test_case "typed generated literal provenance" `Quick
       test_typed_literal_keeps_generated_source_location;
     Alcotest.test_case "typed nonliteral is explicit" `Quick

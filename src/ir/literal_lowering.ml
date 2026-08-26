@@ -82,14 +82,16 @@ let lower description =
   | Ok sequence -> Ok { literal = description.literal; sequence; result_type }
   | Error errors -> Error errors
 
-let literal_of_typed_source source =
+let direct_literal_of_typed_source source =
   match Sema.Function_call_resolution.argument_expression_kind source with
-  | Sema.Function_call_resolution.Integer_literal value -> Some (Integer value)
+  | Sema.Function_call_resolution.Integer_literal value ->
+      Some (Integer value, source)
   | Sema.Function_call_resolution.Character_literal value ->
-      Some (Character value)
-  | Sema.Function_call_resolution.Float_literal bits -> Some (Float_bits bits)
+      Some (Character value, source)
+  | Sema.Function_call_resolution.Float_literal bits ->
+      Some (Float_bits bits, source)
   | Sema.Function_call_resolution.String_literal bytes ->
-      Some (String_bytes bytes)
+      Some (String_bytes bytes, source)
   | Sema.Function_call_resolution.Parenthesized_expression _
   | Sema.Function_call_resolution.Prefix_expression _
   | Sema.Function_call_resolution.Postfix_expression _
@@ -101,10 +103,39 @@ let literal_of_typed_source source =
   | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
   | Sema.Function_call_resolution.Unresolved_expression _ -> None
 
+let literal_of_typed_source source =
+  let current = ref source in
+  let grouped = ref true in
+  while !grouped do
+    match Sema.Function_call_resolution.argument_expression_kind !current with
+    | Sema.Function_call_resolution.Parenthesized_expression inner ->
+        current := inner
+    | Sema.Function_call_resolution.Integer_literal _
+    | Sema.Function_call_resolution.Float_literal _
+    | Sema.Function_call_resolution.Character_literal _
+    | Sema.Function_call_resolution.String_literal _
+    | Sema.Function_call_resolution.Prefix_expression _
+    | Sema.Function_call_resolution.Postfix_expression _
+    | Sema.Function_call_resolution.Postfix_cast_expression _
+    | Sema.Function_call_resolution.Binary_expression _
+    | Sema.Function_call_resolution.Index_expression _
+    | Sema.Function_call_resolution.Member_access_expression _
+    | Sema.Function_call_resolution.Bound_identifier_expression _
+    | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
+    | Sema.Function_call_resolution.Unresolved_expression _ -> grouped := false
+  done;
+  direct_literal_of_typed_source !current
+
 let typed_result_error ?span message =
   { Sequence.code = "HCIRL0003"; message; instruction_id = None; span }
 
-let typed_result_span result source =
+let typed_source_span source message =
+  match Sema.Function_call_resolution.argument_expression_origin source with
+  | Sema.Symbol.Source_location location -> Ok location.span
+  | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+      Error (typed_result_error message)
+
+let typed_result_span result source literal_source =
   let result_origin =
     Sema.Function_call_expression_result.result_origin result
   in
@@ -118,7 +149,9 @@ let typed_result_span result source =
           expression")
   else
     match result_origin with
-    | Sema.Symbol.Source_location location -> Ok location.span
+    | Sema.Symbol.Source_location _ ->
+        typed_source_span literal_source
+          "typed semantic literal leaf does not have a source location"
     | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
         Error
           (typed_result_error
@@ -140,8 +173,8 @@ let lower_typed_result ~instruction_id ~value_id result =
   let source = Sema.Function_call_expression_result.result_source result in
   match literal_of_typed_source source with
   | None -> Ok Not_literal
-  | Some literal -> (
-      match typed_result_span result source with
+  | Some (literal, literal_source) -> (
+      match typed_result_span result source literal_source with
       | Error error -> Error [ error ]
       | Ok span -> (
           match Sema.Function_call_expression_result.result_type result with
