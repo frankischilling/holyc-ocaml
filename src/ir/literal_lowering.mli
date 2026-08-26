@@ -25,8 +25,9 @@ val lower_expression :
   value_id:Instruction_sequence.Value_id.t ->
   Frontend.Ast.expression ->
   (expression_result, Instruction_sequence.error list) result
-(** Lower one parsed literal with its source span. Nonliteral expressions return
-    [Not_literal] without constructing IR. *)
+(** Lower one parsed literal, through any number of transparent parentheses,
+    with the inner literal's source span. Other expressions return [Not_literal]
+    without constructing IR. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

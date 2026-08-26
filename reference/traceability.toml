@@ -7467,6 +7467,32 @@ semantic_traversal_string_termination_storage_expression_graphs_and_execution = 
 native_oracle_status = "not required for this direct source-table boundary; PrsUnaryTerm states the opcode, data, and class choices"
 
 [[feature]]
+id = "HC-IR-GROUPED-LITERAL-LOWERING"
+description = "Nested parentheses around a literal are transparent to checked intermediate-code lowering."
+sources = [
+  "Compiler/PrsExp.HC:728-747 parenthesized term re-enters PrsExpression without an ICAdd",
+  "Compiler/PrsExp.HC:679-700 inner literal token branches and ICAdd calls",
+  "Compiler/PrsLib.HC:79-97 inner instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 415
+foundation_issue = 413
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more parenthesized AST nodes around an integer, character, F64, or string literal"
+grouping_rule = "unwrap iteratively and emit only the inner literal instruction"
+provenance_rule = "retain the inner literal span rather than the enclosing parenthesized span"
+identity_rule = "parentheses receive no instruction or value identity; caller-supplied IDs reach the literal unchanged"
+nonliteral_rule = "a grouped nonliteral returns Not_literal without constructing an instruction"
+deep_input_rule = "100,000 synthetic grouping levels lower without recursive host-stack growth"
+semantic_traversal_expression_graphs_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated structural boundary; PrsUnaryTerm's parenthesized branch contains the recursive expression call and no ICAdd"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [
