@@ -190,6 +190,14 @@ let parenthesize ~location expression =
     (Ast.make_parenthesized_expression ~opening_parenthesis:location ~expression
        ~closing_parenthesis:location ~location)
 
+let prefix ~operator_kind ~spelling ~location operand =
+  let operator = Ast.make_expression_operator ~spelling ~location in
+  Ast.Prefix_expression
+    (Ast.make_prefix_expression ~operator_kind ~operator ~operand ~location)
+
+let unary_plus ~location expression =
+  prefix ~operator_kind:Ast.Unary_plus ~spelling:"+" ~location expression
+
 let parse_initializer contents =
   let session = Session.create () in
   let source = Session.add_source session ~path:"literal.HC" ~contents in
@@ -385,6 +393,98 @@ let test_deep_grouping_uses_constant_host_stack () =
     | Some result -> Sequence.Value_id.to_int result.value_id
     | None -> Alcotest.fail "expected a produced value")
 
+let test_unary_plus_parser_literals_are_transparent () =
+  let check plain_text wrapped_text expected_literal expected_payload
+      (expected_start, expected_stop) =
+    let plain_expression = parse_initializer plain_text in
+    let plain =
+      lower_parsed plain_expression |> require_lowered |> only_description
+    in
+    let wrapped_expression = parse_initializer wrapped_text in
+    let wrapped = lower_parsed wrapped_expression |> require_lowered in
+    let description = only_description wrapped in
+    Alcotest.(check bool)
+      "same checked instruction except source position" true
+      ({ plain with span = description.span } = description);
+    Alcotest.(check bool)
+      "unary-plus payload" true
+      (description.payload = Some expected_payload);
+    match description.span with
+    | Some span ->
+        Alcotest.(check int) "inner span start" expected_start span.start;
+        Alcotest.(check int) "inner span stop" expected_stop span.stop;
+        Alcotest.(check string)
+          "source kind and checked instruction"
+          (Literal.human (lower ~span expected_literal))
+          (Literal.human wrapped)
+    | None -> Alcotest.fail "unary-plus literal lost its source span"
+  in
+  check "I64 value=42;" "I64 value=+((+42));" (Literal.Integer 42L)
+    (Sequence.Integer 42L) (14, 16);
+  check "I64 value='A';" "I64 value=+((+'A'));" (Literal.Character 65L)
+    (Sequence.Integer 65L) (14, 17);
+  check "F64 value=1.25;" "F64 value=+((+1.25));"
+    (Literal.Float_bits (Int64.bits_of_float 1.25))
+    (Sequence.Float_bits (Int64.bits_of_float 1.25))
+    (14, 18);
+  check "U8 *value=\"A\\n\";" "U8 *value=+((+\"A\\n\"));"
+    (Literal.String_bytes "A\n") (Sequence.Bytes "A\n") (14, 19)
+
+let test_other_prefixes_and_plus_nonliteral_are_explicit () =
+  let source = Source_id.of_int 12 |> require_ok Fun.id in
+  let span = Span.unsafe_make ~source ~start:5 ~stop:10 in
+  let location = parsed_location span in
+  let identifier = Ast.make_identifier ~spelling:"value" ~location in
+  let require_not_literal label expression =
+    match lower_parsed expression with
+    | Literal.Not_literal -> ()
+    | Literal.Lowered _ -> Alcotest.failf "%s produced literal IR" label
+  in
+  Ast.Identifier_expression identifier |> unary_plus ~location
+  |> require_not_literal "unary-plus nonliteral";
+  let literal =
+    parsed_literal
+      (fun value -> Ast.Integer_literal value)
+      ~span ~spelling:"1" (Ast.Integer_value 1L)
+  in
+  [
+    ("unary minus", Ast.Unary_minus, "-");
+    ("logical not", Ast.Logical_not, "!");
+    ("bitwise not", Ast.Bitwise_not, "~");
+    ("dereference", Ast.Dereference, "*");
+    ("address of", Ast.Address_of, "&");
+  ]
+  |> List.iter (fun (label, operator_kind, spelling) ->
+      prefix ~operator_kind ~spelling ~location literal
+      |> require_not_literal label)
+
+let test_deep_transparent_wrappers_use_constant_host_stack () =
+  let source = Source_id.of_int 13 |> require_ok Fun.id in
+  let literal_span = Span.unsafe_make ~source ~start:20 ~stop:22 in
+  let wrapper_span = Span.unsafe_make ~source ~start:0 ~stop:42 in
+  let wrapper_location = parsed_location wrapper_span in
+  let expression =
+    ref
+      (parsed_literal
+         (fun value -> Ast.Integer_literal value)
+         ~span:literal_span ~spelling:"42" (Ast.Integer_value 42L))
+  in
+  for depth = 1 to 100_000 do
+    let wrap =
+      if depth mod 2 = 0 then parenthesize ~location:wrapper_location
+      else unary_plus ~location:wrapper_location
+    in
+    expression := wrap !expression
+  done;
+  let lowered = lower_parsed !expression |> require_lowered in
+  let description = only_description lowered in
+  Alcotest.(check bool)
+    "deep payload" true
+    (description.payload = Some (Sequence.Integer 42L));
+  Alcotest.(check bool)
+    "inner literal span" true
+    (description.span = Some literal_span)
+
 let tests =
   [
     Alcotest.test_case "negative integer uses U64" `Quick
@@ -413,4 +513,10 @@ let tests =
       test_grouped_nonliteral_is_explicit;
     Alcotest.test_case "deep grouping uses constant host stack" `Quick
       test_deep_grouping_uses_constant_host_stack;
+    Alcotest.test_case "unary-plus parser literals are transparent" `Quick
+      test_unary_plus_parser_literals_are_transparent;
+    Alcotest.test_case "other prefixes stay explicit" `Quick
+      test_other_prefixes_and_plus_nonliteral_are_explicit;
+    Alcotest.test_case "deep transparent wrappers" `Quick
+      test_deep_transparent_wrappers_use_constant_host_stack;
   ]
