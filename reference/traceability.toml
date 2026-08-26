@@ -7737,6 +7737,37 @@ string_storage_ir_lowering_constant_folding_and_execution = "not implemented by 
 native_oracle_status = "not required for this source-stated semantic data boundary; the pinned literal branches, instruction shapes, and provenance helper directly define the retained fields"
 
 [[feature]]
+id = "HC-IR-TYPED-LITERAL-LOWERING"
+description = "Direct typed semantic literal results lower to one checked IR instruction without an AST join."
+sources = [
+  "Compiler/PrsExp.HC:679-700 integer, character, F64, and string literal payload and opcode branches",
+  "Compiler/CInit.HC:27-29 zero-argument and one-result literal instruction shapes",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = [
+  "test/test_ir_literal_lowering.ml",
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 431
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct integer, character, F64, and string leaves in function-body and executable top-level typed semantic results"
+payload_rule = "copy the retained target I64, raw F64 bits, or decoded bytes without consulting a frontend AST node"
+type_rule = "copy the checked semantic result type, including the semantic type selected for a wrapped target integer"
+source_rule = "copy the semantic source location and reject missing or inconsistent literal source metadata with HCIRL0003"
+identity_rule = "instruction and value identities remain caller-owned"
+nonliteral_rule = "all other semantic expression shapes return Not_literal without constructing IR"
+compilation_modes = ["jit", "aot"]
+focused_typed_lowering_tests = 4
+semantic_wrapper_traversal_string_storage_constant_folding_and_execution = "not implemented by this feature"
+native_oracle_status = "not required for this source-stated construction boundary; the pinned literal branches, instruction shapes, and provenance helper directly define the copied fields"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [

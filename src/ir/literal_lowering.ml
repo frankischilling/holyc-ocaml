@@ -82,6 +82,86 @@ let lower description =
   | Ok sequence -> Ok { literal = description.literal; sequence; result_type }
   | Error errors -> Error errors
 
+let literal_of_typed_source source =
+  match Sema.Function_call_resolution.argument_expression_kind source with
+  | Sema.Function_call_resolution.Integer_literal value -> Some (Integer value)
+  | Sema.Function_call_resolution.Character_literal value ->
+      Some (Character value)
+  | Sema.Function_call_resolution.Float_literal bits -> Some (Float_bits bits)
+  | Sema.Function_call_resolution.String_literal bytes ->
+      Some (String_bytes bytes)
+  | Sema.Function_call_resolution.Parenthesized_expression _
+  | Sema.Function_call_resolution.Prefix_expression _
+  | Sema.Function_call_resolution.Postfix_expression _
+  | Sema.Function_call_resolution.Postfix_cast_expression _
+  | Sema.Function_call_resolution.Binary_expression _
+  | Sema.Function_call_resolution.Index_expression _
+  | Sema.Function_call_resolution.Member_access_expression _
+  | Sema.Function_call_resolution.Bound_identifier_expression _
+  | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
+  | Sema.Function_call_resolution.Unresolved_expression _ -> None
+
+let typed_result_error ?span message =
+  { Sequence.code = "HCIRL0003"; message; instruction_id = None; span }
+
+let typed_result_span result source =
+  let result_origin =
+    Sema.Function_call_expression_result.result_origin result
+  in
+  let source_origin =
+    Sema.Function_call_resolution.argument_expression_origin source
+  in
+  if result_origin <> source_origin then
+    Error
+      (typed_result_error
+         "typed semantic literal source metadata does not match its source \
+          expression")
+  else
+    match result_origin with
+    | Sema.Symbol.Source_location location -> Ok location.span
+    | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+        Error
+          (typed_result_error
+             "typed semantic literal does not have a source location")
+
+let describe_typed_literal (description : description) ~result_type =
+  match description.literal with
+  | Integer value | Character value ->
+      describe_one description ~opcode:Opcode.Ic_imm_i64
+        ~payload:(Sequence.Integer value) ~result_type
+  | Float_bits bits ->
+      describe_one description ~opcode:Opcode.Ic_imm_f64
+        ~payload:(Sequence.Float_bits bits) ~result_type
+  | String_bytes bytes ->
+      describe_one description ~opcode:Opcode.Ic_str_const
+        ~payload:(Sequence.Bytes bytes) ~result_type
+
+let lower_typed_result ~instruction_id ~value_id result =
+  let source = Sema.Function_call_expression_result.result_source result in
+  match literal_of_typed_source source with
+  | None -> Ok Not_literal
+  | Some literal -> (
+      match typed_result_span result source with
+      | Error error -> Error [ error ]
+      | Ok span -> (
+          match Sema.Function_call_expression_result.result_type result with
+          | None ->
+              Error
+                [
+                  typed_result_error ~span
+                    "typed semantic literal does not have a checked result type";
+                ]
+          | Some result_type -> (
+              let description =
+                { instruction_id; value_id; literal; span = Some span }
+              in
+              let instruction, result_type =
+                describe_typed_literal description ~result_type
+              in
+              match Sequence.create [ instruction ] with
+              | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
+              | Error errors -> Error errors)))
+
 let unwrap_expression expression =
   let current = ref expression in
   let unary_operations = ref [] in
