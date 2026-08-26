@@ -216,6 +216,9 @@ let bitwise_not ~location expression =
 let dereference ~location expression =
   prefix ~operator_kind:Ast.Dereference ~spelling:"*" ~location expression
 
+let address_of ~location expression =
+  prefix ~operator_kind:Ast.Address_of ~spelling:"&" ~location expression
+
 let parse_initializer contents =
   let session = Session.create () in
   let source = Session.add_source session ~path:"literal.HC" ~contents in
@@ -656,6 +659,137 @@ let test_dereference_parser_literals_emit_instructions () =
   check "F64 value=*1.25;" (10, 11) (11, 15) ~removes_pointer:false;
   check "U8 value=*\"A\\n\";" (9, 10) (10, 15) ~removes_pointer:true
 
+let test_address_of_parser_literals_emit_instructions () =
+  let check text (operator_start, operator_stop) (literal_start, literal_stop) =
+    let lowered =
+      parse_initializer text
+      |> lower_parsed ~unary_identities:[ identity 8 12 ]
+      |> require_lowered
+    in
+    match Literal.sequence lowered |> Sequence.instructions with
+    | [ literal_instruction; address_instruction ] ->
+        let literal = Sequence.description literal_instruction in
+        let address = Sequence.description address_instruction in
+        Alcotest.(check bool)
+          "address opcode" true
+          (Opcode.equal Opcode.Ic_addr address.opcode);
+        Alcotest.(check bool)
+          "address links" true
+          (address.operands = [ value_id 11 ]
+          && address.result = Some { value_id = value_id 12 });
+        Alcotest.(check bool)
+          "address adds one pointer layer" true
+          (match (literal.target_type, address.target_type) with
+          | Some operand_type, Some result_type ->
+              Type.base operand_type = Type.base result_type
+              && Type.pointer_depth result_type
+                 = Type.pointer_depth operand_type + 1
+          | _ -> false);
+        Alcotest.(check bool)
+          "final result type" true
+          (address.target_type = Some (Literal.result_type lowered));
+        Alcotest.(check bool) "no folded payload" true (address.payload = None);
+        Alcotest.(check int64) "no instruction flags" 0L address.flags;
+        Alcotest.(check bool)
+          "source spans" true
+          (match (literal.span, address.span) with
+          | Some literal_span, Some operator_span ->
+              literal_span.start = literal_start
+              && literal_span.stop = literal_stop
+              && operator_span.start = operator_start
+              && operator_span.stop = operator_stop
+          | _ -> false)
+    | instructions ->
+        Alcotest.failf "expected two instructions, got %d"
+          (List.length instructions)
+  in
+  check "I64 value=&42;" (10, 11) (11, 13);
+  check "I64 value=&'A';" (10, 11) (11, 14);
+  check "F64 value=&1.25;" (10, 11) (11, 15);
+  check "U8 **value=&\"A\\n\";" (11, 12) (12, 17)
+
+let test_address_of_cancels_immediate_dereference () =
+  let check text expected_depth =
+    let lowered =
+      parse_initializer text
+      |> lower_parsed ~unary_identities:[ identity 8 12 ]
+      |> require_lowered
+    in
+    match Literal.sequence lowered |> Sequence.instructions with
+    | [ literal_instruction; address_instruction ] ->
+        let literal = Sequence.description literal_instruction in
+        let address = Sequence.description address_instruction in
+        Alcotest.(check bool)
+          "only address remains" true
+          (Opcode.equal Opcode.Ic_addr address.opcode);
+        Alcotest.(check bool)
+          "address consumes the literal" true
+          (address.operands = [ value_id 11 ]);
+        Alcotest.(check bool)
+          "address owns the only unary identity" true
+          (address.instruction_id = instruction_id 8
+          && address.result = Some { value_id = value_id 12 });
+        Alcotest.(check (option int))
+          "canceled dereference span is absent" (Some 10)
+          (Option.map (fun (span : Span.t) -> span.start) address.span);
+        Alcotest.(check int)
+          "source-selected pointer depth" expected_depth
+          (Type.pointer_depth (Literal.result_type lowered));
+        Alcotest.(check bool)
+          "base type is retained" true
+          (match literal.target_type with
+          | Some operand_type ->
+              Type.base operand_type = Type.base (Literal.result_type lowered)
+          | None -> false)
+    | instructions ->
+        Alcotest.failf "expected literal and address instructions, got %d"
+          (List.length instructions)
+  in
+  check "I64 value=&*42;" 1;
+  check "U8 *value=&*\"A\";" 1;
+  let lowered =
+    parse_initializer "I64 value=*&42;"
+    |> lower_parsed ~unary_identities:[ identity 8 12; identity 9 13 ]
+    |> require_lowered
+  in
+  let opcodes =
+    Literal.sequence lowered |> Sequence.instructions |> List.tl
+    |> List.map (fun instruction -> (Sequence.description instruction).opcode)
+  in
+  Alcotest.(check bool)
+    "dereference outside address is not canceled" true
+    (match opcodes with
+    | [ address; dereference ] ->
+        Opcode.equal Opcode.Ic_addr address
+        && Opcode.equal Opcode.Ic_deref dereference
+    | _ -> false);
+  Alcotest.(check int)
+    "outer dereference restores the literal type" 0
+    (Type.pointer_depth (Literal.result_type lowered))
+
+let test_address_of_pointer_depth_failure_is_typed () =
+  let expression = parse_initializer "U8 *value=&(&(&(&\"A\")));" in
+  match
+    lower_parsed_result
+      ~unary_identities:
+        [ identity 8 12; identity 9 13; identity 10 14; identity 11 15 ]
+      expression
+  with
+  | Error [ (error : Sequence.error) ] ->
+      Alcotest.(check string) "diagnostic code" "HCIRL0002" error.code;
+      Alcotest.(check string)
+        "diagnostic message"
+        "cannot lower prefix address-of: semantic pointer depth 5 exceeds \
+         HolyC's limit of 4"
+        error.message;
+      Alcotest.(check (option int))
+        "failing instruction" (Some 11) error.instruction_id;
+      Alcotest.(check bool) "operator span" true (Option.is_some error.span)
+  | Error errors ->
+      Alcotest.failf "expected one pointer-depth error, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "expected pointer-depth failure"
+
 let test_nested_unary_minus_uses_inner_to_outer_order () =
   let source = Source_id.of_int 14 |> require_ok Fun.id in
   let literal_span = Span.unsafe_make ~source ~start:20 ~stop:22 in
@@ -821,6 +955,7 @@ let test_mixed_dereference_chain_tracks_type_order () =
 let test_unary_identity_count_is_checked () =
   let unary_expression = parse_initializer "I64 value=~42;" in
   let mixed_expression = parse_initializer "I64 value=*~!-42;" in
+  let canceled_expression = parse_initializer "I64 value=&*42;" in
   let direct_expression = parse_initializer "I64 value=42;" in
   let check expected_message expected_span = function
     | Error [ (error : Sequence.error) ] ->
@@ -847,7 +982,10 @@ let test_unary_identity_count_is_checked () =
        (Ast.expression_location mixed_expression).span;
   lower_parsed_result ~unary_identities:[ identity 8 12 ] direct_expression
   |> check "expected 0 unary instruction identities, got 1"
-       (Ast.expression_location direct_expression).span
+       (Ast.expression_location direct_expression).span;
+  lower_parsed_result canceled_expression
+  |> check "expected 1 unary instruction identity, got 0"
+       (Ast.expression_location canceled_expression).span
 
 let test_other_prefixes_and_supported_nonliteral_are_explicit () =
   let source = Source_id.of_int 12 |> require_ok Fun.id in
@@ -877,15 +1015,10 @@ let test_other_prefixes_and_supported_nonliteral_are_explicit () =
   |> require_not_literal
        ~unary_identities:[ identity 8 12 ]
        "dereference nonliteral";
-  let literal =
-    parsed_literal
-      (fun value -> Ast.Integer_literal value)
-      ~span ~spelling:"1" (Ast.Integer_value 1L)
-  in
-  [ ("address of", Ast.Address_of, "&") ]
-  |> List.iter (fun (label, operator_kind, spelling) ->
-      prefix ~operator_kind ~spelling ~location literal
-      |> require_not_literal label)
+  Ast.Identifier_expression identifier |> address_of ~location
+  |> require_not_literal
+       ~unary_identities:[ identity 8 12 ]
+       "address-of nonliteral"
 
 let test_deep_transparent_wrappers_use_constant_host_stack () =
   let source = Source_id.of_int 13 |> require_ok Fun.id in
@@ -933,14 +1066,20 @@ let test_deep_mixed_unary_chain_uses_constant_host_stack () =
       reversed_identities :=
         identity (1_000 + !unary_count) (100_000 + !unary_count)
         :: !reversed_identities;
-      let wrap =
-        match !unary_count mod 4 with
-        | 0 -> dereference
-        | 1 -> bitwise_not
-        | 2 -> unary_minus
-        | _ -> logical_not
-      in
-      expression := wrap ~location:wrapper_location !expression)
+      if !unary_count mod 5 = 0 then
+        expression :=
+          !expression
+          |> dereference ~location:wrapper_location
+          |> address_of ~location:wrapper_location
+      else
+        let wrap =
+          match !unary_count mod 4 with
+          | 0 -> dereference
+          | 1 -> bitwise_not
+          | 2 -> unary_minus
+          | _ -> logical_not
+        in
+        expression := wrap ~location:wrapper_location !expression)
     else if depth mod 2 = 0 then
       expression := parenthesize ~location:wrapper_location !expression
     else expression := unary_plus ~location:wrapper_location !expression
@@ -1001,6 +1140,12 @@ let tests =
       test_bitwise_not_parser_literals_emit_i64_instructions;
     Alcotest.test_case "dereference parser instructions" `Quick
       test_dereference_parser_literals_emit_instructions;
+    Alcotest.test_case "address-of parser instructions" `Quick
+      test_address_of_parser_literals_emit_instructions;
+    Alcotest.test_case "address-of cancels dereference" `Quick
+      test_address_of_cancels_immediate_dereference;
+    Alcotest.test_case "address-of pointer-depth failure" `Quick
+      test_address_of_pointer_depth_failure_is_typed;
     Alcotest.test_case "nested unary minus uses source order" `Quick
       test_nested_unary_minus_uses_inner_to_outer_order;
     Alcotest.test_case "mixed unary operators use source order" `Quick

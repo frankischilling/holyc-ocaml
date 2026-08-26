@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lowered prefix address-of around integer, character, F64, and string literals as checked `IC_ADDR` chains. Each instruction adds one pointer layer and keeps its caller-owned identity, operand link, and operator span. An address immediately outside a dereference cancels that dereference before identity allocation, matching the pinned parser; `HCIRL0002` reports pointer-depth overflow.
 - Lowered prefix dereference around integer, character, F64, and string literals as checked `IC_DEREF` chains. Each instruction removes one pointer layer when present, retains a nonpointer operand class, and keeps its caller-owned identity, operand link, and operator span. The boundary constructs IR but does not read memory.
 - Lowered bitwise complement around integer, character, F64, and string literals as unfused checked `IC_COM` chains. Mixed unary operations now carry the current type through each instruction, with every complement changing its result to internal `I64` as the pinned optimizer requires.
 - Lowered logical not around integer, character, F64, and string literals as unfused checked `IC_NOT` chains. Logical-not and unary-minus operators may interleave while keeping inner-to-outer instruction order, caller-owned identities, operand links, forwarded types, and individual token spans. Constant folding and conditional-branch inversion remain optimizer work.
