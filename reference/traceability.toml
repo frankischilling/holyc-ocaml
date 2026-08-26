@@ -7521,6 +7521,41 @@ semantic_traversal_expression_graphs_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated structural boundary; PrsUnaryTerm consumes unary plus without selecting an opcode"
 
 [[feature]]
+id = "HC-IR-UNARY-MINUS-LITERAL-LOWERING"
+description = "Unary minus around a literal emits an unfused checked instruction chain with source-positioned operators."
+sources = [
+  "Compiler/PrsExp.HC:614-620 unary minus selects IC_UNARY_MINUS and consumes the prefix token",
+  "Compiler/PrsExp.HC:679-696 operand literal insertion",
+  "Compiler/PrsExp.HC:133-162 inner-to-outer unary insertion and class forwarding",
+  "Compiler/CInit.HC:52 one-argument, one-result IC_UNARY_MINUS shape",
+  "Compiler/OptLib.HC:196-225 unary class propagation and integer or F64 folding",
+  "Compiler/OptPass012.HC:180-192 later constant folding",
+  "Compiler/OptPass789A.HC:455-459 integer and F64 backend selection",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 419
+foundation_issue = 417
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more unary-minus operators interleaved with transparent grouping and unary plus around an integer, character, F64, or string literal"
+instruction_rule = "emit the literal first, then one IC_UNARY_MINUS per prefix from innermost to outermost without folding"
+operand_rule = "each unary instruction consumes the preceding literal or unary result"
+type_rule = "forward the operand result type through integer, F64, and string-pointer paths"
+provenance_rule = "retain the literal token span on the literal instruction and each operator token span on its unary instruction"
+identity_rule = "the caller supplies one distinct instruction and value identity per unary operator in emitted order"
+diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
+nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
+excluded_prefixes = ["logical not", "bitwise not", "dereference", "address of", "increment", "decrement"]
+deep_input_rule = "100,000 mixed grouping, unary-plus, and unary-minus wrappers lower without recursive host-stack growth"
+semantic_traversal_constant_folding_string_storage_expression_graphs_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, and backend consumers define insertion order, result class, and later folding directly"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [

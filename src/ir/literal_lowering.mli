@@ -11,6 +11,11 @@ type description = {
   span : Common.Span.t option;
 }
 
+type identity = {
+  instruction_id : Instruction_sequence.Instruction_id.t;
+  value_id : Instruction_sequence.Value_id.t;
+}
+
 type t
 type expression_result = Lowered of t | Not_literal
 
@@ -23,11 +28,14 @@ val lower : description -> (t, Instruction_sequence.error list) result
 val lower_expression :
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
+  ?unary_identities:identity list ->
   Frontend.Ast.expression ->
   (expression_result, Instruction_sequence.error list) result
-(** Lower one parsed literal through any number of transparent parentheses and
-    unary-plus prefixes, with the inner literal's source span. Other expressions
-    return [Not_literal] without constructing IR. *)
+(** Lower a parsed literal through transparent parentheses and unary plus.
+    Unary minus consumes one caller-owned [unary_identities] entry for each
+    emitted instruction. Entries run from the innermost operator to the
+    outermost operator. Other expressions return [Not_literal] without
+    constructing IR. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t
