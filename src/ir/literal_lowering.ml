@@ -69,19 +69,22 @@ let lower (description : description) =
   | Float_bits bits -> lower_float description bits
   | String_bytes bytes -> lower_string description bytes
 
-let ungroup_expression expression =
+let transparent_expression expression =
   let current = ref expression in
   let searching = ref true in
   while !searching do
     match !current with
     | Frontend.Ast.Parenthesized_expression grouped ->
         current := grouped.grouped_expression
+    | Frontend.Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Frontend.Ast.Unary_plus ->
+        current := prefix.prefix_operand
     | _ -> searching := false
   done;
   !current
 
 let literal_of_expression expression =
-  match ungroup_expression expression with
+  match transparent_expression expression with
   | Frontend.Ast.Integer_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Integer_value value -> Some (Integer value, source)
