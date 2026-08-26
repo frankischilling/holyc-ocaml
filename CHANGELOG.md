@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lowered bitwise complement around integer, character, F64, and string literals as unfused checked `IC_COM` chains. Mixed unary operations now carry the current type through each instruction, with every complement changing its result to internal `I64` as the pinned optimizer requires.
 - Lowered logical not around integer, character, F64, and string literals as unfused checked `IC_NOT` chains. Logical-not and unary-minus operators may interleave while keeping inner-to-outer instruction order, caller-owned identities, operand links, forwarded types, and individual token spans. Constant folding and conditional-branch inversion remain optimizer work.
 - Lowered unary minus around integer, character, F64, and string literals as unfused checked `IC_UNARY_MINUS` chains. Each operator keeps its own caller-owned instruction and value identity, operand link, forwarded type, and token span; `HCIRL0001` rejects missing or excess identities. Parentheses and unary plus remain transparent, and deep mixed prefix chains use constant host stack.
 - Made unary plus transparent at the checked literal IR boundary. Unary-plus prefixes and parentheses may wrap integer, character, F64, and string parser nodes in any order without adding an instruction or identity. The adapter keeps the inner literal payload, type, span, and caller-owned IDs; other prefix operators remain outside this path.

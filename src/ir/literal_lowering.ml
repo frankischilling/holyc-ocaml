@@ -106,6 +106,15 @@ let unwrap_expression expression =
           }
           :: !unary_operations;
         current := prefix.prefix_operand
+    | Frontend.Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Frontend.Ast.Bitwise_not ->
+        unary_operations :=
+          {
+            opcode = Opcode.Ic_com;
+            span = prefix.prefix_operator.operator_location.span;
+          }
+          :: !unary_operations;
+        current := prefix.prefix_operand
     | _ -> searching := false
   done;
   (!current, !unary_operations)
@@ -168,7 +177,7 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
       if actual <> expected then
         Error [ identity_count_error expression ~expected ~actual ]
       else
-        let literal_instruction, result_type =
+        let literal_instruction, literal_result_type =
           describe_literal
             {
               instruction_id;
@@ -177,10 +186,15 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
               span = Some source.literal_location.span;
             }
         in
-        let rec add_unary reversed current_value operations identities =
+        let rec add_unary reversed current_value current_type operations
+            identities =
           match (operations, identities) with
           | operation :: remaining_operations, identity :: remaining_identities
             ->
+              let result_type =
+                if Opcode.equal operation.opcode Opcode.Ic_com then i64
+                else current_type
+              in
               let instruction : Sequence.description =
                 {
                   instruction_id = identity.instruction_id;
@@ -193,14 +207,14 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
                   span = Some operation.span;
                 }
               in
-              add_unary (instruction :: reversed) identity.value_id
+              add_unary (instruction :: reversed) identity.value_id result_type
                 remaining_operations remaining_identities
-          | [], [] -> List.rev reversed
+          | [], [] -> (List.rev reversed, current_type)
           | _ -> assert false
         in
-        let descriptions =
-          add_unary [ literal_instruction ] value_id unary_operations
-            unary_identities
+        let descriptions, result_type =
+          add_unary [ literal_instruction ] value_id literal_result_type
+            unary_operations unary_identities
         in
         match Sequence.create descriptions with
         | Ok sequence -> Ok (Lowered { literal; sequence; result_type })

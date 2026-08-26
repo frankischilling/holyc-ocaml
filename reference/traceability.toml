@@ -7550,7 +7550,7 @@ provenance_rule = "retain the literal token span on the literal instruction and 
 identity_rule = "the caller supplies one distinct instruction and value identity per unary operator in emitted order"
 diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
 nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
-excluded_prefixes = ["bitwise not", "dereference", "address of", "increment", "decrement"]
+excluded_prefixes = ["dereference", "address of", "increment", "decrement"]
 deep_input_rule = "100,000 mixed grouping, unary-plus, and unary-minus wrappers lower without recursive host-stack growth"
 semantic_traversal_constant_folding_string_storage_expression_graphs_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, and backend consumers define insertion order, result class, and later folding directly"
@@ -7585,10 +7585,45 @@ provenance_rule = "retain the literal token span on the literal instruction and 
 identity_rule = "the caller supplies one distinct instruction and value identity per emitting unary operator in emitted order"
 diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
 nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
-excluded_prefixes = ["bitwise not", "dereference", "address of", "increment", "decrement"]
+excluded_prefixes = ["dereference", "address of", "increment", "decrement"]
 deep_input_rule = "100,000 mixed grouping, unary-plus, unary-minus, and logical-not wrappers lower without recursive host-stack growth"
 semantic_traversal_constant_folding_branch_simplification_string_storage_expression_graphs_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, branch simplifier, and backend consumers define insertion order, result class, and later folding directly"
+
+[[feature]]
+id = "HC-IR-BITWISE-COMPLEMENT-LITERAL-LOWERING"
+description = "Bitwise complement around a literal emits an unfused checked instruction chain with an internal I64 result."
+sources = [
+  "Compiler/PrsExp.HC:614-620 bitwise complement selects IC_COM and consumes the prefix token",
+  "Compiler/PrsExp.HC:679-696 operand literal insertion",
+  "Compiler/PrsExp.HC:133-162 inner-to-outer unary insertion",
+  "Compiler/CInit.HC:50 one-argument, one-result IC_COM shape",
+  "Compiler/OptPass012.HC:153-161 later integer folding and internal I64 result class",
+  "Compiler/OptPass789A.HC:449-450 integer complement backend selection",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 423
+foundation_issue = 421
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more bitwise-complement operators interleaved with unary minus, logical not, transparent grouping, and unary plus around an integer, character, F64, or string literal"
+instruction_rule = "emit the literal first, then one IC_COM, IC_NOT, or IC_UNARY_MINUS per emitting prefix from innermost to outermost without folding"
+operand_rule = "each unary instruction consumes the preceding literal or unary result"
+type_rule = "IC_COM produces internal I64; IC_NOT and IC_UNARY_MINUS forward the current operand type"
+final_type_rule = "the lowering result exposes the outermost operation's result type"
+provenance_rule = "retain the literal token span on the literal instruction and each operator token span on its unary instruction"
+identity_rule = "the caller supplies one distinct instruction and value identity per emitting unary operator in emitted order"
+diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
+nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
+excluded_prefixes = ["dereference", "address of", "increment", "decrement"]
+deep_input_rule = "100,000 mixed transparent and emitting wrappers lower without recursive host-stack growth"
+semantic_traversal_constant_folding_string_storage_expression_graphs_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, and backend consumers define insertion order, result class, and later folding directly"
 
 [[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"

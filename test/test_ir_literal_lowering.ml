@@ -210,6 +210,9 @@ let unary_minus ~location expression =
 let logical_not ~location expression =
   prefix ~operator_kind:Ast.Logical_not ~spelling:"!" ~location expression
 
+let bitwise_not ~location expression =
+  prefix ~operator_kind:Ast.Bitwise_not ~spelling:"~" ~location expression
+
 let parse_initializer contents =
   let session = Session.create () in
   let source = Session.add_source session ~path:"literal.HC" ~contents in
@@ -548,6 +551,55 @@ let test_logical_not_parser_literals_emit_instructions () =
   check "F64 value=1.25;" "F64 value=!1.25;" (10, 11) (11, 15);
   check "U8 *value=\"A\\n\";" "U8 *value=!\"A\\n\";" (10, 11) (11, 16)
 
+let test_bitwise_not_parser_literals_emit_i64_instructions () =
+  let check text (operator_start, operator_stop) (literal_start, literal_stop) =
+    let lowered =
+      parse_initializer text
+      |> lower_parsed ~unary_identities:[ identity 8 12 ]
+      |> require_lowered
+    in
+    match Literal.sequence lowered |> Sequence.instructions with
+    | [ literal_instruction; unary_instruction ] ->
+        let literal = Sequence.description literal_instruction in
+        let unary = Sequence.description unary_instruction in
+        let is_i64 = function
+          | Some type_ -> (
+              match (Type.base type_, Type.pointer_depth type_) with
+              | Type.Primitive (Type.Internal_storage, Primitive.I64), 0 -> true
+              | _ -> false)
+          | None -> false
+        in
+        Alcotest.(check bool)
+          "bitwise-complement opcode" true
+          (Opcode.equal Opcode.Ic_com unary.opcode);
+        Alcotest.(check bool)
+          "bitwise-complement links" true
+          (unary.operands = [ value_id 11 ]
+          && unary.result = Some { value_id = value_id 12 });
+        Alcotest.(check bool)
+          "internal I64 instruction type" true (is_i64 unary.target_type);
+        Alcotest.(check bool)
+          "internal I64 final type" true
+          (is_i64 (Some (Literal.result_type lowered)));
+        Alcotest.(check bool) "no folded payload" true (unary.payload = None);
+        Alcotest.(check bool)
+          "source spans" true
+          (match (literal.span, unary.span) with
+          | Some literal_span, Some operator_span ->
+              literal_span.start = literal_start
+              && literal_span.stop = literal_stop
+              && operator_span.start = operator_start
+              && operator_span.stop = operator_stop
+          | _ -> false)
+    | instructions ->
+        Alcotest.failf "expected two instructions, got %d"
+          (List.length instructions)
+  in
+  check "I64 value=~42;" (10, 11) (11, 13);
+  check "I64 value=~'A';" (10, 11) (11, 14);
+  check "F64 value=~1.25;" (10, 11) (11, 15);
+  check "U8 *value=~\"A\\n\";" (10, 11) (11, 16)
+
 let test_nested_unary_minus_uses_inner_to_outer_order () =
   let source = Source_id.of_int 14 |> require_ok Fun.id in
   let literal_span = Span.unsafe_make ~source ~start:20 ~stop:22 in
@@ -597,53 +649,65 @@ let test_mixed_unary_operators_use_inner_to_outer_order () =
   let source = Source_id.of_int 16 |> require_ok Fun.id in
   let literal_span = Span.unsafe_make ~source ~start:20 ~stop:22 in
   let inner_span = Span.unsafe_make ~source ~start:12 ~stop:13 in
-  let middle_span = Span.unsafe_make ~source ~start:7 ~stop:8 in
+  let complement_span = Span.unsafe_make ~source ~start:9 ~stop:10 in
+  let minus_span = Span.unsafe_make ~source ~start:6 ~stop:7 in
   let outer_span = Span.unsafe_make ~source ~start:2 ~stop:3 in
   let expression =
     parsed_literal
-      (fun value -> Ast.Integer_literal value)
-      ~span:literal_span ~spelling:"42" (Ast.Integer_value 42L)
+      (fun value -> Ast.Float_literal value)
+      ~span:literal_span ~spelling:"1.5" (Ast.Float_value 1.5)
     |> logical_not ~location:(parsed_location inner_span)
-    |> unary_minus ~location:(parsed_location middle_span)
+    |> bitwise_not ~location:(parsed_location complement_span)
+    |> unary_minus ~location:(parsed_location minus_span)
     |> logical_not ~location:(parsed_location outer_span)
   in
-  let descriptions =
+  let lowered =
     lower_parsed
-      ~unary_identities:[ identity 8 12; identity 9 13; identity 10 14 ]
+      ~unary_identities:
+        [ identity 8 12; identity 9 13; identity 10 14; identity 11 15 ]
       expression
-    |> require_lowered |> Literal.sequence |> Sequence.instructions
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
     |> List.map Sequence.description
   in
   match descriptions with
-  | [ literal; inner; middle; outer ] ->
+  | [ literal; inner; complement; minus; outer ] ->
       Alcotest.(check bool)
         "opcode order" true
         (Opcode.equal Opcode.Ic_not inner.opcode
-        && Opcode.equal Opcode.Ic_unary_minus middle.opcode
+        && Opcode.equal Opcode.Ic_com complement.opcode
+        && Opcode.equal Opcode.Ic_unary_minus minus.opcode
         && Opcode.equal Opcode.Ic_not outer.opcode);
       Alcotest.(check bool)
         "value chain" true
         (inner.operands = [ value_id 11 ]
         && inner.result = Some { value_id = value_id 12 }
-        && middle.operands = [ value_id 12 ]
-        && middle.result = Some { value_id = value_id 13 }
-        && outer.operands = [ value_id 13 ]
-        && outer.result = Some { value_id = value_id 14 });
+        && complement.operands = [ value_id 12 ]
+        && complement.result = Some { value_id = value_id 13 }
+        && minus.operands = [ value_id 13 ]
+        && minus.result = Some { value_id = value_id 14 }
+        && outer.operands = [ value_id 14 ]
+        && outer.result = Some { value_id = value_id 15 });
       Alcotest.(check bool)
-        "forwarded types" true
+        "type transitions" true
         (inner.target_type = literal.target_type
-        && middle.target_type = literal.target_type
-        && outer.target_type = literal.target_type);
+        && complement.target_type <> literal.target_type
+        && minus.target_type = complement.target_type
+        && outer.target_type = complement.target_type
+        && Some (Literal.result_type lowered) = outer.target_type);
       Alcotest.(check bool)
         "operator spans" true
         (inner.span = Some inner_span
-        && middle.span = Some middle_span
+        && complement.span = Some complement_span
+        && minus.span = Some minus_span
         && outer.span = Some outer_span)
-  | _ -> Alcotest.fail "expected a literal and three unary instructions"
+  | _ -> Alcotest.fail "expected a literal and four unary instructions"
 
 let test_unary_identity_count_is_checked () =
-  let unary_expression = parse_initializer "I64 value=-42;" in
-  let mixed_expression = parse_initializer "I64 value=!-42;" in
+  let unary_expression = parse_initializer "I64 value=~42;" in
+  let mixed_expression = parse_initializer "I64 value=~!-42;" in
   let direct_expression = parse_initializer "I64 value=42;" in
   let check expected_message expected_span = function
     | Error [ (error : Sequence.error) ] ->
@@ -663,8 +727,10 @@ let test_unary_identity_count_is_checked () =
   lower_parsed_result unary_expression
   |> check "expected 1 unary instruction identity, got 0"
        (Ast.expression_location unary_expression).span;
-  lower_parsed_result ~unary_identities:[ identity 8 12 ] mixed_expression
-  |> check "expected 2 unary instruction identities, got 1"
+  lower_parsed_result
+    ~unary_identities:[ identity 8 12; identity 9 13 ]
+    mixed_expression
+  |> check "expected 3 unary instruction identities, got 2"
        (Ast.expression_location mixed_expression).span;
   lower_parsed_result ~unary_identities:[ identity 8 12 ] direct_expression
   |> check "expected 0 unary instruction identities, got 1"
@@ -690,16 +756,16 @@ let test_other_prefixes_and_supported_nonliteral_are_explicit () =
   |> require_not_literal
        ~unary_identities:[ identity 8 12 ]
        "logical-not nonliteral";
+  Ast.Identifier_expression identifier |> bitwise_not ~location
+  |> require_not_literal
+       ~unary_identities:[ identity 8 12 ]
+       "bitwise-complement nonliteral";
   let literal =
     parsed_literal
       (fun value -> Ast.Integer_literal value)
       ~span ~spelling:"1" (Ast.Integer_value 1L)
   in
-  [
-    ("bitwise not", Ast.Bitwise_not, "~");
-    ("dereference", Ast.Dereference, "*");
-    ("address of", Ast.Address_of, "&");
-  ]
+  [ ("dereference", Ast.Dereference, "*"); ("address of", Ast.Address_of, "&") ]
   |> List.iter (fun (label, operator_kind, spelling) ->
       prefix ~operator_kind ~spelling ~location literal
       |> require_not_literal label)
@@ -750,7 +816,12 @@ let test_deep_mixed_unary_chain_uses_constant_host_stack () =
       reversed_identities :=
         identity (1_000 + !unary_count) (100_000 + !unary_count)
         :: !reversed_identities;
-      let wrap = if !unary_count mod 2 = 0 then logical_not else unary_minus in
+      let wrap =
+        match !unary_count mod 3 with
+        | 0 -> bitwise_not
+        | 1 -> unary_minus
+        | _ -> logical_not
+      in
       expression := wrap ~location:wrapper_location !expression)
     else if depth mod 2 = 0 then
       expression := parenthesize ~location:wrapper_location !expression
@@ -808,6 +879,8 @@ let tests =
       test_unary_minus_parser_literals_emit_instructions;
     Alcotest.test_case "logical-not parser instructions" `Quick
       test_logical_not_parser_literals_emit_instructions;
+    Alcotest.test_case "bitwise-complement parser instructions" `Quick
+      test_bitwise_not_parser_literals_emit_i64_instructions;
     Alcotest.test_case "nested unary minus uses source order" `Quick
       test_nested_unary_minus_uses_inner_to_outer_order;
     Alcotest.test_case "mixed unary operators use source order" `Quick
