@@ -115,6 +115,15 @@ let unwrap_expression expression =
           }
           :: !unary_operations;
         current := prefix.prefix_operand
+    | Frontend.Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Frontend.Ast.Dereference ->
+        unary_operations :=
+          {
+            opcode = Opcode.Ic_deref;
+            span = prefix.prefix_operator.operator_location.span;
+          }
+          :: !unary_operations;
+        current := prefix.prefix_operand
     | _ -> searching := false
   done;
   (!current, !unary_operations)
@@ -167,6 +176,16 @@ let identity_count_error expression ~expected ~actual =
     span = Some (Frontend.Ast.expression_location expression).span;
   }
 
+let unary_result_type opcode current_type =
+  if Opcode.equal opcode Opcode.Ic_com then i64
+  else if
+    Opcode.equal opcode Opcode.Ic_deref && Type.pointer_depth current_type > 0
+  then
+    match Type.dereference current_type with
+    | Ok type_ -> type_
+    | Error message -> invalid_arg message
+  else current_type
+
 let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
     expression =
   match literal_of_expression expression with
@@ -192,8 +211,7 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
           | operation :: remaining_operations, identity :: remaining_identities
             ->
               let result_type =
-                if Opcode.equal operation.opcode Opcode.Ic_com then i64
-                else current_type
+                unary_result_type operation.opcode current_type
               in
               let instruction : Sequence.description =
                 {
