@@ -312,7 +312,9 @@ let type_name result =
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
 
 let rec literal_payload expression =
-  match Semantic_function_call_resolution.argument_expression_kind expression with
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
   | Semantic_function_call_resolution.Integer_literal value ->
       Printf.sprintf "integer:%Ld" value
   | Semantic_function_call_resolution.Float_literal bits ->
@@ -331,7 +333,9 @@ let rec literal_payload expression =
       |> Printf.sprintf "nonliteral:%s"
 
 let rec literal_shape expression =
-  match Semantic_function_call_resolution.argument_expression_kind expression with
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
   | Semantic_function_call_resolution.Parenthesized_expression grouped ->
       Printf.sprintf "parenthesized(%s)" (literal_shape grouped)
   | Semantic_function_call_resolution.Prefix_expression prefix ->
@@ -340,8 +344,7 @@ let rec literal_shape expression =
        |> Semantic_function_call_resolution.prefix_operator_name)
         (prefix |> Semantic_function_call_resolution.prefix_operand
        |> literal_shape)
-  | kind ->
-      Semantic_function_call_resolution.argument_expression_kind_name kind
+  | kind -> Semantic_function_call_resolution.argument_expression_kind_name kind
 
 let result_descriptor result =
   String.concat ":"
@@ -597,11 +600,10 @@ let roots_retain_types_and_categories () =
 let literal_payloads_reach_typed_function_results () =
   let prepared =
     prepare ~path:"call-expression-literal-payloads.HC"
-      "extern I64 Target(I64 wrapped,I64 minimum,I64 negative,I64 character,F64 \
-       floating,U8 *text,I64 grouped);\n\
+      "extern I64 Target(I64 wrapped,I64 minimum,I64 negative,I64 \
+       character,F64 floating,U8 *text,I64 grouped);\n\
        I64 Caller(){return \
-       Target(0xFFFFFFFFFFFFFFFF,0x8000000000000000,-7,'ABC',0.1,\
-       \"a\\n\\x42\\d\",+((42)));}"
+       Target(0xFFFFFFFFFFFFFFFF,0x8000000000000000,-7,'ABC',0.1,\"a\\n\\x42\\d\",+((42)));}"
   in
   let _, results = analyze prepared in
   let roots = root_results results "Caller" in
@@ -694,8 +696,10 @@ let generated_literal_payloads_keep_provenance_and_replay () =
         | Semantic_function_call_resolution.Integer_literal _ -> expression
         | _ -> Alcotest.fail "expected a generated integer literal"
       in
-      match first |> root |> source |> leaf
-            |> Semantic_function_call_resolution.argument_expression_origin with
+      match
+        first |> root |> source |> leaf
+        |> Semantic_function_call_resolution.argument_expression_origin
+      with
       | Semantic_symbol.Source_location location ->
           Alcotest.(check bool)
             "generated literal keeps its invocation origin" true

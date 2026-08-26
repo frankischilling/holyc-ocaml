@@ -206,7 +206,9 @@ let descriptor result =
     (Semantic_function_call_expression_result.result_array_rank result)
 
 let rec literal_payload expression =
-  match Semantic_function_call_resolution.argument_expression_kind expression with
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
   | Semantic_function_call_resolution.Integer_literal value ->
       Printf.sprintf "integer:%Ld" value
   | Semantic_function_call_resolution.Float_literal bits ->
@@ -225,7 +227,9 @@ let rec literal_payload expression =
       |> Printf.sprintf "nonliteral:%s"
 
 let rec literal_shape expression =
-  match Semantic_function_call_resolution.argument_expression_kind expression with
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
   | Semantic_function_call_resolution.Parenthesized_expression grouped ->
       Printf.sprintf "parenthesized(%s)" (literal_shape grouped)
   | Semantic_function_call_resolution.Prefix_expression prefix ->
@@ -234,8 +238,7 @@ let rec literal_shape expression =
        |> Semantic_function_call_resolution.prefix_operator_name)
         (prefix |> Semantic_function_call_resolution.prefix_operand
        |> literal_shape)
-  | kind ->
-      Semantic_function_call_resolution.argument_expression_kind_name kind
+  | kind -> Semantic_function_call_resolution.argument_expression_kind_name kind
 
 let lookup_description result =
   match
@@ -428,8 +431,7 @@ let literal_payloads_reach_typed_top_level_results () =
     (fun mode ->
       let source =
         prepared ~mode ~path:"top-level-literal-payloads.HC"
-          "0xFFFFFFFFFFFFFFFF;0x8000000000000000;-7;'ABC';0.1;\
-           \"a\\n\\x42\\d\";+((42));"
+          "0xFFFFFFFFFFFFFFFF;0x8000000000000000;-7;'ABC';0.1;\"a\\n\\x42\\d\";+((42));"
       in
       let _, _, _, result = analyze source in
       let values = root_values result in

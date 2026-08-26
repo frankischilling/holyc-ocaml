@@ -1526,7 +1526,9 @@ let literal_constructors_retain_typed_payloads () =
     ]
   in
   let description expression =
-    match Semantic_function_call_resolution.argument_expression_kind expression with
+    match
+      Semantic_function_call_resolution.argument_expression_kind expression
+    with
     | Semantic_function_call_resolution.Integer_literal value ->
         Printf.sprintf "integer:%Ld" value
     | Semantic_function_call_resolution.Float_literal bits ->
