@@ -1171,12 +1171,13 @@ let index_expression_constructors_validate_bracket_origins () =
   let closing_origin = Semantic_symbol.Synthesized "closing bracket" in
   let base =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:base_origin
   in
   let index =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Float_literal ~origin:index_origin
+      ~kind:(Semantic_function_call_resolution.Float_literal 0L)
+      ~origin:index_origin
   in
   let retained =
     checked
@@ -1216,7 +1217,7 @@ let expression_statement_constructors_validate_identity_and_origin () =
   let statement_origin = Semantic_symbol.Synthesized "expression statement" in
   let expression =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:expression_origin
   in
   let make ?(index = 0) ?(origin = statement_origin) () =
@@ -1270,12 +1271,12 @@ let implicit_output_constructors_validate_source_shape () =
   let statement_origin = Semantic_symbol.Synthesized "output statement" in
   let fixed_expression =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.String_literal
+      ~kind:(Semantic_function_call_resolution.String_literal "")
       ~origin:fixed_origin
   in
   let argument_expression =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:argument_origin
   in
   let make_argument ?(index = 0) ?(leading_comma_origin = comma_origin)
@@ -1367,7 +1368,7 @@ let switch_selector_constructors_validate_identity_and_origins () =
   let statement_origin = Semantic_symbol.Synthesized "switch statement" in
   let expression =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:expression_origin
   in
   let make ?(index = 0)
@@ -1426,7 +1427,7 @@ let switch_case_constructors_validate_patterns_and_origins () =
   let label_origin = Semantic_symbol.Synthesized "case label" in
   let expression =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:expression_origin
   in
   let range =
@@ -1507,6 +1508,54 @@ let switch_case_constructors_validate_patterns_and_origins () =
          (Semantic_module_expression_binding.function_item_index owner)
        ~switch_cases:[ noncontiguous ] [])
 
+let literal_constructors_retain_typed_payloads () =
+  let origin = Semantic_symbol.Synthesized "literal constructor test" in
+  let expressions =
+    [
+      Semantic_function_call_resolution.make_argument_expression
+        ~kind:(Semantic_function_call_resolution.Integer_literal (-1L)) ~origin;
+      Semantic_function_call_resolution.make_argument_expression
+        ~kind:
+          (Semantic_function_call_resolution.Float_literal 0x7ff8000000000042L)
+        ~origin;
+      Semantic_function_call_resolution.make_argument_expression
+        ~kind:(Semantic_function_call_resolution.Character_literal 0x434241L)
+        ~origin;
+      Semantic_function_call_resolution.make_argument_expression
+        ~kind:(Semantic_function_call_resolution.String_literal "a\nB$") ~origin;
+    ]
+  in
+  let description expression =
+    match
+      Semantic_function_call_resolution.argument_expression_kind expression
+    with
+    | Semantic_function_call_resolution.Integer_literal value ->
+        Printf.sprintf "integer:%Ld" value
+    | Semantic_function_call_resolution.Float_literal bits ->
+        Printf.sprintf "f64:%016Lx" bits
+    | Semantic_function_call_resolution.Character_literal value ->
+        Printf.sprintf "character:%016Lx" value
+    | Semantic_function_call_resolution.String_literal bytes ->
+        Printf.sprintf "string:%S:length-%d" bytes (String.length bytes)
+    | _ -> Alcotest.fail "expected a typed literal constructor"
+  in
+  Alcotest.(check (list string))
+    "literal constructors retain only their declared payload representation"
+    [
+      "integer:-1";
+      "f64:7ff8000000000042";
+      "character:0000000000434241";
+      "string:\"a\\nB$\":length-4";
+    ]
+    (List.map description expressions);
+  Alcotest.(check bool)
+    "literal constructors retain their source origin" true
+    (List.for_all
+       (fun expression ->
+         Semantic_function_call_resolution.argument_expression_origin expression
+         = origin)
+       expressions)
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -1541,4 +1590,6 @@ let tests =
       switch_selector_constructors_validate_identity_and_origins;
     Alcotest.test_case "switch case constructor validation" `Quick
       switch_case_constructors_validate_patterns_and_origins;
+    Alcotest.test_case "typed literal constructor payloads" `Quick
+      literal_constructors_retain_typed_payloads;
   ]

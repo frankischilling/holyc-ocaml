@@ -226,14 +226,32 @@ let rec expression state (source : Frontend.Ast.expression) =
           ~origin:(origin (Frontend.Ast.expression_location source)) )
   in
   match source with
-  | Frontend.Ast.Integer_literal _ ->
-      finish state Sema.Function_call_resolution.Integer_literal
-  | Frontend.Ast.Float_literal _ ->
-      finish state Sema.Function_call_resolution.Float_literal
-  | Frontend.Ast.Character_literal _ ->
-      finish state Sema.Function_call_resolution.Character_literal
-  | Frontend.Ast.String_literal _ ->
-      finish state Sema.Function_call_resolution.String_literal
+  | Frontend.Ast.Integer_literal literal -> (
+      match literal.literal_value with
+      | Frontend.Ast.Integer_value value ->
+          finish state (Sema.Function_call_resolution.Integer_literal value)
+      | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ ->
+          Error "integer literal has a non-integer payload")
+  | Frontend.Ast.Float_literal literal -> (
+      match literal.literal_value with
+      | Frontend.Ast.Float_value value ->
+          finish state
+            (Sema.Function_call_resolution.Float_literal
+               (Int64.bits_of_float value))
+      | Frontend.Ast.Integer_value _ | Frontend.Ast.Bytes_value _ ->
+          Error "F64 literal has a non-F64 payload")
+  | Frontend.Ast.Character_literal literal -> (
+      match literal.literal_value with
+      | Frontend.Ast.Integer_value value ->
+          finish state (Sema.Function_call_resolution.Character_literal value)
+      | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ ->
+          Error "character literal has a non-integer payload")
+  | Frontend.Ast.String_literal literal -> (
+      match literal.literal_value with
+      | Frontend.Ast.Bytes_value value ->
+          finish state (Sema.Function_call_resolution.String_literal value)
+      | Frontend.Ast.Integer_value _ | Frontend.Ast.Float_value _ ->
+          Error "string literal has a non-byte payload")
   | Frontend.Ast.Identifier_expression identifier -> (
       match take_occurrence state identifier with
       | Error _ as error -> error

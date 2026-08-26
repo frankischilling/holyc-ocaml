@@ -536,7 +536,7 @@ let prefix_source_order_modes_and_provenance () =
 let prefix_constructor_validation () =
   let operand =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:(Semantic_symbol.Synthesized "prefix operand")
   in
   match
@@ -728,7 +728,7 @@ let postfix_provenance () =
 let postfix_constructor_validation () =
   let operand =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:(Semantic_symbol.Synthesized "postfix operand")
   in
   match
@@ -960,7 +960,7 @@ let binary_provenance_and_constructor_validation () =
         (Source_file.path source_file |> Filename.basename));
   let operand =
     Semantic_function_call_resolution.make_argument_expression
-      ~kind:Semantic_function_call_resolution.Integer_literal
+      ~kind:(Semantic_function_call_resolution.Integer_literal 0L)
       ~origin:(Semantic_symbol.Synthesized "binary operand")
   in
   let make operator operator_origin =

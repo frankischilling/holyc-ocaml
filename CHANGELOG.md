@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retained exact literal payloads in shared semantic expression trees. Integers and multi-character constants carry target `I64` values, `F64` literals carry raw bits, and strings carry decoded bytes without storage or terminator policy. Function-body and executable top-level typed results expose the same payload-bearing source nodes while preserving grouping, prefixes, types, classes, categories, identities, and generated-source provenance. IR emission remains separate work.
 - Lowered prefix address-of around integer, character, F64, and string literals as checked `IC_ADDR` chains. Each instruction adds one pointer layer and keeps its caller-owned identity, operand link, and operator span. An address immediately outside a dereference cancels that dereference before identity allocation, matching the pinned parser; `HCIRL0002` reports pointer-depth overflow.
 - Lowered prefix dereference around integer, character, F64, and string literals as checked `IC_DEREF` chains. Each instruction removes one pointer layer when present, retains a nonpointer operand class, and keeps its caller-owned identity, operand link, and operator span. The boundary constructs IR but does not read memory.
 - Lowered bitwise complement around integer, character, F64, and string literals as unfused checked `IC_COM` chains. Mixed unary operations now carry the current type through each instruction, with every complement changing its result to internal `I64` as the pinned optimizer requires.

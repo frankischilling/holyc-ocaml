@@ -45,6 +45,8 @@ Assembler operand references and direct-assembly labels; member-callback, named 
 
 ## Source authority
 
+Semantic literal nodes use the payload shape consumed by the pinned expression parser: target `I64` values for integers and characters, raw IEEE-754 bits for `F64`, and decoded bytes for strings. The shared function-body and executable top-level expression representation carries those values through grouping, prefixes, typed-result identity, type, category, class, and generated-source provenance. It does not choose string storage or emit IR.
+
 TempleOS source at `c26482bb6ad3f80106d28504ec5db3c6a360732c` is authoritative when prose and implementation disagree. `reference/traceability.toml` links each claimed behavior to the pinned function or table, implementation files, and tests.
 
 ## Determinism

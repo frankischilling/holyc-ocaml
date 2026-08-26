@@ -53,10 +53,10 @@ type identifier_value = {
 }
 
 type argument_expression_kind =
-  | Integer_literal
-  | Float_literal
-  | Character_literal
-  | String_literal
+  | Integer_literal of int64
+  | Float_literal of int64
+  | Character_literal of int64
+  | String_literal of string
   | Parenthesized_expression of argument_expression
   | Prefix_expression of prefix_expression
   | Postfix_expression of postfix_expression
@@ -610,10 +610,10 @@ let unresolved_expression_kind_name = function
   | Call_expression -> "call"
 
 let argument_expression_kind_name = function
-  | Integer_literal -> "integer-literal"
-  | Float_literal -> "float-literal"
-  | Character_literal -> "character-literal"
-  | String_literal -> "string-literal"
+  | Integer_literal _ -> "integer-literal"
+  | Float_literal _ -> "float-literal"
+  | Character_literal _ -> "character-literal"
+  | String_literal _ -> "string-literal"
   | Parenthesized_expression _ -> "parenthesized"
   | Prefix_expression _ -> "prefix"
   | Postfix_expression _ -> "postfix"
@@ -1376,10 +1376,10 @@ let rec validate_argument_expression table parent visible declarations
       Error
         (invalid_input
            "function call input contains a top-level identifier binding")
-  | Integer_literal
-  | Float_literal
-  | Character_literal
-  | String_literal
+  | Integer_literal _
+  | Float_literal _
+  | Character_literal _
+  | String_literal _
   | Unresolved_expression _ -> Ok ()
 
 let validate_callable table parent callable =
@@ -1654,10 +1654,10 @@ let rec validate_bound_occurrences occurrence_by_index expression =
       Error
         (invalid_input
            "function call input contains a top-level identifier binding")
-  | Integer_literal
-  | Float_literal
-  | Character_literal
-  | String_literal
+  | Integer_literal _
+  | Float_literal _
+  | Character_literal _
+  | String_literal _
   | Unresolved_expression _ -> Ok ()
 
 let validate_call_bound_occurrences calls occurrences =
@@ -2171,10 +2171,10 @@ let rec computed_expression_type members ~before_item_index expression =
   | Postfix_expression _
   | Binary_expression _
   | Top_level_bound_identifier_expression _
-  | Integer_literal
-  | Float_literal
-  | Character_literal
-  | String_literal
+  | Integer_literal _
+  | Float_literal _
+  | Character_literal _
+  | String_literal _
   | Unresolved_expression _ ->
       invalid
         (argument_expression_origin expression)
@@ -2346,10 +2346,10 @@ let indexed_identifier_callee computed =
         Some (Bound_indexed_identifier identifier, depth)
     | Unresolved_expression Identifier_expression when depth > 0 ->
         Some (Unresolved_indexed_identifier, depth)
-    | Integer_literal
-    | Float_literal
-    | Character_literal
-    | String_literal
+    | Integer_literal _
+    | Float_literal _
+    | Character_literal _
+    | String_literal _
     | Prefix_expression _
     | Postfix_expression _
     | Postfix_cast_expression _

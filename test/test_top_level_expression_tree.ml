@@ -166,10 +166,10 @@ let rec expression_kinds expression =
         expression_kinds (index_base index)
         @ expression_kinds (index_value index)
     | Member_access_expression member -> expression_kinds (member_base member)
-    | Integer_literal
-    | Float_literal
-    | Character_literal
-    | String_literal
+    | Integer_literal _
+    | Float_literal _
+    | Character_literal _
+    | String_literal _
     | Bound_identifier_expression _
     | Top_level_bound_identifier_expression _
     | Unresolved_expression _ -> []

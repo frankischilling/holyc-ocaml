@@ -1077,10 +1077,10 @@ let rec callback_array_index_depth ~callee expression =
           identifier
       in
       if occurrence == callee then Some 0 else None
-  | Function_call_resolution.Integer_literal
-  | Function_call_resolution.Float_literal
-  | Function_call_resolution.Character_literal
-  | Function_call_resolution.String_literal
+  | Function_call_resolution.Integer_literal _
+  | Function_call_resolution.Float_literal _
+  | Function_call_resolution.Character_literal _
+  | Function_call_resolution.String_literal _
   | Function_call_resolution.Prefix_expression _
   | Function_call_resolution.Postfix_expression _
   | Function_call_resolution.Postfix_cast_expression _
@@ -1109,10 +1109,10 @@ let rec function_callback_array_index_depth ~callee expression =
         = Module_expression_binding.occurrence_origin callee
       then Some 0
       else None
-  | Function_call_resolution.Integer_literal
-  | Function_call_resolution.Float_literal
-  | Function_call_resolution.Character_literal
-  | Function_call_resolution.String_literal
+  | Function_call_resolution.Integer_literal _
+  | Function_call_resolution.Float_literal _
+  | Function_call_resolution.Character_literal _
+  | Function_call_resolution.String_literal _
   | Function_call_resolution.Prefix_expression _
   | Function_call_resolution.Postfix_expression _
   | Function_call_resolution.Postfix_cast_expression _
@@ -1197,12 +1197,12 @@ let rec type_expression table members policies ~before_item_index ~context
              ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
-      | Function_call_resolution.Integer_literal
-      | Function_call_resolution.Character_literal ->
+      | Function_call_resolution.Integer_literal _
+      | Function_call_resolution.Character_literal _ ->
           finish ~source_type:integer_type Object_value Integer_result state
-      | Function_call_resolution.Float_literal ->
+      | Function_call_resolution.Float_literal _ ->
           finish ~source_type:float_type Object_value F64_result state
-      | Function_call_resolution.String_literal ->
+      | Function_call_resolution.String_literal _ ->
           finish ~source_type:string_type Address_value Integer_result state
       | Function_call_resolution.Parenthesized_expression grouped -> (
           match
