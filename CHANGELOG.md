@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Made parentheses transparent at the checked literal IR boundary. Nested grouping around integer, character, F64, and string parser nodes produces the same single instruction, payload, type, caller-owned IDs, and inner literal span as the ungrouped form. Grouped nonliterals still return `Not_literal`, and iterative unwrapping keeps deep hosted input stack-safe.
 - Connected integer, character, F64, and string parser nodes to the checked literal IR boundary. The adapter preserves decoded payloads and parser spans, requires caller-owned instruction and value IDs, and returns an explicit nonliteral result without fabricating IR.
 - Added checked IR lowering for integer, character, F64, and string literals. Integer and character values follow the pinned negative-to-`U64`, nonnegative-to-`I64` rule; F64 payloads retain exact bits; and strings retain decoded bytes with type `U8 *`. The `holyc-ir-literal-v1` dump records the source kind and pinned TempleOS commit. Semantic-expression integration, string storage, and general expression lowering remain separate work.
 - Added a checked IR wrapper for executable top-level statement streams. It retains a stable stream identity, source-item position, compiler-option snapshot, source span, checked graph, and x87 result without inventing a function symbol or ABI signature. `HCIR0034` through `HCIR0037` reject malformed stream metadata, and `holyc-ir-top-level-v1` records the pinned TempleOS commit. Frontend lowering and the final `IC_RETURN_VAL2` and `IC_RET` pair remain separate work.
