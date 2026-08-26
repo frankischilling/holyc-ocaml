@@ -7550,10 +7550,45 @@ provenance_rule = "retain the literal token span on the literal instruction and 
 identity_rule = "the caller supplies one distinct instruction and value identity per unary operator in emitted order"
 diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
 nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
-excluded_prefixes = ["logical not", "bitwise not", "dereference", "address of", "increment", "decrement"]
+excluded_prefixes = ["bitwise not", "dereference", "address of", "increment", "decrement"]
 deep_input_rule = "100,000 mixed grouping, unary-plus, and unary-minus wrappers lower without recursive host-stack growth"
 semantic_traversal_constant_folding_string_storage_expression_graphs_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, and backend consumers define insertion order, result class, and later folding directly"
+
+[[feature]]
+id = "HC-IR-LOGICAL-NOT-LITERAL-LOWERING"
+description = "Logical not around a literal emits an unfused checked instruction chain that can interleave with unary minus."
+sources = [
+  "Compiler/PrsExp.HC:614-620 logical not selects IC_NOT and consumes the prefix token",
+  "Compiler/PrsExp.HC:679-696 operand literal insertion",
+  "Compiler/PrsExp.HC:133-162 inner-to-outer unary insertion and class forwarding",
+  "Compiler/CInit.HC:51 one-argument, one-result IC_NOT shape",
+  "Compiler/OptPass012.HC:163-179 later integer and F64 constant folding",
+  "Compiler/OptLib.HC:230-242 and 357-369 conditional branch inversion",
+  "Compiler/OptPass789A.HC:452-453 logical-not backend selection",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 421
+foundation_issue = 419
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more logical-not operators interleaved with unary minus, transparent grouping, and unary plus around an integer, character, F64, or string literal"
+instruction_rule = "emit the literal first, then one IC_NOT or IC_UNARY_MINUS per emitting prefix from innermost to outermost without folding"
+operand_rule = "each unary instruction consumes the preceding literal or unary result"
+type_rule = "forward the operand result type through integer, F64, and string-pointer paths"
+provenance_rule = "retain the literal token span on the literal instruction and each operator token span on its unary instruction"
+identity_rule = "the caller supplies one distinct instruction and value identity per emitting unary operator in emitted order"
+diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
+nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
+excluded_prefixes = ["bitwise not", "dereference", "address of", "increment", "decrement"]
+deep_input_rule = "100,000 mixed grouping, unary-plus, unary-minus, and logical-not wrappers lower without recursive host-stack growth"
+semantic_traversal_constant_folding_branch_simplification_string_storage_expression_graphs_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated instruction boundary; the parser, optimizer, branch simplifier, and backend consumers define insertion order, result class, and later folding directly"
 
 [[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
