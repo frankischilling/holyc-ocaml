@@ -455,8 +455,8 @@ let test_other_prefixes_and_plus_nonliteral_are_explicit () =
     ("address of", Ast.Address_of, "&");
   ]
   |> List.iter (fun (label, operator_kind, spelling) ->
-         prefix ~operator_kind ~spelling ~location literal
-         |> require_not_literal label)
+      prefix ~operator_kind ~spelling ~location literal
+      |> require_not_literal label)
 
 let test_deep_transparent_wrappers_use_constant_host_stack () =
   let source = Source_id.of_int 13 |> require_ok Fun.id in
