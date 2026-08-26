@@ -323,8 +323,7 @@ let test_grouped_parser_literals_are_transparent () =
     | Some span ->
         Alcotest.(check int)
           "inner literal span start" expected_start span.start;
-        Alcotest.(check int)
-          "inner literal span stop" expected_stop span.stop;
+        Alcotest.(check int) "inner span stop" expected_stop span.stop;
         Alcotest.(check string)
           "source kind and checked instruction"
           (Literal.human (lower ~span expected_literal))
