@@ -750,10 +750,7 @@ let test_deep_mixed_unary_chain_uses_constant_host_stack () =
       reversed_identities :=
         identity (1_000 + !unary_count) (100_000 + !unary_count)
         :: !reversed_identities;
-      let wrap =
-        if !unary_count mod 2 = 0 then logical_not
-        else unary_minus
-      in
+      let wrap = if !unary_count mod 2 = 0 then logical_not else unary_minus in
       expression := wrap ~location:wrapper_location !expression)
     else if depth mod 2 = 0 then
       expression := parenthesize ~location:wrapper_location !expression

@@ -21,7 +21,6 @@ type identity = {
 }
 
 type unary_operation = { opcode : Opcode.t; span : Common.Span.t }
-
 type t = { literal : literal; sequence : Sequence.t; result_type : Type.t }
 type expression_result = Lowered of t | Not_literal
 
@@ -127,8 +126,7 @@ let literal_of_expression expression =
   | Frontend.Ast.Float_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Float_value value ->
-          Some
-            (Float_bits (Int64.bits_of_float value), source, unary_operations)
+          Some (Float_bits (Int64.bits_of_float value), source, unary_operations)
       | Frontend.Ast.Integer_value _ | Frontend.Ast.Bytes_value _ -> None)
   | Frontend.Ast.String_literal source -> (
       match source.literal_value with
@@ -181,8 +179,8 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
         in
         let rec add_unary reversed current_value operations identities =
           match (operations, identities) with
-          | operation :: remaining_operations,
-            identity :: remaining_identities ->
+          | operation :: remaining_operations, identity :: remaining_identities
+            ->
               let instruction : Sequence.description =
                 {
                   instruction_id = identity.instruction_id;
