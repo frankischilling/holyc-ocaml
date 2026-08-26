@@ -32,9 +32,10 @@ val lower_expression :
   Frontend.Ast.expression ->
   (expression_result, Instruction_sequence.error list) result
 (** Lower a parsed literal through transparent parentheses and unary plus. Unary
-    minus consumes one caller-owned [unary_identities] entry for each emitted
-    instruction. Entries run from the innermost operator to the outermost
-    operator. Other expressions return [Not_literal] without constructing IR. *)
+    minus and logical not consume one caller-owned [unary_identities] entry for
+    each emitted instruction. Entries run from the innermost operator to the
+    outermost operator. Other expressions return [Not_literal] without
+    constructing IR. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

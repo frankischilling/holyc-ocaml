@@ -20,6 +20,7 @@ type identity = {
   value_id : Sequence.Value_id.t;
 }
 
+type unary_operation = { opcode : Opcode.t; span : Common.Span.t }
 type t = { literal : literal; sequence : Sequence.t; result_type : Type.t }
 type expression_result = Lowered of t | Not_literal
 
@@ -78,7 +79,7 @@ let lower description =
 
 let unwrap_expression expression =
   let current = ref expression in
-  let unary_minus_spans = ref [] in
+  let unary_operations = ref [] in
   let searching = ref true in
   while !searching do
     match !current with
@@ -89,36 +90,48 @@ let unwrap_expression expression =
         current := prefix.prefix_operand
     | Frontend.Ast.Prefix_expression prefix
       when prefix.prefix_operator_kind = Frontend.Ast.Unary_minus ->
-        unary_minus_spans :=
-          prefix.prefix_operator.operator_location.span :: !unary_minus_spans;
+        unary_operations :=
+          {
+            opcode = Opcode.Ic_unary_minus;
+            span = prefix.prefix_operator.operator_location.span;
+          }
+          :: !unary_operations;
+        current := prefix.prefix_operand
+    | Frontend.Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Frontend.Ast.Logical_not ->
+        unary_operations :=
+          {
+            opcode = Opcode.Ic_not;
+            span = prefix.prefix_operator.operator_location.span;
+          }
+          :: !unary_operations;
         current := prefix.prefix_operand
     | _ -> searching := false
   done;
-  (!current, !unary_minus_spans)
+  (!current, !unary_operations)
 
 let literal_of_expression expression =
-  let expression, unary_minus_spans = unwrap_expression expression in
+  let expression, unary_operations = unwrap_expression expression in
   match expression with
   | Frontend.Ast.Integer_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Integer_value value ->
-          Some (Integer value, source, unary_minus_spans)
+          Some (Integer value, source, unary_operations)
       | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ -> None)
   | Frontend.Ast.Character_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Integer_value value ->
-          Some (Character value, source, unary_minus_spans)
+          Some (Character value, source, unary_operations)
       | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ -> None)
   | Frontend.Ast.Float_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Float_value value ->
-          Some
-            (Float_bits (Int64.bits_of_float value), source, unary_minus_spans)
+          Some (Float_bits (Int64.bits_of_float value), source, unary_operations)
       | Frontend.Ast.Integer_value _ | Frontend.Ast.Bytes_value _ -> None)
   | Frontend.Ast.String_literal source -> (
       match source.literal_value with
       | Frontend.Ast.Bytes_value value ->
-          Some (String_bytes value, source, unary_minus_spans)
+          Some (String_bytes value, source, unary_operations)
       | Frontend.Ast.Integer_value _ | Frontend.Ast.Float_value _ -> None)
   | Frontend.Ast.Identifier_expression _
   | Frontend.Ast.Current_position_expression _
@@ -149,8 +162,8 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
     expression =
   match literal_of_expression expression with
   | None -> Ok Not_literal
-  | Some (literal, source, unary_minus_spans) -> (
-      let expected = List.length unary_minus_spans in
+  | Some (literal, source, unary_operations) -> (
+      let expected = List.length unary_operations in
       let actual = List.length unary_identities in
       if actual <> expected then
         Error [ identity_count_error expression ~expected ~actual ]
@@ -164,28 +177,29 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
               span = Some source.literal_location.span;
             }
         in
-        let rec add_unary reversed current_value spans identities =
-          match (spans, identities) with
-          | span :: remaining_spans, identity :: remaining_identities ->
+        let rec add_unary reversed current_value operations identities =
+          match (operations, identities) with
+          | operation :: remaining_operations, identity :: remaining_identities
+            ->
               let instruction : Sequence.description =
                 {
                   instruction_id = identity.instruction_id;
-                  opcode = Opcode.Ic_unary_minus;
+                  opcode = operation.opcode;
                   operands = [ current_value ];
                   result = Some { value_id = identity.value_id };
                   target_type = Some result_type;
                   payload = None;
                   flags = 0L;
-                  span = Some span;
+                  span = Some operation.span;
                 }
               in
               add_unary (instruction :: reversed) identity.value_id
-                remaining_spans remaining_identities
+                remaining_operations remaining_identities
           | [], [] -> List.rev reversed
           | _ -> assert false
         in
         let descriptions =
-          add_unary [ literal_instruction ] value_id unary_minus_spans
+          add_unary [ literal_instruction ] value_id unary_operations
             unary_identities
         in
         match Sequence.create descriptions with
