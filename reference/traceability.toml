@@ -7436,6 +7436,34 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-LITERAL-LOWERING"
+description = "Integer, character, F64, and string literal payloads lower to their pinned checked intermediate-code forms."
+sources = [
+  "Compiler/PrsExp.HC:679-700 literal token branches and ICAdd calls",
+  "Compiler/PrsLib.HC:79-97 ICAdd data, class, flags, line, and insertion order",
+  "Compiler/CompilerA.HH:30-32 literal opcode identities",
+  "Compiler/CInit.HC:27-29 literal opcode shapes and constant-folding facts"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 411
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one explicit integer, character, exact-bit F64, or decoded string payload with caller-supplied stable IDs and span"
+integer_and_character_rule = "IC_IMM_I64; negative values use internal U64, while zero and positive values use internal I64"
+f64_rule = "IC_IMM_F64 with exact 64-bit payload and internal F64 type"
+string_rule = "IC_STR_CONST with unchanged decoded bytes and internal U8 pointer type"
+validation = "every result is constructed through Ir.Instruction_sequence.create"
+deterministic_dump = "holyc-ir-literal-v1"
+parser_semantic_integration_string_termination_storage_expression_graphs_and_execution = "not implemented"
+native_oracle_status = "not required for this direct source-table boundary; PrsUnaryTerm states the opcode, data, and class choices"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [
