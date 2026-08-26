@@ -16,6 +16,7 @@ type description = {
 }
 
 type t = { literal : literal; sequence : Sequence.t; result_type : Type.t }
+type expression_result = Lowered of t | Not_literal
 
 let reference_commit = Opcode.reference_commit
 
@@ -67,6 +68,51 @@ let lower (description : description) =
   | Character value -> lower_integer description value
   | Float_bits bits -> lower_float description bits
   | String_bytes bytes -> lower_string description bytes
+
+let literal_of_expression = function
+  | Frontend.Ast.Integer_literal source -> (
+      match source.literal_value with
+      | Frontend.Ast.Integer_value value -> Some (Integer value, source)
+      | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ -> None)
+  | Frontend.Ast.Character_literal source -> (
+      match source.literal_value with
+      | Frontend.Ast.Integer_value value -> Some (Character value, source)
+      | Frontend.Ast.Float_value _ | Frontend.Ast.Bytes_value _ -> None)
+  | Frontend.Ast.Float_literal source -> (
+      match source.literal_value with
+      | Frontend.Ast.Float_value value ->
+          Some (Float_bits (Int64.bits_of_float value), source)
+      | Frontend.Ast.Integer_value _ | Frontend.Ast.Bytes_value _ -> None)
+  | Frontend.Ast.String_literal source -> (
+      match source.literal_value with
+      | Frontend.Ast.Bytes_value value -> Some (String_bytes value, source)
+      | Frontend.Ast.Integer_value _ | Frontend.Ast.Float_value _ -> None)
+  | Frontend.Ast.Identifier_expression _
+  | Frontend.Ast.Current_position_expression _
+  | Frontend.Ast.Sizeof_expression _
+  | Frontend.Ast.Offset_expression _
+  | Frontend.Ast.Defined_expression _
+  | Frontend.Ast.Parenthesized_expression _
+  | Frontend.Ast.Prefix_expression _
+  | Frontend.Ast.Postfix_expression _
+  | Frontend.Ast.Postfix_cast_expression _
+  | Frontend.Ast.Binary_expression _
+  | Frontend.Ast.Call_expression _
+  | Frontend.Ast.Index_expression _
+  | Frontend.Ast.Member_expression _ -> None
+
+let lower_expression ~instruction_id ~value_id expression =
+  match literal_of_expression expression with
+  | None -> Ok Not_literal
+  | Some (literal, source) ->
+      lower
+        {
+          instruction_id;
+          value_id;
+          literal;
+          span = Some source.literal_location.span;
+        }
+      |> Result.map (fun lowered -> Lowered lowered)
 
 let sequence lowered = lowered.sequence
 let result_type lowered = lowered.result_type
