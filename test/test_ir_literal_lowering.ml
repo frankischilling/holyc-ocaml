@@ -1111,7 +1111,8 @@ let semantic_span result =
       Alcotest.fail "expected a typed source location"
 
 let lower_typed ~instruction ~value result =
-  Literal.lower_typed_result ~instruction_id:(instruction_id instruction)
+  Literal.lower_typed_result
+    ~instruction_id:(instruction_id instruction)
     ~value_id:(value_id value) result
   |> require_ok (fun errors ->
       String.concat "; " (List.map show_sequence_error errors))
@@ -1155,7 +1156,8 @@ let test_function_typed_literals_lower_without_ast_join () =
     Test_function_call_expression_result.prepare
       ~path:"ir-typed-function-literals.HC"
       "extern I64 Target(I64 wrapped,I64 character,F64 floating,U8 *text);\n\
-       I64 Caller(){return Target(0xFFFFFFFFFFFFFFFF,'ABC',0.1,\"a\\n\\x42\\d\");}"
+       I64 Caller(){return \
+       Target(0xFFFFFFFFFFFFFFFF,'ABC',0.1,\"a\\n\\x42\\d\");}"
   in
   let _, results = Test_function_call_expression_result.analyze prepared in
   let roots =
@@ -1220,18 +1222,19 @@ let test_typed_literal_keeps_generated_source_location () =
             "generated invocation origin" true
             (Option.is_some location.generated_from);
           Alcotest.(check bool)
-            "definition origin" true (Option.is_some location.defined_at)
+            "definition origin" true
+            (Option.is_some location.defined_at)
       | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
           Alcotest.fail "expected generated literal provenance");
       let lowered = lower_typed ~instruction:740 ~value:940 result in
       let description = lowered |> require_lowered |> only_description in
       Alcotest.(check bool)
-        "generated semantic span" true (description.span = Some source))
+        "generated semantic span" true
+        (description.span = Some source))
 
 let test_typed_nonliteral_is_explicit () =
   let prepared =
-    Test_function_call_expression_result.prepare
-      ~path:"ir-typed-nonliteral.HC"
+    Test_function_call_expression_result.prepare ~path:"ir-typed-nonliteral.HC"
       "extern I64 Target(I64 value);\n\
        I64 Caller(I64 value){return Target(value);}"
   in

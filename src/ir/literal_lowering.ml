@@ -102,12 +102,7 @@ let literal_of_typed_source source =
   | Sema.Function_call_resolution.Unresolved_expression _ -> None
 
 let typed_result_error ?span message =
-  {
-    Sequence.code = "HCIRL0003";
-    message;
-    instruction_id = None;
-    span;
-  }
+  { Sequence.code = "HCIRL0003"; message; instruction_id = None; span }
 
 let typed_result_span result source =
   let result_origin =
@@ -119,7 +114,8 @@ let typed_result_span result source =
   if result_origin <> source_origin then
     Error
       (typed_result_error
-         "typed semantic literal source metadata does not match its source expression")
+         "typed semantic literal source metadata does not match its source \
+          expression")
   else
     match result_origin with
     | Sema.Symbol.Source_location location -> Ok location.span
@@ -155,14 +151,14 @@ let lower_typed_result ~instruction_id ~value_id result =
                   typed_result_error ~span
                     "typed semantic literal does not have a checked result type";
                 ]
-          | Some result_type ->
+          | Some result_type -> (
               let description =
                 { instruction_id; value_id; literal; span = Some span }
               in
               let instruction, result_type =
                 describe_typed_literal description ~result_type
               in
-              (match Sequence.create [ instruction ] with
+              match Sequence.create [ instruction ] with
               | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
               | Error errors -> Error errors)))
 
