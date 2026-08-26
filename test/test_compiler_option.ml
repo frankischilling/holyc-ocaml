@@ -37,6 +37,7 @@ let typed_lookups () =
     (Option.of_string "OPTf_UNKNOWN" = None)
 
 let defaults_use_target_masks () =
+  Alcotest.(check int64) "known mask" 0x3f000f0003L Option.known_mask;
   Alcotest.(check int64) "initial mask" 0x90000L Option.initial_mask;
   Alcotest.(check bool)
     "unused warning enabled" true

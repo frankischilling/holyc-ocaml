@@ -85,11 +85,7 @@ let known_stored_flag_mask =
     (fun mask flag -> Int64.logor mask (Stored.to_mask flag))
     0L Stored.all
 
-let known_compiler_option_mask =
-  List.fold_left
-    (fun mask option -> Int64.logor mask (Option_.mask option))
-    0L Option_.all
-
+let known_compiler_option_mask = Option_.known_mask
 let function_number description = Function_id.to_int description.function_id
 let symbol_number symbol = Symbol.Id.to_int (Symbol.id symbol)
 let scope_number symbol = Symbol.Scope_id.to_int (Symbol.scope_id symbol)
