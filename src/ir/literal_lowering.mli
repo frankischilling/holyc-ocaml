@@ -12,12 +12,21 @@ type description = {
 }
 
 type t
+type expression_result = Lowered of t | Not_literal
 
 val reference_commit : string
 
 val lower : description -> (t, Instruction_sequence.error list) result
 (** Lower one source literal through the checked instruction-sequence boundary.
 *)
+
+val lower_expression :
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Frontend.Ast.expression ->
+  (expression_result, Instruction_sequence.error list) result
+(** Lower one parsed literal with its source span. Nonliteral expressions return
+    [Not_literal] without constructing IR. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

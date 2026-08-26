@@ -82,11 +82,13 @@ This is the container for one already-built statement stream. It does not lower 
 
 ## Literal lowering
 
-`Holyc_lib.Ir_literal_lowering` is the first checked instruction-producing boundary. It accepts one explicit literal payload, stable instruction and value IDs, and an optional span, then constructs its result through `Ir_instruction_sequence.create`.
+`Holyc_lib.Ir_literal_lowering` is the first checked instruction-producing boundary. The low-level `lower` entry point accepts one explicit literal payload, stable instruction and value IDs, and an optional span. `lower_expression` accepts a frontend expression and derives the payload and span from integer, character, F64, and string literal nodes. Both paths construct accepted input through `Ir_instruction_sequence.create`.
 
 The mapping follows `Compiler/PrsExp.HC:679-700`. Integer and character inputs produce `IC_IMM_I64`; a negative target value has internal type `U64`, while zero and positive values have internal type `I64`. F64 input is supplied as exact bits and produces `IC_IMM_F64` with internal type `F64`. Decoded string bytes produce `IC_STR_CONST` with internal type `U8 *`. The string payload does not gain a terminator or storage address at this stage.
 
-`holyc-ir-literal-v1` records the source kind, result type, checked instruction, source span, and pinned reference commit. The module does not parse source, assign IDs, connect a semantic expression result, combine literals into a graph, allocate string storage, or lower any nonliteral expression.
+For a nonliteral expression, `lower_expression` returns `Not_literal` without allocating an instruction or consuming an identity. The caller still supplies fresh instruction and value IDs because semantic traversal identities are not IR identities.
+
+`holyc-ir-literal-v1` records the source kind, result type, checked instruction, source span, and pinned reference commit. The module consumes parser nodes but does not traverse a typed semantic expression result, combine literals into a graph, allocate string storage, or lower any nonliteral expression.
 
 ## Generated source
 
