@@ -304,61 +304,43 @@ let test_parser_literals_cross_checked_boundary () =
     cases
 
 let test_grouped_parser_literals_are_transparent () =
-  let cases =
-    [
-      ( "I64 value=42;",
-        "I64 value=((42));",
-        Literal.Integer 42L,
-        Sequence.Integer 42L,
-        12,
-        14 );
-      ( "I64 value='A';",
-        "I64 value=(('A'));",
-        Literal.Character 65L,
-        Sequence.Integer 65L,
-        12,
-        15 );
-      ( "F64 value=1.25;",
-        "F64 value=((1.25));",
-        Literal.Float_bits (Int64.bits_of_float 1.25),
-        Sequence.Float_bits (Int64.bits_of_float 1.25),
-        12,
-        16 );
-      ( "U8 *value=\"A\\n\";",
-        "U8 *value=((\"A\\n\"));",
-        Literal.String_bytes "A\n",
-        Sequence.Bytes "A\n",
-        12,
-        17 );
-    ]
+  let check plain_text grouped_text expected_literal expected_payload
+      (expected_start, expected_stop) =
+    let plain_expression = parse_initializer plain_text in
+    let plain =
+      lower_parsed plain_expression |> require_lowered |> only_description
+    in
+    let grouped_expression = parse_initializer grouped_text in
+    let grouped = lower_parsed grouped_expression |> require_lowered in
+    let description = only_description grouped in
+    Alcotest.(check bool)
+      "same checked instruction except source position" true
+      ({ plain with span = description.span } = description);
+    Alcotest.(check bool)
+      "grouped payload" true
+      (description.payload = Some expected_payload);
+    match description.span with
+    | Some span ->
+        Alcotest.(check int)
+          "inner literal span start" expected_start span.start;
+        Alcotest.(check int)
+          "inner literal span stop" expected_stop span.stop;
+        Alcotest.(check string)
+          "source kind and checked instruction"
+          (Literal.human (lower ~span expected_literal))
+          (Literal.human grouped)
+    | None -> Alcotest.fail "grouped literal lost its source span"
   in
-  List.iter
-    (fun (plain_text, grouped_text, expected_literal, expected_payload,
-          expected_start, expected_stop) ->
-      let plain =
-        parse_initializer plain_text |> lower_parsed |> require_lowered
-        |> only_description
-      in
-      let grouped =
-        parse_initializer grouped_text |> lower_parsed |> require_lowered
-      in
-      let description = only_description grouped in
-      Alcotest.(check bool)
-        "same checked instruction except source position" true
-        ({ plain with span = description.span } = description);
-      Alcotest.(check bool)
-        "grouped payload" true
-        (description.payload = Some expected_payload);
-      match description.span with
-      | Some span ->
-          Alcotest.(check int) "inner literal span start" expected_start span.start;
-          Alcotest.(check int) "inner literal span stop" expected_stop span.stop;
-          Alcotest.(check string)
-            "source kind and checked instruction"
-            (Literal.human (lower ~span expected_literal))
-            (Literal.human grouped)
-      | None -> Alcotest.fail "grouped literal lost its source span")
-    cases
+  check "I64 value=42;" "I64 value=((42));" (Literal.Integer 42L)
+    (Sequence.Integer 42L) (12, 14);
+  check "I64 value='A';" "I64 value=(('A'));" (Literal.Character 65L)
+    (Sequence.Integer 65L) (12, 15);
+  check "F64 value=1.25;" "F64 value=((1.25));"
+    (Literal.Float_bits (Int64.bits_of_float 1.25))
+    (Sequence.Float_bits (Int64.bits_of_float 1.25))
+    (12, 16);
+  check "U8 *value=\"A\\n\";" "U8 *value=((\"A\\n\"));"
+    (Literal.String_bytes "A\n") (Sequence.Bytes "A\n") (12, 17)
 
 let test_grouped_nonliteral_is_explicit () =
   let source = Source_id.of_int 10 |> require_ok Fun.id in
@@ -371,12 +353,13 @@ let test_grouped_nonliteral_is_explicit () =
   in
   match lower_parsed expression with
   | Literal.Not_literal -> ()
-  | Literal.Lowered _ -> Alcotest.fail "grouped nonliteral expression produced IR"
+  | Literal.Lowered _ -> Alcotest.fail "grouped nonliteral produced IR"
 
 let test_deep_grouping_uses_constant_host_stack () =
   let source = Source_id.of_int 11 |> require_ok Fun.id in
   let literal_span = Span.unsafe_make ~source ~start:20 ~stop:22 in
   let group_span = Span.unsafe_make ~source ~start:0 ~stop:42 in
+  let group_location = parsed_location group_span in
   let expression =
     ref
       (parsed_literal
@@ -384,7 +367,7 @@ let test_deep_grouping_uses_constant_host_stack () =
          ~span:literal_span ~spelling:"42" (Ast.Integer_value 42L))
   in
   for _ = 1 to 100_000 do
-    expression := parenthesize ~location:(parsed_location group_span) !expression
+    expression := parenthesize ~location:group_location !expression
   done;
   let lowered = lower_parsed !expression |> require_lowered in
   let description = only_description lowered in
