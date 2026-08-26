@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Lowered unary minus around integer, character, F64, and string literals as unfused checked `IC_UNARY_MINUS` chains. Each operator keeps its own caller-owned instruction and value identity, operand link, forwarded type, and token span; `HCIRL0001` rejects missing or excess identities. Parentheses and unary plus remain transparent, and deep mixed prefix chains use constant host stack.
 - Made unary plus transparent at the checked literal IR boundary. Unary-plus prefixes and parentheses may wrap integer, character, F64, and string parser nodes in any order without adding an instruction or identity. The adapter keeps the inner literal payload, type, span, and caller-owned IDs; other prefix operators remain outside this path.
 - Made parentheses transparent at the checked literal IR boundary. Nested grouping around integer, character, F64, and string parser nodes produces the same single instruction, payload, type, caller-owned IDs, and inner literal span as the ungrouped form. Grouped nonliterals still return `Not_literal`, and iterative unwrapping keeps deep hosted input stack-safe.
 - Connected integer, character, F64, and string parser nodes to the checked literal IR boundary. The adapter preserves decoded payloads and parser spans, requires caller-owned instruction and value IDs, and returns an explicit nonliteral result without fabricating IR.
