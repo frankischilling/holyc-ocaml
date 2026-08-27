@@ -1250,7 +1250,7 @@ let rec type_expression table members policies ~before_item_index ~context
               ~context:Value_context state operand
           with
           | Error _ as error -> error
-          | Ok (_, state) -> (
+          | Ok (operand_result, state) -> (
               match known_type table (Type_reference.resolved_type target) with
               | Error _ as error -> error
               | Ok target_type ->
@@ -1258,7 +1258,8 @@ let rec type_expression table members policies ~before_item_index ~context
                     if Type.pointer_depth target_type > 0 then Address_value
                     else Object_value
                   in
-                  finish ~source_type:(Some target_type) category
+                  finish ~operand_result ~source_type:(Some target_type)
+                    category
                     (forwarded_class policies ~before_item_index target_type)
                     state))
       | Function_call_resolution.Bound_identifier_expression identifier -> (
