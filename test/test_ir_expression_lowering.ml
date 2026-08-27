@@ -55,6 +55,22 @@ let opcode_names lowered =
   |> List.map (fun (description : Sequence.description) ->
       Opcode.to_source_name description.opcode)
 
+let instruction_flags lowered =
+  descriptions lowered
+  |> List.map (fun (description : Sequence.description) -> description.flags)
+
+let result_to_f64 = 0x000000001L
+
+let contains_substring text fragment =
+  let text_length = String.length text in
+  let fragment_length = String.length fragment in
+  let rec search index =
+    if index + fragment_length > text_length then false
+    else if String.sub text index fragment_length = fragment then true
+    else search (index + 1)
+  in
+  fragment_length = 0 || search 0
+
 let internal_i64_type = function
   | Some type_ -> (
       match (Type.base type_, Type.pointer_depth type_) with
@@ -441,15 +457,16 @@ let f64_division_by_zero_remains_unfolded_ir () =
 
 let unsupported_f64_domains_return_no_sequence () =
   let source =
-    "extern F64 Target(F64 mixed,F64 modulo,I64 comparison,I64 complement);F64 \
-     Caller(){return Target(1+2.0,1.0%2.0,1.0<2.0,~1.0);}"
+    "extern F64 Target(F64 modulo,I64 comparison,I64 logical,I64 \
+     complement,F64 power);F64 Caller(){return \
+     Target(1%2.0,1<2.0,1&&2.0,~1.0,1`2.0);}"
   in
   List.iter
     (fun mode ->
       let roots =
         function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
       in
-      Alcotest.(check int) "unsupported floating roots" 4 (List.length roots);
+      Alcotest.(check int) "unsupported floating roots" 5 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -499,6 +516,224 @@ let deep_f64_tree_uses_the_explicit_worklist () =
     (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
   Alcotest.(check int)
     "deep floating next value"
+    (1_000 + instruction_count)
+    (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
+
+let mixed_f64_arithmetic_marks_each_integer_operand () =
+  let cases =
+    [
+      ("1*2.0", "IC_MUL", 0, 1L);
+      ("1.0*2", "IC_MUL", 1, 2L);
+      ("1/2.0", "IC_DIV", 0, 1L);
+      ("1.0/2", "IC_DIV", 1, 2L);
+      ("1+2.0", "IC_ADD", 0, 1L);
+      ("1.0+2", "IC_ADD", 1, 2L);
+      ("1-2.0", "IC_SUB", 0, 1L);
+      ("1.0-2", "IC_SUB", 1, 2L);
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 a%d" index) cases
+    |> String.concat ","
+  in
+  let arguments = cases |> List.map (fun (source, _, _, _) -> source) in
+  let source =
+    Printf.sprintf "extern F64 Target(%s);F64 Caller(){return Target(%s);}"
+      parameters
+      (String.concat "," arguments)
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-mixed-f64-arithmetic.HC" source
+      in
+      Alcotest.(check int)
+        "one root per mixed arithmetic form" (List.length cases)
+        (List.length roots);
+      List.iter2
+        (fun root (_, expected_opcode, converted_index, integer_payload) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          let expected_opcodes =
+            if converted_index = 0 then
+              [ "IC_IMM_I64"; "IC_IMM_F64"; expected_opcode ]
+            else [ "IC_IMM_F64"; "IC_IMM_I64"; expected_opcode ]
+          in
+          let expected_flags =
+            if converted_index = 0 then [ result_to_f64; 0L; 0L ]
+            else [ 0L; result_to_f64; 0L ]
+          in
+          Alcotest.(check (list string))
+            "mixed postorder" expected_opcodes (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "one integer conversion flag" expected_flags
+            (instruction_flags lowered);
+          let converted = List.nth items converted_index in
+          Alcotest.(check bool)
+            "converted producer keeps its integer type" true
+            (internal_i64_type converted.target_type);
+          Alcotest.(check bool)
+            "converted producer keeps its integer payload" true
+            (converted.payload = Some (Sequence.Integer integer_payload));
+          Alcotest.(check bool)
+            "mixed arithmetic result is F64" true
+            (internal_f64_type (List.nth items 2).target_type))
+        roots cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let mixed_conversion_reaches_only_the_integer_subtree_root () =
+  let source =
+    "extern F64 Target(F64 left,F64 right);F64 Caller(){return \
+     Target(((1+2))+3.0,3.0+(+((4+5))));}"
+  in
+  let first_inner_add = String.index source '+' in
+  let second_inner_add = String.rindex source '+' in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-mixed-f64-subtrees.HC" source
+      in
+      Alcotest.(check int) "two mixed subtrees" 2 (List.length roots);
+      let left = List.nth roots 0 |> lower |> require_lowered in
+      let left_items = descriptions left in
+      Alcotest.(check (list string))
+        "left integer subtree postorder"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_IMM_F64"; "IC_ADD" ]
+        (opcode_names left);
+      Alcotest.(check (list int64))
+        "only left subtree root converts"
+        [ 0L; 0L; result_to_f64; 0L; 0L ]
+        (instruction_flags left);
+      Alcotest.(check (list (list int)))
+        "left subtree operands"
+        [ []; []; [ 20; 21 ]; []; [ 22; 23 ] ]
+        (List.map
+           (fun (description : Sequence.description) ->
+             List.map Sequence.Value_id.to_int description.operands)
+           left_items);
+      (match (List.nth left_items 2).span with
+      | Some span ->
+          Alcotest.(check int)
+            "left conversion producer span" first_inner_add span.start
+      | None -> Alcotest.fail "left conversion producer lost its span");
+      let right = List.nth roots 1 |> lower |> require_lowered in
+      let right_items = descriptions right in
+      Alcotest.(check (list string))
+        "right integer subtree postorder"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_ADD" ]
+        (opcode_names right);
+      Alcotest.(check (list int64))
+        "transparent wrappers reach the right subtree root"
+        [ 0L; 0L; 0L; result_to_f64; 0L ]
+        (instruction_flags right);
+      Alcotest.(check (list (list int)))
+        "right subtree operands"
+        [ []; []; []; [ 21; 22 ]; [ 20; 23 ] ]
+        (List.map
+           (fun (description : Sequence.description) ->
+             List.map Sequence.Value_id.to_int description.operands)
+           right_items);
+      match (List.nth right_items 3).span with
+      | Some span ->
+          Alcotest.(check int)
+            "right conversion producer span" second_inner_add span.start
+      | None -> Alcotest.fail "right conversion producer lost its span")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let mixed_conversion_marks_unary_and_dereference_producers () =
+  let source =
+    "extern F64 Target(F64 minus,F64 logical,F64 complement,F64 \
+     dereference);F64 Caller(){return \
+     Target((-1)+2.0,(!1)+2.0,(~1)+2.0,*(&1)+2.0);}"
+  in
+  let expected =
+    [
+      ([ "IC_IMM_I64"; "IC_UNARY_MINUS"; "IC_IMM_F64"; "IC_ADD" ], 1);
+      ([ "IC_IMM_I64"; "IC_NOT"; "IC_IMM_F64"; "IC_ADD" ], 1);
+      ([ "IC_IMM_I64"; "IC_COM"; "IC_IMM_F64"; "IC_ADD" ], 1);
+      ([ "IC_IMM_I64"; "IC_ADDR"; "IC_DEREF"; "IC_IMM_F64"; "IC_ADD" ], 2);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-mixed-f64-producers.HC" source
+      in
+      List.iter2
+        (fun root (expected_opcodes, converted_index) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          Alcotest.(check (list string))
+            "mixed producer postorder" expected_opcodes (opcode_names lowered);
+          Alcotest.(check int)
+            "one result conversion" 1
+            (instruction_flags lowered
+            |> List.filter (Int64.equal result_to_f64)
+            |> List.length);
+          Alcotest.(check int64)
+            "conversion is on the retained producer" result_to_f64
+            (List.nth items converted_index).flags;
+          Alcotest.(check bool)
+            "converted producer is integer" true
+            (internal_i64_type (List.nth items converted_index).target_type);
+          Alcotest.(check bool)
+            "outer arithmetic is F64" true
+            (internal_f64_type
+               (List.nth items (List.length items - 1)).target_type))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_mixed_dump_records_conversion_intent () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-mixed-f64-dump.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return Target((1+2)+3.0);}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let dump = Expression.human lowered in
+  Alcotest.(check string)
+    "deterministic mixed replay" dump
+    (Expression.human repeated);
+  Alcotest.(check bool)
+    "dump names the exact conversion flag" true
+    (contains_substring dump "IC_ADD %v90 %v91 flags=0x000000001");
+  Alcotest.(check string)
+    "mixed result and next identities"
+    "result=%v94 result-type=internal:F64 next-instruction=75 next-value=95"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
+let deep_mixed_f64_tree_uses_the_explicit_worklist () =
+  let integer_leaf_count = 2_000 in
+  let integer_tree =
+    List.init integer_leaf_count (fun _ -> "1") |> String.concat "+"
+  in
+  let source =
+    Printf.sprintf
+      "extern F64 Target(F64 value);F64 Caller(){return Target((%s)+0.5);}"
+      integer_tree
+  in
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-deep-mixed-f64.HC" source
+    |> List.hd
+  in
+  let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
+  let instruction_count = (integer_leaf_count * 2) + 1 in
+  let flags = instruction_flags lowered in
+  Alcotest.(check int)
+    "deep mixed instruction count" instruction_count
+    (Expression.sequence lowered |> Sequence.length);
+  Alcotest.(check int)
+    "one deep subtree conversion" 1
+    (flags |> List.filter (Int64.equal result_to_f64) |> List.length);
+  Alcotest.(check int64)
+    "deep integer root converts" result_to_f64
+    (List.nth flags ((integer_leaf_count * 2) - 2));
+  Alcotest.(check int)
+    "deep mixed next instruction" (100 + instruction_count)
+    (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
+  Alcotest.(check int)
+    "deep mixed next value"
     (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
@@ -684,14 +919,18 @@ let unsupported_shapes_return_no_sequence () =
           "Target"
         |> Test_function_call_expression_result.provided_results
       in
-      Alcotest.(check int) "unsupported root count" 6 (List.length roots);
+      Alcotest.(check int) "root count" 6 (List.length roots);
+      (match List.hd roots |> lower with
+      | Expression.Lowered _ -> ()
+      | Expression.Unsupported_expression ->
+          Alcotest.fail "mixed arithmetic remained unsupported");
       List.iter
         (fun root ->
           match lower root with
           | Expression.Unsupported_expression -> ()
           | Expression.Lowered _ ->
               Alcotest.fail "unsupported expression returned a partial sequence")
-        roots)
+        (List.tl roots))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let exhausted_starting_ids_are_rejected () =
@@ -800,6 +1039,16 @@ let tests =
       deterministic_f64_dump_records_result_and_next_ids;
     Alcotest.test_case "deep F64 explicit worklist" `Slow
       deep_f64_tree_uses_the_explicit_worklist;
+    Alcotest.test_case "mixed F64 arithmetic conversion flags" `Quick
+      mixed_f64_arithmetic_marks_each_integer_operand;
+    Alcotest.test_case "mixed integer subtree conversion" `Quick
+      mixed_conversion_reaches_only_the_integer_subtree_root;
+    Alcotest.test_case "mixed unary and dereference conversion" `Quick
+      mixed_conversion_marks_unary_and_dereference_producers;
+    Alcotest.test_case "deterministic mixed F64 dump" `Quick
+      deterministic_mixed_dump_records_conversion_intent;
+    Alcotest.test_case "deep mixed F64 explicit worklist" `Slow
+      deep_mixed_f64_tree_uses_the_explicit_worklist;
     Alcotest.test_case "pointer prefixes inside expression trees" `Quick
       pointer_prefixes_compose_with_existing_trees;
     Alcotest.test_case "address and dereference cancellation" `Quick
