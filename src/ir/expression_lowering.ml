@@ -34,6 +34,12 @@ type plan_node =
       result : Semantic_result.expression_result;
       conversion : result_conversion;
     }
+  | Current_position of {
+      result : Semantic_result.expression_result;
+      span : Common.Span.t;
+      result_type : Type.t;
+      conversion : result_conversion;
+    }
   | Alias of {
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
@@ -184,6 +190,48 @@ let checked_numeric_type result =
   | Error _ as error -> error
   | Ok (Checked_type _) as checked -> checked
   | Ok Unsupported_type -> checked_f64_type result
+
+let checked_current_position result =
+  let invalid ?span () =
+    Error
+      (metadata_error ?span
+         "current-position expression does not retain the checked RT_PTR \
+          address result")
+  in
+  match result_span result with
+  | None ->
+      Error
+        (metadata_error
+           "current-position expression does not have a source location")
+  | Some span -> (
+      match
+        ( Semantic_result.result_type result,
+          Semantic_result.result_class result,
+          Semantic_result.result_category result,
+          Semantic_result.result_array_rank result )
+      with
+      | ( Some result_type,
+          Semantic_result.Integer_result,
+          Semantic_result.Address_value,
+          0 ) -> (
+          match (Type.base result_type, Type.pointer_depth result_type) with
+          | Type.Primitive (Type.Internal_storage, primitive), 0
+            when Sema.Primitive_type.equal primitive Sema.Primitive_type.I64 ->
+              Ok (span, result_type)
+          | Type.Primitive _, _ | Type.Aggregate _, _ -> invalid ~span ())
+      | ( (None | Some _),
+          ( Semantic_result.Integer_result
+          | Semantic_result.F64_result
+          | Semantic_result.Unresolved_actual_class ),
+          ( Semantic_result.Object_value
+          | Semantic_result.Address_value
+          | Semantic_result.Array_value
+          | Semantic_result.Callback_value
+          | Semantic_result.Function_value
+          | Semantic_result.Offset_value
+          | Semantic_result.Lvalue
+          | Semantic_result.Unavailable ),
+          _ ) -> invalid ~span ())
 
 let checked_integer_or_pointer_type result =
   match Semantic_result.result_type result with
@@ -579,6 +627,14 @@ let plan root =
                     if conversion = Keep_result then
                       reversed := Literal { result; conversion } :: !reversed
                     else unsupported := true)
+            | Semantic_source.Unresolved_expression
+                Semantic_source.Current_position_expression -> (
+                match checked_current_position result with
+                | Error item -> error := Some item
+                | Ok (span, result_type) ->
+                    reversed :=
+                      Current_position { result; span; result_type; conversion }
+                      :: !reversed)
             | Semantic_source.Parenthesized_expression source -> (
                 match
                   checked_operand result source "parenthesized expression"
@@ -771,7 +827,13 @@ let plan root =
             | Semantic_source.Member_access_expression _
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
-            | Semantic_source.Unresolved_expression _ -> unsupported := true)
+            | Semantic_source.Unresolved_expression
+                ( Semantic_source.Identifier_expression
+                | Semantic_source.Sizeof_expression
+                | Semantic_source.Offset_expression
+                | Semantic_source.Defined_expression
+                | Semantic_source.Postfix_cast_expression
+                | Semantic_source.Call_expression ) -> unsupported := true)
         | Finish_alias { result; operand } ->
             reversed := Alias { result; operand } :: !reversed
         | Finish_unary { result; opcode; span; operand; conversion } ->
@@ -886,6 +948,27 @@ let emit_plan ~instruction_id ~value_id nodes =
                 descriptions_rev := description :: !descriptions_rev;
                 lowered := Int_map.add (result_key result) lowered_node !lowered
             )
+        | Current_position { result; span; result_type; conversion } -> (
+            match take_identity allocator (Some span) with
+            | Error item -> error := Some item
+            | Ok (instruction_id, value_id) ->
+                let description : Sequence.description =
+                  {
+                    instruction_id;
+                    opcode = Opcode.Ic_rip;
+                    operands = [];
+                    result = Some { value_id };
+                    target_type = Some result_type;
+                    payload = None;
+                    flags = conversion_flags conversion;
+                    span = Some span;
+                  }
+                in
+                descriptions_rev := description :: !descriptions_rev;
+                lowered :=
+                  Int_map.add (result_key result)
+                    { lowered_value = value_id; lowered_type = result_type }
+                    !lowered)
         | Alias { result; operand } -> (
             match find_lowered !lowered operand "transparent operand" with
             | Error item -> error := Some item
@@ -1025,6 +1108,7 @@ let emit_plan ~instruction_id ~value_id nodes =
               let root =
                 match List.rev nodes with
                 | Literal { result; _ } :: _
+                | Current_position { result; _ } :: _
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
                 | Cast { result; _ } :: _

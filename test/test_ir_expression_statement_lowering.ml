@@ -231,6 +231,52 @@ let deterministic_statement_dump () =
         String.equal line
           "!i72 IC_END_EXP %v91 flags=0x000000200 @source=0:13..22"))
 
+let current_position_statements_use_the_checked_terminator () =
+  let check label expected_span lowered =
+    Alcotest.(check (list string))
+      label [ "IC_RIP"; "IC_END_EXP" ] (opcode_names lowered);
+    Alcotest.(check (list int64))
+      (label ^ " flags") [ 0L; 0x000000200L ]
+      (descriptions lowered
+      |> List.map (fun (description : Sequence.description) ->
+          description.flags));
+    check_terminator ~expected_span lowered
+  in
+  List.iter
+    (fun mode ->
+      let function_statement =
+        function_statements ~mode ~path:"ir-current-position-statement.HC"
+          "I64 Caller(){$$;return 0;}"
+        |> List.hd
+      in
+      let function_span =
+        function_statement |> Semantic_result.expression_statement_source
+        |> Semantic_source.expression_statement_origin |> span_of_origin
+      in
+      let function_lowered =
+        lower_function function_statement
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      check "function current-position statement" function_span function_lowered;
+      let top_level_root =
+        top_level_roots ~mode ~path:"ir-current-position-top-level-statement.HC"
+          "$$;"
+        |> expression_statement_roots |> List.hd
+      in
+      let top_level_span =
+        top_level_root |> Semantic_result.top_level_root_source
+        |> Top_level_source.root_origin |> span_of_origin
+      in
+      let top_level_lowered =
+        lower_top_level top_level_root
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      check "top-level current-position statement" top_level_span
+        top_level_lowered)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_statement_values_return_no_sequence () =
   List.iter
     (fun mode ->
@@ -321,6 +367,8 @@ let tests =
       producer_flags_survive_statement_lowering;
     Alcotest.test_case "deterministic statement dump" `Quick
       deterministic_statement_dump;
+    Alcotest.test_case "current-position statement terminators" `Quick
+      current_position_statements_use_the_checked_terminator;
     Alcotest.test_case "unsupported statement values" `Quick
       unsupported_statement_values_return_no_sequence;
     Alcotest.test_case "top-level role validation" `Quick

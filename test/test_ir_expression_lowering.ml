@@ -95,6 +95,11 @@ let public_primitive_type expected = function
       | _ -> false)
   | None -> false
 
+let internal_i64_value_type type_ =
+  match (Type.base type_, Type.pointer_depth type_) with
+  | Type.Primitive (Type.Internal_storage, Primitive.I64), 0 -> true
+  | _ -> false
+
 let source_span result =
   match Semantic_result.result_origin result with
   | Semantic_symbol.Source_location location -> location.span
@@ -1109,6 +1114,110 @@ let unsupported_postfix_cast_operand_returns_no_sequence () =
           Alcotest.fail "unsupported cast operand returned a partial sequence")
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let current_position_leaves_lower_in_both_modes () =
+  let check_owner label root =
+    let lowered = lower root |> require_lowered in
+    let item = List.hd (descriptions lowered) in
+    Alcotest.(check (list string)) label [ "IC_RIP" ] (opcode_names lowered);
+    Alcotest.(check (list int))
+      (label ^ " operands") []
+      (List.map Sequence.Value_id.to_int item.operands);
+    Alcotest.(check bool)
+      (label ^ " result") true
+      (match item.result with
+      | Some result -> Sequence.Value_id.to_int result.value_id = 20
+      | None -> false);
+    Alcotest.(check bool)
+      (label ^ " target type") true
+      (Option.fold ~none:false ~some:internal_i64_value_type item.target_type);
+    Alcotest.(check bool)
+      (label ^ " payload") true
+      (Option.is_none item.payload);
+    Alcotest.(check int64) (label ^ " flags") 0L item.flags;
+    Alcotest.(check bool)
+      (label ^ " source span") true
+      (item.span = Some (source_span root));
+    Alcotest.(check int)
+      (label ^ " next instruction")
+      11
+      (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
+    Alcotest.(check int)
+      (label ^ " next value") 21
+      (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
+  in
+  List.iter
+    (fun mode ->
+      let function_root =
+        function_roots ~mode ~path:"ir-current-position-function.HC"
+          "extern I64 Target(I64 value);I64 Caller(){return Target($$);}"
+        |> List.hd
+      in
+      let top_level_root =
+        top_level_roots ~mode ~path:"ir-current-position-top-level.HC" "$$;"
+        |> List.hd
+      in
+      check_owner "function current position" function_root;
+      check_owner "top-level current position" top_level_root)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let current_position_composes_with_numeric_trees () =
+  let expected =
+    [
+      ([ "IC_RIP"; "IC_IMM_F64"; "IC_ADD" ], [ result_to_f64; 0L; 0L ]);
+      ([ "IC_RIP"; "IC_IMM_I64"; "IC_ADD" ], [ 0L; 0L; 0L ]);
+      ([ "IC_RIP"; "IC_UNARY_MINUS" ], [ 0L; 0L ]);
+      ([ "IC_RIP"; "IC_HOLYC_TYPECAST" ], [ 0L; 0L ]);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-current-position-composition.HC"
+          "extern I64 Target(F64 a,I64 b,I64 c,I64 d);I64 Caller(){return \
+           Target($$+2.0,($$)+1,-$$,($$)(I64));}"
+      in
+      Alcotest.(check int)
+        "four current-position expressions" 4 (List.length roots);
+      List.iter2
+        (fun root (opcodes, flags) ->
+          let lowered = lower root |> require_lowered in
+          Alcotest.(check (list string))
+            "composed opcodes" opcodes (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "composed flags" flags
+            (instruction_flags lowered);
+          let rip = List.hd (descriptions lowered) in
+          Alcotest.(check bool)
+            "IC_RIP keeps internal RT_PTR storage" true
+            (Option.fold ~none:false ~some:internal_i64_value_type
+               rip.target_type))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_current_position_dump () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-current-position-dump.HC"
+      "$$;"
+    |> List.hd
+  in
+  let lower_once () =
+    lower_result ~instruction:70 ~value:90 root
+    |> require_ok show_sequence_errors
+    |> require_lowered
+  in
+  let first = lower_once () in
+  let second = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "current-position lowering replays deterministically" dump
+    (Expression.human second);
+  Alcotest.(check bool)
+    "dump records a typed zero-operand RIP producer" true
+    (String.split_on_char '\n' dump
+    |> List.exists (fun line ->
+        String.equal line
+          "!i70 %v90:internal:I64 = IC_RIP flags=0x000000000 @source=0:0..2"))
+
 let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit
@@ -1295,6 +1404,12 @@ let tests =
       deterministic_postfix_cast_dump_records_payload;
     Alcotest.test_case "unsupported postfix cast operand" `Quick
       unsupported_postfix_cast_operand_returns_no_sequence;
+    Alcotest.test_case "current-position leaves" `Quick
+      current_position_leaves_lower_in_both_modes;
+    Alcotest.test_case "current-position composition" `Quick
+      current_position_composes_with_numeric_trees;
+    Alcotest.test_case "deterministic current-position dump" `Quick
+      deterministic_current_position_dump;
     Alcotest.test_case "postfix cast metadata validation" `Quick
       inconsistent_postfix_cast_metadata_reports_no_partial_sequence;
     Alcotest.test_case "unsupported expression shapes" `Quick

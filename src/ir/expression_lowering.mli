@@ -8,12 +8,14 @@ val lower_typed_result :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
   (lowering_result, Instruction_sequence.error list) result
-(** Lower an integer, character, or [F64] literal-backed semantic expression
-    tree. Integer trees accept the checked integer binary operations; pure [F64]
-    trees and mixed integer/[F64] trees accept multiplication, division,
-    addition, and subtraction. A mixed edge marks the retained integer producer
-    with [ICF_RES_TO_F64] intent without folding its payload. Numeric prefixes
-    and primitive postfix casts compose within their checked domain; address and
+(** Lower an integer, character, [F64], or ordinary current-position semantic
+    expression tree. [$$] emits a checked zero-operand [IC_RIP] address
+    producer; concrete address selection remains backend work. Integer trees
+    accept the checked integer binary operations; pure [F64] trees and mixed
+    integer/[F64] trees accept multiplication, division, addition, and
+    subtraction. A mixed edge marks the retained integer producer with
+    [ICF_RES_TO_F64] intent without folding its payload. Numeric prefixes and
+    primitive postfix casts compose within their checked domain; address and
     dereference remain confined to integer and pointer trees. A postfix cast
     emits [IC_HOLYC_TYPECAST] with the full cast span and the pinned [was_paren]
     payload. The module owns source-order traversal, TempleOS's immediate

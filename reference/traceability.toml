@@ -7637,7 +7637,7 @@ unsupported_result = "a checked cast operand outside the accepted numeric tree s
 compilation_modes = ["jit", "aot"]
 result_owners = ["function body", "executable top level"]
 focused_tests = 6
-expression_lowering_group_tests = 29
+expression_lowering_group_tests = 32
 cast_conversion_folding_optimizer_removal_interpretation_backend_and_execution = "not implemented"
 native_oracle_status = "not required for structural cast lowering; optimizer, numerical conversion, and backend behavior remain separate oracle work"
 
@@ -7669,9 +7669,45 @@ diagnostics = ["HCIRL0004 missing source metadata or invalid top-level role", "H
 unsupported_result = "an expression shape outside the numeric lowerer's accepted set returns Unsupported_expression before a sequence is exposed"
 compilation_modes = ["jit", "aot"]
 result_owners = ["function body", "executable top level"]
-focused_tests = 7
+focused_tests = 8
 calls_storage_side_effect_execution_optimization_interpretation_and_backend = "not implemented"
 native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
+
+[[feature]]
+id = "HC-IR-CURRENT-POSITION-LOWERING"
+description = "Ordinary current-position expressions lower to the source-defined IC_RIP producer."
+sources = [
+  "Compiler/PrsExp.HC:707-721 assembler, class-offset, and ordinary current-position branches",
+  "Compiler/CompilerA.HH:158 IC_RIP identity",
+  "Compiler/CInit.HC:134 zero-argument, one-result IC_RIP metadata",
+  "Kernel/KernelA.HH:1573 RT_PTR identity and signedness",
+  "Compiler/OptPass789A.HC:137-147 machine-address selection and AOT adjustment"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 466
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary current-position expressions in checked function bodies and executable top-level statements"
+instruction_shape = "IC_RIP has zero operands, one result, no payload, and the exact current-position source span"
+result_type = "zero-depth internal I64 storage representing RT_PTR"
+semantic_requirements = "address value category, integer result class, array rank zero, and checked source metadata"
+conversion_rule = "IC_RIP carries ICF_RES_TO_F64 when it is the integer producer consumed by accepted mixed F64 arithmetic"
+composition = ["grouping", "unary minus", "integer binary operations", "primitive postfix cast", "expression-statement termination"]
+identity = "the producer consumes one module-owned instruction identity and one value identity"
+diagnostics = ["HCIRL0004 missing or inconsistent checked metadata", "HCIRL0005 instruction or value identity exhaustion"]
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_expression_tests = 3
+focused_statement_tests = 1
+class_offset_assembler_fixup_concrete_address_aot_adjustment_interpretation_and_backend = "not implemented"
+native_oracle_status = "not required for structural IC_RIP construction; concrete address and relocation behavior remain separate oracle work"
 
 [[feature]]
 id = "HC-SEMA-POSTFIX-CAST-OPERAND"
