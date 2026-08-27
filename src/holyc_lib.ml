@@ -25,6 +25,7 @@ module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
 module Ir_literal_lowering = Ir.Literal_lowering
 module Ir_expression_lowering = Ir.Expression_lowering
+module Ir_expression_statement_lowering = Ir.Expression_statement_lowering
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode

@@ -100,6 +100,8 @@ let () =
       ("IR top-level body", Test_ir_top_level_body.tests);
       ("IR literal lowering", Test_ir_literal_lowering.tests);
       ("IR expression lowering", Test_ir_expression_lowering.tests);
+      ( "IR expression statement lowering",
+        Test_ir_expression_statement_lowering.tests );
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);
       ("global record flag source", Test_global_record_flag_source.tests);
