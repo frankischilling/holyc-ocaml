@@ -16,6 +16,10 @@ type t = {
 type lowering_result = Lowered of t | Unsupported_expression
 type checked_type = Checked_type of Type.t | Unsupported_type
 
+type cancellation =
+  | No_cancellation
+  | Canceled_dereference of Semantic_result.expression_result
+
 type plan_node =
   | Literal of Semantic_result.expression_result
   | Alias of {
@@ -114,6 +118,23 @@ let checked_integer_type result =
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
+let checked_integer_or_pointer_type result =
+  match Semantic_result.result_type result with
+  | None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "typed semantic expression does not have a checked result type")
+  | Some type_ -> (
+      match (Semantic_result.result_class result, Type.base type_) with
+      | Semantic_result.Integer_result, Type.Primitive (_, primitive)
+        when (Sema.Primitive_type.info primitive).category
+             <> Sema.Primitive_type.Floating
+             && not (Sema.Primitive_type.is_zero_sized primitive) ->
+          Ok (Checked_type type_)
+      | Semantic_result.Integer_result, (Type.Primitive _ | Type.Aggregate _)
+      | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
+          (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+
 let accepted_binary_opcode = function
   | Opcode.Ic_shl
   | Opcode.Ic_shr
@@ -206,7 +227,7 @@ let internal_i64 type_ =
   | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64) -> true
   | Type.Primitive _ | Type.Aggregate _ -> false
 
-let checked_unary_types result opcode operand =
+let checked_numeric_unary_types result opcode operand =
   match
     (Semantic_result.result_type result, Semantic_result.result_type operand)
   with
@@ -230,6 +251,150 @@ let checked_unary_types result opcode operand =
              "typed semantic unary result type does not match the audited \
               operator rule")
 
+let checked_pointer_unary_types result opcode operand =
+  match
+    (Semantic_result.result_type result, Semantic_result.result_type operand)
+  with
+  | None, _ | _, None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "typed semantic pointer expression does not have complete checked \
+            types")
+  | Some result_type, Some operand_type -> (
+      let expected =
+        match opcode with
+        | Opcode.Ic_deref -> (
+            match Type.dereference operand_type with
+            | Ok type_ -> Ok type_
+            | Error _ -> Ok operand_type)
+        | Opcode.Ic_addr -> Type.pointer_to operand_type
+        | _ -> Error "not a pointer prefix opcode"
+      in
+      match expected with
+      | Error message ->
+          Error (metadata_error ?span:(result_span result) message)
+      | Ok expected_type when type_equal result_type expected_type -> Ok ()
+      | Ok _ ->
+          Error
+            (metadata_error ?span:(result_span result)
+               "typed semantic pointer result type does not match the audited \
+                operator rule"))
+
+let checked_alias_types result operand =
+  match
+    (Semantic_result.result_type result, Semantic_result.result_type operand)
+  with
+  | Some result_type, Some operand_type when type_equal result_type operand_type
+    -> Ok ()
+  | Some _, Some _ ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "transparent expression changes its checked operand type")
+  | None, _ | _, None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "transparent expression does not have complete checked types")
+
+let validate_numeric_unary result opcode operand =
+  match checked_integer_type operand with
+  | Error item -> Error item
+  | Ok Unsupported_type -> Ok false
+  | Ok (Checked_type _) -> (
+      match checked_integer_type result with
+      | Error item -> Error item
+      | Ok Unsupported_type -> Ok false
+      | Ok (Checked_type _) ->
+          Result.map
+            (fun () -> true)
+            (checked_numeric_unary_types result opcode operand))
+
+let validate_pointer_unary result opcode operand =
+  match checked_integer_or_pointer_type operand with
+  | Error item -> Error item
+  | Ok Unsupported_type -> Ok false
+  | Ok (Checked_type _) -> (
+      match checked_integer_or_pointer_type result with
+      | Error item -> Error item
+      | Ok Unsupported_type -> Ok false
+      | Ok (Checked_type _) ->
+          Result.map
+            (fun () -> true)
+            (checked_pointer_unary_types result opcode operand))
+
+let cancellable_dereference operand =
+  let current = ref operand in
+  let result = ref No_cancellation in
+  let error = ref None in
+  let searching = ref true in
+  while !searching && Option.is_none !error do
+    match
+      Semantic_result.result_source !current
+      |> Semantic_source.argument_expression_kind
+    with
+    | Semantic_source.Parenthesized_expression source -> (
+        match checked_operand !current source "parenthesized expression" with
+        | Error item -> error := Some item
+        | Ok next -> (
+            match checked_alias_types !current next with
+            | Error item -> error := Some item
+            | Ok () -> current := next))
+    | Semantic_source.Prefix_expression prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus
+      -> (
+        match
+          checked_operand !current
+            (Semantic_source.prefix_operand prefix)
+            "unary-plus expression"
+        with
+        | Error item -> error := Some item
+        | Ok next -> (
+            match checked_alias_types !current next with
+            | Error item -> error := Some item
+            | Ok () -> current := next))
+    | Semantic_source.Prefix_expression prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Dereference
+      -> (
+        match
+          ( checked_operand !current
+              (Semantic_source.prefix_operand prefix)
+              "dereference expression",
+            unary_span !current "dereference expression" prefix )
+        with
+        | Error item, _ | _, Error item -> error := Some item
+        | Ok next, Ok _ -> (
+            match checked_pointer_unary_types !current Opcode.Ic_deref next with
+            | Error item -> error := Some item
+            | Ok () ->
+                result := Canceled_dereference next;
+                searching := false))
+    | Semantic_source.Integer_literal _
+    | Semantic_source.Float_literal _
+    | Semantic_source.Character_literal _
+    | Semantic_source.String_literal _
+    | Semantic_source.Prefix_expression _
+    | Semantic_source.Postfix_expression _
+    | Semantic_source.Postfix_cast_expression _
+    | Semantic_source.Binary_expression _
+    | Semantic_source.Index_expression _
+    | Semantic_source.Member_access_expression _
+    | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Unresolved_expression _ -> searching := false
+  done;
+  match !error with
+  | Some item -> Error item
+  | None -> Ok !result
+
+let validate_binary result left right =
+  match (checked_integer_type left, checked_integer_type right) with
+  | Error item, _ | _, Error item -> Error item
+  | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
+  | Ok (Checked_type _), Ok (Checked_type _) -> (
+      match checked_integer_type result with
+      | Error item -> Error item
+      | Ok Unsupported_type -> Ok false
+      | Ok (Checked_type _) -> Ok true)
+
 let plan root =
   let pending = ref [ Visit root ] in
   let reversed = ref [] in
@@ -242,20 +407,34 @@ let plan root =
         pending := remaining;
         match task with
         | Visit result -> (
-            match checked_integer_type result with
-            | Error item -> error := Some item
-            | Ok Unsupported_type -> unsupported := true
-            | Ok (Checked_type _) -> (
+            match
+              Semantic_result.result_source result
+              |> Semantic_source.argument_expression_kind
+            with
+            | Semantic_source.Integer_literal _
+            | Semantic_source.Character_literal _ -> (
+                match checked_integer_type result with
+                | Error item -> error := Some item
+                | Ok Unsupported_type -> unsupported := true
+                | Ok (Checked_type _) -> reversed := Literal result :: !reversed
+                )
+            | Semantic_source.Parenthesized_expression source -> (
                 match
-                  Semantic_result.result_source result
-                  |> Semantic_source.argument_expression_kind
+                  checked_operand result source "parenthesized expression"
                 with
-                | Semantic_source.Integer_literal _
-                | Semantic_source.Character_literal _ ->
-                    reversed := Literal result :: !reversed
-                | Semantic_source.Parenthesized_expression source -> (
+                | Error item -> error := Some item
+                | Ok operand ->
+                    pending :=
+                      Visit operand
+                      :: Finish_alias { result; operand }
+                      :: !pending)
+            | Semantic_source.Prefix_expression prefix -> (
+                let source_operand = Semantic_source.prefix_operand prefix in
+                match Semantic_source.prefix_operator prefix with
+                | Semantic_source.Unary_plus -> (
                     match
-                      checked_operand result source "parenthesized expression"
+                      checked_operand result source_operand
+                        "unary-plus expression"
                     with
                     | Error item -> error := Some item
                     | Ok operand ->
@@ -263,69 +442,106 @@ let plan root =
                           Visit operand
                           :: Finish_alias { result; operand }
                           :: !pending)
-                | Semantic_source.Prefix_expression prefix -> (
-                    let source_operand =
-                      Semantic_source.prefix_operand prefix
+                | (Semantic_source.Dereference | Semantic_source.Address_of) as
+                  operator -> (
+                    let opcode, description =
+                      match operator with
+                      | Semantic_source.Dereference ->
+                          (Opcode.Ic_deref, "dereference expression")
+                      | Semantic_source.Address_of ->
+                          (Opcode.Ic_addr, "address-of expression")
+                      | Semantic_source.Unary_plus
+                      | Semantic_source.Unary_minus
+                      | Semantic_source.Logical_not
+                      | Semantic_source.Bitwise_not
+                      | Semantic_source.Pre_increment
+                      | Semantic_source.Pre_decrement -> assert false
                     in
-                    match Semantic_source.prefix_operator prefix with
-                    | Semantic_source.Unary_plus -> (
-                        match
-                          checked_operand result source_operand
-                            "unary-plus expression"
-                        with
+                    match
+                      ( checked_operand result source_operand description,
+                        unary_span result description prefix )
+                    with
+                    | Error item, _ | _, Error item -> error := Some item
+                    | Ok operand, Ok span -> (
+                        match validate_pointer_unary result opcode operand with
                         | Error item -> error := Some item
-                        | Ok operand ->
-                            pending :=
-                              Visit operand
-                              :: Finish_alias { result; operand }
-                              :: !pending)
-                    | operator -> (
-                        match accepted_prefix operator with
-                        | None -> unsupported := true
-                        | Some (opcode, description) -> (
+                        | Ok false -> unsupported := true
+                        | Ok true ->
+                            if Opcode.equal opcode Opcode.Ic_addr then
+                              match cancellable_dereference operand with
+                              | Error item -> error := Some item
+                              | Ok No_cancellation ->
+                                  pending :=
+                                    Visit operand
+                                    :: Finish_unary
+                                         { result; opcode; span; operand }
+                                    :: !pending
+                              | Ok (Canceled_dereference source_operand) ->
+                                  pending :=
+                                    Visit source_operand
+                                    :: Finish_unary
+                                         {
+                                           result;
+                                           opcode;
+                                           span;
+                                           operand = source_operand;
+                                         }
+                                    :: !pending
+                            else
+                              pending :=
+                                Visit operand
+                                :: Finish_unary
+                                     { result; opcode; span; operand }
+                                :: !pending))
+                | operator -> (
+                    match accepted_prefix operator with
+                    | None -> unsupported := true
+                    | Some (opcode, description) -> (
+                        match
+                          ( checked_operand result source_operand description,
+                            unary_span result description prefix )
+                        with
+                        | Error item, _ | _, Error item -> error := Some item
+                        | Ok operand, Ok span -> (
                             match
-                              ( checked_operand result source_operand description,
-                                unary_span result description prefix )
+                              validate_numeric_unary result opcode operand
                             with
-                            | Error item, _ | _, Error item ->
-                                error := Some item
-                            | Ok operand, Ok span -> (
-                                match
-                                  checked_unary_types result opcode operand
-                                with
-                                | Error item -> error := Some item
-                                | Ok () ->
-                                    pending :=
-                                      Visit operand
-                                      :: Finish_unary
-                                           { result; opcode; span; operand }
-                                      :: !pending))))
-                | Semantic_source.Binary_expression binary -> (
-                    let opcode = Semantic_source.binary_operator binary in
-                    if not (accepted_binary_opcode opcode) then
-                      unsupported := true
-                    else
-                      match
-                        ( checked_binary_operands result binary,
-                          binary_span result binary )
-                      with
-                      | Error item, _ | _, Error item -> error := Some item
-                      | Ok (left, right), Ok span ->
+                            | Error item -> error := Some item
+                            | Ok false -> unsupported := true
+                            | Ok true ->
+                                pending :=
+                                  Visit operand
+                                  :: Finish_unary
+                                       { result; opcode; span; operand }
+                                  :: !pending))))
+            | Semantic_source.Binary_expression binary -> (
+                let opcode = Semantic_source.binary_operator binary in
+                if not (accepted_binary_opcode opcode) then unsupported := true
+                else
+                  match
+                    ( checked_binary_operands result binary,
+                      binary_span result binary )
+                  with
+                  | Error item, _ | _, Error item -> error := Some item
+                  | Ok (left, right), Ok span -> (
+                      match validate_binary result left right with
+                      | Error item -> error := Some item
+                      | Ok false -> unsupported := true
+                      | Ok true ->
                           pending :=
                             Visit left :: Visit right
                             :: Finish_binary
                                  { result; opcode; span; left; right }
-                            :: !pending)
-                | Semantic_source.Float_literal _
-                | Semantic_source.String_literal _
-                | Semantic_source.Postfix_expression _
-                | Semantic_source.Postfix_cast_expression _
-                | Semantic_source.Index_expression _
-                | Semantic_source.Member_access_expression _
-                | Semantic_source.Bound_identifier_expression _
-                | Semantic_source.Top_level_bound_identifier_expression _
-                | Semantic_source.Unresolved_expression _ -> unsupported := true
-                ))
+                            :: !pending))
+            | Semantic_source.Float_literal _
+            | Semantic_source.String_literal _
+            | Semantic_source.Postfix_expression _
+            | Semantic_source.Postfix_cast_expression _
+            | Semantic_source.Index_expression _
+            | Semantic_source.Member_access_expression _
+            | Semantic_source.Bound_identifier_expression _
+            | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Unresolved_expression _ -> unsupported := true)
         | Finish_alias { result; operand } ->
             reversed := Alias { result; operand } :: !reversed
         | Finish_unary { result; opcode; span; operand } ->
