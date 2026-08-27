@@ -12,9 +12,11 @@ type unresolved_expression_kind =
   | Current_position_expression
   | Sizeof_expression
   | Offset_expression
-  | Defined_expression
   | Postfix_cast_expression
   | Call_expression
+
+type defined_operand_kind = Defined_name | Defined_non_name
+type defined_expression
 
 type prefix_operator =
   | Unary_plus
@@ -70,6 +72,7 @@ type argument_expression_kind =
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Top_level_bound_identifier_expression of top_level_bound_identifier
+  | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression
@@ -151,6 +154,14 @@ val make_member_argument_expression :
   member_name:string ->
   member_origin:Symbol.origin ->
   (argument_expression_kind, string) result
+
+val make_defined_argument_expression :
+  operand_kind:defined_operand_kind ->
+  operand_spelling:string ->
+  operand_origin:Symbol.origin ->
+  (argument_expression_kind, string) result
+(** Retain the one source token inspected by ordinary HolyC [defined]. This
+    constructor does not look the spelling up or choose its Boolean value. *)
 
 val make_bound_identifier_argument_expression :
   occurrence:Module_expression_binding.occurrence ->
@@ -469,6 +480,9 @@ val argument_expression : argument -> argument_expression option
 val argument_origin : argument -> Symbol.origin
 val argument_expression_kind : argument_expression -> argument_expression_kind
 val argument_expression_origin : argument_expression -> Symbol.origin
+val defined_operand_kind : defined_expression -> defined_operand_kind
+val defined_operand_spelling : defined_expression -> string
+val defined_operand_origin : defined_expression -> Symbol.origin
 val prefix_operator : prefix_expression -> prefix_operator
 val prefix_operator_origin : prefix_expression -> Symbol.origin
 val prefix_operand : prefix_expression -> argument_expression

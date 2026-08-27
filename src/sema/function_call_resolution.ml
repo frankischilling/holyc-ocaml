@@ -12,9 +12,16 @@ type unresolved_expression_kind =
   | Current_position_expression
   | Sizeof_expression
   | Offset_expression
-  | Defined_expression
   | Postfix_cast_expression
   | Call_expression
+
+type defined_operand_kind = Defined_name | Defined_non_name
+
+type defined_expression = {
+  defined_operand_kind_ : defined_operand_kind;
+  defined_operand_spelling_ : string;
+  defined_operand_origin_ : Symbol.origin;
+}
 
 type prefix_operator =
   | Unary_plus
@@ -66,6 +73,7 @@ type argument_expression_kind =
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Top_level_bound_identifier_expression of top_level_bound_identifier
+  | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
 and argument_expression = {
@@ -605,7 +613,6 @@ let unresolved_expression_kind_name = function
   | Current_position_expression -> "current-position"
   | Sizeof_expression -> "sizeof"
   | Offset_expression -> "offset"
-  | Defined_expression -> "defined"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
 
@@ -623,6 +630,7 @@ let argument_expression_kind_name = function
   | Member_access_expression _ -> "member"
   | Bound_identifier_expression _ -> "bound-identifier"
   | Top_level_bound_identifier_expression _ -> "top-level-bound-identifier"
+  | Defined_expression _ -> "defined"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
 let deferred_reason_name = function
@@ -787,6 +795,21 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
            member_origin;
          })
 
+let make_defined_argument_expression ~operand_kind ~operand_spelling
+    ~operand_origin =
+  if String.equal operand_spelling "" then
+    Error "defined operand spelling cannot be empty"
+  else if not (valid_origin operand_origin) then
+    Error "defined operand has an invalid source origin"
+  else
+    Ok
+      (Defined_expression
+         {
+           defined_operand_kind_ = operand_kind;
+           defined_operand_spelling_ = operand_spelling;
+           defined_operand_origin_ = operand_origin;
+         })
+
 let function_declaration_matches_publication declaration publication =
   let site = Function_resolution.resolved_declaration_site declaration in
   let function_ = Function_resolution.declaration_site_function site in
@@ -916,6 +939,9 @@ let make_top_level_bound_identifier_argument_expression ~occurrence =
 
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
+let defined_operand_kind expression = expression.defined_operand_kind_
+let defined_operand_spelling expression = expression.defined_operand_spelling_
+let defined_operand_origin expression = expression.defined_operand_origin_
 
 let make_argument ~index ~kind ~expression ~origin =
   if index < 0 then Error "call argument index cannot be negative"
@@ -1380,6 +1406,7 @@ let rec validate_argument_expression table parent visible declarations
   | Float_literal _
   | Character_literal _
   | String_literal _
+  | Defined_expression _
   | Unresolved_expression _ -> Ok ()
 
 let validate_callable table parent callable =
@@ -1658,6 +1685,7 @@ let rec validate_bound_occurrences occurrence_by_index expression =
   | Float_literal _
   | Character_literal _
   | String_literal _
+  | Defined_expression _
   | Unresolved_expression _ -> Ok ()
 
 let validate_call_bound_occurrences calls occurrences =
@@ -2175,6 +2203,7 @@ let rec computed_expression_type members ~before_item_index expression =
   | Float_literal _
   | Character_literal _
   | String_literal _
+  | Defined_expression _
   | Unresolved_expression _ ->
       invalid
         (argument_expression_origin expression)
@@ -2357,6 +2386,7 @@ let indexed_identifier_callee computed =
     | Member_access_expression _
     | Bound_identifier_expression _
     | Top_level_bound_identifier_expression _
+    | Defined_expression _
     | Unresolved_expression _ -> None
   in
   peel 0 computed

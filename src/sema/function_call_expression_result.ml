@@ -1094,6 +1094,7 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Binary_expression _
   | Function_call_resolution.Member_access_expression _
   | Function_call_resolution.Bound_identifier_expression _
+  | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
 let rec function_callback_array_index_depth ~callee expression =
@@ -1126,6 +1127,7 @@ let rec function_callback_array_index_depth ~callee expression =
   | Function_call_resolution.Binary_expression _
   | Function_call_resolution.Member_access_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
+  | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
 let outer_binding_for_expression state source =
@@ -1442,14 +1444,15 @@ let rec type_expression table members policies ~before_item_index ~context
                               (Function_call_resolution
                                .identifier_value_function_address_path value)
                             category result_class state))))
+      | Function_call_resolution.Defined_expression _ ->
+          finish ~source_type:integer_type Object_value Integer_result state
       | Function_call_resolution.Unresolved_expression kind -> (
           match kind with
           | Function_call_resolution.Current_position_expression ->
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
           | Function_call_resolution.Sizeof_expression
-          | Function_call_resolution.Offset_expression
-          | Function_call_resolution.Defined_expression ->
+          | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression -> (
               match outer_binding_for_expression state source with

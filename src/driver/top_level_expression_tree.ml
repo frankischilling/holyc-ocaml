@@ -378,10 +378,22 @@ let rec expression state (source : Frontend.Ast.expression) =
       finish state
         (Sema.Function_call_resolution.Unresolved_expression
            Sema.Function_call_resolution.Offset_expression)
-  | Frontend.Ast.Defined_expression _ ->
-      finish state
-        (Sema.Function_call_resolution.Unresolved_expression
-           Sema.Function_call_resolution.Defined_expression)
+  | Frontend.Ast.Defined_expression defined -> (
+      let operand = defined.defined_operand in
+      let operand_kind =
+        match operand.defined_operand_kind with
+        | Frontend.Ast.Defined_name ->
+            Sema.Function_call_resolution.Defined_name
+        | Frontend.Ast.Defined_non_name ->
+            Sema.Function_call_resolution.Defined_non_name
+      in
+      match
+        Sema.Function_call_resolution.make_defined_argument_expression
+          ~operand_kind ~operand_spelling:operand.defined_operand_spelling
+          ~operand_origin:(origin operand.defined_operand_location)
+      with
+      | Error _ as error -> error
+      | Ok kind -> finish state kind)
 
 and call_expression state source (call : Frontend.Ast.call_expression) =
   let result_expression =

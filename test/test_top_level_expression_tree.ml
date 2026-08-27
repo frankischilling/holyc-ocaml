@@ -172,9 +172,27 @@ let rec expression_kinds expression =
     | String_literal _
     | Bound_identifier_expression _
     | Top_level_bound_identifier_expression _
+    | Defined_expression _
     | Unresolved_expression _ -> []
   in
   current :: children
+
+let defined_fact expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Defined_expression defined ->
+      let kind =
+        match
+          Semantic_function_call_resolution.defined_operand_kind defined
+        with
+        | Semantic_function_call_resolution.Defined_name -> "name"
+        | Semantic_function_call_resolution.Defined_non_name -> "non-name"
+      in
+      Some
+        (kind ^ ":"
+        ^ Semantic_function_call_resolution.defined_operand_spelling defined)
+  | _ -> None
 
 let complete_shapes_roles_calls_and_identities () =
   let source =
@@ -425,6 +443,58 @@ let deterministic_pure_and_checked_inputs () =
         "foreign input has a stable code" true
         (String.starts_with ~prefix:"HCSEMA0055:" message)
 
+let defined_operands_survive_top_level_trees () =
+  let source =
+    "extern I64 Use(I64 value);\n\
+     ((defined(((top)))));\n\
+     -defined(+);\n\
+     defined(left)+defined(right);\n\
+     defined(cast)(I64);\n\
+     Use(defined(argument));\n\
+     if(defined(condition)) defined(body);"
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"top-level-defined-tree.HC" source in
+      let table = Session.semantic_symbols prepared.session in
+      let before = Semantic_symbol_table.all_symbols table |> List.length in
+      let inspect () =
+        let result = build prepared mode [] in
+        let nodes =
+          result |> Semantic_top_level_expression_tree.all_expression_nodes
+        in
+        let facts =
+          nodes
+          |> List.filter_map (fun node ->
+              node |> Semantic_top_level_expression_tree.expression_node_source
+              |> defined_fact)
+        in
+        Alcotest.(check (list string))
+          "top-level tree retains every defined operand"
+          [
+            "name:top";
+            "non-name:+";
+            "name:left";
+            "name:right";
+            "name:cast";
+            "name:argument";
+            "name:condition";
+            "name:body";
+          ]
+          facts;
+        facts
+      in
+      let first = inspect () in
+      let middle = Semantic_symbol_table.all_symbols table |> List.length in
+      let second = inspect () in
+      let after = Semantic_symbol_table.all_symbols table |> List.length in
+      Alcotest.(check (list string))
+        "repeated tree building retains the same operands" first second;
+      Alcotest.(check (pair int int))
+        "top-level defined retention does not mutate symbols" (before, before)
+        (middle, after))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "complete shapes, roles, calls, and identities" `Quick
@@ -433,4 +503,6 @@ let tests =
       generated_outer_binding_keeps_provenance;
     Alcotest.test_case "determinism, purity, and checked inputs" `Quick
       deterministic_pure_and_checked_inputs;
+    Alcotest.test_case "defined operands across top-level trees" `Quick
+      defined_operands_survive_top_level_trees;
   ]

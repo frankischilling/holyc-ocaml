@@ -455,6 +455,7 @@ let cast_was_parenthesized operand =
   | Semantic_source.Member_access_expression _
   | Semantic_source.Bound_identifier_expression _
   | Semantic_source.Top_level_bound_identifier_expression _
+  | Semantic_source.Defined_expression _
   | Semantic_source.Unresolved_expression _ -> false
 
 let validate_numeric_unary result opcode operand =
@@ -545,6 +546,7 @@ let cancellable_dereference operand =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> searching := false
   done;
   match !error with
@@ -827,11 +829,11 @@ let plan root =
             | Semantic_source.Member_access_expression _
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Defined_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Sizeof_expression
                 | Semantic_source.Offset_expression
-                | Semantic_source.Defined_expression
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
         | Finish_alias { result; operand } ->
