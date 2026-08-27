@@ -196,13 +196,22 @@ let defined_resolution_fact (_, defined) =
     | Defined_non_name_false -> "non-name-false"
     | Defined_top_level_name -> "top-level-deferred"
     | Defined_function_query query -> (
-        match Semantic_function_expression_binding.query_resolution query with
-        | Semantic_function_expression_binding.Nonlocal_candidate ->
+        match Semantic_module_expression_binding.query_resolution query with
+        | Semantic_module_expression_binding.Outer_candidate ->
             "nonlocal-deferred"
-        | Semantic_function_expression_binding.Function_binding binding ->
+        | Semantic_module_expression_binding.Local_binding binding ->
             "function:"
             ^ Semantic_symbol.name
-                (binding : Semantic_function_binding_index.binding).symbol)
+                (binding : Semantic_function_binding_index.binding).symbol
+        | Semantic_module_expression_binding.Module_binding publication ->
+            "module:"
+            ^ (publication
+              |> Semantic_module_expression_binding.publication_kind
+              |> Semantic_module_expression_binding.publication_kind_name)
+            ^ ":"
+            ^ (publication
+              |> Semantic_module_expression_binding.publication_source_symbol
+              |> Semantic_symbol.name))
   in
   let known =
     match defined_known_value defined with
@@ -1426,6 +1435,67 @@ let defined_values_follow_source_local_visibility () =
         ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let defined_values_follow_module_visibility () =
+  let source =
+    "extern class PriorType;\n\
+     I64 PriorGlobal;\n\
+     I64 PriorFunction(){return 0;}\n\
+     I64 Shared;\n\
+     I64 Caller(){\n\
+     defined(PriorType);defined(PriorGlobal);defined(PriorFunction);\n\
+     defined(Caller);defined(Shared);I64 Shared;defined(Shared);\n\
+     defined(Later);return 0;}\n\
+     I64 Later;"
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"function-defined-module.HC" source in
+      let result = resolve prepared |> checked in
+      let caller = function_named result "Caller" in
+      let terms =
+        caller
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> defined_expressions)
+      in
+      Alcotest.(check (list string))
+        "defined follows the module publication prefix"
+        [
+          "PriorType:module:aggregate:PriorType:true";
+          "PriorGlobal:module:global-variable:PriorGlobal:true";
+          "PriorFunction:module:function:PriorFunction:true";
+          "Caller:module:function:Caller:true";
+          "Shared:module:global-variable:Shared:true";
+          "Shared:function:Shared:true";
+          "Later:nonlocal-deferred:deferred";
+        ]
+        (List.map defined_resolution_fact terms);
+      let publications =
+        Semantic_module_expression_binding.publications
+          prepared.module_expressions
+      in
+      Alcotest.(check bool)
+        "every module result keeps an owned publication" true
+        (terms
+        |> List.for_all (fun (_, defined) ->
+            match
+              Semantic_function_call_resolution.defined_operand_resolution
+                defined
+            with
+            | Semantic_function_call_resolution.Defined_function_query query ->
+                (match
+                   Semantic_module_expression_binding.query_resolution query
+                 with
+                | Semantic_module_expression_binding.Module_binding publication
+                  -> List.exists (( == ) publication) publications
+                | Semantic_module_expression_binding.Local_binding _
+                | Semantic_module_expression_binding.Outer_candidate -> true)
+            | Semantic_function_call_resolution.Defined_non_name_false -> true
+            | Semantic_function_call_resolution.Defined_top_level_name -> false)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let defined_generated_provenance_is_deterministic_and_pure () =
   let prepared =
     prepare ~path:"function-defined-generated.HC"
@@ -1521,16 +1591,16 @@ let defined_constructor_validates_source_evidence () =
   let sizeof_query = List.nth queries 0 in
   let defined_query = List.nth queries 1 in
   let query_origin =
-    Semantic_function_expression_binding.query_origin defined_query
+    Semantic_module_expression_binding.query_origin defined_query
   in
   Alcotest.(check (result reject string))
     "a name query with another role is rejected"
     (Error "defined operand query has the wrong semantic role")
     (make_defined_argument_expression ~operand_kind:Defined_name
        ~operand_spelling:
-         (Semantic_function_expression_binding.query_name sizeof_query)
+         (Semantic_module_expression_binding.query_name sizeof_query)
        ~operand_origin:
-         (Semantic_function_expression_binding.query_origin sizeof_query)
+         (Semantic_module_expression_binding.query_origin sizeof_query)
        ~operand_resolution:(Defined_function_query sizeof_query));
   Alcotest.(check (result reject string))
     "query spelling must match the retained operand"
@@ -1561,14 +1631,15 @@ let defined_constructor_validates_source_evidence () =
 let defined_query_must_belong_to_its_function () =
   let prepared =
     prepare ~path:"defined-query-owner.HC"
-      "I64 Caller(I64 local){defined(local);return 0;}"
+      "I64 TargetName;I64 Caller(){defined(TargetName);return 0;}"
   in
   let target =
     resolve prepared |> checked |> fun result -> function_named result "Caller"
   in
   let foreign_source =
     Session.add_source prepared.session ~path:"defined-query-foreign.HC"
-      ~contents:"I64 Foreign(I64 local){defined(local);return 0;}"
+      ~contents:
+        "I64 ForeignName;I64 Foreign(){defined(ForeignName);return 0;}"
   in
   let foreign_ast =
     Holyc_lib.parse_with_config prepared.session ~config:(config prepared.mode)
@@ -1581,13 +1652,13 @@ let defined_query_must_belong_to_its_function () =
     |> List.hd |> Semantic_module_expression_binding.function_queries |> List.hd
   in
   let operand_origin =
-    Semantic_function_expression_binding.query_origin foreign_query
+    Semantic_module_expression_binding.query_origin foreign_query
   in
   let expression_kind =
     Semantic_function_call_resolution.make_defined_argument_expression
       ~operand_kind:Semantic_function_call_resolution.Defined_name
       ~operand_spelling:
-        (Semantic_function_expression_binding.query_name foreign_query)
+        (Semantic_module_expression_binding.query_name foreign_query)
       ~operand_origin
       ~operand_resolution:
         (Semantic_function_call_resolution.Defined_function_query foreign_query)
@@ -2001,11 +2072,13 @@ let tests =
       defined_operands_survive_function_expression_shapes;
     Alcotest.test_case "defined source-local values" `Quick
       defined_values_follow_source_local_visibility;
+    Alcotest.test_case "defined module-visible values" `Quick
+      defined_values_follow_module_visibility;
     Alcotest.test_case "defined generated provenance and purity" `Quick
       defined_generated_provenance_is_deterministic_and_pure;
     Alcotest.test_case "defined constructor source validation" `Quick
       defined_constructor_validates_source_evidence;
-    Alcotest.test_case "defined query owner validation" `Quick
+    Alcotest.test_case "defined module query owner validation" `Quick
       defined_query_must_belong_to_its_function;
     Alcotest.test_case "expression statement constructor validation" `Quick
       expression_statement_constructors_validate_identity_and_origin;

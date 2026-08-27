@@ -140,6 +140,26 @@ let signature occurrences =
       ( Semantic_module_expression_binding.occurrence_name occurrence,
         resolution_name occurrence ))
 
+let query_resolution_name query =
+  match Semantic_module_expression_binding.query_resolution query with
+  | Semantic_module_expression_binding.Local_binding binding ->
+      "local:" ^ Semantic_symbol.name binding.symbol
+  | Semantic_module_expression_binding.Module_binding publication ->
+      Printf.sprintf "module:%s:%s"
+        (Semantic_module_expression_binding.publication_kind publication
+        |> Semantic_module_expression_binding.publication_kind_name)
+        (Semantic_module_expression_binding.publication_source_symbol
+           publication
+        |> Semantic_symbol.name)
+  | Semantic_module_expression_binding.Outer_candidate -> "outer"
+
+let query_signature result name =
+  function_named result name
+  |> Semantic_module_expression_binding.function_queries
+  |> List.map (fun query ->
+      ( Semantic_module_expression_binding.query_name query,
+        query_resolution_name query ))
+
 let source_visibility_recursion_and_local_precedence () =
   let prepared =
     prepare ~path:"module-expression-source-order.HC"
@@ -170,6 +190,36 @@ let source_visibility_recursion_and_local_precedence () =
   Alcotest.(check int)
     "recursion sees its own item" 1
     (Semantic_module_expression_binding.publication_item_index publication)
+
+let source_visibility_applies_to_name_queries () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"module-expression-query-order.HC"
+          "extern class EarlierType;\n\
+           I64 EarlierGlobal;\n\
+           I64 EarlierFunction(){return 0;}\n\
+           I64 Shared;\n\
+           I64 Caller(){\n\
+           defined(EarlierType);defined(EarlierGlobal);\n\
+           defined(EarlierFunction);defined(Caller);defined(Shared);\n\
+           I64 Shared;defined(Shared);defined(Later);return 0;}\n\
+           I64 Later;"
+      in
+      let result = resolve prepared |> checked in
+      Alcotest.(check (list (pair string string)))
+        "queries use the source-visible module prefix"
+        [
+          ("EarlierType", "module:aggregate:EarlierType");
+          ("EarlierGlobal", "module:global-variable:EarlierGlobal");
+          ("EarlierFunction", "module:function:EarlierFunction");
+          ("Caller", "module:function:Caller");
+          ("Shared", "module:global-variable:Shared");
+          ("Shared", "local:Shared");
+          ("Later", "outer");
+        ]
+        (query_signature result "Caller"))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let joined_function_identity_in_both_modes () =
   List.iter
@@ -402,6 +452,8 @@ let tests =
   [
     Alcotest.test_case "source visibility, recursion, and local precedence"
       `Quick source_visibility_recursion_and_local_precedence;
+    Alcotest.test_case "source visibility applies to name queries" `Quick
+      source_visibility_applies_to_name_queries;
     Alcotest.test_case "joined function identity in both modes" `Quick
       joined_function_identity_in_both_modes;
     Alcotest.test_case "completed aggregate forward is canonical" `Quick

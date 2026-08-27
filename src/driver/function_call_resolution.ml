@@ -354,7 +354,7 @@ type state = {
   typed_values : typed_environment;
   global_values : typed_environment;
   occurrences : Sema.Module_expression_binding.occurrence Int_map.t;
-  defined_queries : Sema.Function_expression_binding.query list;
+  defined_queries : Sema.Module_expression_binding.query list;
 }
 
 let empty_state visible_aggregates typed_values global_values occurrences
@@ -467,10 +467,10 @@ let defined_query queries (operand : Frontend.Ast.defined_operand) =
   let spelling = operand.defined_operand_spelling in
   let operand_origin = origin operand.defined_operand_location in
   let matches query =
-    Sema.Function_expression_binding.query_role query
+    Sema.Module_expression_binding.query_role query
     = Sema.Function_expression_binding.Defined_operand
-    && String.equal spelling (Sema.Function_expression_binding.query_name query)
-    && operand_origin = Sema.Function_expression_binding.query_origin query
+    && String.equal spelling (Sema.Module_expression_binding.query_name query)
+    && operand_origin = Sema.Module_expression_binding.query_origin query
   in
   match List.filter matches queries with
   | [ query ] -> Ok query
