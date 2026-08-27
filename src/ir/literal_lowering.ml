@@ -177,6 +177,71 @@ let unwrap_typed_prefix current unary_operations prefix ~opcode ~description =
   | Error operation_error, _ -> Error operation_error
   | _, Error operand_error -> Error operand_error
 
+let typed_address_error ~span message =
+  {
+    Sequence.code = "HCIRL0002";
+    message = "cannot lower typed prefix address-of: " ^ message;
+    instruction_id = None;
+    span = Some span;
+  }
+
+let unwrap_typed_address current unary_operations prefix =
+  match
+    typed_operand current
+      (Sema.Function_call_resolution.prefix_operand prefix)
+      "address-of expression"
+  with
+  | Error operand_error -> Error operand_error
+  | Ok operand -> (
+      match Sema.Function_call_resolution.prefix_operator_origin prefix with
+      | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+          Error
+            (typed_result_error
+               "typed address-of operator does not have a source location")
+      | Sema.Symbol.Source_location location -> (
+          match Sema.Function_call_expression_result.result_type current with
+          | Some typed_result_type ->
+              Ok
+                ( operand,
+                  {
+                    typed_opcode = Opcode.Ic_addr;
+                    typed_span = location.span;
+                    typed_result_type;
+                  }
+                  :: unary_operations )
+          | None -> (
+              match
+                Sema.Function_call_expression_result.result_type operand
+              with
+              | Some operand_type -> (
+                  match Type.pointer_to operand_type with
+                  | Error message ->
+                      Error (typed_address_error ~span:location.span message)
+                  | Ok _ ->
+                      Error
+                        (typed_result_error ~span:location.span
+                           "typed semantic address-of does not have its \
+                            checked result type"))
+              | None ->
+                  Error
+                    (typed_result_error ~span:location.span
+                       "typed semantic address-of operand does not have a \
+                        checked type"))))
+
+let cancel_typed_dereferences operations =
+  let reversed = ref [] in
+  List.iter
+    (fun operation ->
+      if Opcode.equal operation.typed_opcode Opcode.Ic_addr then
+        match !reversed with
+        | previous :: remaining
+          when Opcode.equal previous.typed_opcode Opcode.Ic_deref ->
+            reversed := operation :: remaining
+        | _ -> reversed := operation :: !reversed
+      else reversed := operation :: !reversed)
+    operations;
+  List.rev !reversed
+
 let literal_of_typed_source result =
   let current = ref result in
   let unary_operations = ref [] in
@@ -255,6 +320,16 @@ let literal_of_typed_source result =
         | Error prefix_error ->
             error := Some prefix_error;
             unwrapping := false)
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Address_of -> (
+        match unwrap_typed_address !current !unary_operations prefix with
+        | Ok (operand, operations) ->
+            current := operand;
+            unary_operations := operations
+        | Error prefix_error ->
+            error := Some prefix_error;
+            unwrapping := false)
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
     | Sema.Function_call_resolution.Character_literal _
@@ -281,7 +356,7 @@ let literal_of_typed_source result =
             (fun (literal, literal_source) ->
               (literal, literal_source, !current))
             (direct_literal_of_typed_source source),
-          !unary_operations )
+          cancel_typed_dereferences !unary_operations )
 
 let typed_source_span source message =
   match Sema.Function_call_resolution.argument_expression_origin source with
