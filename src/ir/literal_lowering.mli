@@ -42,13 +42,16 @@ val lower_expression :
 val lower_typed_result :
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
+  ?unary_identities:identity list ->
   Sema.Function_call_expression_result.expression_result ->
   (expression_result, Instruction_sequence.error list) result
-(** Lower one literal, optionally nested in parentheses and unary plus, from the
-    shared typed semantic result view. The semantic payload, checked result
-    type, and literal source location are copied without consulting a frontend
-    AST node. Parentheses and unary plus add no instruction or identity. Other
-    semantic expression shapes return [Not_literal]. *)
+(** Lower one literal, optionally nested in parentheses, unary plus, and unary
+    minus, from the shared typed semantic result view. The semantic payload,
+    checked result type, and literal source location are copied without
+    consulting a frontend AST node. Parentheses and unary plus add no
+    instruction or identity. Unary minus consumes one caller-owned
+    [unary_identities] entry for each emitted instruction, innermost to
+    outermost. Other semantic expression shapes return [Not_literal]. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Lowered typed unary minus around integer, character, F64, and string leaves into unfused `IC_UNARY_MINUS` chains. Mixed grouping and unary plus stay transparent. Each minus keeps a caller-owned identity, operand link, forwarded outer result type, and operator span; `HCIRL0001` rejects a mismatched identity count. Unary minus around a nonliteral still returns `Not_literal`. Logical not and the other emitting semantic prefixes remain separate work.
+
 - Made unary plus transparent at the checked typed-literal IR boundary. Mixed unary-plus and grouping wrappers around integer, character, F64, and string leaves emit the same one instruction, retained payload, checked outer result type, literal source span, and caller-owned identities as the direct form. Unary plus around a nonliteral still returns `Not_literal`; emitting semantic prefixes remain separate work.
 
 - Made semantic parentheses transparent at the checked typed-literal IR boundary. Any grouping depth around an integer, character, F64, or string leaf emits the same one instruction, retained payload, checked outer result type, literal source span, and caller-owned identities as the direct form. Grouped nonliterals still return `Not_literal`; semantic prefix traversal remains separate work.

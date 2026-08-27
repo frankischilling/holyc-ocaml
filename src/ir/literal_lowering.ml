@@ -103,8 +103,24 @@ let direct_literal_of_typed_source source =
   | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
   | Sema.Function_call_resolution.Unresolved_expression _ -> None
 
+let typed_result_error ?span message =
+  { Sequence.code = "HCIRL0003"; message; instruction_id = None; span }
+
+let identity_count_error ~span ~expected ~actual =
+  {
+    Sequence.code = "HCIRL0001";
+    message =
+      Printf.sprintf "expected %d unary instruction identit%s, got %d" expected
+        (if expected = 1 then "y" else "ies")
+        actual;
+    instruction_id = None;
+    span;
+  }
+
 let literal_of_typed_source source =
   let current = ref source in
+  let unary_operations = ref [] in
+  let error = ref None in
   let unwrapping = ref true in
   while !unwrapping do
     match Sema.Function_call_resolution.argument_expression_kind !current with
@@ -114,6 +130,25 @@ let literal_of_typed_source source =
       when Sema.Function_call_resolution.prefix_operator prefix
            = Sema.Function_call_resolution.Unary_plus ->
         current := Sema.Function_call_resolution.prefix_operand prefix
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Unary_minus -> (
+        match Sema.Function_call_resolution.prefix_operator_origin prefix with
+        | Sema.Symbol.Source_location location ->
+            unary_operations :=
+              {
+                opcode = Opcode.Ic_unary_minus;
+                span = location.span;
+                cancels_dereference = false;
+              }
+              :: !unary_operations;
+            current := Sema.Function_call_resolution.prefix_operand prefix
+        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+            error :=
+              Some
+                (typed_result_error
+                   "typed unary-minus operator does not have a source location");
+            unwrapping := false)
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
     | Sema.Function_call_resolution.Character_literal _
@@ -129,10 +164,9 @@ let literal_of_typed_source source =
     | Sema.Function_call_resolution.Unresolved_expression _ ->
         unwrapping := false
   done;
-  direct_literal_of_typed_source !current
-
-let typed_result_error ?span message =
-  { Sequence.code = "HCIRL0003"; message; instruction_id = None; span }
+  match !error with
+  | Some error -> Error error
+  | None -> Ok (direct_literal_of_typed_source !current, !unary_operations)
 
 let typed_source_span source message =
   match Sema.Function_call_resolution.argument_expression_origin source with
@@ -174,31 +208,74 @@ let describe_typed_literal (description : description) ~result_type =
       describe_one description ~opcode:Opcode.Ic_str_const
         ~payload:(Sequence.Bytes bytes) ~result_type
 
-let lower_typed_result ~instruction_id ~value_id result =
+let typed_identity_span result =
+  match Sema.Function_call_expression_result.result_origin result with
+  | Sema.Symbol.Source_location location -> Some location.span
+  | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ -> None
+
+let rec append_typed_unaries reversed current_value current_type operations
+    identities =
+  match (operations, identities) with
+  | operation :: remaining_operations, identity :: remaining_identities ->
+      let instruction : Sequence.description =
+        {
+          instruction_id = identity.instruction_id;
+          opcode = operation.opcode;
+          operands = [ current_value ];
+          result = Some { value_id = identity.value_id };
+          target_type = Some current_type;
+          payload = None;
+          flags = 0L;
+          span = Some operation.span;
+        }
+      in
+      append_typed_unaries (instruction :: reversed) identity.value_id
+        current_type remaining_operations remaining_identities
+  | [], [] -> (List.rev reversed, current_type)
+  | _ -> assert false
+
+let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
+    =
   let source = Sema.Function_call_expression_result.result_source result in
   match literal_of_typed_source source with
-  | None -> Ok Not_literal
-  | Some (literal, literal_source) -> (
-      match typed_result_span result source literal_source with
-      | Error error -> Error [ error ]
-      | Ok span -> (
-          match Sema.Function_call_expression_result.result_type result with
-          | None ->
-              Error
-                [
-                  typed_result_error ~span
-                    "typed semantic literal does not have a checked result type";
-                ]
-          | Some result_type -> (
-              let description =
-                { instruction_id; value_id; literal; span = Some span }
-              in
-              let instruction, result_type =
-                describe_typed_literal description ~result_type
-              in
-              match Sequence.create [ instruction ] with
-              | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
-              | Error errors -> Error errors)))
+  | Error error -> Error [ error ]
+  | Ok (None, _) -> Ok Not_literal
+  | Ok (Some (literal, literal_source), unary_operations) -> (
+      let expected = List.length unary_operations in
+      let actual = List.length unary_identities in
+      if actual <> expected then
+        Error
+          [
+            identity_count_error
+              ~span:(typed_identity_span result)
+              ~expected ~actual;
+          ]
+      else
+        match typed_result_span result source literal_source with
+        | Error error -> Error [ error ]
+        | Ok span -> (
+            match Sema.Function_call_expression_result.result_type result with
+            | None ->
+                Error
+                  [
+                    typed_result_error ~span
+                      "typed semantic literal does not have a checked result \
+                       type";
+                  ]
+            | Some result_type -> (
+                let description =
+                  { instruction_id; value_id; literal; span = Some span }
+                in
+                let instruction, result_type =
+                  describe_typed_literal description ~result_type
+                in
+                let descriptions, result_type =
+                  append_typed_unaries [ instruction ] value_id result_type
+                    unary_operations unary_identities
+                in
+                match Sequence.create descriptions with
+                | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
+                | Error errors -> Error errors)))
 
 let unwrap_expression expression =
   let current = ref expression in
@@ -314,17 +391,6 @@ let literal_of_expression expression =
   | Frontend.Ast.Index_expression _
   | Frontend.Ast.Member_expression _ -> None
 
-let identity_count_error expression ~expected ~actual =
-  {
-    Sequence.code = "HCIRL0001";
-    message =
-      Printf.sprintf "expected %d unary instruction identit%s, got %d" expected
-        (if expected = 1 then "y" else "ies")
-        actual;
-    instruction_id = None;
-    span = Some (Frontend.Ast.expression_location expression).span;
-  }
-
 let unary_result_type operation current_type =
   if Opcode.equal operation.opcode Opcode.Ic_com then Ok i64
   else if
@@ -363,7 +429,12 @@ let lower_expression ~instruction_id ~value_id ?(unary_identities = [])
       let expected = List.length unary_operations in
       let actual = List.length unary_identities in
       if actual <> expected then
-        Error [ identity_count_error expression ~expected ~actual ]
+        Error
+          [
+            identity_count_error
+              ~span:(Some (Frontend.Ast.expression_location expression).span)
+              ~expected ~actual;
+          ]
       else
         let literal_instruction, literal_result_type =
           describe_literal
