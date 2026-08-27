@@ -331,7 +331,8 @@ let accepted_binary_opcode = function
   | Opcode.Ic_less_equ
   | Opcode.Ic_and_and
   | Opcode.Ic_or_or
-  | Opcode.Ic_xor_xor -> true
+  | Opcode.Ic_xor_xor
+  | Opcode.Ic_power -> true
   | _ -> false
 
 let accepted_f64_arithmetic_opcode = function
@@ -644,13 +645,16 @@ let numeric_conversion result =
       | Ok (Checked_type _) -> Ok (Some Keep_result)
       | Ok Unsupported_type -> Ok None)
 
-let validate_f64_binary_with checked_result_type ~operation_flags result left
-    right =
+let validate_f64_binary_with checked_result_type ~allow_integer_pair
+    ~operation_flags result left right =
   match (numeric_conversion left, numeric_conversion right) with
   | Error item, _ | _, Error item -> Error item
   | Ok None, _ | _, Ok None -> Ok Unsupported_binary
   | Ok (Some left_conversion), Ok (Some right_conversion) -> (
-      if left_conversion = Result_to_f64 && right_conversion = Result_to_f64
+      if
+        (not allow_integer_pair)
+        && left_conversion = Result_to_f64
+        && right_conversion = Result_to_f64
       then Ok Unsupported_binary
       else
         match checked_result_type result with
@@ -673,11 +677,14 @@ let validate_binary result opcode left right =
              operation_flags = 0L;
            })
   | Ok false when accepted_f64_arithmetic_opcode opcode ->
-      validate_f64_binary_with checked_f64_type ~operation_flags:0L result left
-        right
+      validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
+        ~operation_flags:0L result left right
   | Ok false when accepted_f64_comparison_opcode opcode ->
       validate_f64_binary_with checked_integer_type
-        ~operation_flags:use_f64_flag result left right
+        ~allow_integer_pair:false ~operation_flags:use_f64_flag result left right
+  | Ok false when opcode = Opcode.Ic_power ->
+      validate_f64_binary_with checked_f64_type ~allow_integer_pair:true
+        ~operation_flags:0L result left right
   | Ok false -> Ok Unsupported_binary
 
 let plan root =

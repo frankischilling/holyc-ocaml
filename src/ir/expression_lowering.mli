@@ -18,9 +18,12 @@ val lower_typed_result :
     multiplication, division, addition, subtraction, and the six comparisons. A
     mixed edge marks the retained integer producer with [ICF_RES_TO_F64] without
     folding its payload. Floating comparisons also carry [ICF_USE_F64] while
-    retaining the checked internal [I64] result. Numeric prefixes and primitive
-    postfix casts compose within their checked domain; address and dereference
-    remain confined to integer and pointer trees. A postfix cast emits
+    retaining the checked internal [I64] result. HolyC power accepts every
+    checked integer/[F64] operand pair, marks each integer producer with
+    [ICF_RES_TO_F64], and emits an unflagged [IC_POWER] with an internal [F64]
+    result. Numeric prefixes and primitive postfix casts compose within their
+    checked domain; address and dereference remain confined to integer and
+    pointer trees. A postfix cast emits
     [IC_HOLYC_TYPECAST] with the full cast span and pinned [was_paren] payload.
     The module owns source-order traversal, TempleOS's immediate
     address/dereference cancellation, and consecutive identity allocation.

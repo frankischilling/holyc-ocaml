@@ -726,6 +726,183 @@ let deep_mixed_f64_comparison_uses_the_explicit_worklist () =
     (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
+let power_operand_domains_lower_in_both_modes () =
+  let cases =
+    [
+      ("2.0`3.0", [ 0L; 0L; 0L ]);
+      ("2`3.0", [ result_to_f64; 0L; 0L ]);
+      ("2.0`3", [ 0L; result_to_f64; 0L ]);
+      ("2`3", [ result_to_f64; result_to_f64; 0L ]);
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 a%d" index) cases
+    |> String.concat ","
+  in
+  let arguments = cases |> List.map fst |> String.concat "," in
+  let source =
+    Printf.sprintf "extern F64 Target(%s);F64 Caller(){return Target(%s);}"
+      parameters arguments
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-power-domains.HC" source in
+      Alcotest.(check int) "four power domains" 4 (List.length roots);
+      List.iter2
+        (fun root (_, expected_flags) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          let expected_opcodes =
+            List.map2
+              (fun flag opcode ->
+                if Int64.equal flag result_to_f64 && opcode = "IC_IMM_F64" then
+                  "IC_IMM_I64"
+                else opcode)
+              expected_flags
+              [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_POWER" ]
+          in
+          Alcotest.(check (list string))
+            "power operand forms" expected_opcodes (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "power conversion flags" expected_flags
+            (instruction_flags lowered);
+          let power = List.nth items 2 in
+          Alcotest.(check (list int))
+            "power operands" [ 20; 21 ]
+            (List.map Sequence.Value_id.to_int power.operands);
+          Alcotest.(check bool)
+            "power result is internal F64" true
+            (internal_f64_type power.target_type);
+          Alcotest.(check int64) "power carries no operation flag" 0L power.flags;
+          (match power.span with
+          | Some span ->
+              Alcotest.(check string)
+                "power operator span" "`"
+                (String.sub source span.start (span.stop - span.start))
+          | None -> Alcotest.fail "power lost its operator span");
+          ignore (verify_x87 lowered))
+        roots cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let right_associated_power_and_unary_minus_keep_checked_order () =
+  let source =
+    "extern F64 Target(F64 chain,F64 negative);F64 Caller(){return \
+     Target(2`3`4,-2`3);}"
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-power-order.HC" source in
+      Alcotest.(check int) "two power roots" 2 (List.length roots);
+      let chain = List.nth roots 0 |> lower |> require_lowered in
+      let chain_items = descriptions chain in
+      Alcotest.(check (list string))
+        "right-associated postorder"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER"; "IC_POWER" ]
+        (opcode_names chain);
+      Alcotest.(check (list int64))
+        "each integer power operand converts"
+        [ result_to_f64; result_to_f64; result_to_f64; 0L; 0L ]
+        (instruction_flags chain);
+      Alcotest.(check (list int))
+        "inner right operands" [ 21; 22 ]
+        (List.map Sequence.Value_id.to_int (List.nth chain_items 3).operands);
+      Alcotest.(check (list int))
+        "outer power operands" [ 20; 23 ]
+        (List.map Sequence.Value_id.to_int (List.nth chain_items 4).operands);
+      ignore (verify_x87 chain);
+      let negative = List.nth roots 1 |> lower |> require_lowered in
+      Alcotest.(check (list string))
+        "unary minus follows power"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER"; "IC_UNARY_MINUS" ]
+        (opcode_names negative);
+      Alcotest.(check (list int64))
+        "negative power flags" [ result_to_f64; result_to_f64; 0L; 0L ]
+        (instruction_flags negative);
+      ignore (verify_x87 negative))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_power_uses_the_same_lowering () =
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-power.HC" "2`3;"
+        |> List.hd
+      in
+      let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
+      Alcotest.(check (list string))
+        "top-level power" [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER" ]
+        (opcode_names lowered);
+      Alcotest.(check (list int64))
+        "top-level power conversions" [ result_to_f64; result_to_f64; 0L ]
+        (instruction_flags lowered);
+      Alcotest.(check bool)
+        "top-level result is F64" true
+        (internal_f64_type (Some (Expression.result_type lowered)));
+      Alcotest.(check int)
+        "top-level next instruction" 43
+        (Expression.next_instruction_id lowered
+        |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "top-level next value" 63
+        (Expression.next_value_id lowered |> Sequence.Value_id.to_int);
+      ignore (verify_x87 lowered))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_power_dump_records_both_conversions () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-power-dump.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return Target(2`3);}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let dump = Expression.human lowered in
+  Alcotest.(check string) "deterministic power replay" dump
+    (Expression.human repeated);
+  Alcotest.(check int)
+    "dump contains both conversion flags" 2
+    (String.split_on_char '\n' dump
+    |> List.filter (fun line -> contains_substring line "flags=0x000000001")
+    |> List.length);
+  Alcotest.(check bool)
+    "power remains unflagged" true
+    (contains_substring dump "IC_POWER %v90 %v91 flags=0x000000000");
+  Alcotest.(check string)
+    "power result and next identities"
+    "result=%v92 result-type=internal:F64 next-instruction=73 next-value=93"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
+let deep_power_tree_uses_the_explicit_worklist () =
+  let leaf_count = 200 in
+  let expression = List.init leaf_count (fun _ -> "1") |> String.concat "`" in
+  let source =
+    Printf.sprintf
+      "extern F64 Target(F64 value);F64 Caller(){return Target(%s);}"
+      expression
+  in
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-deep-power.HC" source
+    |> List.hd
+  in
+  let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
+  let instruction_count = (leaf_count * 2) - 1 in
+  let flags = instruction_flags lowered in
+  Alcotest.(check int)
+    "deep power instruction count" instruction_count
+    (Expression.sequence lowered |> Sequence.length);
+  Alcotest.(check int)
+    "every integer leaf converts" leaf_count
+    (List.filter (Int64.equal result_to_f64) flags |> List.length);
+  Alcotest.(check int)
+    "every power remains unflagged" (leaf_count - 1)
+    (List.filter (Int64.equal 0L) flags |> List.length);
+  Alcotest.(check int)
+    "deep power next instruction" (100 + instruction_count)
+    (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
+  Alcotest.(check int)
+    "deep power next value" (1_000 + instruction_count)
+    (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
+
 let f64_unary_and_binary_tree_keeps_checked_postorder () =
   let source =
     "extern F64 Target(F64 value);F64 Caller(){return \
@@ -811,15 +988,15 @@ let f64_division_by_zero_remains_unfolded_ir () =
 
 let unsupported_f64_domains_return_no_sequence () =
   let source =
-    "extern F64 Target(F64 modulo,I64 logical,I64 complement,F64 power);F64 \
-     Caller(){return Target(1%2.0,1&&2.0,~1.0,1`2.0);}"
+    "extern F64 Target(F64 modulo,I64 logical,I64 complement);F64 \
+     Caller(){return Target(1%2.0,1&&2.0,~1.0);}"
   in
   List.iter
     (fun mode ->
       let roots =
         function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
       in
-      Alcotest.(check int) "unsupported floating roots" 4 (List.length roots);
+      Alcotest.(check int) "unsupported floating roots" 3 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -1780,7 +1957,7 @@ let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
 let unsupported_shapes_return_no_sequence () =
   let source =
     "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
-     f);I64 Caller(I64 x){return Target(1+2.0,1`2,x=1,x+1,(&1)+2,Helper()+1);}"
+     f);I64 Caller(I64 x){return Target(1+2.0,1%2.0,x=1,x+1,(&1)+2,Helper()+1);}"
   in
   List.iter
     (fun mode ->
@@ -1916,6 +2093,16 @@ let tests =
       top_level_f64_comparisons_use_the_same_lowering;
     Alcotest.test_case "deep F64 comparison explicit worklist" `Slow
       deep_mixed_f64_comparison_uses_the_explicit_worklist;
+    Alcotest.test_case "power operand domains" `Quick
+      power_operand_domains_lower_in_both_modes;
+    Alcotest.test_case "power associativity and unary minus" `Quick
+      right_associated_power_and_unary_minus_keep_checked_order;
+    Alcotest.test_case "top-level power" `Quick
+      top_level_power_uses_the_same_lowering;
+    Alcotest.test_case "deterministic power dump" `Quick
+      deterministic_power_dump_records_both_conversions;
+    Alcotest.test_case "deep power explicit worklist" `Slow
+      deep_power_tree_uses_the_explicit_worklist;
     Alcotest.test_case "F64 unary and binary postorder" `Quick
       f64_unary_and_binary_tree_keeps_checked_postorder;
     Alcotest.test_case "F64 division by zero remains IR" `Quick
