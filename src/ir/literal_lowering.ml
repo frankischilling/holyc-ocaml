@@ -168,6 +168,26 @@ let literal_of_typed_source source =
                 (typed_result_error
                    "typed logical-not operator does not have a source location");
             unwrapping := false)
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Bitwise_not -> (
+        match Sema.Function_call_resolution.prefix_operator_origin prefix with
+        | Sema.Symbol.Source_location location ->
+            unary_operations :=
+              {
+                opcode = Opcode.Ic_com;
+                span = location.span;
+                cancels_dereference = false;
+              }
+              :: !unary_operations;
+            current := Sema.Function_call_resolution.prefix_operand prefix
+        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+            error :=
+              Some
+                (typed_result_error
+                   "typed bitwise-complement operator does not have a source \
+                    location");
+            unwrapping := false)
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
     | Sema.Function_call_resolution.Character_literal _
@@ -236,20 +256,24 @@ let rec append_typed_unaries reversed current_value current_type operations
     identities =
   match (operations, identities) with
   | operation :: remaining_operations, identity :: remaining_identities ->
+      let result_type =
+        if Opcode.equal operation.opcode Opcode.Ic_com then i64
+        else current_type
+      in
       let instruction : Sequence.description =
         {
           instruction_id = identity.instruction_id;
           opcode = operation.opcode;
           operands = [ current_value ];
           result = Some { value_id = identity.value_id };
-          target_type = Some current_type;
+          target_type = Some result_type;
           payload = None;
           flags = 0L;
           span = Some operation.span;
         }
       in
       append_typed_unaries (instruction :: reversed) identity.value_id
-        current_type remaining_operations remaining_identities
+        result_type remaining_operations remaining_identities
   | [], [] -> (List.rev reversed, current_type)
   | _ -> assert false
 
