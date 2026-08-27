@@ -49,10 +49,10 @@ val lower_typed_result :
     minus, logical not, bitwise complement, dereference, and address-of, from
     the shared typed semantic result view. Each instruction uses the checked
     type for its exact semantic node. Parentheses and unary plus add no
-    instruction or identity. Address-of cancels an immediately inner
-    dereference before identities are counted. Emitting prefixes consume one
-    caller-owned [unary_identities] entry from innermost to outermost. Other
-    semantic expression shapes return [Not_literal]. *)
+    instruction or identity. Address-of cancels an immediately inner dereference
+    before identities are counted. Emitting prefixes consume one caller-owned
+    [unary_identities] entry from innermost to outermost. Other semantic
+    expression shapes return [Not_literal]. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

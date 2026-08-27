@@ -2483,8 +2483,9 @@ let test_typed_address_direct_cancellation_keeps_address () =
     |> List.hd
   in
   let descriptions =
-    lower_typed ~unary_identities:[ identity 946 1146 ] ~instruction:945
-      ~value:1145 result
+    lower_typed
+      ~unary_identities:[ identity 946 1146 ]
+      ~instruction:945 ~value:1145 result
     |> require_lowered |> Literal.sequence |> Sequence.instructions
     |> List.map Sequence.description
   in
@@ -2615,8 +2616,9 @@ let test_typed_address_nonliteral_is_explicit () =
     |> List.hd
   in
   match
-    lower_typed ~unary_identities:[ identity 976 1176 ] ~instruction:975
-      ~value:1175 result
+    lower_typed
+      ~unary_identities:[ identity 976 1176 ]
+      ~instruction:975 ~value:1175 result
   with
   | Literal.Not_literal -> ()
   | Literal.Lowered _ -> Alcotest.fail "typed address nonliteral produced IR"
