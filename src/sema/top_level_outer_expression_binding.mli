@@ -2,10 +2,7 @@ type resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 
-type query_resolution =
-  | Query_binding of resolution
-  | Query_undefined
-
+type query_resolution = Query_binding of resolution | Query_undefined
 type occurrence
 type query
 type statement
@@ -26,8 +23,8 @@ val resolve :
   expressions:Top_level_expression_binding.t ->
   (t, error) result
 (** Preserve source-visible module bindings, then resolve every remaining
-    top-level candidate through the complete mode-specific outer table chain.
-    An absent ordinary identifier is an error; an absent specialized query is
+    top-level candidate through the complete mode-specific outer table chain. An
+    absent ordinary identifier is an error; an absent specialized query is
     retained as a checked miss. *)
 
 val owns_table : t -> Symbol_table.t -> bool

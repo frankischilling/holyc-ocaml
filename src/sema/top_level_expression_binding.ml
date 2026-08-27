@@ -176,8 +176,7 @@ let resolve_events visible next_occurrence next_query events =
     | Some publication -> Module_binding publication
     | None -> Outer_candidate
   in
-  let rec loop next_occurrence next_query occurrences_rev queries_rev =
-    function
+  let rec loop next_occurrence next_query occurrences_rev queries_rev = function
     | [] ->
         Ok
           ( next_occurrence,
@@ -186,14 +185,19 @@ let resolve_events visible next_occurrence next_query events =
             List.rev queries_rev )
     | Identifier source :: rest ->
         let occurrence : occurrence =
-          { index = next_occurrence; source; resolution = resolution source.name }
+          {
+            index = next_occurrence;
+            source;
+            resolution = resolution source.name;
+          }
         in
         if next_occurrence = max_int then
           Error
             (invalid_input "top-level occurrence identity space is exhausted")
         else
           loop (next_occurrence + 1) next_query
-            (occurrence :: occurrences_rev) queries_rev rest
+            (occurrence :: occurrences_rev)
+            queries_rev rest
     | Name_query source :: rest ->
         let query : query =
           { index = next_query; source; resolution = resolution source.name }

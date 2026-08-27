@@ -397,8 +397,7 @@ let rec validate_defined_query_evidence queries seen expression =
   | Function_call_resolution.Binary_expression binary -> (
       match continue seen (Function_call_resolution.binary_left binary) with
       | Error _ as error -> error
-      | Ok seen ->
-          continue seen (Function_call_resolution.binary_right binary))
+      | Ok seen -> continue seen (Function_call_resolution.binary_right binary))
   | Function_call_resolution.Index_expression index -> (
       match continue seen (Function_call_resolution.index_base index) with
       | Error _ as error -> error
@@ -415,9 +414,7 @@ let rec validate_defined_query_evidence queries seen expression =
 
 let validate_call_defined_query_evidence queries seen (call : call) =
   let source = call.source in
-  match
-    validate_defined_query_evidence queries seen call.callee_expression
-  with
+  match validate_defined_query_evidence queries seen call.callee_expression with
   | Error _ as error -> error
   | Ok seen -> (
       match
@@ -447,15 +444,13 @@ let validate_statement_defined_query_evidence (statement : statement) =
   let rec roots seen = function
     | [] -> Ok seen
     | root :: rest -> (
-        match
-          validate_defined_query_evidence queries seen root.expression
-        with
+        match validate_defined_query_evidence queries seen root.expression with
         | Error _ as error -> error
         | Ok seen -> roots seen rest)
   in
   match roots Int_set.empty statement.roots with
   | Error _ as error -> error
-  | Ok seen ->
+  | Ok seen -> (
       let rec calls seen = function
         | [] -> Ok seen
         | call :: rest -> (
@@ -463,11 +458,11 @@ let validate_statement_defined_query_evidence (statement : statement) =
             | Error _ as error -> error
             | Ok seen -> calls seen rest)
       in
-      (match calls seen statement.calls with
+      match calls seen statement.calls with
       | Error _ as error -> error
       | Ok seen ->
-          if Int_map.for_all (fun index _ -> Int_set.mem index seen) queries then
-            Ok ()
+          if Int_map.for_all (fun index _ -> Int_set.mem index seen) queries
+          then Ok ()
           else
             Error
               (invalid_input

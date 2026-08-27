@@ -1404,29 +1404,31 @@ let unresolved_function_and_checked_top_level_defined_names () =
           Alcotest.(check bool)
             "complete top-level miss lowers to false" true
             ((List.hd (descriptions lowered)).payload
-            = Some (Sequence.Integer 0L));
-      let module_roots =
-        top_level_roots ~mode ~path:"ir-defined-top-level-module.HC"
-          "I64 ModuleValue;defined(ModuleValue);"
-      in
-      let module_lowered = List.hd module_roots |> lower |> require_lowered in
-      Alcotest.(check bool)
-        "top-level module hit lowers to true" true
-        ((List.hd (descriptions module_lowered)).payload
-        = Some (Sequence.Integer 1L));
-      let outer_roots =
-        top_level_roots_with_outer ~mode ~path:"ir-defined-top-level-outer.HC"
-          ~names:[ "OuterValue" ]
-          "defined(OuterValue);defined(Missing);"
-      in
-      List.iter2
-        (fun root expected ->
-          let lowered = lower root |> require_lowered in
+           = Some (Sequence.Integer 0L));
+          let module_roots =
+            top_level_roots ~mode ~path:"ir-defined-top-level-module.HC"
+              "I64 ModuleValue;defined(ModuleValue);"
+          in
+          let module_lowered =
+            List.hd module_roots |> lower |> require_lowered
+          in
           Alcotest.(check bool)
-            "top-level outer query lowers its checked Boolean" true
-            ((List.hd (descriptions lowered)).payload
-            = Some (Sequence.Integer expected)))
-        outer_roots [ 1L; 0L ])
+            "top-level module hit lowers to true" true
+            ((List.hd (descriptions module_lowered)).payload
+           = Some (Sequence.Integer 1L));
+          let outer_roots =
+            top_level_roots_with_outer ~mode
+              ~path:"ir-defined-top-level-outer.HC" ~names:[ "OuterValue" ]
+              "defined(OuterValue);defined(Missing);"
+          in
+          List.iter2
+            (fun root expected ->
+              let lowered = lower root |> require_lowered in
+              Alcotest.(check bool)
+                "top-level outer query lowers its checked Boolean" true
+                ((List.hd (descriptions lowered)).payload
+               = Some (Sequence.Integer expected)))
+            outer_roots [ 1L; 0L ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let module_defined_names_lower_in_both_modes () =

@@ -853,9 +853,8 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
           else Ok ()
       | Defined_name, Defined_non_name_false ->
           Error "name-shaped defined operand cannot use a non-name result"
-      | Defined_non_name,
-        (Defined_function_query _ | Defined_top_level_query _) ->
-          Error "non-name defined operand cannot use a name query"
+      | Defined_non_name, (Defined_function_query _ | Defined_top_level_query _)
+        -> Error "non-name defined operand cannot use a name query"
       | Defined_non_name, Defined_top_level_name ->
           Error "non-name defined operand cannot use a top-level name result"
     in

@@ -227,12 +227,11 @@ let defined_queries_follow_the_module_prefix () =
           | Semantic_top_level_expression_binding.Module_binding publication ->
               "module:"
               ^ (publication
-                |> Semantic_module_expression_binding.publication_kind
-                |> Semantic_module_expression_binding.publication_kind_name)
+               |> Semantic_module_expression_binding.publication_kind
+               |> Semantic_module_expression_binding.publication_kind_name)
           | Semantic_top_level_expression_binding.Outer_candidate -> "outer"
         in
-        ( Semantic_top_level_expression_binding.query_name query,
-          resolution )
+        (Semantic_top_level_expression_binding.query_name query, resolution)
       in
       Alcotest.(check (list (pair string string)))
         "defined queries use the statement's visible publication prefix"
@@ -249,8 +248,7 @@ let defined_queries_follow_the_module_prefix () =
              = Semantic_function_expression_binding.Defined_operand)
            queries);
       Alcotest.(check (list int))
-        "each statement owns its query"
-        [ 1; 1 ]
+        "each statement owns its query" [ 1; 1 ]
         (result |> Semantic_top_level_expression_binding.statements
         |> List.map (fun statement ->
             statement |> Semantic_top_level_expression_binding.statement_queries

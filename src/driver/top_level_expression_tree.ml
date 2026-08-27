@@ -193,11 +193,8 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
       | Ok next_query ->
           Ok
             ( query,
-              {
-                state with
-                query_cursor = state.query_cursor + 1;
-                next_query;
-              } )
+              { state with query_cursor = state.query_cursor + 1; next_query }
+            )
 
 let visible_aggregate state name =
   state.module_expressions |> Sema.Module_expression_binding.publications
@@ -913,8 +910,8 @@ let statement_input counters expected (item_index, ast) =
     in
     let state =
       initial_state ~next_occurrence:counters.next_occurrence
-        ~next_query:counters.next_query
-        ~next_root:counters.next_root ~next_call:counters.next_call
+        ~next_query:counters.next_query ~next_root:counters.next_root
+        ~next_call:counters.next_call
         ~next_expression_statement:counters.next_expression_statement
         ~next_output:counters.next_output
         ~next_condition:counters.next_condition

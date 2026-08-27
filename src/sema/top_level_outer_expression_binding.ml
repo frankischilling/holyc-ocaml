@@ -2,9 +2,7 @@ type resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 
-type query_resolution =
-  | Query_binding of resolution
-  | Query_undefined
+type query_resolution = Query_binding of resolution | Query_undefined
 
 type occurrence = {
   source : Top_level_expression_binding.occurrence;
