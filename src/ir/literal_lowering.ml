@@ -107,6 +107,7 @@ let direct_literal_of_typed_source source =
   | Sema.Function_call_resolution.Member_access_expression _
   | Sema.Function_call_resolution.Bound_identifier_expression _
   | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
+  | Sema.Function_call_resolution.Sizeof_expression _
   | Sema.Function_call_resolution.Defined_expression _
   | Sema.Function_call_resolution.Unresolved_expression _ -> None
 
@@ -343,6 +344,7 @@ let literal_of_typed_source result =
     | Sema.Function_call_resolution.Member_access_expression _
     | Sema.Function_call_resolution.Bound_identifier_expression _
     | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
+    | Sema.Function_call_resolution.Sizeof_expression _
     | Sema.Function_call_resolution.Defined_expression _
     | Sema.Function_call_resolution.Unresolved_expression _ ->
         unwrapping := false

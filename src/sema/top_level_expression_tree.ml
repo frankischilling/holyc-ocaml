@@ -323,6 +323,7 @@ let rec flatten_expression rev expression =
   | Function_call_resolution.String_literal _
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
+  | Function_call_resolution.Sizeof_expression _
   | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> rev
 
@@ -354,11 +355,36 @@ let statement_query_map (statement : statement) =
            query queries)
        Int_map.empty
 
-let rec validate_defined_query_evidence queries seen expression =
+let rec validate_expression_query_evidence queries seen expression =
   let continue seen expression =
-    validate_defined_query_evidence queries seen expression
+    validate_expression_query_evidence queries seen expression
   in
   match Function_call_resolution.argument_expression_kind expression with
+  | Function_call_resolution.Sizeof_expression sizeof -> (
+      match Function_call_resolution.sizeof_root_resolution sizeof with
+      | Function_call_resolution.Sizeof_top_level_query query -> (
+          match
+            Int_map.find_opt
+              (Top_level_outer_expression_binding.query_index query)
+              queries
+          with
+          | Some expected when expected == query ->
+              Ok
+                (Int_set.add
+                   (Top_level_outer_expression_binding.query_index query)
+                   seen)
+          | Some _ ->
+              Error
+                (invalid_input
+                   "top-level sizeof target uses a different statement query")
+          | None ->
+              Error
+                (invalid_input
+                   "top-level sizeof query does not belong to its statement"))
+      | Function_call_resolution.Sizeof_function_query _ ->
+          Error
+            (invalid_input
+               "top-level expression contains a function sizeof query"))
   | Function_call_resolution.Defined_expression defined -> (
       match Function_call_resolution.defined_operand_resolution defined with
       | Function_call_resolution.Defined_top_level_query query -> (
@@ -412,15 +438,15 @@ let rec validate_defined_query_evidence queries seen expression =
   | Function_call_resolution.Top_level_bound_identifier_expression _
   | Function_call_resolution.Unresolved_expression _ -> Ok seen
 
-let validate_call_defined_query_evidence queries seen (call : call) =
+let validate_call_query_evidence queries seen (call : call) =
   let source = call.source in
-  match validate_defined_query_evidence queries seen call.callee_expression with
+  match validate_expression_query_evidence queries seen call.callee_expression with
   | Error _ as error -> error
   | Ok seen -> (
       match
         match Function_call_resolution.call_computed_callee source with
         | Some expression ->
-            validate_defined_query_evidence queries seen expression
+            validate_expression_query_evidence queries seen expression
         | None -> Ok seen
       with
       | Error _ as error -> error
@@ -432,19 +458,19 @@ let validate_call_defined_query_evidence queries seen (call : call) =
                 | None -> arguments seen rest
                 | Some expression -> (
                     match
-                      validate_defined_query_evidence queries seen expression
+                      validate_expression_query_evidence queries seen expression
                     with
                     | Error _ as error -> error
                     | Ok seen -> arguments seen rest))
           in
           arguments seen (Function_call_resolution.call_arguments source))
 
-let validate_statement_defined_query_evidence (statement : statement) =
+let validate_statement_query_evidence (statement : statement) =
   let queries = statement_query_map statement in
   let rec roots seen = function
     | [] -> Ok seen
     | root :: rest -> (
-        match validate_defined_query_evidence queries seen root.expression with
+        match validate_expression_query_evidence queries seen root.expression with
         | Error _ as error -> error
         | Ok seen -> roots seen rest)
   in
@@ -454,7 +480,7 @@ let validate_statement_defined_query_evidence (statement : statement) =
       let rec calls seen = function
         | [] -> Ok seen
         | call :: rest -> (
-            match validate_call_defined_query_evidence queries seen call with
+            match validate_call_query_evidence queries seen call with
             | Error _ as error -> error
             | Ok seen -> calls seen rest)
       in
@@ -466,13 +492,13 @@ let validate_statement_defined_query_evidence (statement : statement) =
           else
             Error
               (invalid_input
-                 "top-level defined query is missing from its statement tree"))
+                 "top-level expression query is missing from its statement tree"))
 
-let validate_defined_query_evidence statements =
+let validate_query_evidence statements =
   let rec loop = function
     | [] -> Ok ()
     | statement :: rest -> (
-        match validate_statement_defined_query_evidence statement with
+        match validate_statement_query_evidence statement with
         | Error _ as error -> error
         | Ok () -> loop rest)
   in
@@ -533,7 +559,7 @@ let create ~table ~source statements =
     match validate_statement_sources source statements with
     | Error _ as error -> error
     | Ok () -> (
-        match validate_defined_query_evidence statements with
+        match validate_query_evidence statements with
         | Error _ as error -> error
         | Ok () -> (
             match validate_global_indexes statements with

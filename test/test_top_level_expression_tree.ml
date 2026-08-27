@@ -178,6 +178,7 @@ let rec expression_kinds expression =
     | String_literal _
     | Bound_identifier_expression _
     | Top_level_bound_identifier_expression _
+    | Sizeof_expression _
     | Defined_expression _
     | Unresolved_expression _ -> []
   in
@@ -229,6 +230,51 @@ let defined_resolution_fact expression =
       Some
         (Semantic_function_call_resolution.defined_operand_spelling defined
         ^ ":" ^ resolution)
+  | _ -> None
+
+let sizeof_fact expression =
+  let open Semantic_function_call_resolution in
+  match argument_expression_kind expression with
+  | Sizeof_expression sizeof ->
+      let resolution =
+        match sizeof_root_resolution sizeof with
+        | Sizeof_function_query _ -> "function-query"
+        | Sizeof_top_level_query query -> (
+            match
+              Semantic_top_level_outer_expression_binding.query_resolution
+                query
+            with
+            | Semantic_top_level_outer_expression_binding.Query_undefined ->
+                "undefined"
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Module_binding
+                  publication) ->
+                "module:"
+                ^ (publication
+                  |> Semantic_module_expression_binding.publication_kind
+                  |> Semantic_module_expression_binding.publication_kind_name)
+                ^ ":"
+                ^ (publication
+                  |> Semantic_module_expression_binding.publication_source_symbol
+                  |> Semantic_symbol.name)
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Outer_binding
+                  binding) ->
+                "outer:"
+                ^ (binding |> Semantic_outer_environment.binding_entry
+                  |> Semantic_outer_environment.entry_symbol
+                  |> Semantic_symbol.name))
+      in
+      Some
+        (Printf.sprintf "%s|members=%s|pointers=%s|wrappers=%d/%d|%s"
+           (sizeof_target_spelling sizeof)
+           (sizeof |> sizeof_members |> List.map sizeof_member_name
+          |> String.concat ".")
+           (sizeof |> sizeof_pointer_layers |> List.map sizeof_pointer_depth
+          |> List.map string_of_int |> String.concat ",")
+           (List.length (sizeof_opening_origins sizeof))
+           (List.length (sizeof_closing_origins sizeof))
+           resolution)
   | _ -> None
 
 let complete_shapes_roles_calls_and_identities () =
@@ -548,6 +594,40 @@ let defined_operands_survive_top_level_trees () =
         (middle, after))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let sizeof_inputs_survive_top_level_trees () =
+  let source =
+    "I64 Root;sizeof(((Root.leaf)));sizeof(Outer**);sizeof(Missing);"
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"top-level-sizeof-tree.HC" source in
+      let inspect () =
+        let result =
+          build prepared mode
+            [ ("Outer", Semantic_outer_environment.Global_variable) ]
+        in
+        let facts =
+          result |> Semantic_top_level_expression_tree.all_expression_nodes
+          |> List.filter_map (fun node ->
+              node |> Semantic_top_level_expression_tree.expression_node_source
+              |> sizeof_fact)
+        in
+        Alcotest.(check (list string))
+          "top-level trees retain complete sizeof inputs and queries"
+          [
+            "Root|members=leaf|pointers=|wrappers=3/3|module:global-variable:Root";
+            "Outer|members=|pointers=1,2|wrappers=1/1|outer:Outer";
+            "Missing|members=|pointers=|wrappers=1/1|undefined";
+          ]
+          facts;
+        facts
+      in
+      let first = inspect () in
+      let second = inspect () in
+      Alcotest.(check (list string))
+        "repeated top-level sizeof retention is deterministic" first second)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let defined_queries_follow_module_and_outer_bindings () =
   List.iter
     (fun mode ->
@@ -660,7 +740,58 @@ let defined_query_must_belong_to_its_statement () =
         (Semantic_top_level_expression_tree.error_code error);
       Alcotest.(check string)
         "missing top-level query message"
-        "top-level defined query is missing from its statement tree"
+        "top-level expression query is missing from its statement tree"
+        (Semantic_top_level_expression_tree.error_message error)
+
+let sizeof_query_must_belong_to_its_statement () =
+  let prepared =
+    prepare ~path:"top-level-sizeof-owner.HC" "sizeof(Target);"
+  in
+  let foreign =
+    prepare ~path:"top-level-sizeof-foreign.HC" "sizeof(Target);"
+  in
+  let source_tree = build prepared Preprocessor.Jit [] in
+  let foreign_tree = build foreign Preprocessor.Jit [] in
+  let source_statement =
+    source_tree |> Semantic_top_level_expression_tree.statements |> List.hd
+  in
+  let source_root =
+    source_statement |> Semantic_top_level_expression_tree.statement_roots
+    |> List.hd
+  in
+  let foreign_expression =
+    foreign_tree |> Semantic_top_level_expression_tree.all_roots |> List.hd
+    |> Semantic_top_level_expression_tree.root_expression
+  in
+  let forged_root =
+    Semantic_top_level_expression_tree.make_root
+      ~index:(Semantic_top_level_expression_tree.root_index source_root)
+      ~role:(Semantic_top_level_expression_tree.root_role source_root)
+      ~expression:foreign_expression
+      ~origin:(Semantic_top_level_expression_tree.root_origin source_root)
+    |> checked_tree
+  in
+  let forged_statement =
+    Semantic_top_level_expression_tree.make_statement
+      ~source:
+        (Semantic_top_level_expression_tree.statement_source source_statement)
+      ~roots:[ forged_root ] ~calls:[] ~switch_cases:[]
+    |> checked_tree
+  in
+  match
+    Semantic_top_level_expression_tree.create
+      ~table:(Session.semantic_symbols prepared.session)
+      ~source:(Semantic_top_level_expression_tree.source source_tree)
+      [ forged_statement ]
+  with
+  | Ok _ -> Alcotest.fail "a statement accepted another statement's sizeof query"
+  | Error error ->
+      Alcotest.(check string)
+        "foreign top-level sizeof query code" "HCSEMA0055"
+        (Semantic_top_level_expression_tree.error_code error);
+      Alcotest.(check string)
+        "foreign top-level sizeof query message"
+        "top-level sizeof target uses a different statement query"
         (Semantic_top_level_expression_tree.error_message error)
 
 let tests =
@@ -673,8 +804,12 @@ let tests =
       deterministic_pure_and_checked_inputs;
     Alcotest.test_case "defined operands across top-level trees" `Quick
       defined_operands_survive_top_level_trees;
+    Alcotest.test_case "sizeof inputs across top-level trees" `Quick
+      sizeof_inputs_survive_top_level_trees;
     Alcotest.test_case "defined queries follow module and outer bindings" `Quick
       defined_queries_follow_module_and_outer_bindings;
     Alcotest.test_case "defined query ownership" `Quick
       defined_query_must_belong_to_its_statement;
+    Alcotest.test_case "sizeof query ownership" `Quick
+      sizeof_query_must_belong_to_its_statement;
   ]

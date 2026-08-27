@@ -463,19 +463,19 @@ let take_occurrence occurrences cursor identifier =
         cursor := !cursor + 1;
         Ok occurrence)
 
-let defined_query_role = function
+let function_query_role = function
   | Sema.Function_call_resolution.Module_query query ->
       Sema.Module_expression_binding.query_role query
   | Sema.Function_call_resolution.Outer_query query ->
       Sema.Outer_expression_binding.query_role query
 
-let defined_query_name = function
+let function_query_name = function
   | Sema.Function_call_resolution.Module_query query ->
       Sema.Module_expression_binding.query_name query
   | Sema.Function_call_resolution.Outer_query query ->
       Sema.Outer_expression_binding.query_name query
 
-let defined_query_origin = function
+let function_query_origin = function
   | Sema.Function_call_resolution.Module_query query ->
       Sema.Module_expression_binding.query_origin query
   | Sema.Function_call_resolution.Outer_query query ->
@@ -485,14 +485,72 @@ let defined_query queries (operand : Frontend.Ast.defined_operand) =
   let spelling = operand.defined_operand_spelling in
   let operand_origin = origin operand.defined_operand_location in
   let matches query =
-    defined_query_role query = Sema.Function_expression_binding.Defined_operand
-    && String.equal spelling (defined_query_name query)
-    && operand_origin = defined_query_origin query
+    function_query_role query = Sema.Function_expression_binding.Defined_operand
+    && String.equal spelling (function_query_name query)
+    && operand_origin = function_query_origin query
   in
   match List.filter matches queries with
   | [ query ] -> Ok query
   | [] -> Error "defined operand has no matching function query"
   | _ -> Error "defined operand has more than one matching function query"
+
+let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
+  let spelling = sizeof.sizeof_target.spelling in
+  let target_origin = origin sizeof.sizeof_target.location in
+  let matches query =
+    function_query_role query = Sema.Function_expression_binding.Sizeof_root
+    && String.equal spelling (function_query_name query)
+    && target_origin = function_query_origin query
+  in
+  match List.filter matches queries with
+  | [ query ] -> Ok query
+  | [] -> Error "sizeof target has no matching function query"
+  | _ -> Error "sizeof target has more than one matching function query"
+
+let map_result apply values =
+  let rec loop reversed = function
+    | [] -> Ok (List.rev reversed)
+    | value :: rest -> (
+        match apply value with
+        | Error _ as error -> error
+        | Ok mapped -> loop (mapped :: reversed) rest)
+  in
+  loop [] values
+
+let sizeof_kind queries (sizeof : Frontend.Ast.sizeof_expression) =
+  let member (member : Frontend.Ast.sizeof_member) =
+    Sema.Function_call_resolution.make_sizeof_member
+      ~dot_origin:(origin member.sizeof_member_dot)
+      ~name:member.sizeof_member_name.spelling
+      ~name_origin:(origin member.sizeof_member_name.location)
+      ~origin:(origin member.sizeof_member_location)
+  in
+  let pointer (layer : Frontend.Ast.pointer_layer) =
+    Sema.Function_call_resolution.make_sizeof_pointer_layer ~depth:layer.depth
+      ~spelling:layer.spelling ~origin:(origin layer.location)
+  in
+  match sizeof_query queries sizeof with
+  | Error _ as error -> error
+  | Ok query -> (
+      match map_result member sizeof.sizeof_members with
+      | Error _ as error -> error
+      | Ok members -> (
+          match map_result pointer sizeof.sizeof_pointer_layers with
+          | Error _ as error -> error
+          | Ok pointer_layers ->
+              Sema.Function_call_resolution.make_sizeof_argument_expression
+                ~keyword_spelling:sizeof.sizeof_keyword_spelling
+                ~keyword_origin:
+                  (origin sizeof.sizeof_keyword_location)
+                ~opening_origins:
+                  (List.map origin sizeof.sizeof_opening_parentheses)
+                ~target_spelling:sizeof.sizeof_target.spelling
+                ~target_origin:(origin sizeof.sizeof_target.location) ~members
+                ~pointer_layers
+                ~closing_origins:
+                  (List.map origin sizeof.sizeof_closing_parentheses)
+                ~root_resolution:
+                  (Sema.Function_call_resolution.Sizeof_function_query query)))
 
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
@@ -602,10 +660,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Current_position_expression)
-    | Frontend.Ast.Sizeof_expression _ ->
-        Ok
-          (Sema.Function_call_resolution.Unresolved_expression
-             Sema.Function_call_resolution.Sizeof_expression)
+    | Frontend.Ast.Sizeof_expression sizeof -> sizeof_kind defined_queries sizeof
     | Frontend.Ast.Offset_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression

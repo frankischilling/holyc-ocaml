@@ -234,7 +234,76 @@ let rec defined_expressions expression =
   | String_literal _
   | Bound_identifier_expression _
   | Top_level_bound_identifier_expression _
+  | Sizeof_expression _
   | Unresolved_expression _ -> []
+
+let rec sizeof_expressions expression =
+  let open Semantic_function_call_resolution in
+  match argument_expression_kind expression with
+  | Sizeof_expression sizeof -> [ (expression, sizeof) ]
+  | Parenthesized_expression grouped -> sizeof_expressions grouped
+  | Prefix_expression prefix -> sizeof_expressions (prefix_operand prefix)
+  | Postfix_expression postfix -> sizeof_expressions (postfix_operand postfix)
+  | Postfix_cast_expression (operand, _) -> sizeof_expressions operand
+  | Binary_expression binary ->
+      sizeof_expressions (binary_left binary)
+      @ sizeof_expressions (binary_right binary)
+  | Index_expression index ->
+      sizeof_expressions (index_base index)
+      @ sizeof_expressions (index_value index)
+  | Member_access_expression member -> sizeof_expressions (member_base member)
+  | Integer_literal _
+  | Float_literal _
+  | Character_literal _
+  | String_literal _
+  | Bound_identifier_expression _
+  | Top_level_bound_identifier_expression _
+  | Defined_expression _
+  | Unresolved_expression _ -> []
+
+let sizeof_resolution_fact (_, sizeof) =
+  let open Semantic_function_call_resolution in
+  match sizeof_root_resolution sizeof with
+  | Sizeof_top_level_query _ -> "top-level-query"
+  | Sizeof_function_query (Module_query query) -> (
+      match Semantic_module_expression_binding.query_resolution query with
+      | Semantic_module_expression_binding.Local_binding binding ->
+          "local:"
+          ^ Semantic_symbol.name
+              (binding : Semantic_function_binding_index.binding).symbol
+      | Semantic_module_expression_binding.Module_binding publication ->
+          "module:"
+          ^ (publication
+            |> Semantic_module_expression_binding.publication_kind
+            |> Semantic_module_expression_binding.publication_kind_name)
+          ^ ":"
+          ^ (publication
+            |> Semantic_module_expression_binding.publication_source_symbol
+            |> Semantic_symbol.name)
+      | Semantic_module_expression_binding.Outer_candidate -> "outer-candidate")
+  | Sizeof_function_query (Outer_query query) -> (
+      match Semantic_outer_expression_binding.query_resolution query with
+      | Semantic_outer_expression_binding.Query_undefined -> "outer:undefined"
+      | Semantic_outer_expression_binding.Query_binding
+          (Semantic_outer_expression_binding.Local_binding binding) ->
+          "local:"
+          ^ Semantic_symbol.name
+              (binding : Semantic_function_binding_index.binding).symbol
+      | Semantic_outer_expression_binding.Query_binding
+          (Semantic_outer_expression_binding.Module_binding publication) ->
+          "module:"
+          ^ (publication
+            |> Semantic_module_expression_binding.publication_kind
+            |> Semantic_module_expression_binding.publication_kind_name)
+          ^ ":"
+          ^ (publication
+            |> Semantic_module_expression_binding.publication_source_symbol
+            |> Semantic_symbol.name)
+      | Semantic_outer_expression_binding.Query_binding
+          (Semantic_outer_expression_binding.Outer_binding binding) ->
+          "outer:"
+          ^ (binding |> Semantic_outer_environment.binding_entry
+            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
 
 let defined_fact (_, defined) =
   let open Semantic_function_call_resolution in
@@ -309,6 +378,10 @@ let expression_slice source expression =
     |> source_location
   in
   let span = location.span in
+  String.sub source span.start (span.stop - span.start)
+
+let origin_slice source origin =
+  let span = (source_location origin).span in
   String.sub source span.start (span.stop - span.start)
 
 let fixed_defaults_and_sparse_slots () =
@@ -1455,6 +1528,392 @@ let defined_operands_survive_function_expression_shapes () =
          String.sub source span.start (span.stop - span.start)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let sizeof_inputs_survive_function_expression_contexts () =
+  let source =
+    "I64 Root;extern I64 Use(I64 value);\n\
+     I64 Caller(I64 local){\n\
+     sizeof(((local)));\n\
+     -sizeof(Root.leaf.value);\n\
+     Use(sizeof(Root**));\n\
+     if(sizeof(local)) return sizeof(Root.leaf);\n\
+     switch(sizeof(local)){case sizeof(Root):return 0;}\n\
+     return 0;\n\
+     }"
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"function-sizeof-inputs.HC" source in
+      let table = Session.semantic_symbols prepared.session in
+      let before = Semantic_symbol_table.all_symbols table |> List.length in
+      let inspect () =
+        let caller = resolve prepared |> checked |> fun result ->
+          function_named result "Caller"
+        in
+        let statement_terms =
+          caller
+          |> Semantic_function_call_resolution.function_expression_statements
+          |> List.concat_map (fun statement ->
+              statement
+              |> Semantic_function_call_resolution.expression_statement_expression
+              |> sizeof_expressions)
+        in
+        let call_terms =
+          caller |> Semantic_function_call_resolution.function_calls
+          |> List.concat_map (fun resolution ->
+              let call =
+                match resolution with
+                | Semantic_function_call_resolution.Direct_call direct ->
+                    Semantic_function_call_resolution.direct_source direct
+                | Semantic_function_call_resolution.Indirect_call indirect ->
+                    Semantic_function_call_resolution.indirect_source indirect
+                | Semantic_function_call_resolution.Deferred_call { call; _ } ->
+                    call
+              in
+              call |> Semantic_function_call_resolution.call_arguments
+              |> List.concat_map (fun argument ->
+                  argument
+                  |> Semantic_function_call_resolution.argument_expression
+                  |> Option.to_list |> List.concat_map sizeof_expressions))
+        in
+        let condition_terms =
+          caller |> Semantic_function_call_resolution.function_conditions
+          |> List.concat_map (fun condition ->
+              condition
+              |> Semantic_function_call_resolution.condition_expression
+              |> sizeof_expressions)
+        in
+        let selector_terms =
+          caller |> Semantic_function_call_resolution.function_selectors
+          |> List.concat_map (fun selector ->
+              selector
+              |> Semantic_function_call_resolution.selector_expression
+              |> sizeof_expressions)
+        in
+        let case_terms =
+          caller |> Semantic_function_call_resolution.function_switch_cases
+          |> List.concat_map (fun case ->
+              match
+                Semantic_function_call_resolution.switch_case_pattern case
+              with
+              | Semantic_function_call_resolution.Implicit_case -> []
+              | Semantic_function_call_resolution.Single_case expression ->
+                  sizeof_expressions expression
+              | Semantic_function_call_resolution.Ranged_case
+                  { start_expression; end_expression; _ } ->
+                  sizeof_expressions start_expression
+                  @ sizeof_expressions end_expression)
+        in
+        let return_terms =
+          caller |> Semantic_function_call_resolution.function_returns
+          |> List.concat_map (fun return_ ->
+              return_ |> Semantic_function_call_resolution.return_expression
+              |> Option.to_list |> List.concat_map sizeof_expressions)
+        in
+        let terms =
+          statement_terms @ call_terms @ condition_terms @ selector_terms
+          @ case_terms @ return_terms
+        in
+        Alcotest.(check (list string))
+          "every function expression context retains the sizeof target"
+          [ "local"; "Root"; "Root"; "local"; "local"; "Root"; "Root" ]
+          (terms
+          |> List.map (fun (_, sizeof) ->
+              Semantic_function_call_resolution.sizeof_target_spelling sizeof));
+        Alcotest.(check (list (list string)))
+          "repeated sizeof member traversal is source ordered"
+          [ []; [ "leaf"; "value" ]; []; []; []; []; [ "leaf" ] ]
+          (terms
+          |> List.map (fun (_, sizeof) ->
+              sizeof |> Semantic_function_call_resolution.sizeof_members
+              |> List.map
+                   Semantic_function_call_resolution.sizeof_member_name));
+        Alcotest.(check (list (list int)))
+          "pointer layers keep contiguous source depths"
+          [ []; []; [ 1; 2 ]; []; []; []; [] ]
+          (terms
+          |> List.map (fun (_, sizeof) ->
+              sizeof |> Semantic_function_call_resolution.sizeof_pointer_layers
+              |> List.map
+                   Semantic_function_call_resolution.sizeof_pointer_depth));
+        Alcotest.(check (list (pair int int)))
+          "wrapper parentheses remain balanced and ordered"
+          [ (3, 3); (1, 1); (1, 1); (1, 1); (1, 1); (1, 1); (1, 1) ]
+          (terms
+          |> List.map (fun (_, sizeof) ->
+              ( sizeof
+                |> Semantic_function_call_resolution.sizeof_opening_origins
+                |> List.length,
+                sizeof
+                |> Semantic_function_call_resolution.sizeof_closing_origins
+                |> List.length )));
+        Alcotest.(check (list string))
+          "sizeof roots retain their source-ordered function queries"
+          [
+            "local:local";
+            "module:global-variable:Root";
+            "module:global-variable:Root";
+            "local:local";
+            "local:local";
+            "module:global-variable:Root";
+            "module:global-variable:Root";
+          ]
+          (List.map sizeof_resolution_fact terms);
+        let _, nested = List.nth statement_terms 1 in
+        Alcotest.(check string)
+          "keyword origin" "sizeof"
+          (nested |> Semantic_function_call_resolution.sizeof_keyword_origin
+          |> origin_slice source);
+        Alcotest.(check string)
+          "target origin" "Root"
+          (nested |> Semantic_function_call_resolution.sizeof_target_origin
+          |> origin_slice source);
+        Alcotest.(check (list string))
+          "member name origins" [ "leaf"; "value" ]
+          (nested |> Semantic_function_call_resolution.sizeof_members
+          |> List.map (fun member ->
+              member
+              |> Semantic_function_call_resolution.sizeof_member_name_origin
+              |> origin_slice source));
+        let _, pointer = List.hd call_terms in
+        Alcotest.(check (list string))
+          "pointer layer origins" [ "*"; "*" ]
+          (pointer |> Semantic_function_call_resolution.sizeof_pointer_layers
+          |> List.map (fun layer ->
+              layer |> Semantic_function_call_resolution.sizeof_pointer_origin
+              |> origin_slice source));
+        terms
+        |> List.map (fun (expression, sizeof) ->
+            ( expression_slice source expression,
+              Semantic_function_call_resolution.sizeof_keyword_spelling sizeof
+            ))
+      in
+      let first = inspect () in
+      let middle = Semantic_symbol_table.all_symbols table |> List.length in
+      let second = inspect () in
+      let after = Semantic_symbol_table.all_symbols table |> List.length in
+      Alcotest.(check (list (pair string string)))
+        "repeated sizeof retention is deterministic" first second;
+      Alcotest.(check (pair int int))
+        "sizeof retention does not mutate the symbol table" (before, before)
+        (middle, after))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let sizeof_generated_provenance_is_deterministic_and_pure () =
+  let prepared =
+    prepare ~path:"function-sizeof-generated.HC"
+      "#define SIZE sizeof(((Generated.member **)))\n\
+       I64 Caller(){SIZE;return 0;}"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  let inspect () =
+    let expression, sizeof =
+      resolve prepared |> checked |> fun result -> function_named result "Caller"
+      |> Semantic_function_call_resolution.function_expression_statements
+      |> List.hd
+      |> Semantic_function_call_resolution.expression_statement_expression
+      |> sizeof_expressions |> List.hd
+    in
+    let member =
+      sizeof |> Semantic_function_call_resolution.sizeof_members |> List.hd
+    in
+    let origins =
+      [
+        Semantic_function_call_resolution.argument_expression_origin
+          expression;
+        Semantic_function_call_resolution.sizeof_keyword_origin sizeof;
+        Semantic_function_call_resolution.sizeof_target_origin sizeof;
+        Semantic_function_call_resolution.sizeof_member_dot_origin member;
+        Semantic_function_call_resolution.sizeof_member_name_origin member;
+        Semantic_function_call_resolution.sizeof_member_origin member;
+      ]
+      @ Semantic_function_call_resolution.sizeof_opening_origins sizeof
+      @ (sizeof |> Semantic_function_call_resolution.sizeof_pointer_layers
+        |> List.map Semantic_function_call_resolution.sizeof_pointer_origin)
+      @ Semantic_function_call_resolution.sizeof_closing_origins sizeof
+    in
+    Alcotest.(check bool)
+      "every generated sizeof component keeps invocation provenance" true
+      (origins
+      |> List.for_all (fun origin ->
+          origin |> source_location |> fun location ->
+          Option.is_some location.generated_from));
+    Alcotest.(check bool)
+      "every generated sizeof component keeps definition provenance" true
+      (origins
+      |> List.for_all (fun origin ->
+          origin |> source_location |> fun location ->
+          Option.is_some location.defined_at));
+    ( Semantic_function_call_resolution.sizeof_target_spelling sizeof,
+      sizeof |> Semantic_function_call_resolution.sizeof_members
+      |> List.map Semantic_function_call_resolution.sizeof_member_name,
+      sizeof |> Semantic_function_call_resolution.sizeof_pointer_layers
+      |> List.map Semantic_function_call_resolution.sizeof_pointer_depth )
+  in
+  let first = inspect () in
+  let middle = Semantic_symbol_table.all_symbols table |> List.length in
+  let second = inspect () in
+  let after = Semantic_symbol_table.all_symbols table |> List.length in
+  Alcotest.(check (triple string (list string) (list int)))
+    "generated sizeof evidence is deterministic" first second;
+  Alcotest.(check (pair int int))
+    "generated sizeof retention does not mutate symbols" (before, before)
+    (middle, after)
+
+let sizeof_constructors_validate_source_and_query_evidence () =
+  let open Semantic_function_call_resolution in
+  let expect_error label expected = function
+    | Ok _ -> Alcotest.failf "%s: expected rejection" label
+    | Error actual -> Alcotest.(check string) label expected actual
+  in
+  let prepared =
+    prepare ~path:"sizeof-constructor-query.HC"
+      "I64 Caller(I64 local){sizeof(local);defined(local);return 0;}"
+  in
+  let queries =
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd |> Semantic_module_expression_binding.function_queries
+  in
+  let sizeof_query = List.nth queries 0 in
+  let defined_query = List.nth queries 1 in
+  let target_origin =
+    Semantic_module_expression_binding.query_origin sizeof_query
+  in
+  let source_origin = Semantic_symbol.Synthesized "sizeof source token" in
+  let member =
+    make_sizeof_member ~dot_origin:source_origin ~name:"field"
+      ~name_origin:source_origin ~origin:source_origin
+    |> checked
+  in
+  let pointer =
+    make_sizeof_pointer_layer ~depth:1 ~spelling:"*" ~origin:source_origin
+    |> checked
+  in
+  let make ?(opening_origins = [ source_origin ])
+      ?(closing_origins = [ source_origin ]) ?(members = [ member ])
+      ?(pointer_layers = [ pointer ]) ?(target_spelling = "local")
+      ?(target_origin = target_origin)
+      ?(root_resolution = Sizeof_function_query (Module_query sizeof_query)) () =
+    make_sizeof_argument_expression ~keyword_spelling:"sizeof"
+      ~keyword_origin:source_origin ~opening_origins ~target_spelling
+      ~target_origin ~members ~pointer_layers ~closing_origins ~root_resolution
+  in
+  (match make () |> checked with
+  | Sizeof_expression sizeof ->
+      Alcotest.(check string)
+        "checked constructor retains its keyword" "sizeof"
+        (sizeof_keyword_spelling sizeof);
+      Alcotest.(check string)
+        "checked constructor retains its member" "field"
+        (sizeof_members sizeof |> List.hd |> sizeof_member_name);
+      Alcotest.(check int)
+        "checked constructor retains its pointer depth" 1
+        (sizeof_pointer_layers sizeof |> List.hd |> sizeof_pointer_depth)
+  | _ -> Alcotest.fail "expected checked sizeof evidence");
+  expect_error "unbalanced wrappers"
+    "sizeof wrapper parentheses are unbalanced"
+    (make ~closing_origins:[] ());
+  let second_pointer =
+    make_sizeof_pointer_layer ~depth:2 ~spelling:"*" ~origin:source_origin
+    |> checked
+  in
+  expect_error "noncontiguous pointers"
+    "sizeof pointer layers are not contiguous"
+    (make ~pointer_layers:[ second_pointer ] ());
+  expect_error "wrong query role"
+    "sizeof target query has the wrong semantic role"
+    (make
+       ~target_origin:
+         (Semantic_module_expression_binding.query_origin defined_query)
+       ~root_resolution:
+         (Sizeof_function_query (Module_query defined_query))
+       ());
+  expect_error "query spelling mismatch"
+    "sizeof target spelling does not match its query"
+    (make ~target_spelling:"other" ());
+  expect_error "query origin mismatch"
+    "sizeof target origin does not match its query"
+    (make ~target_origin:(Semantic_symbol.Synthesized "different target") ());
+  expect_error "empty member name" "sizeof member name cannot be empty"
+    (make_sizeof_member ~dot_origin:source_origin ~name:""
+       ~name_origin:source_origin ~origin:source_origin);
+  expect_error "zero pointer depth" "sizeof pointer depth must be positive"
+    (make_sizeof_pointer_layer ~depth:0 ~spelling:"*" ~origin:source_origin)
+
+let sizeof_query_must_belong_to_its_function () =
+  let prepared =
+    prepare ~path:"sizeof-query-owner.HC"
+      "I64 Target;I64 Caller(){sizeof(Target);return 0;}"
+  in
+  let target =
+    resolve prepared |> checked |> fun result -> function_named result "Caller"
+  in
+  let foreign_source =
+    Session.add_source prepared.session ~path:"sizeof-query-foreign.HC"
+      ~contents:
+        "I64 ForeignTarget;I64 Foreign(){sizeof(ForeignTarget);return 0;}"
+  in
+  let foreign_ast =
+    Holyc_lib.parse_with_config prepared.session ~config:(config prepared.mode)
+      ~source:foreign_source
+    |> expect_ast
+  in
+  let foreign = finish_prepare prepared.mode prepared.session foreign_ast in
+  let foreign_query =
+    foreign.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd |> Semantic_module_expression_binding.function_queries |> List.hd
+  in
+  let target_origin =
+    Semantic_module_expression_binding.query_origin foreign_query
+  in
+  let expression_kind =
+    Semantic_function_call_resolution.make_sizeof_argument_expression
+      ~keyword_spelling:"sizeof"
+      ~keyword_origin:(Semantic_symbol.Synthesized "foreign sizeof keyword")
+      ~opening_origins:[]
+      ~target_spelling:
+        (Semantic_module_expression_binding.query_name foreign_query)
+      ~target_origin ~members:[] ~pointer_layers:[] ~closing_origins:[]
+      ~root_resolution:
+        (Semantic_function_call_resolution.Sizeof_function_query
+           (Semantic_function_call_resolution.Module_query foreign_query))
+    |> checked
+  in
+  let expression =
+    Semantic_function_call_resolution.make_argument_expression
+      ~kind:expression_kind ~origin:target_origin
+  in
+  let statement =
+    Semantic_function_call_resolution.make_expression_statement ~index:0
+      ~expression ~origin:target_origin
+    |> checked
+  in
+  let input =
+    Semantic_function_call_resolution.make_function
+      ~symbol:(Semantic_function_call_resolution.function_symbol target)
+      ~scope:(Semantic_function_call_resolution.function_scope target)
+      ~item_index:
+        (Semantic_function_call_resolution.function_item_index target)
+      ~expression_statements:[ statement ] []
+    |> checked
+  in
+  match
+    Semantic_function_call_resolution.resolve
+      ~table:(Session.semantic_symbols prepared.session)
+      ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+      ~function_types:prepared.function_types ~functions:prepared.functions
+      ~expressions:prepared.module_expressions [ input ]
+  with
+  | Ok _ -> Alcotest.fail "a function accepted another function's sizeof query"
+  | Error error ->
+      Alcotest.(check string)
+        "foreign sizeof query code" "HCSEMA0039"
+        (Semantic_function_call_resolution.error_code error);
+      Alcotest.(check string)
+        "foreign sizeof query message"
+        "sizeof target uses a different function query"
+        (Semantic_function_call_resolution.error_message error)
+
 let defined_values_follow_source_local_visibility () =
   let source =
     "I64 Caller(I64 parameter,...){\n\
@@ -2268,6 +2727,14 @@ let tests =
       index_expression_constructors_validate_bracket_origins;
     Alcotest.test_case "defined operands across function expressions" `Quick
       defined_operands_survive_function_expression_shapes;
+    Alcotest.test_case "sizeof inputs across function expressions" `Quick
+      sizeof_inputs_survive_function_expression_contexts;
+    Alcotest.test_case "sizeof generated provenance and purity" `Quick
+      sizeof_generated_provenance_is_deterministic_and_pure;
+    Alcotest.test_case "sizeof constructor source validation" `Quick
+      sizeof_constructors_validate_source_and_query_evidence;
+    Alcotest.test_case "sizeof module query owner validation" `Quick
+      sizeof_query_must_belong_to_its_function;
     Alcotest.test_case "defined source-local values" `Quick
       defined_values_follow_source_local_visibility;
     Alcotest.test_case "defined module-visible values" `Quick

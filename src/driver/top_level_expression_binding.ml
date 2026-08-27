@@ -66,12 +66,15 @@ let rec expression state = function
             ~name:operand.defined_operand_spelling
             ~origin:(origin_of_location operand.defined_operand_location)
       | Frontend.Ast.Defined_non_name -> Ok state)
+  | Frontend.Ast.Sizeof_expression sizeof ->
+      add_name_query state Sema.Function_expression_binding.Sizeof_root
+        ~name:sizeof.sizeof_target.spelling
+        ~origin:(origin sizeof.sizeof_target)
   | Frontend.Ast.Integer_literal _
   | Frontend.Ast.Float_literal _
   | Frontend.Ast.Character_literal _
   | Frontend.Ast.String_literal _
   | Frontend.Ast.Current_position_expression _
-  | Frontend.Ast.Sizeof_expression _
   | Frontend.Ast.Offset_expression _ -> Ok state
 
 and call_argument state (argument : Frontend.Ast.call_argument) =

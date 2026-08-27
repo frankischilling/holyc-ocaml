@@ -196,6 +196,78 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
+let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
+  if state.query_cursor >= Array.length state.queries then
+    Error "top-level sizeof expression has no bound target query"
+  else
+    let query = state.queries.(state.query_cursor) in
+    if
+      Sema.Top_level_outer_expression_binding.query_index query
+      <> state.next_query
+    then Error "top-level expression query identities are not contiguous"
+    else if
+      Sema.Top_level_outer_expression_binding.query_role query
+      <> Sema.Function_expression_binding.Sizeof_root
+    then Error "top-level sizeof expression has the wrong query role"
+    else if
+      not
+        (String.equal sizeof.sizeof_target.spelling
+           (Sema.Top_level_outer_expression_binding.query_name query))
+    then Error "top-level sizeof target spelling does not match its query"
+    else if
+      origin sizeof.sizeof_target.location
+      <> Sema.Top_level_outer_expression_binding.query_origin query
+    then Error "top-level sizeof target origin does not match its query"
+    else
+      match increment "top-level query" state.next_query with
+      | Error _ as error -> error
+      | Ok next_query ->
+          Ok
+            ( query,
+              { state with query_cursor = state.query_cursor + 1; next_query }
+            )
+
+let map_result apply values =
+  let rec loop reversed = function
+    | [] -> Ok (List.rev reversed)
+    | value :: rest -> (
+        match apply value with
+        | Error _ as error -> error
+        | Ok mapped -> loop (mapped :: reversed) rest)
+  in
+  loop [] values
+
+let top_level_sizeof_kind query (sizeof : Frontend.Ast.sizeof_expression) =
+  let member (member : Frontend.Ast.sizeof_member) =
+    Sema.Function_call_resolution.make_sizeof_member
+      ~dot_origin:(origin member.sizeof_member_dot)
+      ~name:member.sizeof_member_name.spelling
+      ~name_origin:(origin member.sizeof_member_name.location)
+      ~origin:(origin member.sizeof_member_location)
+  in
+  let pointer (layer : Frontend.Ast.pointer_layer) =
+    Sema.Function_call_resolution.make_sizeof_pointer_layer ~depth:layer.depth
+      ~spelling:layer.spelling ~origin:(origin layer.location)
+  in
+  match map_result member sizeof.sizeof_members with
+  | Error _ as error -> error
+  | Ok members -> (
+      match map_result pointer sizeof.sizeof_pointer_layers with
+      | Error _ as error -> error
+      | Ok pointer_layers ->
+          Sema.Function_call_resolution.make_sizeof_argument_expression
+            ~keyword_spelling:sizeof.sizeof_keyword_spelling
+            ~keyword_origin:(origin sizeof.sizeof_keyword_location)
+            ~opening_origins:
+              (List.map origin sizeof.sizeof_opening_parentheses)
+            ~target_spelling:sizeof.sizeof_target.spelling
+            ~target_origin:(origin sizeof.sizeof_target.location) ~members
+            ~pointer_layers
+            ~closing_origins:
+              (List.map origin sizeof.sizeof_closing_parentheses)
+            ~root_resolution:
+              (Sema.Function_call_resolution.Sizeof_top_level_query query))
+
 let visible_aggregate state name =
   state.module_expressions |> Sema.Module_expression_binding.publications
   |> List.fold_left
@@ -407,10 +479,13 @@ let rec expression state (source : Frontend.Ast.expression) =
       finish state
         (Sema.Function_call_resolution.Unresolved_expression
            Sema.Function_call_resolution.Current_position_expression)
-  | Frontend.Ast.Sizeof_expression _ ->
-      finish state
-        (Sema.Function_call_resolution.Unresolved_expression
-           Sema.Function_call_resolution.Sizeof_expression)
+  | Frontend.Ast.Sizeof_expression sizeof -> (
+      match take_sizeof_query state sizeof with
+      | Error _ as error -> error
+      | Ok (query, state) -> (
+          match top_level_sizeof_kind query sizeof with
+          | Error _ as error -> error
+          | Ok kind -> finish state kind))
   | Frontend.Ast.Offset_expression _ ->
       finish state
         (Sema.Function_call_resolution.Unresolved_expression
