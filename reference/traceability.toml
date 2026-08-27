@@ -7640,6 +7640,43 @@ constant_folding_comparison_to_zero_rewrite_branch_comparisons_interpretation_ba
 native_oracle_status = "not required for structural comparison metadata; numerical and machine compatibility remain separate oracle work"
 
 [[feature]]
+id = "HC-IR-POWER-LOWERING"
+description = "HolyC power expressions lower to canonical F64 IR with source-backed operand conversions and ordering."
+sources = [
+  "Compiler/CompilerA.HH:72 IC_POWER identity",
+  "Compiler/CInit.HC:64 two-argument, one-result, non-fpop metadata",
+  "Compiler/CInit.HC:288 backtick spelling, PREC_EXP precedence, and right association",
+  "Compiler/PrsExp.HC:133-147 unary-minus and power ordering",
+  "Compiler/OptPass012.HC:299-305 internal F64 result and ICF_RES_TO_F64 operand conversions",
+  "Compiler/OptPass789A.HC:503-504 ICFPow machine selection",
+  "Compiler/BackFA.HC:266-330 ICFPow SYS_POW call path",
+  "Kernel/KernelB.HH:137 Pow(F64 base,F64 power) declaration"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 480
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "IC_POWER with any checked integer or F64 operand pair and a checked internal-F64 result"
+conversion_rule = "each integer operand subtree root carries ICF_RES_TO_F64, including both producers for an integer/integer power; F64 producers remain unmodified"
+operation_rule = "IC_POWER itself carries no ICF_USE_F64 bit because its dedicated backend path consumes two F64 arguments and CInit marks no floating-stack pop"
+association = "the lowerer preserves the semantic tree's right association, and unary minus remains outside the completed power expression"
+traversal = "validate iteratively, then emit source-left, source-right, and IC_POWER instructions in checked postorder"
+source_map = "each power instruction retains its exact backtick span and each converted producer retains its own source span"
+identity = "conversion intent allocates no extra instruction or value identity"
+verification = ["checked instruction sequence", "balanced x87 metadata"]
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 5
+expression_lowering_group_tests = 48
+deep_tree = "200 integer leaves and 199 right-associated powers produce 399 checked instructions below the parser's fixed hosted nesting limit"
+constant_folding_numerical_interpretation_machine_selection_sys_pow_and_execution = "not implemented"
+native_oracle_status = "not required for structural power metadata; numerical and machine compatibility remain separate oracle work"
+
+[[feature]]
 id = "HC-IR-POSTFIX-CAST-LOWERING"
 description = "Checked primitive postfix casts lower after their exact operand with source-grounded target, span, and parenthesis metadata."
 sources = [
