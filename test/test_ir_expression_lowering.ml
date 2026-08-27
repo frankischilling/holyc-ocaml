@@ -32,7 +32,7 @@ let lower ?instruction ?value result =
 let require_lowered = function
   | Expression.Lowered lowered -> lowered
   | Expression.Unsupported_expression ->
-      Alcotest.fail "expected a checked integer expression tree"
+      Alcotest.fail "expected a checked numeric expression tree"
 
 let descriptions lowered =
   lowered |> Expression.sequence |> Sequence.instructions
@@ -59,6 +59,13 @@ let internal_i64_type = function
   | Some type_ -> (
       match (Type.base type_, Type.pointer_depth type_) with
       | Type.Primitive (Type.Internal_storage, Primitive.I64), 0 -> true
+      | _ -> false)
+  | None -> false
+
+let internal_f64_type = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Primitive.F64), 0 -> true
       | _ -> false)
   | None -> false
 
@@ -305,6 +312,195 @@ let top_level_mixed_unary_and_binary_tree_keeps_postorder () =
         "mixed next value" 66
         (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let f64_arithmetic_operators_lower_in_both_modes () =
+  let expressions =
+    [
+      ("1.0*2.0", "IC_MUL");
+      ("1.0/2.0", "IC_DIV");
+      ("1.0+2.0", "IC_ADD");
+      ("1.0-2.0", "IC_SUB");
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 a%d" index) expressions
+    |> String.concat ","
+  in
+  let arguments = expressions |> List.map fst |> String.concat "," in
+  let source =
+    Printf.sprintf "extern F64 Target(%s);F64 Caller(){return Target(%s);}"
+      parameters arguments
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-f64-arithmetic-operators.HC" source
+      in
+      Alcotest.(check int)
+        "one root per floating operator" (List.length expressions)
+        (List.length roots);
+      List.iter2
+        (fun root (_, expected_opcode) ->
+          let lowered = lower root |> require_lowered in
+          Alcotest.(check (list string))
+            expected_opcode
+            [ "IC_IMM_F64"; "IC_IMM_F64"; expected_opcode ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "floating result type" true
+            (internal_f64_type (Some (Expression.result_type lowered)));
+          Alcotest.(check bool)
+            "first literal keeps exact bits" true
+            ((descriptions lowered |> List.hd).payload
+            = Some (Sequence.Float_bits (Int64.bits_of_float 1.0))))
+        roots expressions)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let f64_unary_and_binary_tree_keeps_checked_postorder () =
+  let source =
+    "extern F64 Target(F64 value);F64 Caller(){return \
+     Target(-((!1.5)+(+2.0)*3.0));}"
+  in
+  let minus = String.index source '-' in
+  let logical_not = String.index source '!' in
+  let add = String.index source '+' in
+  let multiply = String.index source '*' in
+  List.iter
+    (fun mode ->
+      let root =
+        function_roots ~mode ~path:"ir-f64-arithmetic-nesting.HC" source
+        |> List.hd
+      in
+      let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "floating postorder"
+        [
+          "IC_IMM_F64";
+          "IC_NOT";
+          "IC_IMM_F64";
+          "IC_IMM_F64";
+          "IC_MUL";
+          "IC_ADD";
+          "IC_UNARY_MINUS";
+        ]
+        (opcode_names lowered);
+      Alcotest.(check (list (list int)))
+        "floating operands"
+        [ []; [ 60 ]; []; []; [ 62; 63 ]; [ 61; 64 ]; [ 65 ] ]
+        (List.map
+           (fun (description : Sequence.description) ->
+             List.map Sequence.Value_id.to_int description.operands)
+           items);
+      Alcotest.(check bool)
+        "every floating node has the checked type" true
+        (List.for_all
+           (fun (description : Sequence.description) ->
+             internal_f64_type description.target_type)
+           items);
+      let check_span index expected =
+        match (List.nth items index).span with
+        | Some span ->
+            Alcotest.(check int) "operator span start" expected span.start;
+            Alcotest.(check int) "operator span stop" (expected + 1) span.stop
+        | None -> Alcotest.fail "floating operator lost its source span"
+      in
+      check_span 1 logical_not;
+      check_span 4 multiply;
+      check_span 5 add;
+      check_span 6 minus;
+      Alcotest.(check int)
+        "floating result value" 66
+        (Expression.result_value lowered |> Sequence.Value_id.to_int);
+      Alcotest.(check int)
+        "floating next instruction" 47
+        (Expression.next_instruction_id lowered
+        |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "floating next value" 67
+        (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let f64_division_by_zero_remains_unfolded_ir () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-zero-divisor.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return Target(4.0/0.0);}"
+    |> List.hd
+  in
+  let lowered = lower root |> require_lowered in
+  Alcotest.(check (list string))
+    "lowering does not evaluate division"
+    [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_DIV" ]
+    (opcode_names lowered);
+  Alcotest.(check bool)
+    "zero divisor keeps its bit pattern" true
+    (Option.bind
+       (List.nth_opt (descriptions lowered) 1)
+       (fun (description : Sequence.description) -> description.payload)
+    = Some (Sequence.Float_bits 0L))
+
+let unsupported_f64_domains_return_no_sequence () =
+  let source =
+    "extern F64 Target(F64 mixed,F64 modulo,I64 comparison,I64 complement);F64 \
+     Caller(){return Target(1+2.0,1.0%2.0,1.0<2.0,~1.0);}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
+      in
+      Alcotest.(check int) "unsupported floating roots" 4 (List.length roots);
+      List.iter
+        (fun root ->
+          match lower root with
+          | Expression.Unsupported_expression -> ()
+          | Expression.Lowered _ ->
+              Alcotest.fail
+                "unsupported floating expression returned a partial sequence")
+        roots)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_f64_dump_records_result_and_next_ids () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-arithmetic-dump.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return Target(1.0+2.0);}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let dump = Expression.human lowered in
+  Alcotest.(check string)
+    "deterministic F64 replay" dump
+    (Expression.human repeated);
+  Alcotest.(check string)
+    "F64 result and next identities"
+    "result=%v92 result-type=internal:F64 next-instruction=73 next-value=93"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
+let deep_f64_tree_uses_the_explicit_worklist () =
+  let leaf_count = 2_000 in
+  let expression = List.init leaf_count (fun _ -> "1.0") |> String.concat "+" in
+  let source =
+    Printf.sprintf
+      "extern F64 Target(F64 value);F64 Caller(){return Target(%s);}" expression
+  in
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-deep-f64-arithmetic.HC"
+      source
+    |> List.hd
+  in
+  let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
+  let instruction_count = (leaf_count * 2) - 1 in
+  Alcotest.(check int)
+    "one instruction per floating literal and add" instruction_count
+    (Expression.sequence lowered |> Sequence.length);
+  Alcotest.(check int)
+    "deep floating next instruction" (100 + instruction_count)
+    (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
+  Alcotest.(check int)
+    "deep floating next value"
+    (1_000 + instruction_count)
+    (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
 let pointer_prefixes_compose_with_existing_trees () =
   let source =
@@ -592,6 +788,18 @@ let tests =
       top_level_characters_grouping_and_unary_plus_are_transparent;
     Alcotest.test_case "top-level mixed unary and binary tree" `Quick
       top_level_mixed_unary_and_binary_tree_keeps_postorder;
+    Alcotest.test_case "F64 arithmetic operators" `Quick
+      f64_arithmetic_operators_lower_in_both_modes;
+    Alcotest.test_case "F64 unary and binary postorder" `Quick
+      f64_unary_and_binary_tree_keeps_checked_postorder;
+    Alcotest.test_case "F64 division by zero remains IR" `Quick
+      f64_division_by_zero_remains_unfolded_ir;
+    Alcotest.test_case "unsupported F64 domains" `Quick
+      unsupported_f64_domains_return_no_sequence;
+    Alcotest.test_case "deterministic F64 dump" `Quick
+      deterministic_f64_dump_records_result_and_next_ids;
+    Alcotest.test_case "deep F64 explicit worklist" `Slow
+      deep_f64_tree_uses_the_explicit_worklist;
     Alcotest.test_case "pointer prefixes inside expression trees" `Quick
       pointer_prefixes_compose_with_existing_trees;
     Alcotest.test_case "address and dereference cancellation" `Quick

@@ -118,6 +118,34 @@ let checked_integer_type result =
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
+let checked_f64_type result =
+  match Semantic_result.result_type result with
+  | None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "typed semantic expression does not have a checked result type")
+  | Some type_ -> (
+      match
+        ( Semantic_result.result_class result,
+          Type.pointer_depth type_,
+          Type.base type_ )
+      with
+      | ( Semantic_result.F64_result,
+          0,
+          Type.Primitive (Type.Internal_storage, Sema.Primitive_type.F64) ) ->
+          Ok (Checked_type type_)
+      | ( ( Semantic_result.Integer_result
+          | Semantic_result.F64_result
+          | Semantic_result.Unresolved_actual_class ),
+          _,
+          (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+
+let checked_numeric_type result =
+  match checked_integer_type result with
+  | Error _ as error -> error
+  | Ok (Checked_type _) as checked -> checked
+  | Ok Unsupported_type -> checked_f64_type result
+
 let checked_integer_or_pointer_type result =
   match Semantic_result.result_type result with
   | None ->
@@ -155,6 +183,10 @@ let accepted_binary_opcode = function
   | Opcode.Ic_and_and
   | Opcode.Ic_or_or
   | Opcode.Ic_xor_xor -> true
+  | _ -> false
+
+let accepted_f64_binary_opcode = function
+  | Opcode.Ic_mul | Opcode.Ic_div | Opcode.Ic_add | Opcode.Ic_sub -> true
   | _ -> false
 
 let accepted_prefix = function
@@ -296,11 +328,15 @@ let checked_alias_types result operand =
            "transparent expression does not have complete checked types")
 
 let validate_numeric_unary result opcode operand =
-  match checked_integer_type operand with
+  let checked_type =
+    if Opcode.equal opcode Opcode.Ic_com then checked_integer_type
+    else checked_numeric_type
+  in
+  match checked_type operand with
   | Error item -> Error item
   | Ok Unsupported_type -> Ok false
   | Ok (Checked_type _) -> (
-      match checked_integer_type result with
+      match checked_type result with
       | Error item -> Error item
       | Ok Unsupported_type -> Ok false
       | Ok (Checked_type _) ->
@@ -385,15 +421,23 @@ let cancellable_dereference operand =
   | Some item -> Error item
   | None -> Ok !result
 
-let validate_binary result left right =
-  match (checked_integer_type left, checked_integer_type right) with
+let validate_binary_with checked_type result left right =
+  match (checked_type left, checked_type right) with
   | Error item, _ | _, Error item -> Error item
   | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
   | Ok (Checked_type _), Ok (Checked_type _) -> (
-      match checked_integer_type result with
+      match checked_type result with
       | Error item -> Error item
       | Ok Unsupported_type -> Ok false
       | Ok (Checked_type _) -> Ok true)
+
+let validate_binary result opcode left right =
+  match validate_binary_with checked_integer_type result left right with
+  | Error _ as error -> error
+  | Ok true -> Ok true
+  | Ok false when accepted_f64_binary_opcode opcode ->
+      validate_binary_with checked_f64_type result left right
+  | Ok false -> Ok false
 
 let plan root =
   let pending = ref [ Visit root ] in
@@ -414,6 +458,12 @@ let plan root =
             | Semantic_source.Integer_literal _
             | Semantic_source.Character_literal _ -> (
                 match checked_integer_type result with
+                | Error item -> error := Some item
+                | Ok Unsupported_type -> unsupported := true
+                | Ok (Checked_type _) -> reversed := Literal result :: !reversed
+                )
+            | Semantic_source.Float_literal _ -> (
+                match checked_f64_type result with
                 | Error item -> error := Some item
                 | Ok Unsupported_type -> unsupported := true
                 | Ok (Checked_type _) -> reversed := Literal result :: !reversed
@@ -524,7 +574,7 @@ let plan root =
                   with
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
-                      match validate_binary result left right with
+                      match validate_binary result opcode left right with
                       | Error item -> error := Some item
                       | Ok false -> unsupported := true
                       | Ok true ->
@@ -533,7 +583,6 @@ let plan root =
                             :: Finish_binary
                                  { result; opcode; span; left; right }
                             :: !pending))
-            | Semantic_source.Float_literal _
             | Semantic_source.String_literal _
             | Semantic_source.Postfix_expression _
             | Semantic_source.Postfix_cast_expression _
@@ -592,7 +641,7 @@ let one_literal_description lowered =
   | _ ->
       Error
         (metadata_error
-           "integer literal lowering did not produce exactly one instruction")
+           "numeric literal lowering did not produce exactly one instruction")
 
 let lower_literal allocator result =
   let span = result_span result in
@@ -604,11 +653,11 @@ let lower_literal allocator result =
       | Error [] ->
           Error
             (metadata_error ?span
-               "integer literal lowering failed without a diagnostic")
+               "numeric literal lowering failed without a diagnostic")
       | Ok Literal.Not_literal ->
           Error
             (metadata_error ?span
-               "checked integer literal was not accepted by literal lowering")
+               "checked numeric literal was not accepted by literal lowering")
       | Ok (Literal.Lowered lowered) -> (
           match one_literal_description lowered with
           | Error item -> Error item

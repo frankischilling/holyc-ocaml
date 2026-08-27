@@ -7461,7 +7461,7 @@ traversal = "validate iteratively, then emit source-left, source-right, operator
 identity = "the module allocates consecutive instruction and value IDs from caller-supplied starting IDs and returns the next unused IDs"
 result = "one checked instruction sequence, final value, final type, and next instruction and value IDs"
 diagnostics = ["HCIRL0004 inconsistent semantic tree metadata", "HCIRL0005 instruction or value identity exhaustion"]
-unsupported_result = "F64, power, assignment, compound assignment, identifier, call, pointer-valued binary input, conversion, and other semantic shapes return Unsupported_expression before a sequence is exposed; accepted numeric and pointer-prefix composition is recorded separately"
+unsupported_result = "power, assignment, compound assignment, identifier, call, pointer-valued binary input, conversion, and other semantic shapes return Unsupported_expression before a sequence is exposed; pure F64 and pointer-prefix composition are recorded separately"
 compilation_modes = ["jit", "aot"]
 focused_tests = 7
 deep_tree = "the original binary-only case is extended by HC-IR-INTEGER-UNARY-BINARY-COMPOSITION and HC-IR-POINTER-UNARY-COMPOSITION"
@@ -7494,7 +7494,7 @@ source_map = "every emitted unary instruction retains its own operator span"
 identity = "unary and binary nodes share the module-owned consecutive instruction and value allocator"
 result = "one checked instruction sequence, final value, final type, and next instruction and value IDs"
 diagnostics = ["HCIRL0004 missing prefix operand, missing source location, incomplete checked type, or invalid unary result type", "HCIRL0005 instruction or value identity exhaustion"]
-unsupported_result = "F64, power, assignment, compound assignment, identifier, call, pointer-valued binary input, update, conversion, and other semantic shapes return Unsupported_expression before a sequence is exposed; dereference and address-of composition is recorded separately"
+unsupported_result = "power, assignment, compound assignment, identifier, call, pointer-valued binary input, update, conversion, and other semantic shapes return Unsupported_expression before a sequence is exposed; pure F64, dereference, and address-of composition are recorded separately"
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
 expression_lowering_group_tests = 12
@@ -7531,8 +7531,44 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 5
 expression_lowering_group_tests = 12
 deep_tree = "2,000 integer leaves, 1,500 numeric unary operations, 500 address operations, 500 dereference operations, and 1,999 additions produce 6,499 checked instructions"
-pointer_arithmetic_identifier_storage_f64_folding_optimization_and_execution = "not implemented"
+pointer_arithmetic_identifier_storage_floating_composition_folding_optimization_and_execution = "not implemented by this feature; pure F64 arithmetic composition is recorded separately"
 native_oracle_status = "not required for structural composition; runtime memory and address behavior remains separate oracle work"
+
+[[feature]]
+id = "HC-IR-F64-ARITHMETIC-LOWERING"
+description = "Pure checked F64 literal arithmetic trees lower to one verified IR sequence without evaluating the operation."
+sources = [
+  "Compiler/CInit.HC:60-84 two-argument, one-result arithmetic opcode entries",
+  "Compiler/OptLib.HC:92-179 FBO1_F64 and OptFixupBinaryOp1 type and conversion selection",
+  "Compiler/OptLib.HC:196-225 OptFixupUnaryOp F64 propagation",
+  "Compiler/OptPass012.HC:163-192 F64 logical-not and unary-minus handling",
+  "Compiler/OptPass012.HC:308-629 F64 multiplication, division, addition, and subtraction paths",
+  "Compiler/OptPass789A.HC:455-565 floating unary and arithmetic backend selection",
+  "Compiler/BackFB.HC:488-570 ICFMul, ICFDiv, ICFAdd, and ICFSub consumers"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 456
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "pure internal-F64 literal trees using IC_MUL, IC_DIV, IC_ADD, IC_SUB, IC_UNARY_MINUS, IC_NOT, transparent grouping, and transparent unary plus"
+type_rule = "every leaf, retained operand, unary result, and binary result has the checked zero-depth internal F64 type and F64 result class"
+traversal = "validate iteratively, then emit each operand before its parent with source-left preceding source-right"
+payload_rule = "IC_IMM_F64 retains the semantic literal's exact 64-bit payload"
+evaluation_rule = "lowering performs no arithmetic or constant folding; a zero divisor remains an IC_DIV operand"
+source_map = "every emitted unary and binary instruction retains its operator span"
+identity = "floating leaves and operations share the module-owned consecutive instruction and value allocator"
+unsupported_result = "mixed integer and F64 operands, comparisons, logical binary operations, power, modulo, bitwise operations, conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed"
+conversion_boundary = "OptFixupBinaryOp1 records ICF_RES_TO_F64 for mixed non-immediate operands; that flag is not yet represented by this checked lowering path"
+compilation_modes = ["jit", "aot"]
+focused_tests = 6
+expression_lowering_group_tests = 18
+deep_tree = "2,000 F64 leaves and 1,999 additions produce 3,999 checked instructions without recursive host-stack use"
+x87_numerical_behavior_optimization_interpretation_and_execution = "not implemented"
+native_oracle_status = "not required for structural lowering; floating numerical and backend compatibility remain separate oracle work"
 
 [[feature]]
 id = "HC-SEMA-BINARY-OPERANDS"
