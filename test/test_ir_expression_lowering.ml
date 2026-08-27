@@ -4,6 +4,8 @@ module Opcode = Holyc_lib.Ir_opcode
 module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Preprocessor = Holyc_lib.Preprocessor
+module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
+module Semantic_symbol = Holyc_lib.Semantic_symbol
 
 let require_ok show = function
   | Ok value -> value
@@ -84,6 +86,20 @@ let internal_f64_type = function
       | Type.Primitive (Type.Internal_storage, Primitive.F64), 0 -> true
       | _ -> false)
   | None -> false
+
+let public_primitive_type expected = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Public_spelling, primitive), 0 ->
+          Primitive.equal expected primitive
+      | _ -> false)
+  | None -> false
+
+let source_span result =
+  match Semantic_result.result_origin result with
+  | Semantic_symbol.Source_location location -> location.span
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected an expression backed by source text"
 
 let pointer_depth expected = function
   | Some type_ -> Type.pointer_depth type_ = expected
@@ -902,6 +918,220 @@ let deterministic_dump_records_result_and_next_ids () =
     "result=%v92 result-type=internal:I64 next-instruction=73 next-value=93"
     (List.nth lines 1)
 
+let postfix_casts_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I8 a,F64 b,I64 c,F64 d);I64 Caller(){return \
+     Target(1(I8),(1)(F64),1(F64)(I64),(1+2)(F64));}"
+  in
+  let cases =
+    [
+      ( [ "IC_IMM_I64"; "IC_HOLYC_TYPECAST" ],
+        [ []; [ 20 ] ],
+        [ (Primitive.I8, 0L) ] );
+      ( [ "IC_IMM_I64"; "IC_HOLYC_TYPECAST" ],
+        [ []; [ 20 ] ],
+        [ (Primitive.F64, 1L) ] );
+      ( [ "IC_IMM_I64"; "IC_HOLYC_TYPECAST"; "IC_HOLYC_TYPECAST" ],
+        [ []; [ 20 ]; [ 21 ] ],
+        [ (Primitive.F64, 0L); (Primitive.I64, 0L) ] );
+      ( [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_HOLYC_TYPECAST" ],
+        [ []; []; [ 20; 21 ]; [ 22 ] ],
+        [ (Primitive.F64, 1L) ] );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-postfix-casts.HC" source in
+      Alcotest.(check int) "one root per cast form" 4 (List.length roots);
+      List.iter2
+        (fun root (expected_opcodes, expected_operands, expected_casts) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          Alcotest.(check (list string))
+            "cast postorder" expected_opcodes (opcode_names lowered);
+          Alcotest.(check (list (list int)))
+            "cast operand identities" expected_operands
+            (List.map
+               (fun (description : Sequence.description) ->
+                 List.map Sequence.Value_id.to_int description.operands)
+               items);
+          Alcotest.(check (list int))
+            "consecutive cast instruction IDs"
+            (List.init (List.length items) (fun index -> 10 + index))
+            (List.map
+               (fun (description : Sequence.description) ->
+                 Sequence.Instruction_id.to_int description.instruction_id)
+               items);
+          Alcotest.(check (list int))
+            "consecutive cast value IDs"
+            (List.init (List.length items) (fun index -> 20 + index))
+            (List.map
+               (fun (description : Sequence.description) ->
+                 match description.result with
+                 | Some result -> Sequence.Value_id.to_int result.value_id
+                 | None -> Alcotest.fail "cast tree instruction lost its result")
+               items);
+          let casts =
+            List.filter
+              (fun (description : Sequence.description) ->
+                Opcode.equal description.opcode Opcode.Ic_holyc_typecast)
+              items
+          in
+          Alcotest.(check int)
+            "expected cast count"
+            (List.length expected_casts)
+            (List.length casts);
+          List.iter2
+            (fun (primitive, was_parenthesized)
+                 (description : Sequence.description) ->
+              Alcotest.(check bool)
+                "cast keeps its checked public target" true
+                (public_primitive_type primitive description.target_type);
+              Alcotest.(check bool)
+                "cast records PrsUnaryModifier's was_paren bit" true
+                (description.payload = Some (Sequence.Integer was_parenthesized)))
+            expected_casts casts;
+          let expected_span = source_span root in
+          let outer_cast = List.hd (List.rev casts) in
+          Alcotest.(check bool)
+            "outer cast keeps its full source span" true
+            (outer_cast.span = Some expected_span);
+          Alcotest.(check int)
+            "cast result value"
+            (20 + List.length items - 1)
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "next cast instruction ID"
+            (10 + List.length items)
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "next cast value ID"
+            (20 + List.length items)
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_postfix_cast_uses_the_same_lowering () =
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-postfix-cast.HC" "(1)(I16);"
+        |> List.hd
+      in
+      let lowered = lower root |> require_lowered in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "top-level cast postorder"
+        [ "IC_IMM_I64"; "IC_HOLYC_TYPECAST" ]
+        (opcode_names lowered);
+      let cast = List.nth items 1 in
+      Alcotest.(check bool)
+        "top-level target is public I16" true
+        (public_primitive_type Primitive.I16 cast.target_type);
+      Alcotest.(check bool)
+        "top-level grouping is retained" true
+        (cast.payload = Some (Sequence.Integer 1L));
+      Alcotest.(check bool)
+        "top-level cast span" true
+        (cast.span = Some (source_span root)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let mixed_arithmetic_marks_the_postfix_cast_producer () =
+  let source =
+    "extern F64 Target(F64 value);F64 Caller(){return Target(1(I8)+2.0);}"
+  in
+  List.iter
+    (fun mode ->
+      let root =
+        function_roots ~mode ~path:"ir-postfix-cast-mixed-f64.HC" source
+        |> List.hd
+      in
+      let lowered = lower root |> require_lowered in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "mixed cast postorder"
+        [ "IC_IMM_I64"; "IC_HOLYC_TYPECAST"; "IC_IMM_F64"; "IC_ADD" ]
+        (opcode_names lowered);
+      Alcotest.(check (list int64))
+        "conversion belongs to the cast producer"
+        [ 0L; result_to_f64; 0L; 0L ]
+        (instruction_flags lowered);
+      let cast = List.nth items 1 in
+      Alcotest.(check bool)
+        "mixed cast keeps the I8 target" true
+        (public_primitive_type Primitive.I8 cast.target_type);
+      Alcotest.(check bool)
+        "mixed cast keeps the ungrouped payload" true
+        (cast.payload = Some (Sequence.Integer 0L));
+      Alcotest.(check bool)
+        "mixed result remains F64" true
+        (internal_f64_type (List.nth items 3).target_type))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_postfix_cast_dump_records_payload () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-postfix-cast-dump.HC"
+      "(1)(I16);"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let dump = Expression.human lowered in
+  Alcotest.(check string)
+    "deterministic cast replay" dump
+    (Expression.human repeated);
+  Alcotest.(check bool)
+    "cast dump includes target, operand, and payload" true
+    (contains_substring dump
+       "%v91:public:I16 = IC_HOLYC_TYPECAST %v90 i64:1 flags=0x000000000")
+
+let unsupported_postfix_cast_operand_returns_no_sequence () =
+  let source =
+    "extern I64 Helper();extern I64 Target(I64 value);I64 Caller(){return \
+     Target(Helper()(I64));}"
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_function_call_expression_result.prepare ~mode
+          ~path:"ir-unsupported-postfix-cast.HC" source
+      in
+      let _, results = Test_function_call_expression_result.analyze prepared in
+      let root =
+        Test_function_call_expression_result.direct_named results "Caller"
+          "Target"
+        |> Test_function_call_expression_result.provided_results |> List.hd
+      in
+      match lower root with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "unsupported cast operand returned a partial sequence")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit
+      ~path:"ir-postfix-cast-invalid-metadata.HC" "(&(&(&(&(&1)))))(I64);"
+    |> List.hd
+  in
+  match lower_result root with
+  | Error [ (error : Sequence.error) ] ->
+      Alcotest.(check string) "diagnostic code" "HCIRL0004" error.code;
+      Alcotest.(check string)
+        "diagnostic message"
+        "typed semantic expression does not have a checked result type"
+        error.message;
+      Alcotest.(check (option int))
+        "no identity was consumed" None error.instruction_id;
+      Alcotest.(check bool)
+        "cast diagnostic has a source span" true
+        (Option.is_some error.span)
+  | Error errors ->
+      Alcotest.failf "expected one cast metadata error, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "inconsistent cast metadata produced expression IR"
+
 let unsupported_shapes_return_no_sequence () =
   let source =
     "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
@@ -1055,6 +1285,18 @@ let tests =
       address_cancels_the_nearest_dereference_before_allocation;
     Alcotest.test_case "deterministic expression dump" `Quick
       deterministic_dump_records_result_and_next_ids;
+    Alcotest.test_case "postfix casts in JIT and AOT" `Quick
+      postfix_casts_lower_in_both_modes;
+    Alcotest.test_case "top-level postfix cast" `Quick
+      top_level_postfix_cast_uses_the_same_lowering;
+    Alcotest.test_case "mixed postfix cast conversion" `Quick
+      mixed_arithmetic_marks_the_postfix_cast_producer;
+    Alcotest.test_case "deterministic postfix cast dump" `Quick
+      deterministic_postfix_cast_dump_records_payload;
+    Alcotest.test_case "unsupported postfix cast operand" `Quick
+      unsupported_postfix_cast_operand_returns_no_sequence;
+    Alcotest.test_case "postfix cast metadata validation" `Quick
+      inconsistent_postfix_cast_metadata_reports_no_partial_sequence;
     Alcotest.test_case "unsupported expression shapes" `Quick
       unsupported_shapes_return_no_sequence;
     Alcotest.test_case "identity exhaustion" `Quick
