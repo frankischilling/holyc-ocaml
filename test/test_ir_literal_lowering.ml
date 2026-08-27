@@ -1195,8 +1195,7 @@ let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
   let value = 1000 + index in
   let leaf_span, operator_spans = typed_unary_minus_spans result in
   let minus_count = List.length operator_spans in
-  Alcotest.(check bool)
-    "unary minus is present" true (minus_count > 0);
+  Alcotest.(check bool) "unary minus is present" true (minus_count > 0);
   Alcotest.(check bool)
     "outer span is not the literal span" true
     (semantic_span result <> leaf_span);
@@ -1212,8 +1211,7 @@ let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
     |> List.map Sequence.description
   in
   Alcotest.(check int)
-    "literal plus unary instructions"
-    (minus_count + 1)
+    "literal plus unary instructions" (minus_count + 1)
     (List.length descriptions);
   (match descriptions with
   | (literal : Sequence.description) :: unaries ->
@@ -1249,8 +1247,7 @@ let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
             (unary.operands = [ value_id (value + offset) ]);
           Alcotest.(check bool)
             "unary result" true
-            (unary.result
-            = Some { value_id = value_id (value + 1 + offset) });
+            (unary.result = Some { value_id = value_id (value + 1 + offset) });
           Alcotest.(check bool)
             "forwarded result type" true
             (unary.target_type = literal.target_type);
@@ -1550,11 +1547,13 @@ let test_typed_unary_minus_nonliteral_is_explicit () =
     |> List.hd
   in
   match
-    lower_typed ~unary_identities:[ identity 791 991 ] ~instruction:790
-      ~value:990 result
+    lower_typed
+      ~unary_identities:[ identity 791 991 ]
+      ~instruction:790 ~value:990 result
   with
   | Literal.Not_literal -> ()
-  | Literal.Lowered _ -> Alcotest.fail "typed unary-minus nonliteral produced IR"
+  | Literal.Lowered _ ->
+      Alcotest.fail "typed unary-minus nonliteral produced IR"
 
 let test_typed_unary_minus_identity_count_is_checked () =
   let prepared =
@@ -1576,8 +1575,7 @@ let test_typed_unary_minus_identity_count_is_checked () =
         (List.length errors)
   | Ok Literal.Not_literal ->
       Alcotest.fail "missing identities returned Not_literal"
-  | Ok (Literal.Lowered _) ->
-      Alcotest.fail "missing identities produced IR"
+  | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
 
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source

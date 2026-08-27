@@ -246,8 +246,9 @@ let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
       if actual <> expected then
         Error
           [
-            identity_count_error ~span:(typed_identity_span result) ~expected
-              ~actual;
+            identity_count_error
+              ~span:(typed_identity_span result)
+              ~expected ~actual;
           ]
       else
         match typed_result_span result source literal_source with
@@ -273,8 +274,7 @@ let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
                     unary_operations unary_identities
                 in
                 match Sequence.create descriptions with
-                | Ok sequence ->
-                    Ok (Lowered { literal; sequence; result_type })
+                | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
                 | Error errors -> Error errors)))
 
 let unwrap_expression expression =
