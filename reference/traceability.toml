@@ -7706,7 +7706,7 @@ validation = ["nonempty operand spelling", "valid operand source origin"]
 mutation = "none"
 focused_function_tests = 3
 focused_top_level_tests = 1
-source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "HC-SEMA-LOCAL-DEFINED-LOWERING implements function-local and non-name selection plus canonical immediate lowering; module and outer lookup and execution remain separate"
+source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "HC-SEMA-LOCAL-DEFINED-LOWERING implements function-local and non-name selection plus canonical immediate lowering; HC-SEMA-MODULE-DEFINED-LOWERING implements current-module publication lookup; outer lookup and execution remain separate"
 native_oracle_status = "not required for this source-evidence boundary; the pinned parser branch directly defines the retained token shape"
 
 [[feature]]
@@ -7755,8 +7755,52 @@ focused_expression_lowering_tests = 3
 focused_statement_lowering_tests = 1
 expression_lowering_group_tests = 35
 expression_statement_lowering_group_tests = 9
-module_outer_assembler_keyword_type_register_opcode_directive_lookup_interpretation_optimization_backend_and_execution = "not implemented"
-native_oracle_status = "not required for this direct source branch; actual nonlocal hash-table lookup and execution remain oracle work"
+outer_assembler_keyword_type_register_opcode_directive_lookup_interpretation_optimization_backend_and_execution = "not implemented"
+native_oracle_status = "not required for this direct source branch; outer hash-table lookup and execution remain oracle work"
+
+[[feature]]
+id = "HC-SEMA-MODULE-DEFINED-LOWERING"
+description = "Ordinary defined expressions resolve source-visible compilation-unit names and lower known results to canonical integer immediates."
+sources = [
+  "Compiler/Lex.HC:38-40 ordinary identifier hash mask and initial table list",
+  "Compiler/Lex.HC:493-514 local lookup before the active nonlocal hash chain",
+  "Compiler/CMain.HC:60-75 compiler, compilation-unit, and JIT/AOT hash-table order",
+  "Compiler/PrsExp.HC:936-954 identifier evidence test, Boolean selection, and IC_IMM_I64 insertion",
+  "Compiler/CompilerA.HH:30 IC_IMM_I64 identity",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/sema/module_expression_binding.ml",
+  "src/sema/module_expression_binding.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_module_expression_binding.ml",
+  "test/test_function_call_resolution.ml",
+  "test/test_ir_expression_lowering.ml"
+]
+status = "implemented"
+issue = 472
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary defined expressions in checked function bodies"
+known_values = ["an earlier source-visible aggregate, function, or global is true", "the current function is true", "a visible function-local binding remains true with local precedence"]
+deferred_values = ["a later compilation-unit publication", "a name absent from the current module", "every executable top-level name"]
+lookup_boundary = "the module pass replays aggregate, function, and global publications through the containing function item; unresolved names remain outer candidates without consulting a final environment"
+identity_rule = "each resolved query retains the exact local binding or module publication object selected by the checked source-order pass"
+validation = ["query indexes are contiguous", "local query ownership matches the containing function", "module publication evidence belongs to the resolved module batch", "query role, spelling, origin, and exact identity match the defined operand"]
+instruction_shape = "known results reuse IC_IMM_I64 with zero operands, one internal I64 result, payload one, and the complete defined-expression span"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body"]
+mutation = "none"
+module_expression_binding_group_tests = 8
+function_call_resolution_group_tests = 23
+expression_lowering_group_tests = 36
+focused_tests = 3
+outer_assembler_define_keyword_type_register_opcode_directive_top_level_lookup_interpretation_optimization_backend_and_execution = "not implemented"
+native_oracle_status = "not required for the current-module source-order boundary; JIT and AOT outer-table lookup and execution remain oracle work"
 
 [[feature]]
 id = "HC-IR-CURRENT-POSITION-LOWERING"
