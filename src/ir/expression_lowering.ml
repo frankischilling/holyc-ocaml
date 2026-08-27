@@ -22,6 +22,12 @@ type plan_node =
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
     }
+  | Unary of {
+      result : Semantic_result.expression_result;
+      opcode : Opcode.t;
+      span : Common.Span.t;
+      operand : Semantic_result.expression_result;
+    }
   | Binary of {
       result : Semantic_result.expression_result;
       opcode : Opcode.t;
@@ -34,6 +40,12 @@ type task =
   | Visit of Semantic_result.expression_result
   | Finish_alias of {
       result : Semantic_result.expression_result;
+      operand : Semantic_result.expression_result;
+    }
+  | Finish_unary of {
+      result : Semantic_result.expression_result;
+      opcode : Opcode.t;
+      span : Common.Span.t;
       operand : Semantic_result.expression_result;
     }
   | Finish_binary of {
@@ -124,6 +136,18 @@ let accepted_binary_opcode = function
   | Opcode.Ic_xor_xor -> true
   | _ -> false
 
+let accepted_prefix = function
+  | Semantic_source.Unary_minus ->
+      Some (Opcode.Ic_unary_minus, "unary-minus expression")
+  | Semantic_source.Logical_not -> Some (Opcode.Ic_not, "logical-not expression")
+  | Semantic_source.Bitwise_not ->
+      Some (Opcode.Ic_com, "bitwise-complement expression")
+  | Semantic_source.Unary_plus
+  | Semantic_source.Dereference
+  | Semantic_source.Address_of
+  | Semantic_source.Pre_increment
+  | Semantic_source.Pre_decrement -> None
+
 let checked_operand result expected_source description =
   match Semantic_result.result_operand result with
   | None ->
@@ -159,13 +183,52 @@ let checked_binary_operands result binary =
             expressions")
   | Some operands -> Ok operands
 
-let binary_span result binary =
-  match Semantic_source.binary_operator_origin binary with
+let operator_span result description = function
   | Sema.Symbol.Source_location location -> Ok location.span
   | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
       Error
         (metadata_error ?span:(result_span result)
-           "typed semantic binary operator does not have a source location")
+           (Printf.sprintf "typed semantic %s does not have a source location"
+              description))
+
+let binary_span result binary =
+  Semantic_source.binary_operator_origin binary
+  |> operator_span result "binary operator"
+
+let unary_span result description prefix =
+  Semantic_source.prefix_operator_origin prefix
+  |> operator_span result description
+
+let internal_i64 type_ =
+  Type.pointer_depth type_ = 0
+  &&
+  match Type.base type_ with
+  | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64) -> true
+  | Type.Primitive _ | Type.Aggregate _ -> false
+
+let checked_unary_types result opcode operand =
+  match
+    (Semantic_result.result_type result, Semantic_result.result_type operand)
+  with
+  | None, _ | _, None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "typed semantic unary expression does not have complete checked \
+            types")
+  | Some result_type, Some operand_type ->
+      let valid =
+        match opcode with
+        | Opcode.Ic_unary_minus | Opcode.Ic_not ->
+            type_equal result_type operand_type
+        | Opcode.Ic_com -> internal_i64 result_type
+        | _ -> false
+      in
+      if valid then Ok ()
+      else
+        Error
+          (metadata_error ?span:(result_span result)
+             "typed semantic unary result type does not match the audited \
+              operator rule")
 
 let plan root =
   let pending = ref [ Visit root ] in
@@ -200,20 +263,43 @@ let plan root =
                           Visit operand
                           :: Finish_alias { result; operand }
                           :: !pending)
-                | Semantic_source.Prefix_expression prefix
-                  when Semantic_source.prefix_operator prefix
-                       = Semantic_source.Unary_plus -> (
-                    match
-                      checked_operand result
-                        (Semantic_source.prefix_operand prefix)
-                        "unary-plus expression"
-                    with
-                    | Error item -> error := Some item
-                    | Ok operand ->
-                        pending :=
-                          Visit operand
-                          :: Finish_alias { result; operand }
-                          :: !pending)
+                | Semantic_source.Prefix_expression prefix -> (
+                    let source_operand =
+                      Semantic_source.prefix_operand prefix
+                    in
+                    match Semantic_source.prefix_operator prefix with
+                    | Semantic_source.Unary_plus -> (
+                        match
+                          checked_operand result source_operand
+                            "unary-plus expression"
+                        with
+                        | Error item -> error := Some item
+                        | Ok operand ->
+                            pending :=
+                              Visit operand
+                              :: Finish_alias { result; operand }
+                              :: !pending)
+                    | operator -> (
+                        match accepted_prefix operator with
+                        | None -> unsupported := true
+                        | Some (opcode, description) -> (
+                            match
+                              ( checked_operand result source_operand description,
+                                unary_span result description prefix )
+                            with
+                            | Error item, _ | _, Error item ->
+                                error := Some item
+                            | Ok operand, Ok span -> (
+                                match
+                                  checked_unary_types result opcode operand
+                                with
+                                | Error item -> error := Some item
+                                | Ok () ->
+                                    pending :=
+                                      Visit operand
+                                      :: Finish_unary
+                                           { result; opcode; span; operand }
+                                      :: !pending))))
                 | Semantic_source.Binary_expression binary -> (
                     let opcode = Semantic_source.binary_operator binary in
                     if not (accepted_binary_opcode opcode) then
@@ -232,7 +318,6 @@ let plan root =
                             :: !pending)
                 | Semantic_source.Float_literal _
                 | Semantic_source.String_literal _
-                | Semantic_source.Prefix_expression _
                 | Semantic_source.Postfix_expression _
                 | Semantic_source.Postfix_cast_expression _
                 | Semantic_source.Index_expression _
@@ -243,6 +328,8 @@ let plan root =
                 ))
         | Finish_alias { result; operand } ->
             reversed := Alias { result; operand } :: !reversed
+        | Finish_unary { result; opcode; span; operand } ->
+            reversed := Unary { result; opcode; span; operand } :: !reversed
         | Finish_binary { result; opcode; span; left; right } ->
             reversed :=
               Binary { result; opcode; span; left; right } :: !reversed)
@@ -361,6 +448,38 @@ let emit_plan ~instruction_id ~value_id nodes =
                       lowered :=
                         Int_map.add (result_key result) lowered_operand !lowered
                 ))
+        | Unary { result; opcode; span; operand } -> (
+            match
+              ( find_lowered !lowered operand "unary operand",
+                Semantic_result.result_type result )
+            with
+            | Error item, _ -> error := Some item
+            | _, None ->
+                error :=
+                  Some
+                    (metadata_error ~span
+                       "unary expression does not have a checked result type")
+            | Ok operand_node, Some result_type -> (
+                match take_identity allocator (Some span) with
+                | Error item -> error := Some item
+                | Ok (instruction_id, value_id) ->
+                    let description : Sequence.description =
+                      {
+                        instruction_id;
+                        opcode;
+                        operands = [ operand_node.lowered_value ];
+                        result = Some { value_id };
+                        target_type = Some result_type;
+                        payload = None;
+                        flags = 0L;
+                        span = Some span;
+                      }
+                    in
+                    descriptions_rev := description :: !descriptions_rev;
+                    lowered :=
+                      Int_map.add (result_key result)
+                        { lowered_value = value_id; lowered_type = result_type }
+                        !lowered))
         | Binary { result; opcode; span; left; right } -> (
             match
               ( find_lowered !lowered left "left binary operand",
@@ -411,6 +530,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                 match List.rev nodes with
                 | Literal result :: _
                 | Alias { result; _ } :: _
+                | Unary { result; _ } :: _
                 | Binary { result; _ } :: _ -> result
                 | [] -> assert false
               in

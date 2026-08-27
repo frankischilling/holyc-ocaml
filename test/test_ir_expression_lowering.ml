@@ -55,6 +55,13 @@ let opcode_names lowered =
   |> List.map (fun (description : Sequence.description) ->
       Opcode.to_source_name description.opcode)
 
+let internal_i64_type = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Primitive.I64), 0 -> true
+      | _ -> false)
+  | None -> false
+
 let accepted_operators_lower_in_both_modes () =
   let expressions =
     [
@@ -173,6 +180,64 @@ let nested_precedence_keeps_source_order_and_consecutive_ids () =
         | _ -> false))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let unary_operators_compose_at_each_binary_position () =
+  let source =
+    "extern I64 Target(I64 a,I64 b,I64 c);I64 Caller(){return \
+     Target((-1)+2,1+(!2),~(1+2));}"
+  in
+  let cases =
+    [
+      ( [ "IC_IMM_I64"; "IC_UNARY_MINUS"; "IC_IMM_I64"; "IC_ADD" ],
+        1,
+        20,
+        String.index source '-' );
+      ( [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_NOT"; "IC_ADD" ],
+        2,
+        21,
+        String.index source '!' );
+      ( [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_COM" ],
+        3,
+        22,
+        String.index source '~' );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-integer-unary-trees.HC" source
+      in
+      Alcotest.(check int) "one root per unary position" 3 (List.length roots);
+      List.iter2
+        (fun root (expected_opcodes, unary_index, operand_value, span_start) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          Alcotest.(check (list string))
+            "unary and binary postorder" expected_opcodes (opcode_names lowered);
+          let unary = List.nth items unary_index in
+          Alcotest.(check (list int))
+            "unary operand" [ operand_value ]
+            (List.map Sequence.Value_id.to_int unary.operands);
+          Alcotest.(check bool)
+            "checked unary result type" true
+            (internal_i64_type unary.target_type);
+          (match unary.span with
+          | Some span ->
+              Alcotest.(check int) "unary span start" span_start span.start;
+              Alcotest.(check int) "unary span stop" (span_start + 1) span.stop
+          | None -> Alcotest.fail "unary instruction lost its operator span");
+          Alcotest.(check int)
+            "composed result value" 23
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "composed next instruction" 14
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "composed next value" 24
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let top_level_characters_grouping_and_unary_plus_are_transparent () =
   List.iter
     (fun mode ->
@@ -190,6 +255,51 @@ let top_level_characters_grouping_and_unary_plus_are_transparent () =
       Alcotest.(check bool)
         "character payload" true
         (first.payload = Some (Sequence.Integer 0x4241L)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_mixed_unary_and_binary_tree_keeps_postorder () =
+  let source = "-(('AB')+(+(!~2)));" in
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-integer-unary.HC" source
+        |> List.hd
+      in
+      let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "mixed top-level postorder"
+        [
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_COM";
+          "IC_NOT";
+          "IC_ADD";
+          "IC_UNARY_MINUS";
+        ]
+        (opcode_names lowered);
+      let check_operand index expected =
+        let description = List.nth items index in
+        Alcotest.(check (list int))
+          "mixed unary operand" [ expected ]
+          (List.map Sequence.Value_id.to_int description.operands)
+      in
+      check_operand 2 61;
+      check_operand 3 62;
+      check_operand 5 64;
+      Alcotest.(check (list int))
+        "mixed add operands" [ 60; 63 ]
+        ((List.nth items 4).operands |> List.map Sequence.Value_id.to_int);
+      Alcotest.(check int)
+        "mixed result value" 65
+        (Expression.result_value lowered |> Sequence.Value_id.to_int);
+      Alcotest.(check int)
+        "mixed next instruction" 46
+        (Expression.next_instruction_id lowered
+        |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "mixed next value" 66
+        (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let deterministic_dump_records_result_and_next_ids () =
@@ -219,15 +329,22 @@ let deterministic_dump_records_result_and_next_ids () =
 
 let unsupported_shapes_return_no_sequence () =
   let source =
-    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e);I64 Caller(I64 x){return \
-     Target(1+2.0,1`2,x=1,x+1,-1+2);}"
+    "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
+     f);I64 Caller(I64 x){return Target(1+2.0,1`2,x=1,x+1,*1+2,Helper()+1);}"
   in
   List.iter
     (fun mode ->
-      let roots =
-        function_roots ~mode ~path:"ir-unsupported-binary-shapes.HC" source
+      let prepared =
+        Test_function_call_expression_result.prepare ~mode
+          ~path:"ir-unsupported-binary-shapes.HC" source
       in
-      Alcotest.(check int) "unsupported root count" 5 (List.length roots);
+      let _, results = Test_function_call_expression_result.analyze prepared in
+      let roots =
+        Test_function_call_expression_result.direct_named results "Caller"
+          "Target"
+        |> Test_function_call_expression_result.provided_results
+      in
+      Alcotest.(check int) "unsupported root count" 6 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -260,9 +377,16 @@ let exhausted_starting_ids_are_rejected () =
   check (lower_result ~instruction:Int.max_int root);
   check (lower_result ~value:Int.max_int root)
 
-let deep_left_associative_tree_uses_the_explicit_worklist () =
+let deep_mixed_tree_uses_the_explicit_worklist () =
   let leaf_count = 2_000 in
-  let expression = List.init leaf_count (fun _ -> "1") |> String.concat "+" in
+  let expression =
+    List.init leaf_count (fun index ->
+        match index mod 3 with
+        | 0 -> "-1"
+        | 1 -> "!1"
+        | _ -> "~1")
+    |> String.concat "+"
+  in
   let source =
     Printf.sprintf
       "extern I64 Target(I64 value);I64 Caller(){return Target(%s);}" expression
@@ -273,9 +397,9 @@ let deep_left_associative_tree_uses_the_explicit_worklist () =
     |> List.hd
   in
   let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
-  let instruction_count = (leaf_count * 2) - 1 in
+  let instruction_count = (leaf_count * 3) - 1 in
   Alcotest.(check int)
-    "one instruction per literal and binary node" instruction_count
+    "one instruction per literal, unary, and binary node" instruction_count
     (Expression.sequence lowered |> Sequence.length);
   Alcotest.(check int)
     "next instruction ID" (100 + instruction_count)
@@ -291,8 +415,12 @@ let tests =
       accepted_operators_lower_in_both_modes;
     Alcotest.test_case "nested precedence and IDs" `Quick
       nested_precedence_keeps_source_order_and_consecutive_ids;
+    Alcotest.test_case "unary operators inside binary positions" `Quick
+      unary_operators_compose_at_each_binary_position;
     Alcotest.test_case "top-level transparent integer leaves" `Quick
       top_level_characters_grouping_and_unary_plus_are_transparent;
+    Alcotest.test_case "top-level mixed unary and binary tree" `Quick
+      top_level_mixed_unary_and_binary_tree_keeps_postorder;
     Alcotest.test_case "deterministic expression dump" `Quick
       deterministic_dump_records_result_and_next_ids;
     Alcotest.test_case "unsupported expression shapes" `Quick
@@ -300,5 +428,5 @@ let tests =
     Alcotest.test_case "identity exhaustion" `Quick
       exhausted_starting_ids_are_rejected;
     Alcotest.test_case "deep explicit worklist" `Slow
-      deep_left_associative_tree_uses_the_explicit_worklist;
+      deep_mixed_tree_uses_the_explicit_worklist;
   ]
