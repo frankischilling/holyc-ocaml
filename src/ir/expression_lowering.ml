@@ -27,6 +27,7 @@ type binary_validation =
   | Supported_binary of {
       left_conversion : result_conversion;
       right_conversion : result_conversion;
+      operation_flags : int64;
     }
 
 type cancellation =
@@ -76,6 +77,7 @@ type plan_node =
       left : Semantic_result.expression_result;
       right : Semantic_result.expression_result;
       conversion : result_conversion;
+      operation_flags : int64;
     }
 
 type task =
@@ -108,6 +110,7 @@ type task =
       left : Semantic_result.expression_result;
       right : Semantic_result.expression_result;
       conversion : result_conversion;
+      operation_flags : int64;
     }
 
 type planned = Planned of plan_node list | Unsupported_plan
@@ -121,6 +124,7 @@ type allocator = { mutable instruction : int; mutable value : int }
 
 let reference_commit = Opcode.reference_commit
 let result_to_f64_flag = 0x000000001L
+let use_f64_flag = 0x000000040L
 
 let conversion_flags = function
   | Keep_result -> 0L
@@ -330,8 +334,17 @@ let accepted_binary_opcode = function
   | Opcode.Ic_xor_xor -> true
   | _ -> false
 
-let accepted_f64_binary_opcode = function
+let accepted_f64_arithmetic_opcode = function
   | Opcode.Ic_mul | Opcode.Ic_div | Opcode.Ic_add | Opcode.Ic_sub -> true
+  | _ -> false
+
+let accepted_f64_comparison_opcode = function
+  | Opcode.Ic_equ_equ
+  | Opcode.Ic_not_equ
+  | Opcode.Ic_less
+  | Opcode.Ic_greater_equ
+  | Opcode.Ic_greater
+  | Opcode.Ic_less_equ -> true
   | _ -> false
 
 let accepted_prefix = function
@@ -631,7 +644,8 @@ let numeric_conversion result =
       | Ok (Checked_type _) -> Ok (Some Keep_result)
       | Ok Unsupported_type -> Ok None)
 
-let validate_f64_binary result left right =
+let validate_f64_binary_with checked_result_type ~operation_flags result left
+    right =
   match (numeric_conversion left, numeric_conversion right) with
   | Error item, _ | _, Error item -> Error item
   | Ok None, _ | _, Ok None -> Ok Unsupported_binary
@@ -639,11 +653,13 @@ let validate_f64_binary result left right =
       if left_conversion = Result_to_f64 && right_conversion = Result_to_f64
       then Ok Unsupported_binary
       else
-        match checked_f64_type result with
+        match checked_result_type result with
         | Error item -> Error item
         | Ok Unsupported_type -> Ok Unsupported_binary
         | Ok (Checked_type _) ->
-            Ok (Supported_binary { left_conversion; right_conversion }))
+            Ok
+              (Supported_binary
+                 { left_conversion; right_conversion; operation_flags }))
 
 let validate_binary result opcode left right =
   match validate_binary_with checked_integer_type result left right with
@@ -651,9 +667,17 @@ let validate_binary result opcode left right =
   | Ok true ->
       Ok
         (Supported_binary
-           { left_conversion = Keep_result; right_conversion = Keep_result })
-  | Ok false when accepted_f64_binary_opcode opcode ->
-      validate_f64_binary result left right
+           {
+             left_conversion = Keep_result;
+             right_conversion = Keep_result;
+             operation_flags = 0L;
+           })
+  | Ok false when accepted_f64_arithmetic_opcode opcode ->
+      validate_f64_binary_with checked_f64_type ~operation_flags:0L result left
+        right
+  | Ok false when accepted_f64_comparison_opcode opcode ->
+      validate_f64_binary_with checked_integer_type
+        ~operation_flags:use_f64_flag result left right
   | Ok false -> Ok Unsupported_binary
 
 let plan root =
@@ -847,7 +871,11 @@ let plan root =
                       | Ok Unsupported_binary -> unsupported := true
                       | Ok
                           (Supported_binary
-                             { left_conversion; right_conversion }) ->
+                             {
+                               left_conversion;
+                               right_conversion;
+                               operation_flags;
+                             }) ->
                           pending :=
                             Visit
                               { result = left; conversion = left_conversion }
@@ -864,6 +892,7 @@ let plan root =
                                    left;
                                    right;
                                    conversion;
+                                   operation_flags;
                                  }
                             :: !pending))
             | Semantic_source.Postfix_cast_expression (source_operand, target)
@@ -912,9 +941,27 @@ let plan root =
             reversed :=
               Cast { result; span; operand; was_parenthesized; conversion }
               :: !reversed
-        | Finish_binary { result; opcode; span; left; right; conversion } ->
+        | Finish_binary
+            {
+              result;
+              opcode;
+              span;
+              left;
+              right;
+              conversion;
+              operation_flags;
+            } ->
             reversed :=
-              Binary { result; opcode; span; left; right; conversion }
+              Binary
+                {
+                  result;
+                  opcode;
+                  span;
+                  left;
+                  right;
+                  conversion;
+                  operation_flags;
+                }
               :: !reversed)
   done;
   match (!error, !unsupported) with
@@ -1148,7 +1195,16 @@ let emit_plan ~instruction_id ~value_id nodes =
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
                         !lowered))
-        | Binary { result; opcode; span; left; right; conversion } -> (
+        | Binary
+            {
+              result;
+              opcode;
+              span;
+              left;
+              right;
+              conversion;
+              operation_flags;
+            } -> (
             match
               ( find_lowered !lowered left "left binary operand",
                 find_lowered !lowered right "right binary operand",
@@ -1173,7 +1229,9 @@ let emit_plan ~instruction_id ~value_id nodes =
                         result = Some { value_id };
                         target_type = Some result_type;
                         payload = None;
-                        flags = conversion_flags conversion;
+                        flags =
+                          Int64.logor operation_flags
+                            (conversion_flags conversion);
                         span = Some span;
                       }
                     in
