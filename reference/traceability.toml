@@ -7912,6 +7912,46 @@ constant_folding_branch_inversion_string_storage_expression_graphs_and_execution
 native_oracle_status = "not required for this source-stated instruction boundary; the parser selects IC_NOT and later optimizer passes fold immediates and invert conditions"
 
 [[feature]]
+id = "HC-IR-TYPED-LITERAL-BITWISE-COMPLEMENT"
+description = "Bitwise complement around a typed semantic literal emits an unfused checked instruction chain with an internal I64 result."
+sources = [
+  "Compiler/PrsExp.HC:679-700 literal payload and opcode branches",
+  "Compiler/PrsExp.HC:614-620 bitwise complement selects IC_COM and consumes the prefix token",
+  "Compiler/PrsExp.HC:133-162 inner-to-outer unary insertion and class forwarding",
+  "Compiler/OptPass012.HC:153-161 complement results become internal I64",
+  "Compiler/PrsExp.HC:728-747 recursive parenthesized expression without another ICAdd",
+  "Compiler/PrsExp.HC:750-759 unary plus consumes syntax without selecting an opcode",
+  "Compiler/CInit.HC:49 one-argument, one-result IC_COM shape",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = [
+  "test/test_ir_literal_lowering.ml"
+]
+status = "implemented"
+issue = 442
+foundation_issue = 440
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more bitwise-complement operators interleaved with unary minus, logical not, transparent grouping, and unary plus around integer, character, F64, and string leaves in function-body and executable top-level typed results"
+instruction_rule = "emit the literal first, then one IC_UNARY_MINUS, IC_NOT, or IC_COM per emitting prefix from innermost to outermost without folding"
+operand_rule = "each unary instruction consumes the preceding literal or unary result"
+payload_rule = "copy the retained literal leaf payload without consulting a frontend AST node"
+type_rule = "copy the outer typed result's checked type onto the literal instruction; forward it through minus and logical not; assign internal I64 at each complement"
+source_rule = "attach the literal leaf's source span to the literal instruction and each operator span to its unary instruction"
+identity_rule = "the caller supplies one distinct instruction and value identity per emitted unary-minus, logical-not, or complement operator in emitted order; parentheses and unary plus consume none"
+diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
+nonliteral_rule = "bitwise complement around a nonliteral returns Not_literal without constructing IR"
+traversal_rule = "iterative semantic grouping, unary-plus, unary-minus, logical-not, and complement traversal uses constant host stack"
+compilation_modes = ["jit", "aot"]
+focused_typed_bitwise_complement_tests = 5
+excluded_prefixes = ["dereference", "address of", "increment", "decrement"]
+constant_folding_string_storage_expression_graphs_and_execution = "not implemented by this feature"
+native_oracle_status = "not required for this source-stated instruction boundary; the parser selects IC_COM and OptPass012 assigns internal I64"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [
