@@ -10,16 +10,46 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
-  | Sizeof_expression
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
 
 type defined_operand_kind = Defined_name | Defined_non_name
 
-type defined_function_query =
+type function_query =
   | Module_query of Module_expression_binding.query
   | Outer_query of Outer_expression_binding.query
+
+type defined_function_query = function_query
+
+type sizeof_root_resolution =
+  | Sizeof_function_query of function_query
+  | Sizeof_top_level_query of Top_level_outer_expression_binding.query
+
+type sizeof_member = {
+  sizeof_member_dot_origin_ : Symbol.origin;
+  sizeof_member_name_ : string;
+  sizeof_member_name_origin_ : Symbol.origin;
+  sizeof_member_origin_ : Symbol.origin;
+}
+
+type sizeof_pointer_layer = {
+  sizeof_pointer_depth_ : int;
+  sizeof_pointer_spelling_ : string;
+  sizeof_pointer_origin_ : Symbol.origin;
+}
+
+type sizeof_expression = {
+  sizeof_keyword_spelling_ : string;
+  sizeof_keyword_origin_ : Symbol.origin;
+  sizeof_opening_origins_ : Symbol.origin list;
+  sizeof_target_spelling_ : string;
+  sizeof_target_origin_ : Symbol.origin;
+  sizeof_members_ : sizeof_member list;
+  sizeof_pointer_layers_ : sizeof_pointer_layer list;
+  sizeof_closing_origins_ : Symbol.origin list;
+  sizeof_root_resolution_ : sizeof_root_resolution;
+}
 
 type defined_operand_resolution =
   | Defined_non_name_false
@@ -84,6 +114,7 @@ type argument_expression_kind =
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Top_level_bound_identifier_expression of top_level_bound_identifier
+  | Sizeof_expression of sizeof_expression
   | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
@@ -622,7 +653,6 @@ let direct_function_address_path compilation_mode declaration =
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
-  | Sizeof_expression -> "sizeof"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
@@ -641,6 +671,7 @@ let argument_expression_kind_name = function
   | Member_access_expression _ -> "member"
   | Bound_identifier_expression _ -> "bound-identifier"
   | Top_level_bound_identifier_expression _ -> "top-level-bound-identifier"
+  | Sizeof_expression _ -> "sizeof"
   | Defined_expression _ -> "defined"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
@@ -804,7 +835,114 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
            member_operator_origin = operator_origin;
            member_name;
            member_origin;
-         })
+          })
+
+let make_sizeof_member ~dot_origin ~name ~name_origin ~origin =
+  if not (valid_origin dot_origin) then
+    Error "sizeof member has an invalid dot origin"
+  else if String.equal name "" then Error "sizeof member name cannot be empty"
+  else if not (valid_origin name_origin) then
+    Error "sizeof member has an invalid name origin"
+  else if not (valid_origin origin) then
+    Error "sizeof member has an invalid complete origin"
+  else
+    Ok
+      {
+        sizeof_member_dot_origin_ = dot_origin;
+        sizeof_member_name_ = name;
+        sizeof_member_name_origin_ = name_origin;
+        sizeof_member_origin_ = origin;
+      }
+
+let make_sizeof_pointer_layer ~depth ~spelling ~origin =
+  if depth < 1 then Error "sizeof pointer depth must be positive"
+  else if String.equal spelling "" then
+    Error "sizeof pointer spelling cannot be empty"
+  else if not (valid_origin origin) then
+    Error "sizeof pointer layer has an invalid source origin"
+  else
+    Ok
+      {
+        sizeof_pointer_depth_ = depth;
+        sizeof_pointer_spelling_ = spelling;
+        sizeof_pointer_origin_ = origin;
+      }
+
+let function_query_facts = function
+  | Module_query query ->
+      ( Module_expression_binding.query_role query,
+        Module_expression_binding.query_name query,
+        Module_expression_binding.query_origin query )
+  | Outer_query query ->
+      ( Outer_expression_binding.query_role query,
+        Outer_expression_binding.query_name query,
+        Outer_expression_binding.query_origin query )
+
+let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
+    ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
+    ~closing_origins ~root_resolution =
+  let all_valid = List.for_all valid_origin in
+  if String.equal keyword_spelling "" then
+    Error "sizeof keyword spelling cannot be empty"
+  else if not (valid_origin keyword_origin) then
+    Error "sizeof keyword has an invalid source origin"
+  else if List.length opening_origins <> List.length closing_origins then
+    Error "sizeof wrapper parentheses are unbalanced"
+  else if not (all_valid opening_origins && all_valid closing_origins) then
+    Error "sizeof wrapper has an invalid source origin"
+  else if String.equal target_spelling "" then
+    Error "sizeof target spelling cannot be empty"
+  else if not (valid_origin target_origin) then
+    Error "sizeof target has an invalid source origin"
+  else if
+    not
+      (List.for_all
+         (fun (member : sizeof_member) ->
+           valid_origin member.sizeof_member_dot_origin_
+           && not (String.equal member.sizeof_member_name_ "")
+           && valid_origin member.sizeof_member_name_origin_
+           && valid_origin member.sizeof_member_origin_)
+         members)
+  then Error "sizeof member evidence is invalid"
+  else if
+    not
+      (List.mapi
+         (fun index (layer : sizeof_pointer_layer) ->
+           layer.sizeof_pointer_depth_ = index + 1
+           && not (String.equal layer.sizeof_pointer_spelling_ "")
+           && valid_origin layer.sizeof_pointer_origin_)
+         pointer_layers
+      |> List.for_all Fun.id)
+  then Error "sizeof pointer layers are not contiguous"
+  else
+    let role, name, origin =
+      match root_resolution with
+      | Sizeof_function_query query -> function_query_facts query
+      | Sizeof_top_level_query query ->
+          ( Top_level_outer_expression_binding.query_role query,
+            Top_level_outer_expression_binding.query_name query,
+            Top_level_outer_expression_binding.query_origin query )
+    in
+    if role <> Function_expression_binding.Sizeof_root then
+      Error "sizeof target query has the wrong semantic role"
+    else if not (String.equal target_spelling name) then
+      Error "sizeof target spelling does not match its query"
+    else if target_origin <> origin then
+      Error "sizeof target origin does not match its query"
+    else
+      Ok
+        (Sizeof_expression
+           {
+             sizeof_keyword_spelling_ = keyword_spelling;
+             sizeof_keyword_origin_ = keyword_origin;
+             sizeof_opening_origins_ = opening_origins;
+             sizeof_target_spelling_ = target_spelling;
+             sizeof_target_origin_ = target_origin;
+             sizeof_members_ = members;
+             sizeof_pointer_layers_ = pointer_layers;
+             sizeof_closing_origins_ = closing_origins;
+             sizeof_root_resolution_ = root_resolution;
+           })
 
 let make_defined_argument_expression ~operand_kind ~operand_spelling
     ~operand_origin ~operand_resolution =
@@ -998,6 +1136,22 @@ let make_top_level_bound_identifier_argument_expression ~occurrence =
 
 let argument_expression_kind expression = expression.expression_kind
 let argument_expression_origin expression = expression.expression_origin
+let sizeof_keyword_spelling expression = expression.sizeof_keyword_spelling_
+let sizeof_keyword_origin expression = expression.sizeof_keyword_origin_
+let sizeof_opening_origins expression = expression.sizeof_opening_origins_
+let sizeof_target_spelling expression = expression.sizeof_target_spelling_
+let sizeof_target_origin expression = expression.sizeof_target_origin_
+let sizeof_members expression = expression.sizeof_members_
+let sizeof_pointer_layers expression = expression.sizeof_pointer_layers_
+let sizeof_closing_origins expression = expression.sizeof_closing_origins_
+let sizeof_root_resolution expression = expression.sizeof_root_resolution_
+let sizeof_member_dot_origin member = member.sizeof_member_dot_origin_
+let sizeof_member_name member = member.sizeof_member_name_
+let sizeof_member_name_origin member = member.sizeof_member_name_origin_
+let sizeof_member_origin member = member.sizeof_member_origin_
+let sizeof_pointer_depth layer = layer.sizeof_pointer_depth_
+let sizeof_pointer_spelling layer = layer.sizeof_pointer_spelling_
+let sizeof_pointer_origin layer = layer.sizeof_pointer_origin_
 let defined_operand_kind expression = expression.defined_operand_kind_
 let defined_operand_spelling expression = expression.defined_operand_spelling_
 let defined_operand_origin expression = expression.defined_operand_origin_
@@ -1486,6 +1640,7 @@ let rec validate_argument_expression table parent visible declarations
   | Float_literal _
   | Character_literal _
   | String_literal _
+  | Sizeof_expression _
   | Defined_expression _
   | Unresolved_expression _ -> Ok ()
 
@@ -1727,11 +1882,11 @@ let occurrence_map occurrences =
         occurrence map)
     Int_map.empty occurrences
 
-let defined_query_index = function
+let function_query_index = function
   | Module_query query -> Module_expression_binding.query_index query
   | Outer_query query -> Outer_expression_binding.query_index query
 
-let same_defined_query left right =
+let same_function_query left right =
   match (left, right) with
   | Module_query left, Module_query right -> left == right
   | Outer_query left, Outer_query right -> left == right
@@ -1739,7 +1894,7 @@ let same_defined_query left right =
 
 let query_map queries =
   List.fold_left
-    (fun map query -> Int_map.add (defined_query_index query) query map)
+    (fun map query -> Int_map.add (function_query_index query) query map)
     Int_map.empty queries
 
 let rec validate_bound_evidence occurrence_by_index query_by_index expression =
@@ -1793,6 +1948,23 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
       Error
         (invalid_input
            "function call input contains a top-level identifier binding")
+  | Sizeof_expression sizeof -> (
+      match sizeof_root_resolution sizeof with
+      | Sizeof_top_level_query _ ->
+          Error
+            (invalid_input
+               "function call input contains a top-level sizeof query")
+      | Sizeof_function_query query ->
+          let index = function_query_index query in
+          (match Int_map.find_opt index query_by_index with
+          | Some expected when same_function_query expected query -> Ok ()
+          | Some _ ->
+              Error
+                (invalid_input "sizeof target uses a different function query")
+          | None ->
+              Error
+                (invalid_input
+                   "sizeof target query does not belong to its function")))
   | Defined_expression defined -> (
       match defined_operand_resolution defined with
       | Defined_non_name_false -> Ok ()
@@ -1805,9 +1977,9 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
             (invalid_input
                "function call input contains a resolved top-level defined query")
       | Defined_function_query query -> (
-          let index = defined_query_index query in
+          let index = function_query_index query in
           match Int_map.find_opt index query_by_index with
-          | Some expected when same_defined_query expected query -> Ok ()
+          | Some expected when same_function_query expected query -> Ok ()
           | Some _ ->
               Error
                 (invalid_input "defined operand uses a different function query")
@@ -2326,6 +2498,7 @@ let rec computed_expression_type members ~before_item_index expression =
   | Float_literal _
   | Character_literal _
   | String_literal _
+  | Sizeof_expression _
   | Defined_expression _
   | Unresolved_expression _ ->
       invalid
@@ -2509,6 +2682,7 @@ let indexed_identifier_callee computed =
     | Member_access_expression _
     | Bound_identifier_expression _
     | Top_level_bound_identifier_expression _
+    | Sizeof_expression _
     | Defined_expression _
     | Unresolved_expression _ -> None
   in

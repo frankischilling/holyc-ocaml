@@ -10,16 +10,25 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
-  | Sizeof_expression
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
 
 type defined_operand_kind = Defined_name | Defined_non_name
 
-type defined_function_query =
+type function_query =
   | Module_query of Module_expression_binding.query
   | Outer_query of Outer_expression_binding.query
+
+type defined_function_query = function_query
+
+type sizeof_root_resolution =
+  | Sizeof_function_query of function_query
+  | Sizeof_top_level_query of Top_level_outer_expression_binding.query
+
+type sizeof_member
+type sizeof_pointer_layer
+type sizeof_expression
 
 type defined_operand_resolution =
   | Defined_non_name_false
@@ -83,6 +92,7 @@ type argument_expression_kind =
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
   | Top_level_bound_identifier_expression of top_level_bound_identifier
+  | Sizeof_expression of sizeof_expression
   | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
@@ -165,6 +175,34 @@ val make_member_argument_expression :
   member_name:string ->
   member_origin:Symbol.origin ->
   (argument_expression_kind, string) result
+
+val make_sizeof_member :
+  dot_origin:Symbol.origin ->
+  name:string ->
+  name_origin:Symbol.origin ->
+  origin:Symbol.origin ->
+  (sizeof_member, string) result
+
+val make_sizeof_pointer_layer :
+  depth:int ->
+  spelling:string ->
+  origin:Symbol.origin ->
+  (sizeof_pointer_layer, string) result
+
+val make_sizeof_argument_expression :
+  keyword_spelling:string ->
+  keyword_origin:Symbol.origin ->
+  opening_origins:Symbol.origin list ->
+  target_spelling:string ->
+  target_origin:Symbol.origin ->
+  members:sizeof_member list ->
+  pointer_layers:sizeof_pointer_layer list ->
+  closing_origins:Symbol.origin list ->
+  root_resolution:sizeof_root_resolution ->
+  (argument_expression_kind, string) result
+(** Retain the complete source-owned input to ordinary HolyC [sizeof]. The
+    constructor checks root-query identity but does not resolve a target kind,
+    member layout, byte size, or IR instruction. *)
 
 val make_defined_argument_expression :
   operand_kind:defined_operand_kind ->
@@ -494,6 +532,22 @@ val argument_expression : argument -> argument_expression option
 val argument_origin : argument -> Symbol.origin
 val argument_expression_kind : argument_expression -> argument_expression_kind
 val argument_expression_origin : argument_expression -> Symbol.origin
+val sizeof_keyword_spelling : sizeof_expression -> string
+val sizeof_keyword_origin : sizeof_expression -> Symbol.origin
+val sizeof_opening_origins : sizeof_expression -> Symbol.origin list
+val sizeof_target_spelling : sizeof_expression -> string
+val sizeof_target_origin : sizeof_expression -> Symbol.origin
+val sizeof_members : sizeof_expression -> sizeof_member list
+val sizeof_pointer_layers : sizeof_expression -> sizeof_pointer_layer list
+val sizeof_closing_origins : sizeof_expression -> Symbol.origin list
+val sizeof_root_resolution : sizeof_expression -> sizeof_root_resolution
+val sizeof_member_dot_origin : sizeof_member -> Symbol.origin
+val sizeof_member_name : sizeof_member -> string
+val sizeof_member_name_origin : sizeof_member -> Symbol.origin
+val sizeof_member_origin : sizeof_member -> Symbol.origin
+val sizeof_pointer_depth : sizeof_pointer_layer -> int
+val sizeof_pointer_spelling : sizeof_pointer_layer -> string
+val sizeof_pointer_origin : sizeof_pointer_layer -> Symbol.origin
 val defined_operand_kind : defined_expression -> defined_operand_kind
 val defined_operand_spelling : defined_expression -> string
 val defined_operand_origin : defined_expression -> Symbol.origin
