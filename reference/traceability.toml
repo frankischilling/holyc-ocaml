@@ -7669,7 +7669,7 @@ diagnostics = ["HCIRL0004 missing source metadata or invalid top-level role", "H
 unsupported_result = "an expression shape outside the numeric lowerer's accepted set returns Unsupported_expression before a sequence is exposed"
 compilation_modes = ["jit", "aot"]
 result_owners = ["function body", "executable top level"]
-focused_tests = 8
+focused_tests = 9
 calls_storage_side_effect_execution_optimization_interpretation_and_backend = "not implemented"
 native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
 
@@ -7706,8 +7706,57 @@ validation = ["nonempty operand spelling", "valid operand source origin"]
 mutation = "none"
 focused_function_tests = 3
 focused_top_level_tests = 1
-source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "not implemented"
+source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "HC-SEMA-LOCAL-DEFINED-LOWERING implements function-local and non-name selection plus canonical immediate lowering; module and outer lookup and execution remain separate"
 native_oracle_status = "not required for this source-evidence boundary; the pinned parser branch directly defines the retained token shape"
+
+[[feature]]
+id = "HC-SEMA-LOCAL-DEFINED-LOWERING"
+description = "Ordinary defined expressions select source-local Boolean values and lower known results to canonical integer immediates."
+sources = [
+  "Compiler/PrsExp.HC:936-954 wrapper removal, identifier/hash evidence test, Boolean selection, and IC_IMM_I64 insertion",
+  "Compiler/Lex.HC:493-514 function-local lookup before the nonlocal hash chain",
+  "Compiler/CompilerA.HH:30 IC_IMM_I64 identity",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/sema/module_expression_binding.ml",
+  "src/sema/module_expression_binding.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/driver/top_level_expression_tree.ml",
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_top_level_expression_tree.ml",
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 470
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary defined expressions in checked function bodies and executable top-level trees"
+known_values = ["a non-name operand is false", "a name bound in the current function at that source position is true"]
+deferred_values = ["function-body name absent from the source-local table", "every executable top-level name"]
+lookup_boundary = "the function-local true case does not inspect the nonlocal hash chain; deferred values are not guessed from the final symbol table"
+instruction_shape = "IC_IMM_I64 has zero operands, one internal I64 result, payload zero or one, and the complete defined-expression span"
+composition = ["grouping", "integer unary and binary operations", "primitive postfix cast", "mixed F64 arithmetic", "ordinary expression statement and IC_END_EXP"]
+conversion_rule = "a known defined producer entering mixed F64 arithmetic carries ICF_RES_TO_F64 without changing its integer payload"
+validation = ["operand shape matches its resolution kind", "query role, spelling, and origin match", "the exact query object belongs to the containing function"]
+diagnostics = ["HCSEMA0039 foreign or mismatched function query", "HCIRL0004 inconsistent checked result metadata"]
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+mutation = "none"
+focused_function_resolution_tests = 5
+focused_top_level_tree_tests = 1
+focused_expression_lowering_tests = 3
+focused_statement_lowering_tests = 1
+expression_lowering_group_tests = 35
+expression_statement_lowering_group_tests = 9
+module_outer_assembler_keyword_type_register_opcode_directive_lookup_interpretation_optimization_backend_and_execution = "not implemented"
+native_oracle_status = "not required for this direct source branch; actual nonlocal hash-table lookup and execution remain oracle work"
 
 [[feature]]
 id = "HC-IR-CURRENT-POSITION-LOWERING"
