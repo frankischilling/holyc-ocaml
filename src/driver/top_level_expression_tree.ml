@@ -258,13 +258,11 @@ let top_level_sizeof_kind query (sizeof : Frontend.Ast.sizeof_expression) =
           Sema.Function_call_resolution.make_sizeof_argument_expression
             ~keyword_spelling:sizeof.sizeof_keyword_spelling
             ~keyword_origin:(origin sizeof.sizeof_keyword_location)
-            ~opening_origins:
-              (List.map origin sizeof.sizeof_opening_parentheses)
+            ~opening_origins:(List.map origin sizeof.sizeof_opening_parentheses)
             ~target_spelling:sizeof.sizeof_target.spelling
-            ~target_origin:(origin sizeof.sizeof_target.location) ~members
-            ~pointer_layers
-            ~closing_origins:
-              (List.map origin sizeof.sizeof_closing_parentheses)
+            ~target_origin:(origin sizeof.sizeof_target.location)
+            ~members ~pointer_layers
+            ~closing_origins:(List.map origin sizeof.sizeof_closing_parentheses)
             ~root_resolution:
               (Sema.Function_call_resolution.Sizeof_top_level_query query))
 

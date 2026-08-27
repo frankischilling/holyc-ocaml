@@ -440,7 +440,9 @@ let rec validate_expression_query_evidence queries seen expression =
 
 let validate_call_query_evidence queries seen (call : call) =
   let source = call.source in
-  match validate_expression_query_evidence queries seen call.callee_expression with
+  match
+    validate_expression_query_evidence queries seen call.callee_expression
+  with
   | Error _ as error -> error
   | Ok seen -> (
       match
@@ -470,7 +472,9 @@ let validate_statement_query_evidence (statement : statement) =
   let rec roots seen = function
     | [] -> Ok seen
     | root :: rest -> (
-        match validate_expression_query_evidence queries seen root.expression with
+        match
+          validate_expression_query_evidence queries seen root.expression
+        with
         | Error _ as error -> error
         | Ok seen -> roots seen rest)
   in
@@ -492,7 +496,8 @@ let validate_statement_query_evidence (statement : statement) =
           else
             Error
               (invalid_input
-                 "top-level expression query is missing from its statement tree"))
+                 "top-level expression query is missing from its statement tree")
+      )
 
 let validate_query_evidence statements =
   let rec loop = function

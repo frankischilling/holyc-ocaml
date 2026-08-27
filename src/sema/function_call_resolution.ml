@@ -835,7 +835,7 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
            member_operator_origin = operator_origin;
            member_name;
            member_origin;
-          })
+         })
 
 let make_sizeof_member ~dot_origin ~name ~name_origin ~origin =
   if not (valid_origin dot_origin) then
@@ -899,7 +899,7 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
       (List.for_all
          (fun (member : sizeof_member) ->
            valid_origin member.sizeof_member_dot_origin_
-           && not (String.equal member.sizeof_member_name_ "")
+           && (not (String.equal member.sizeof_member_name_ ""))
            && valid_origin member.sizeof_member_name_origin_
            && valid_origin member.sizeof_member_origin_)
          members)
@@ -909,7 +909,7 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
       (List.mapi
          (fun index (layer : sizeof_pointer_layer) ->
            layer.sizeof_pointer_depth_ = index + 1
-           && not (String.equal layer.sizeof_pointer_spelling_ "")
+           && (not (String.equal layer.sizeof_pointer_spelling_ ""))
            && valid_origin layer.sizeof_pointer_origin_)
          pointer_layers
       |> List.for_all Fun.id)
@@ -1954,9 +1954,9 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
           Error
             (invalid_input
                "function call input contains a top-level sizeof query")
-      | Sizeof_function_query query ->
+      | Sizeof_function_query query -> (
           let index = function_query_index query in
-          (match Int_map.find_opt index query_by_index with
+          match Int_map.find_opt index query_by_index with
           | Some expected when same_function_query expected query -> Ok ()
           | Some _ ->
               Error

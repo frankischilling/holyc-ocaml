@@ -241,37 +241,38 @@ let sizeof_fact expression =
         | Sizeof_function_query _ -> "function-query"
         | Sizeof_top_level_query query -> (
             match
-              Semantic_top_level_outer_expression_binding.query_resolution
-                query
+              Semantic_top_level_outer_expression_binding.query_resolution query
             with
             | Semantic_top_level_outer_expression_binding.Query_undefined ->
                 "undefined"
             | Semantic_top_level_outer_expression_binding.Query_binding
                 (Semantic_top_level_outer_expression_binding.Module_binding
-                  publication) ->
+                   publication) ->
                 "module:"
                 ^ (publication
-                  |> Semantic_module_expression_binding.publication_kind
-                  |> Semantic_module_expression_binding.publication_kind_name)
+                 |> Semantic_module_expression_binding.publication_kind
+                 |> Semantic_module_expression_binding.publication_kind_name)
                 ^ ":"
                 ^ (publication
-                  |> Semantic_module_expression_binding.publication_source_symbol
-                  |> Semantic_symbol.name)
+                 |> Semantic_module_expression_binding.publication_source_symbol
+                 |> Semantic_symbol.name)
             | Semantic_top_level_outer_expression_binding.Query_binding
                 (Semantic_top_level_outer_expression_binding.Outer_binding
-                  binding) ->
+                   binding) ->
                 "outer:"
                 ^ (binding |> Semantic_outer_environment.binding_entry
-                  |> Semantic_outer_environment.entry_symbol
-                  |> Semantic_symbol.name))
+                 |> Semantic_outer_environment.entry_symbol
+                 |> Semantic_symbol.name))
       in
       Some
         (Printf.sprintf "%s|members=%s|pointers=%s|wrappers=%d/%d|%s"
            (sizeof_target_spelling sizeof)
-           (sizeof |> sizeof_members |> List.map sizeof_member_name
-          |> String.concat ".")
-           (sizeof |> sizeof_pointer_layers |> List.map sizeof_pointer_depth
-          |> List.map string_of_int |> String.concat ",")
+           (sizeof |> sizeof_members
+           |> List.map sizeof_member_name
+           |> String.concat ".")
+           (sizeof |> sizeof_pointer_layers
+           |> List.map sizeof_pointer_depth
+           |> List.map string_of_int |> String.concat ",")
            (List.length (sizeof_opening_origins sizeof))
            (List.length (sizeof_closing_origins sizeof))
            resolution)
@@ -744,12 +745,8 @@ let defined_query_must_belong_to_its_statement () =
         (Semantic_top_level_expression_tree.error_message error)
 
 let sizeof_query_must_belong_to_its_statement () =
-  let prepared =
-    prepare ~path:"top-level-sizeof-owner.HC" "sizeof(Target);"
-  in
-  let foreign =
-    prepare ~path:"top-level-sizeof-foreign.HC" "sizeof(Target);"
-  in
+  let prepared = prepare ~path:"top-level-sizeof-owner.HC" "sizeof(Target);" in
+  let foreign = prepare ~path:"top-level-sizeof-foreign.HC" "sizeof(Target);" in
   let source_tree = build prepared Preprocessor.Jit [] in
   let foreign_tree = build foreign Preprocessor.Jit [] in
   let source_statement =
@@ -784,7 +781,8 @@ let sizeof_query_must_belong_to_its_statement () =
       ~source:(Semantic_top_level_expression_tree.source source_tree)
       [ forged_statement ]
   with
-  | Ok _ -> Alcotest.fail "a statement accepted another statement's sizeof query"
+  | Ok _ ->
+      Alcotest.fail "a statement accepted another statement's sizeof query"
   | Error error ->
       Alcotest.(check string)
         "foreign top-level sizeof query code" "HCSEMA0055"
