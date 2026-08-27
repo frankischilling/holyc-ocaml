@@ -407,6 +407,13 @@ let binary_source result =
   | Semantic_function_call_resolution.Binary_expression binary -> binary
   | _ -> Alcotest.fail "expected a retained binary expression"
 
+let binary_operands result =
+  match
+    Semantic_function_call_expression_result.result_binary_operands result
+  with
+  | Some operands -> operands
+  | None -> Alcotest.fail "expected exact checked binary operands"
+
 let address_operand result =
   match
     result |> Semantic_function_call_expression_result.result_source
@@ -466,6 +473,25 @@ let result_for_source results source =
   results |> Semantic_function_call_expression_result.all_results
   |> List.find (fun result ->
       Semantic_function_call_expression_result.result_source result == source)
+
+let checked_source_operands results root =
+  let left, right = binary_operands root in
+  let binary = binary_source root in
+  let expected_left =
+    binary |> Semantic_function_call_resolution.binary_left
+    |> result_for_source results
+  in
+  let expected_right =
+    binary |> Semantic_function_call_resolution.binary_right
+    |> result_for_source results
+  in
+  Alcotest.(check bool)
+    "the retained left operand is the checked source result" true
+    (left == expected_left);
+  Alcotest.(check bool)
+    "the retained right operand is the checked source result" true
+    (right == expected_right);
+  (left, right)
 
 let execution_class_name result =
   match
@@ -2035,6 +2061,86 @@ let included_and_generated_members_keep_their_origins () =
           (Option.is_some location.defined_at)
     | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
         Alcotest.fail "expected a generated member source origin")
+
+let binary_operands_retain_checked_source_order () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-binary-operands.HC"
+          "extern I64 Target(F64 arithmetic,I64 comparison,I64 logical,F64 \
+           simple,F64 compound);I64 Caller(I64 integer,F64 floating){return \
+           Target(integer+floating,integer<floating,integer&&floating,floating=integer,floating+=integer);}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "binary roots keep the requested operation classes"
+        [ "IC_ADD"; "IC_LESS"; "IC_AND_AND"; "IC_ASSIGN"; "IC_ADD_EQU" ]
+        (List.map
+           (fun root ->
+             root |> binary_source
+             |> Semantic_function_call_resolution.binary_operator
+             |> Semantic_function_call_resolution.binary_operator_name)
+           roots);
+      let operands = List.map (checked_source_operands results) roots in
+      Alcotest.(check (list (pair string string)))
+        "binary operands stay in left-to-right source order"
+        [
+          ("I64", "F64");
+          ("I64", "F64");
+          ("I64", "F64");
+          ("F64", "I64");
+          ("F64", "I64");
+        ]
+        (List.map
+           (fun (left, right) -> (type_name left, type_name right))
+           operands);
+      Alcotest.(check (list string))
+        "assignment destinations keep their lvalue category"
+        [ "object-value"; "object-value"; "object-value"; "lvalue"; "lvalue" ]
+        (operands |> List.map fst |> category_names);
+      Alcotest.(check (list string))
+        "assignment right operands keep their checked conversions"
+        [ "none"; "none"; "none"; "ICF_RES_TO_F64"; "ICF_RES_TO_F64" ]
+        (operands |> List.map snd |> intrinsic_conversion_names);
+      operands
+      |> List.concat_map (fun (left, right) -> [ left; right ])
+      |> List.iter (fun operand ->
+          Alcotest.(check bool)
+            "a nonbinary child has no binary operand pair" true
+            (Option.is_none
+               (Semantic_function_call_expression_result.result_binary_operands
+                  operand))))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let nested_binary_operands_keep_immediate_edges () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-nested-binary-operands.HC"
+          "extern I64 Target(I64 value);I64 Caller(I64 left,I64 right){return \
+           Target(left=right=1);}"
+      in
+      let _, results = analyze prepared in
+      let outer = root_results results "Caller" |> List.hd in
+      let outer_left, inner = checked_source_operands results outer in
+      let inner_left, inner_right = checked_source_operands results inner in
+      Alcotest.(check (list string))
+        "right-associated assignment keeps two destinations and one value"
+        [ "lvalue"; "lvalue"; "object-value" ]
+        (category_names [ outer_left; inner_left; inner_right ]);
+      Alcotest.(check bool)
+        "the outer right child is the nested assignment result" true
+        (match
+           inner |> Semantic_function_call_expression_result.result_source
+           |> Semantic_function_call_resolution.argument_expression_kind
+         with
+        | Semantic_function_call_resolution.Binary_expression binary ->
+            binary |> Semantic_function_call_resolution.binary_operator
+            |> Semantic_function_call_resolution.binary_operator_name
+            |> String.equal "IC_ASSIGN"
+        | _ -> false))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let assignment_operators_keep_destination_results () =
   List.iter
@@ -5843,6 +5949,10 @@ let tests =
       unresolved_member_bases_remain_unavailable;
     Alcotest.test_case "included and generated member origins" `Quick
       included_and_generated_members_keep_their_origins;
+    Alcotest.test_case "binary operand identity and source order" `Quick
+      binary_operands_retain_checked_source_order;
+    Alcotest.test_case "nested binary operand edges" `Quick
+      nested_binary_operands_keep_immediate_edges;
     Alcotest.test_case "assignment operator inventory" `Quick
       assignment_operators_keep_destination_results;
     Alcotest.test_case "assignment storage and execution conversions" `Quick

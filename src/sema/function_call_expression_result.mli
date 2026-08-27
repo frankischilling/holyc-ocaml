@@ -453,6 +453,11 @@ val result_operand : expression_result -> expression_result option
 (** Return the checked operand for a parenthesized or prefix result. Other
     expression forms currently return [None]. *)
 
+val result_binary_operands :
+  expression_result -> (expression_result * expression_result) option
+(** Return the exact checked left and right children of a binary result in
+    source order. Other expression forms return [None]. *)
+
 val result_type : expression_result -> Type.t option
 val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class

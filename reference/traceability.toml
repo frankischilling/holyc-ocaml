@@ -7436,6 +7436,38 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-SEMA-BINARY-OPERANDS"
+description = "Completed binary semantic results retain their exact checked left and right children in source order."
+sources = [
+  "Compiler/PrsExp.HC:15-61 completed binary insertion and pointer adjustment",
+  "Compiler/PrsExp.HC:167-255 left-to-right term emission and precedence-driven insertion",
+  "Compiler/CInit.HC:60-97 two-argument, one-result binary operation shapes",
+  "Compiler/OptPass012.HC:40-61 right-then-left stack pops into arg2_tree and arg1_tree",
+  "Compiler/OptPass3.HC:68-88 stable operand slots with per-result conversion flags"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 448
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "accepted arithmetic, comparison, logical, simple-assignment, and compound-assignment results in function bodies and executable top-level statements"
+source_order_rule = "the first child is the checked source-left result and the second child is the checked source-right result"
+nested_rule = "a nested binary child is the immediate checked result produced by the same traversal"
+assignment_rule = "the right child is the conversion-bearing replacement returned by the original assignment analysis, not a reconstructed result"
+nonbinary_rule = "nonbinary results return no binary operand pair"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+binary_ir_pointer_scaling_short_circuit_lowering_evaluation_and_side_effects = "not implemented by this feature"
+native_oracle_status = "not required for this immutable semantic edge; PrsExp, CInit, OptPass012, and OptPass3 directly establish order and operand identity"
+
+[[feature]]
 id = "HC-IR-LITERAL-LOWERING"
 description = "Integer, character, F64, and string parser nodes lower to their pinned checked intermediate-code forms with source provenance."
 sources = [

@@ -205,6 +205,45 @@ let descriptor result =
    |> Semantic_function_call_expression_result.result_class_name)
     (Semantic_function_call_expression_result.result_array_rank result)
 
+let binary_source result =
+  match
+    result |> Semantic_function_call_expression_result.result_source
+    |> Semantic_function_call_resolution.argument_expression_kind
+  with
+  | Semantic_function_call_resolution.Binary_expression binary -> binary
+  | _ -> Alcotest.fail "expected a retained top-level binary expression"
+
+let binary_operands result =
+  match
+    Semantic_function_call_expression_result.result_binary_operands result
+  with
+  | Some operands -> operands
+  | None -> Alcotest.fail "expected exact checked top-level binary operands"
+
+let top_level_result_for_source results source =
+  results |> Semantic_function_call_expression_result.top_level_all_results
+  |> List.find (fun result ->
+      Semantic_function_call_expression_result.result_source result == source)
+
+let checked_top_level_source_operands results root =
+  let left, right = binary_operands root in
+  let binary = binary_source root in
+  let expected_left =
+    binary |> Semantic_function_call_resolution.binary_left
+    |> top_level_result_for_source results
+  in
+  let expected_right =
+    binary |> Semantic_function_call_resolution.binary_right
+    |> top_level_result_for_source results
+  in
+  Alcotest.(check bool)
+    "the top-level left child is the checked source result" true
+    (left == expected_left);
+  Alcotest.(check bool)
+    "the top-level right child is the checked source result" true
+    (right == expected_right);
+  (left, right)
+
 let rec literal_payload expression =
   match
     Semantic_function_call_resolution.argument_expression_kind expression
@@ -713,6 +752,65 @@ let updates_assignments_and_invalid_lvalues () =
         "diagnostic explains the rejected destination" true
         (String.ends_with ~suffix:"assignment destination is not an lvalue"
            (Semantic_function_call_expression_result.error_message error))
+
+let top_level_binary_operands_are_shared_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-binary-operands.HC"
+          "I64 left,right;F64 \
+           floating;left=right=1;floating+=left;left+floating;left<right;left&&right;left;"
+      in
+      let _, _, _, results = analyze source in
+      let values = root_values results in
+      Alcotest.(check int)
+        "five binary roots and one identifier are executable" 6
+        (List.length values);
+      let binary_roots = List.init 5 (List.nth values) in
+      Alcotest.(check (list string))
+        "top-level binary roots keep the requested operations"
+        [ "IC_ASSIGN"; "IC_ADD_EQU"; "IC_ADD"; "IC_LESS"; "IC_AND_AND" ]
+        (List.map
+           (fun root ->
+             root |> binary_source
+             |> Semantic_function_call_resolution.binary_operator
+             |> Semantic_function_call_resolution.binary_operator_name)
+           binary_roots);
+      let operands =
+        List.map (checked_top_level_source_operands results) binary_roots
+      in
+      Alcotest.(check (list (pair string string)))
+        "top-level binary operands stay in left-to-right source order"
+        [
+          ("I64", "I64");
+          ("F64", "I64");
+          ("I64", "F64");
+          ("I64", "I64");
+          ("I64", "I64");
+        ]
+        (List.map
+           (fun (left, right) -> (type_name left, type_name right))
+           operands);
+      Alcotest.(check (list string))
+        "top-level assignment destinations keep their lvalue category"
+        [ "lvalue"; "lvalue"; "object-value"; "object-value"; "object-value" ]
+        (operands
+        |> List.map (fun (left, _) ->
+            left |> Semantic_function_call_expression_result.result_category
+            |> Semantic_function_call_expression_result.value_category_name));
+      let compound_right = List.nth operands 1 |> snd in
+      Alcotest.(check string)
+        "the top-level compound right operand keeps its F64 conversion"
+        "ICF_RES_TO_F64"
+        (compound_right
+       |> Semantic_function_call_expression_result.result_intrinsic_conversion
+       |> Semantic_function_call_expression_result.intrinsic_conversion_name);
+      Alcotest.(check bool)
+        "a top-level identifier has no binary operand pair" true
+        (List.nth values 5
+       |> Semantic_function_call_expression_result.result_binary_operands
+       |> Option.is_none))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let indexes_casts_and_conversions () =
   let source =
@@ -2491,6 +2589,8 @@ let tests =
       metadata_free_top_level_outer_stays_unavailable;
     Alcotest.test_case "updates, assignments, and invalid lvalues" `Quick
       updates_assignments_and_invalid_lvalues;
+    Alcotest.test_case "top-level binary operand identity" `Quick
+      top_level_binary_operands_are_shared_in_both_modes;
     Alcotest.test_case "indexes, casts, and conversions" `Quick
       indexes_casts_and_conversions;
     Alcotest.test_case "aggregate member paths" `Quick aggregate_member_paths;
