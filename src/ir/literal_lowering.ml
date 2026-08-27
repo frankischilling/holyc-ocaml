@@ -105,11 +105,15 @@ let direct_literal_of_typed_source source =
 
 let literal_of_typed_source source =
   let current = ref source in
-  let grouped = ref true in
-  while !grouped do
+  let unwrapping = ref true in
+  while !unwrapping do
     match Sema.Function_call_resolution.argument_expression_kind !current with
     | Sema.Function_call_resolution.Parenthesized_expression inner ->
         current := inner
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Unary_plus ->
+        current := Sema.Function_call_resolution.prefix_operand prefix
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
     | Sema.Function_call_resolution.Character_literal _
@@ -122,7 +126,8 @@ let literal_of_typed_source source =
     | Sema.Function_call_resolution.Member_access_expression _
     | Sema.Function_call_resolution.Bound_identifier_expression _
     | Sema.Function_call_resolution.Top_level_bound_identifier_expression _
-    | Sema.Function_call_resolution.Unresolved_expression _ -> grouped := false
+    | Sema.Function_call_resolution.Unresolved_expression _ ->
+        unwrapping := false
   done;
   direct_literal_of_typed_source !current
 
