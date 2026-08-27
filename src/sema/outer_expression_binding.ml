@@ -8,9 +8,17 @@ type occurrence = {
   resolution : resolution;
 }
 
+type query_resolution = Query_binding of resolution | Query_undefined
+
+type query = {
+  query_source_ : Module_expression_binding.query;
+  query_resolution_ : query_resolution;
+}
+
 type resolved_function = {
   source : Module_expression_binding.resolved_function;
   occurrences : occurrence list;
+  queries : query list;
 }
 
 module Int_map = Map.Make (Int)
@@ -78,6 +86,7 @@ let function_item_index (function_ : resolved_function) =
   Module_expression_binding.function_item_index function_.source
 
 let function_occurrences (function_ : resolved_function) = function_.occurrences
+let function_queries (function_ : resolved_function) = function_.queries
 let occurrence_source (occurrence : occurrence) = occurrence.source
 
 let occurrence_index (occurrence : occurrence) =
@@ -90,6 +99,12 @@ let occurrence_origin (occurrence : occurrence) =
   Module_expression_binding.occurrence_origin occurrence.source
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let query_source (query : query) = query.query_source_
+let query_index (query : query) = Module_expression_binding.query_index query.query_source_
+let query_role (query : query) = Module_expression_binding.query_role query.query_source_
+let query_name (query : query) = Module_expression_binding.query_name query.query_source_
+let query_origin (query : query) = Module_expression_binding.query_origin query.query_source_
+let query_resolution (query : query) = query.query_resolution_
 
 let resolve_occurrence environment source =
   match Module_expression_binding.occurrence_resolution source with
@@ -118,6 +133,23 @@ let resolve_occurrences environment occurrences =
   in
   loop [] occurrences
 
+let resolve_query environment source =
+  let query_resolution_ =
+    match Module_expression_binding.query_resolution source with
+    | Module_expression_binding.Local_binding binding ->
+        Query_binding (Local_binding binding)
+    | Module_expression_binding.Module_binding publication ->
+        Query_binding (Module_binding publication)
+    | Module_expression_binding.Outer_candidate -> (
+        match
+          Outer_environment.find environment
+            (Module_expression_binding.query_name source)
+        with
+        | Some binding -> Query_binding (Outer_binding binding)
+        | None -> Query_undefined)
+  in
+  { query_source_ = source; query_resolution_ }
+
 let resolve_functions environment functions =
   let rec loop functions_rev by_symbol = function
     | [] -> Ok (List.rev functions_rev, by_symbol)
@@ -128,7 +160,11 @@ let resolve_functions environment functions =
         with
         | Error _ as error -> error
         | Ok occurrences ->
-            let function_ = { source; occurrences } in
+            let queries =
+              source |> Module_expression_binding.function_queries
+              |> List.map (resolve_query environment)
+            in
+            let function_ = { source; occurrences; queries } in
             loop
               (function_ :: functions_rev)
               (Int_map.add

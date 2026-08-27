@@ -354,7 +354,7 @@ type state = {
   typed_values : typed_environment;
   global_values : typed_environment;
   occurrences : Sema.Module_expression_binding.occurrence Int_map.t;
-  defined_queries : Sema.Module_expression_binding.query list;
+  defined_queries : Sema.Function_call_resolution.defined_function_query list;
 }
 
 let empty_state visible_aggregates typed_values global_values occurrences
@@ -463,14 +463,31 @@ let take_occurrence occurrences cursor identifier =
         cursor := !cursor + 1;
         Ok occurrence)
 
+let defined_query_role = function
+  | Sema.Function_call_resolution.Module_query query ->
+      Sema.Module_expression_binding.query_role query
+  | Sema.Function_call_resolution.Outer_query query ->
+      Sema.Outer_expression_binding.query_role query
+
+let defined_query_name = function
+  | Sema.Function_call_resolution.Module_query query ->
+      Sema.Module_expression_binding.query_name query
+  | Sema.Function_call_resolution.Outer_query query ->
+      Sema.Outer_expression_binding.query_name query
+
+let defined_query_origin = function
+  | Sema.Function_call_resolution.Module_query query ->
+      Sema.Module_expression_binding.query_origin query
+  | Sema.Function_call_resolution.Outer_query query ->
+      Sema.Outer_expression_binding.query_origin query
+
 let defined_query queries (operand : Frontend.Ast.defined_operand) =
   let spelling = operand.defined_operand_spelling in
   let operand_origin = origin operand.defined_operand_location in
   let matches query =
-    Sema.Module_expression_binding.query_role query
-    = Sema.Function_expression_binding.Defined_operand
-    && String.equal spelling (Sema.Module_expression_binding.query_name query)
-    && operand_origin = Sema.Module_expression_binding.query_origin query
+    defined_query_role query = Sema.Function_expression_binding.Defined_operand
+    && String.equal spelling (defined_query_name query)
+    && operand_origin = defined_query_origin query
   in
   match List.filter matches queries with
   | [ query ] -> Ok query
@@ -1421,8 +1438,8 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table visible_aggregates global_values expected typed locals
-    (item_index, ast) =
+let function_input table visible_aggregates global_values defined_queries expected
+    typed locals (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1445,9 +1462,6 @@ let function_input table visible_aggregates global_values expected typed locals
     | Ok typed_values -> (
         let expected_occurrences =
           Sema.Module_expression_binding.function_occurrences expected
-        in
-        let defined_queries =
-          Sema.Module_expression_binding.function_queries expected
         in
         let collected =
           let state =
@@ -1501,7 +1515,7 @@ let publish_aggregates_before visible publications item_index =
   loop visible publications
 
 let function_inputs table function_types local_types global_values expressions
-    module_ =
+    outer module_ =
   let rec pair inputs_rev visible publications expected typed locals ast =
     match (expected, typed, locals, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -1515,13 +1529,39 @@ let function_inputs table function_types local_types global_values expressions
         let visible, publications =
           publish_aggregates_before visible publications item_index
         in
-        match
-          function_input table visible global_values expected typed locals ast
-        with
+        let defined_queries =
+          match outer with
+          | None ->
+              Ok
+                (expected |> Sema.Module_expression_binding.function_queries
+                |> List.map (fun query ->
+                       Sema.Function_call_resolution.Module_query query))
+          | Some outer -> (
+              match
+                Sema.Outer_expression_binding.find_function outer
+                  (Sema.Module_expression_binding.function_symbol expected)
+              with
+              | None ->
+                  Error
+                    "outer expression binding has no matching function query set"
+              | Some function_ ->
+                  Ok
+                    (function_
+                    |> Sema.Outer_expression_binding.function_queries
+                    |> List.map (fun query ->
+                           Sema.Function_call_resolution.Outer_query query)))
+        in
+        match defined_queries with
         | Error _ as error -> error
-        | Ok input ->
-            pair (input :: inputs_rev) visible publications expected_rest
-              typed_rest local_rest ast_rest)
+        | Ok defined_queries -> (
+            match
+              function_input table visible global_values defined_queries expected
+                typed locals ast
+            with
+            | Error _ as error -> error
+            | Ok input ->
+                pair (input :: inputs_rev) visible publications expected_rest
+                  typed_rest local_rest ast_rest))
     | [], _, _, _ | _, [], _, _ | _, _, [], _ | _, _, _, [] ->
         Error "function call inputs do not match the typed function count"
   in
@@ -1533,7 +1573,7 @@ let function_inputs table function_types local_types global_values expressions
     (ast_functions module_)
 
 let resolve ~table ~declarations ?members ~function_types ~local_types
-    ~global_types ~functions ~expressions module_ =
+    ~global_types ~functions ~expressions ?outer module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -1542,6 +1582,15 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
       Error "function call resolution requires a module declaration scope"
     else if not (Sema.Module_expression_binding.owns_table expressions table)
     then Error "function call expressions belong to another symbol table"
+    else if
+      match outer with
+      | None -> false
+      | Some outer ->
+          (not (Sema.Outer_expression_binding.owns_table outer table))
+          || Sema.Outer_expression_binding.source outer != expressions
+    then
+      Error
+        "function call outer expressions do not match the module expression binding"
     else
       match global_typed_environment table global_types with
       | Error _ as error -> error
@@ -1553,12 +1602,12 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
           | Ok module_values -> (
               match
                 function_inputs table function_types local_types module_values
-                  expressions module_
+                  expressions outer module_
               with
               | Error _ as error -> error
               | Ok inputs ->
                   Sema.Function_call_resolution.resolve ~table ~parent ?members
-                    ~function_types ~functions ~expressions inputs
+                    ~function_types ~functions ~expressions ?outer inputs
                   |> Result.map_error
                        Sema.Function_call_resolution.error_to_string))
   in

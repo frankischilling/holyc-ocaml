@@ -17,9 +17,13 @@ type unresolved_expression_kind =
 
 type defined_operand_kind = Defined_name | Defined_non_name
 
+type defined_function_query =
+  | Module_query of Module_expression_binding.query
+  | Outer_query of Outer_expression_binding.query
+
 type defined_operand_resolution =
   | Defined_non_name_false
-  | Defined_function_query of Module_expression_binding.query
+  | Defined_function_query of defined_function_query
   | Defined_top_level_name
 
 type defined_expression = {
@@ -813,16 +817,23 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
       | Defined_non_name, Defined_non_name_false
       | Defined_name, Defined_top_level_name -> Ok ()
       | Defined_name, Defined_function_query query ->
+          let query_role, query_name, query_origin =
+            match query with
+            | Module_query query ->
+                ( Module_expression_binding.query_role query,
+                  Module_expression_binding.query_name query,
+                  Module_expression_binding.query_origin query )
+            | Outer_query query ->
+                ( Outer_expression_binding.query_role query,
+                  Outer_expression_binding.query_name query,
+                  Outer_expression_binding.query_origin query )
+          in
           if
-            Module_expression_binding.query_role query
-            <> Function_expression_binding.Defined_operand
+            query_role <> Function_expression_binding.Defined_operand
           then Error "defined operand query has the wrong semantic role"
-          else if
-            not
-              (String.equal operand_spelling
-                 (Module_expression_binding.query_name query))
+          else if not (String.equal operand_spelling query_name)
           then Error "defined operand spelling does not match its query"
-          else if operand_origin <> Module_expression_binding.query_origin query
+          else if operand_origin <> query_origin
           then Error "defined operand origin does not match its query"
           else Ok ()
       | Defined_name, Defined_non_name_false ->
@@ -982,11 +993,15 @@ let defined_operand_resolution expression =
 let defined_known_value expression =
   match expression.defined_operand_resolution_ with
   | Defined_non_name_false -> Some false
-  | Defined_function_query query -> (
+  | Defined_function_query (Module_query query) -> (
       match Module_expression_binding.query_resolution query with
       | Module_expression_binding.Local_binding _
       | Module_expression_binding.Module_binding _ -> Some true
       | Module_expression_binding.Outer_candidate -> None)
+  | Defined_function_query (Outer_query query) -> (
+      match Outer_expression_binding.query_resolution query with
+      | Outer_expression_binding.Query_binding _ -> Some true
+      | Outer_expression_binding.Query_undefined -> Some false)
   | Defined_top_level_name -> None
 
 let make_argument ~index ~kind ~expression ~origin =
@@ -1693,10 +1708,19 @@ let occurrence_map occurrences =
         occurrence map)
     Int_map.empty occurrences
 
+let defined_query_index = function
+  | Module_query query -> Module_expression_binding.query_index query
+  | Outer_query query -> Outer_expression_binding.query_index query
+
+let same_defined_query left right =
+  match (left, right) with
+  | Module_query left, Module_query right -> left == right
+  | Outer_query left, Outer_query right -> left == right
+  | Module_query _, Outer_query _ | Outer_query _, Module_query _ -> false
+
 let query_map queries =
   List.fold_left
-    (fun map query ->
-      Int_map.add (Module_expression_binding.query_index query) query map)
+    (fun map query -> Int_map.add (defined_query_index query) query map)
     Int_map.empty queries
 
 let rec validate_bound_evidence occurrence_by_index query_by_index expression =
@@ -1758,9 +1782,9 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
             (invalid_input
                "function call input contains a top-level defined query")
       | Defined_function_query query -> (
-          let index = Module_expression_binding.query_index query in
+          let index = defined_query_index query in
           match Int_map.find_opt index query_by_index with
-          | Some expected when expected == query -> Ok ()
+          | Some expected when same_defined_query expected query -> Ok ()
           | Some _ ->
               Error
                 (invalid_input "defined operand uses a different function query")
@@ -1994,7 +2018,7 @@ let validate_switch_cases table parent visible declarations compilation_mode
   loop 0 cases
 
 let validate_function_input table parent visible declarations compilation_mode
-    expected (input : function_input) =
+    expected queries (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
   let scope = Module_expression_binding.function_scope expected in
   let item_index = Module_expression_binding.function_item_index expected in
@@ -2025,7 +2049,6 @@ let validate_function_input table parent visible declarations compilation_mode
         let occurrences =
           Module_expression_binding.function_occurrences expected
         in
-        let queries = Module_expression_binding.function_queries expected in
         match validate_call_bound_evidence input.calls occurrences queries with
         | Error _ as error -> error
         | Ok () -> (
@@ -2072,7 +2095,7 @@ let validate_function_input table parent visible declarations compilation_mode
                                       input.returns occurrences queries)))))))
 
 let validate_function_inputs table parent expressions declarations
-    compilation_mode inputs =
+    compilation_mode outer inputs =
   let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
@@ -2080,12 +2103,35 @@ let validate_function_inputs table parent expressions declarations
         let visible, publications =
           publish_aggregates_before visible publications input.item_index
         in
-        match
-          validate_function_input table parent visible declarations
-            compilation_mode expected input
-        with
+        let queries =
+          match outer with
+          | None ->
+              Ok
+                (expected |> Module_expression_binding.function_queries
+                |> List.map (fun query -> Module_query query))
+          | Some outer -> (
+              match
+                Outer_expression_binding.find_function outer
+                  (Module_expression_binding.function_symbol expected)
+              with
+              | None ->
+                  Error
+                    (invalid_input
+                       "outer expression binding has no matching function query set")
+              | Some function_ ->
+                  Ok
+                    (function_ |> Outer_expression_binding.function_queries
+                    |> List.map (fun query -> Outer_query query)))
+        in
+        match queries with
         | Error _ as error -> error
-        | Ok () -> pair visible publications expected_rest input_rest)
+        | Ok queries -> (
+            match
+              validate_function_input table parent visible declarations
+                compilation_mode expected queries input
+            with
+            | Error _ as error -> error
+            | Ok () -> pair visible publications expected_rest input_rest))
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
@@ -2686,7 +2732,7 @@ let resolve_validated ?members types declarations expressions inputs =
   pair [] Int_map.empty (Module_expression_binding.functions expressions) inputs
 
 let resolve ~table ~parent ?members ~function_types ~functions ~expressions
-    inputs =
+    ?outer inputs =
   if not (Symbol_table.owns_scope table parent) then
     Error (invalid_input "function call parent belongs to another symbol table")
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
@@ -2694,6 +2740,16 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
   else if not (Module_expression_binding.owns_table expressions table) then
     Error
       (invalid_input "function call expressions belong to another symbol table")
+  else if
+    match outer with
+    | None -> false
+    | Some outer ->
+        (not (Outer_expression_binding.owns_table outer table))
+        || Outer_expression_binding.source outer != expressions
+  then
+    Error
+      (invalid_input
+         "function call outer expressions do not match the module expression binding")
   else if
     match members with
     | None -> false
@@ -2718,7 +2774,7 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
             match
               validate_function_inputs table parent expressions declarations
                 (Function_resolution.compilation_mode functions)
-                inputs
+                outer inputs
             with
             | Error _ as error -> error
             | Ok () -> (
