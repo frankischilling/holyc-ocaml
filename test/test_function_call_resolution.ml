@@ -303,6 +303,12 @@ let sizeof_resolution_fact (_, sizeof) =
           ^ (binding |> Semantic_outer_environment.binding_entry
            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
 
+let sizeof_value_fact (_, sizeof) =
+  ( sizeof |> Semantic_function_call_resolution.sizeof_primitive
+    |> Option.map Primitive_type.to_string,
+    Semantic_function_call_resolution.sizeof_known_value sizeof,
+    Semantic_function_call_resolution.sizeof_uses_pointer_size sizeof )
+
 let defined_fact (_, defined) =
   let open Semantic_function_call_resolution in
   let kind =
@@ -1698,6 +1704,86 @@ let sizeof_inputs_survive_function_expression_contexts () =
         (middle, after))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let primitive_sizeof_values_follow_checked_queries () =
+  let source =
+    "I64 Caller(){sizeof(I0);sizeof(I8);sizeof(I16);sizeof(I32);sizeof(I64);\
+     sizeof(U0);sizeof(U8);sizeof(U16);sizeof(U32);sizeof(U64);sizeof(F64);\
+     sizeof(Bool);sizeof(U8*);sizeof(I0**);return 0;}"
+  in
+  let expected =
+    [
+      (Some "I0", Some 0L, false);
+      (Some "I8", Some 1L, false);
+      (Some "I16", Some 2L, false);
+      (Some "I32", Some 4L, false);
+      (Some "I64", Some 8L, false);
+      (Some "U0", Some 0L, false);
+      (Some "U8", Some 1L, false);
+      (Some "U16", Some 2L, false);
+      (Some "U32", Some 4L, false);
+      (Some "U64", Some 8L, false);
+      (Some "F64", Some 8L, false);
+      (Some "Bool", Some 1L, false);
+      (Some "U8", Some 8L, true);
+      (Some "I0", Some 8L, true);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"function-primitive-sizeof.HC" source in
+      let facts =
+        resolve prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution
+               .expression_statement_expression
+            |> sizeof_expressions)
+        |> List.map sizeof_value_fact
+      in
+      Alcotest.(check (list (triple (option string) (option int64) bool)))
+        "public primitive and pointer sizes follow the checked tables" expected
+        facts;
+      let shadowed =
+        prepare ~mode ~path:"function-shadowed-primitive-sizeof.HC"
+          "I64 I64;I64 Caller(I64 Bool){sizeof(I64);sizeof(Bool);return 0;}"
+      in
+      let shadowed_facts =
+        resolve shadowed |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution
+               .expression_statement_expression
+            |> sizeof_expressions)
+        |> List.map sizeof_value_fact
+      in
+      Alcotest.(check (list (triple (option string) (option int64) bool)))
+        "local and module bindings hide primitive spellings"
+        [ (None, None, false); (None, None, false) ] shadowed_facts;
+      let outer_prepared =
+        prepare ~mode ~path:"function-outer-shadowed-primitive-sizeof.HC"
+          "I64 Caller(){sizeof(I64);return 0;}"
+      in
+      let outer =
+        outer_expressions outer_prepared
+          [ ("I64", Semantic_outer_environment.Global_variable) ]
+      in
+      let outer_fact =
+        resolve ~outer outer_prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.hd
+        |> Semantic_function_call_resolution.expression_statement_expression
+        |> sizeof_expressions |> List.hd |> sizeof_value_fact
+      in
+      Alcotest.(check (triple (option string) (option int64) bool))
+        "a supplied outer binding hides the primitive spelling"
+        (None, None, false) outer_fact)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let sizeof_generated_provenance_is_deterministic_and_pure () =
   let prepared =
     prepare ~path:"function-sizeof-generated.HC"
@@ -2726,6 +2812,8 @@ let tests =
       defined_operands_survive_function_expression_shapes;
     Alcotest.test_case "sizeof inputs across function expressions" `Quick
       sizeof_inputs_survive_function_expression_contexts;
+    Alcotest.test_case "primitive sizeof values and shadowing" `Quick
+      primitive_sizeof_values_follow_checked_queries;
     Alcotest.test_case "sizeof generated provenance and purity" `Quick
       sizeof_generated_provenance_is_deterministic_and_pure;
     Alcotest.test_case "sizeof constructor source validation" `Quick

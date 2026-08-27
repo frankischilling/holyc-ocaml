@@ -296,3 +296,10 @@ let pointer_representation =
     raw_id = pointer.templeos_id;
     source_line = pointer.source_line;
   }
+
+let pointer_byte_size =
+  let pointer = pointer_representation in
+  let target = info I64 in
+  if pointer.raw_id <> target.raw_id then
+    invalid_arg "RT_PTR no longer has I64 storage";
+  target.byte_size

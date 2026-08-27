@@ -278,6 +278,18 @@ let sizeof_fact expression =
            resolution)
   | _ -> None
 
+let sizeof_value_fact expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Sizeof_expression sizeof ->
+      Some
+        ( sizeof |> Semantic_function_call_resolution.sizeof_primitive
+          |> Option.map Primitive_type.to_string,
+          Semantic_function_call_resolution.sizeof_known_value sizeof,
+          Semantic_function_call_resolution.sizeof_uses_pointer_size sizeof )
+  | _ -> None
+
 let complete_shapes_roles_calls_and_identities () =
   let source =
     "I64 F(I64 a=1,I64 b=2);I64 value;I64 values[3];\n\
@@ -629,6 +641,62 @@ let sizeof_inputs_survive_top_level_trees () =
         "repeated top-level sizeof retention is deterministic" first second)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let primitive_sizeof_values_follow_top_level_queries () =
+  let source =
+    "sizeof(I0);sizeof(I8);sizeof(I16);sizeof(I32);sizeof(I64);sizeof(U0);\
+     sizeof(U8);sizeof(U16);sizeof(U32);sizeof(U64);sizeof(F64);sizeof(Bool);\
+     sizeof(U8*);sizeof(I0**);"
+  in
+  let expected =
+    [
+      (Some "I0", Some 0L, false);
+      (Some "I8", Some 1L, false);
+      (Some "I16", Some 2L, false);
+      (Some "I32", Some 4L, false);
+      (Some "I64", Some 8L, false);
+      (Some "U0", Some 0L, false);
+      (Some "U8", Some 1L, false);
+      (Some "U16", Some 2L, false);
+      (Some "U32", Some 4L, false);
+      (Some "U64", Some 8L, false);
+      (Some "F64", Some 8L, false);
+      (Some "Bool", Some 1L, false);
+      (Some "U8", Some 8L, true);
+      (Some "I0", Some 8L, true);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"top-level-primitive-sizeof.HC" source
+      in
+      let facts =
+        build prepared mode []
+        |> Semantic_top_level_expression_tree.all_expression_nodes
+        |> List.filter_map (fun node ->
+            node |> Semantic_top_level_expression_tree.expression_node_source
+            |> sizeof_value_fact)
+      in
+      Alcotest.(check (list (triple (option string) (option int64) bool)))
+        "top-level primitive and pointer sizes follow the checked tables"
+        expected facts;
+      let shadowed =
+        prepare ~mode ~path:"top-level-shadowed-primitive-sizeof.HC"
+          "I64 I64;sizeof(I64);sizeof(Bool);"
+      in
+      let shadowed_facts =
+        build shadowed mode
+          [ ("Bool", Semantic_outer_environment.Global_variable) ]
+        |> Semantic_top_level_expression_tree.all_expression_nodes
+        |> List.filter_map (fun node ->
+            node |> Semantic_top_level_expression_tree.expression_node_source
+            |> sizeof_value_fact)
+      in
+      Alcotest.(check (list (triple (option string) (option int64) bool)))
+        "module and outer bindings hide primitive spellings"
+        [ (None, None, false); (None, None, false) ] shadowed_facts)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let defined_queries_follow_module_and_outer_bindings () =
   List.iter
     (fun mode ->
@@ -804,6 +872,8 @@ let tests =
       defined_operands_survive_top_level_trees;
     Alcotest.test_case "sizeof inputs across top-level trees" `Quick
       sizeof_inputs_survive_top_level_trees;
+    Alcotest.test_case "primitive top-level sizeof values" `Quick
+      primitive_sizeof_values_follow_top_level_queries;
     Alcotest.test_case "defined queries follow module and outer bindings" `Quick
       defined_queries_follow_module_and_outer_bindings;
     Alcotest.test_case "defined query ownership" `Quick
