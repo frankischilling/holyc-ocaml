@@ -43,6 +43,7 @@ type expression_result = {
   id : Id.t;
   source : Function_call_resolution.argument_expression;
   origin : Symbol.origin;
+  operand_result : expression_result option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -652,6 +653,7 @@ let lastclass_class_name substitution = substitution.class_name_
 let result_id (result : expression_result) = result.id
 let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
+let result_operand (result : expression_result) = result.operand_result
 let result_type (result : expression_result) = result.source_type
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
@@ -798,9 +800,10 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?(array_rank = 0) ?execution_class ?member_lookup
-    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
-    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
+let make_result ?operand_result ?(array_rank = 0) ?execution_class
+    ?member_lookup ?aggregate_offset_path ?outer_occurrence
+    ?top_level_outer_occurrence ?outer_binding ?call_resolution
+    ?function_declaration ?function_address_path
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -808,6 +811,7 @@ let make_result ?(array_rank = 0) ?execution_class ?member_lookup
       id;
       source;
       origin = Function_call_resolution.argument_expression_origin source;
+      operand_result;
       source_type;
       category;
       result_class;
@@ -1185,16 +1189,17 @@ let rec type_expression table members policies ~before_item_index ~context
   match allocate state with
   | Error _ as error -> error
   | Ok (id, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup
-          ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
-          ?outer_binding ?call_resolution ?function_declaration
-          ?function_address_path category result_class state =
+      let finish ?operand_result ?(source_type = None) ?(array_rank = 0)
+          ?member_lookup ?aggregate_offset_path ?outer_occurrence
+          ?top_level_outer_occurrence ?outer_binding ?call_resolution
+          ?function_declaration ?function_address_path category result_class
+          state =
         Ok
-          (make_result ~array_rank ?member_lookup ?aggregate_offset_path
-             ?outer_occurrence ?top_level_outer_occurrence ?outer_binding
-             ?call_resolution ?function_declaration ?function_address_path
-             ~intrinsic_conversion state ~id ~source ~source_type ~category
-             ~result_class)
+          (make_result ?operand_result ~array_rank ?member_lookup
+             ?aggregate_offset_path ?outer_occurrence
+             ?top_level_outer_occurrence ?outer_binding ?call_resolution
+             ?function_declaration ?function_address_path ~intrinsic_conversion
+             state ~id ~source ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
       | Function_call_resolution.Integer_literal _
@@ -1211,7 +1216,8 @@ let rec type_expression table members policies ~before_item_index ~context
           with
           | Error _ as error -> error
           | Ok (grouped_result, state) ->
-              finish ~source_type:grouped_result.source_type
+              finish ~operand_result:grouped_result
+                ~source_type:grouped_result.source_type
                 ~array_rank:grouped_result.array_rank
                 ?member_lookup:grouped_result.member_lookup
                 ?aggregate_offset_path:grouped_result.aggregate_offset_path
@@ -1579,9 +1585,9 @@ and type_prefix table members policies ~before_item_index ~context
       let finish ?(source_type = None) ?(array_rank = 0) ?function_declaration
           ?function_address_path category result_class =
         Ok
-          (make_result ~array_rank ?function_declaration ?function_address_path
-             ~intrinsic_conversion state ~id ~source ~source_type ~category
-             ~result_class)
+          (make_result ~operand_result:operand ~array_rank ?function_declaration
+             ?function_address_path ~intrinsic_conversion state ~id ~source
+             ~source_type ~category ~result_class)
       in
       match operator with
       | Function_call_resolution.Unary_plus

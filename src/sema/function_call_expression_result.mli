@@ -448,6 +448,11 @@ val result_source :
   expression_result -> Function_call_resolution.argument_expression
 
 val result_origin : expression_result -> Symbol.origin
+
+val result_operand : expression_result -> expression_result option
+(** Return the checked operand for a parenthesized or prefix result. Other
+    expression forms currently return [None]. *)
+
 val result_type : expression_result -> Type.t option
 val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class

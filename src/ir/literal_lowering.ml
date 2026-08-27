@@ -26,6 +26,12 @@ type unary_operation = {
   cancels_dereference : bool;
 }
 
+type typed_unary_operation = {
+  typed_opcode : Opcode.t;
+  typed_span : Common.Span.t;
+  typed_result_type : Type.t;
+}
+
 type t = { literal : literal; sequence : Sequence.t; result_type : Type.t }
 type expression_result = Lowered of t | Not_literal
 
@@ -117,76 +123,137 @@ let identity_count_error ~span ~expected ~actual =
     span;
   }
 
-let literal_of_typed_source source =
-  let current = ref source in
+let typed_operand result expected_source description =
+  match Sema.Function_call_expression_result.result_operand result with
+  | None ->
+      Error
+        (typed_result_error
+           (Printf.sprintf
+              "typed semantic %s does not retain its checked operand result"
+              description))
+  | Some operand
+    when Sema.Function_call_expression_result.result_source operand
+         != expected_source ->
+      Error
+        (typed_result_error
+           (Printf.sprintf
+              "typed semantic %s operand metadata does not match its source \
+               expression"
+              description))
+  | Some operand -> Ok operand
+
+let typed_unary result prefix ~opcode ~description =
+  match Sema.Function_call_expression_result.result_type result with
+  | None ->
+      Error
+        (typed_result_error
+           (Printf.sprintf
+              "typed semantic %s does not have a checked result type"
+              description))
+  | Some typed_result_type -> (
+      match Sema.Function_call_resolution.prefix_operator_origin prefix with
+      | Sema.Symbol.Source_location location ->
+          Ok
+            {
+              typed_opcode = opcode;
+              typed_span = location.span;
+              typed_result_type;
+            }
+      | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+          Error
+            (typed_result_error
+               (Printf.sprintf
+                  "typed %s operator does not have a source location"
+                  description)))
+
+let unwrap_typed_prefix current unary_operations prefix ~opcode ~description =
+  match
+    ( typed_unary current prefix ~opcode ~description,
+      typed_operand current
+        (Sema.Function_call_resolution.prefix_operand prefix)
+        (description ^ " expression") )
+  with
+  | Ok operation, Ok operand -> Ok (operand, operation :: unary_operations)
+  | Error operation_error, _ -> Error operation_error
+  | _, Error operand_error -> Error operand_error
+
+let literal_of_typed_source result =
+  let current = ref result in
   let unary_operations = ref [] in
   let error = ref None in
   let unwrapping = ref true in
   while !unwrapping do
-    match Sema.Function_call_resolution.argument_expression_kind !current with
-    | Sema.Function_call_resolution.Parenthesized_expression inner ->
-        current := inner
+    let source = Sema.Function_call_expression_result.result_source !current in
+    match Sema.Function_call_resolution.argument_expression_kind source with
+    | Sema.Function_call_resolution.Parenthesized_expression inner -> (
+        match typed_operand !current inner "parenthesized expression" with
+        | Ok operand -> current := operand
+        | Error operand_error ->
+            error := Some operand_error;
+            unwrapping := false)
     | Sema.Function_call_resolution.Prefix_expression prefix
       when Sema.Function_call_resolution.prefix_operator prefix
-           = Sema.Function_call_resolution.Unary_plus ->
-        current := Sema.Function_call_resolution.prefix_operand prefix
+           = Sema.Function_call_resolution.Unary_plus -> (
+        match
+          typed_operand !current
+            (Sema.Function_call_resolution.prefix_operand prefix)
+            "unary-plus expression"
+        with
+        | Ok operand -> current := operand
+        | Error operand_error ->
+            error := Some operand_error;
+            unwrapping := false)
     | Sema.Function_call_resolution.Prefix_expression prefix
       when Sema.Function_call_resolution.prefix_operator prefix
            = Sema.Function_call_resolution.Unary_minus -> (
-        match Sema.Function_call_resolution.prefix_operator_origin prefix with
-        | Sema.Symbol.Source_location location ->
-            unary_operations :=
-              {
-                opcode = Opcode.Ic_unary_minus;
-                span = location.span;
-                cancels_dereference = false;
-              }
-              :: !unary_operations;
-            current := Sema.Function_call_resolution.prefix_operand prefix
-        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
-            error :=
-              Some
-                (typed_result_error
-                   "typed unary-minus operator does not have a source location");
+        match
+          unwrap_typed_prefix !current !unary_operations prefix
+            ~opcode:Opcode.Ic_unary_minus ~description:"unary-minus"
+        with
+        | Ok (operand, operations) ->
+            current := operand;
+            unary_operations := operations
+        | Error prefix_error ->
+            error := Some prefix_error;
             unwrapping := false)
     | Sema.Function_call_resolution.Prefix_expression prefix
       when Sema.Function_call_resolution.prefix_operator prefix
            = Sema.Function_call_resolution.Logical_not -> (
-        match Sema.Function_call_resolution.prefix_operator_origin prefix with
-        | Sema.Symbol.Source_location location ->
-            unary_operations :=
-              {
-                opcode = Opcode.Ic_not;
-                span = location.span;
-                cancels_dereference = false;
-              }
-              :: !unary_operations;
-            current := Sema.Function_call_resolution.prefix_operand prefix
-        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
-            error :=
-              Some
-                (typed_result_error
-                   "typed logical-not operator does not have a source location");
+        match
+          unwrap_typed_prefix !current !unary_operations prefix
+            ~opcode:Opcode.Ic_not ~description:"logical-not"
+        with
+        | Ok (operand, operations) ->
+            current := operand;
+            unary_operations := operations
+        | Error prefix_error ->
+            error := Some prefix_error;
             unwrapping := false)
     | Sema.Function_call_resolution.Prefix_expression prefix
       when Sema.Function_call_resolution.prefix_operator prefix
            = Sema.Function_call_resolution.Bitwise_not -> (
-        match Sema.Function_call_resolution.prefix_operator_origin prefix with
-        | Sema.Symbol.Source_location location ->
-            unary_operations :=
-              {
-                opcode = Opcode.Ic_com;
-                span = location.span;
-                cancels_dereference = false;
-              }
-              :: !unary_operations;
-            current := Sema.Function_call_resolution.prefix_operand prefix
-        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
-            error :=
-              Some
-                (typed_result_error
-                   "typed bitwise-complement operator does not have a source \
-                    location");
+        match
+          unwrap_typed_prefix !current !unary_operations prefix
+            ~opcode:Opcode.Ic_com ~description:"bitwise-complement"
+        with
+        | Ok (operand, operations) ->
+            current := operand;
+            unary_operations := operations
+        | Error prefix_error ->
+            error := Some prefix_error;
+            unwrapping := false)
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Dereference -> (
+        match
+          unwrap_typed_prefix !current !unary_operations prefix
+            ~opcode:Opcode.Ic_deref ~description:"dereference"
+        with
+        | Ok (operand, operations) ->
+            current := operand;
+            unary_operations := operations
+        | Error prefix_error ->
+            error := Some prefix_error;
             unwrapping := false)
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
@@ -205,7 +272,16 @@ let literal_of_typed_source source =
   done;
   match !error with
   | Some error -> Error error
-  | None -> Ok (direct_literal_of_typed_source !current, !unary_operations)
+  | None ->
+      let source =
+        Sema.Function_call_expression_result.result_source !current
+      in
+      Ok
+        ( Option.map
+            (fun (literal, literal_source) ->
+              (literal, literal_source, !current))
+            (direct_literal_of_typed_source source),
+          !unary_operations )
 
 let typed_source_span source message =
   match Sema.Function_call_resolution.argument_expression_origin source with
@@ -256,20 +332,17 @@ let rec append_typed_unaries reversed current_value current_type operations
     identities =
   match (operations, identities) with
   | operation :: remaining_operations, identity :: remaining_identities ->
-      let result_type =
-        if Opcode.equal operation.opcode Opcode.Ic_com then i64
-        else current_type
-      in
+      let result_type = operation.typed_result_type in
       let instruction : Sequence.description =
         {
           instruction_id = identity.instruction_id;
-          opcode = operation.opcode;
+          opcode = operation.typed_opcode;
           operands = [ current_value ];
           result = Some { value_id = identity.value_id };
           target_type = Some result_type;
           payload = None;
           flags = 0L;
-          span = Some operation.span;
+          span = Some operation.typed_span;
         }
       in
       append_typed_unaries (instruction :: reversed) identity.value_id
@@ -280,10 +353,10 @@ let rec append_typed_unaries reversed current_value current_type operations
 let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
     =
   let source = Sema.Function_call_expression_result.result_source result in
-  match literal_of_typed_source source with
+  match literal_of_typed_source result with
   | Error error -> Error [ error ]
   | Ok (None, _) -> Ok Not_literal
-  | Ok (Some (literal, literal_source), unary_operations) -> (
+  | Ok (Some (literal, literal_source, literal_result), unary_operations) -> (
       let expected = List.length unary_operations in
       let actual = List.length unary_identities in
       if actual <> expected then
@@ -297,7 +370,9 @@ let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
         match typed_result_span result source literal_source with
         | Error error -> Error [ error ]
         | Ok span -> (
-            match Sema.Function_call_expression_result.result_type result with
+            match
+              Sema.Function_call_expression_result.result_type literal_result
+            with
             | None ->
                 Error
                   [
@@ -309,16 +384,28 @@ let lower_typed_result ~instruction_id ~value_id ?(unary_identities = []) result
                 let description =
                   { instruction_id; value_id; literal; span = Some span }
                 in
-                let instruction, result_type =
+                let instruction, literal_result_type =
                   describe_typed_literal description ~result_type
                 in
                 let descriptions, result_type =
-                  append_typed_unaries [ instruction ] value_id result_type
-                    unary_operations unary_identities
+                  append_typed_unaries [ instruction ] value_id
+                    literal_result_type unary_operations unary_identities
                 in
-                match Sequence.create descriptions with
-                | Ok sequence -> Ok (Lowered { literal; sequence; result_type })
-                | Error errors -> Error errors)))
+                if
+                  Some result_type
+                  <> Sema.Function_call_expression_result.result_type result
+                then
+                  Error
+                    [
+                      typed_result_error ~span
+                        "typed semantic unary result types do not reach the \
+                         outer checked type";
+                    ]
+                else
+                  match Sequence.create descriptions with
+                  | Ok sequence ->
+                      Ok (Lowered { literal; sequence; result_type })
+                  | Error errors -> Error errors)))
 
 let unwrap_expression expression =
   let current = ref expression in
