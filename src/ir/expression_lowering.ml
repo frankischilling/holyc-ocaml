@@ -134,8 +134,9 @@ let checked_f64_type result =
           0,
           Type.Primitive (Type.Internal_storage, Sema.Primitive_type.F64) ) ->
           Ok (Checked_type type_)
-      | ( (Semantic_result.Integer_result | Semantic_result.F64_result
-          | Semantic_result.Unresolved_actual_class),
+      | ( ( Semantic_result.Integer_result
+          | Semantic_result.F64_result
+          | Semantic_result.Unresolved_actual_class ),
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 

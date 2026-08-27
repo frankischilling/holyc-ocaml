@@ -434,7 +434,8 @@ let f64_division_by_zero_remains_unfolded_ir () =
     (opcode_names lowered);
   Alcotest.(check bool)
     "zero divisor keeps its bit pattern" true
-    (Option.bind (List.nth_opt (descriptions lowered) 1)
+    (Option.bind
+       (List.nth_opt (descriptions lowered) 1)
        (fun (description : Sequence.description) -> description.payload)
     = Some (Sequence.Float_bits 0L))
 
@@ -468,7 +469,8 @@ let deterministic_f64_dump_records_result_and_next_ids () =
   let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
   let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
   let dump = Expression.human lowered in
-  Alcotest.(check string) "deterministic F64 replay" dump
+  Alcotest.(check string)
+    "deterministic F64 replay" dump
     (Expression.human repeated);
   Alcotest.(check string)
     "F64 result and next identities"
@@ -496,7 +498,8 @@ let deep_f64_tree_uses_the_explicit_worklist () =
     "deep floating next instruction" (100 + instruction_count)
     (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
   Alcotest.(check int)
-    "deep floating next value" (1_000 + instruction_count)
+    "deep floating next value"
+    (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
 let pointer_prefixes_compose_with_existing_trees () =
