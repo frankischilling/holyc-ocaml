@@ -942,15 +942,8 @@ let plan root =
               Cast { result; span; operand; was_parenthesized; conversion }
               :: !reversed
         | Finish_binary
-            {
-              result;
-              opcode;
-              span;
-              left;
-              right;
-              conversion;
-              operation_flags;
-            } ->
+            { result; opcode; span; left; right; conversion; operation_flags }
+          ->
             reversed :=
               Binary
                 {
@@ -1196,15 +1189,8 @@ let emit_plan ~instruction_id ~value_id nodes =
                         { lowered_value = value_id; lowered_type = result_type }
                         !lowered))
         | Binary
-            {
-              result;
-              opcode;
-              span;
-              left;
-              right;
-              conversion;
-              operation_flags;
-            } -> (
+            { result; opcode; span; left; right; conversion; operation_flags }
+          -> (
             match
               ( find_lowered !lowered left "left binary operand",
                 find_lowered !lowered right "right binary operand",

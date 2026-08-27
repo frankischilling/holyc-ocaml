@@ -596,13 +596,7 @@ let mixed_f64_comparisons_mark_integer_subtree_roots () =
       ( [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_LESS" ],
         [ 0L; result_to_f64; use_f64 ],
         1 );
-      ( [
-          "IC_IMM_I64";
-          "IC_IMM_I64";
-          "IC_ADD";
-          "IC_IMM_F64";
-          "IC_LESS";
-        ],
+      ( [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_IMM_F64"; "IC_LESS" ],
         [ 0L; 0L; result_to_f64; 0L; use_f64 ],
         2 );
     ]
@@ -618,8 +612,7 @@ let mixed_f64_comparisons_mark_integer_subtree_roots () =
           let lowered = lower root |> require_lowered in
           let items = descriptions lowered in
           Alcotest.(check (list string))
-            "mixed comparison postorder" expected_opcodes
-            (opcode_names lowered);
+            "mixed comparison postorder" expected_opcodes (opcode_names lowered);
           Alcotest.(check (list int64))
             "mixed comparison flags" expected_flags
             (instruction_flags lowered);
@@ -637,8 +630,7 @@ let f64_comparison_flags_compose_with_a_parent_conversion () =
   let root =
     function_roots ~mode:Preprocessor.Jit
       ~path:"ir-f64-comparison-parent-conversion.HC"
-      "extern F64 Target(F64 value);F64 Caller(){return \
-       Target((1.0<2.0)+3.0);}"
+      "extern F64 Target(F64 value);F64 Caller(){return Target((1.0<2.0)+3.0);}"
     |> List.hd
   in
   let lowered = lower root |> require_lowered in
@@ -661,7 +653,8 @@ let deterministic_f64_comparison_dump_records_execution_domain () =
   let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
   let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
   let dump = Expression.human lowered in
-  Alcotest.(check string) "deterministic comparison replay" dump
+  Alcotest.(check string)
+    "deterministic comparison replay" dump
     (Expression.human repeated);
   Alcotest.(check bool)
     "dump records conversion on the integer producer" true
@@ -678,8 +671,7 @@ let top_level_f64_comparisons_use_the_same_lowering () =
   List.iter
     (fun mode ->
       let root =
-        top_level_roots ~mode ~path:"ir-top-level-f64-comparison.HC"
-          "1.0<=2;"
+        top_level_roots ~mode ~path:"ir-top-level-f64-comparison.HC" "1.0<=2;"
         |> List.hd
       in
       let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
@@ -688,7 +680,8 @@ let top_level_f64_comparisons_use_the_same_lowering () =
         [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_LESS_EQU" ]
         (opcode_names lowered);
       Alcotest.(check (list int64))
-        "top-level comparison flags" [ 0L; result_to_f64; use_f64 ]
+        "top-level comparison flags"
+        [ 0L; result_to_f64; use_f64 ]
         (instruction_flags lowered);
       Alcotest.(check int)
         "top-level next instruction" 43
@@ -702,9 +695,7 @@ let top_level_f64_comparisons_use_the_same_lowering () =
 
 let deep_mixed_f64_comparison_uses_the_explicit_worklist () =
   let leaf_count = 2_000 in
-  let integer_tree =
-    List.init leaf_count (fun _ -> "1") |> String.concat "+"
-  in
+  let integer_tree = List.init leaf_count (fun _ -> "1") |> String.concat "+" in
   let source =
     Printf.sprintf
       "extern I64 Target(I64 value);I64 Caller(){return Target((%s)<0.5);}"
@@ -731,7 +722,8 @@ let deep_mixed_f64_comparison_uses_the_explicit_worklist () =
     "deep comparison next instruction" (100 + instruction_count)
     (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
   Alcotest.(check int)
-    "deep comparison next value" (1_000 + instruction_count)
+    "deep comparison next value"
+    (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
 let f64_unary_and_binary_tree_keeps_checked_postorder () =
