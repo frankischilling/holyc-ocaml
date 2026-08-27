@@ -1577,6 +1577,270 @@ let test_typed_unary_minus_identity_count_is_checked () =
       Alcotest.fail "missing identities returned Not_literal"
   | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
 
+let typed_unary_not_spans result =
+  let source = ref (Semantic_result.result_source result) in
+  let operators = ref [] in
+  let unwrapping = ref true in
+  while !unwrapping do
+    match Semantic_source.argument_expression_kind !source with
+    | Semantic_source.Parenthesized_expression inner -> source := inner
+    | Semantic_source.Prefix_expression prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus
+      -> source := Semantic_source.prefix_operand prefix
+    | Semantic_source.Prefix_expression prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Logical_not
+      -> (
+        match Semantic_source.prefix_operator_origin prefix with
+        | Semantic_symbol.Source_location location ->
+            operators := location.span :: !operators;
+            source := Semantic_source.prefix_operand prefix
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected a logical-not operator source location")
+    | Semantic_source.Integer_literal _
+    | Semantic_source.Float_literal _
+    | Semantic_source.Character_literal _
+    | Semantic_source.String_literal _
+    | Semantic_source.Prefix_expression _
+    | Semantic_source.Postfix_expression _
+    | Semantic_source.Postfix_cast_expression _
+    | Semantic_source.Binary_expression _
+    | Semantic_source.Index_expression _
+    | Semantic_source.Member_access_expression _
+    | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Unresolved_expression _ -> unwrapping := false
+  done;
+  let leaf_span =
+    match Semantic_source.argument_expression_origin !source with
+    | Semantic_symbol.Source_location location -> location.span
+    | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+        Alcotest.fail "expected a typed literal source location"
+  in
+  (leaf_span, !operators)
+
+let check_typed_unary_not ~index ~expected_payload ~expected_kind result =
+  let instruction = 810 + index in
+  let value = 1010 + index in
+  let leaf_span, operator_spans = typed_unary_not_spans result in
+  let not_count = List.length operator_spans in
+  Alcotest.(check bool) "logical not is present" true (not_count > 0);
+  Alcotest.(check bool)
+    "outer span is not the literal span" true
+    (semantic_span result <> leaf_span);
+  let unary_identities =
+    List.init not_count (fun offset ->
+        identity (instruction + 1 + offset) (value + 1 + offset))
+  in
+  let lowered =
+    lower_typed ~unary_identities ~instruction ~value result |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  Alcotest.(check int)
+    "literal plus unary instructions" (not_count + 1) (List.length descriptions);
+  (match descriptions with
+  | (literal : Sequence.description) :: unaries ->
+      Alcotest.(check int)
+        "caller-owned literal instruction ID" instruction
+        (Sequence.Instruction_id.to_int literal.instruction_id);
+      Alcotest.(check int)
+        "caller-owned literal value ID" value
+        (match literal.result with
+        | Some result -> Sequence.Value_id.to_int result.value_id
+        | None -> Alcotest.fail "expected a typed literal result value");
+      Alcotest.(check bool)
+        "semantic payload" true
+        (literal.payload = Some expected_payload);
+      Alcotest.(check bool)
+        "literal uses the leaf span" true
+        (literal.span = Some leaf_span);
+      Alcotest.(check bool)
+        "literal type is the outer checked type" true
+        (literal.target_type = Semantic_result.result_type result);
+      List.iteri
+        (fun offset (unary : Sequence.description) ->
+          let operator_span = List.nth operator_spans offset in
+          Alcotest.(check bool)
+            "logical-not opcode" true
+            (Opcode.equal Opcode.Ic_not unary.opcode);
+          Alcotest.(check int)
+            "caller-owned unary instruction ID"
+            (instruction + 1 + offset)
+            (Sequence.Instruction_id.to_int unary.instruction_id);
+          Alcotest.(check bool)
+            "unary operand" true
+            (unary.operands = [ value_id (value + offset) ]);
+          Alcotest.(check bool)
+            "unary result" true
+            (unary.result = Some { value_id = value_id (value + 1 + offset) });
+          Alcotest.(check bool)
+            "forwarded result type" true
+            (unary.target_type = literal.target_type);
+          Alcotest.(check bool) "no folded payload" true (unary.payload = None);
+          Alcotest.(check int64) "no instruction flags" 0L unary.flags;
+          Alcotest.(check bool)
+            "operator span" true
+            (unary.span = Some operator_span);
+          Alcotest.(check bool)
+            "operator span is not the literal span" true
+            (unary.span <> Some leaf_span))
+        unaries
+  | [] -> Alcotest.fail "expected a literal instruction");
+  Alcotest.(check bool)
+    "final result type" true
+    (Some (Literal.result_type lowered) = Semantic_result.result_type result);
+  let kind_line =
+    Literal.human lowered |> String.split_on_char '\n' |> fun lines ->
+    List.nth lines 1
+  in
+  Alcotest.(check bool)
+    "semantic literal kind" true
+    (String.starts_with ~prefix:("kind=" ^ expected_kind ^ " ") kind_line);
+  let repeated =
+    lower_typed ~unary_identities ~instruction ~value result |> require_lowered
+  in
+  Alcotest.(check string)
+    "deterministic typed logical-not lowering" (Literal.human lowered)
+    (Literal.human repeated)
+
+let check_typed_unary_not_roots ~index roots =
+  let expected =
+    [
+      (Sequence.Integer (-1L), "integer");
+      (Sequence.Integer 0x434241L, "character");
+      (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+      (Sequence.Bytes "a\nB$", "string");
+    ]
+  in
+  Alcotest.(check int) "logical-not typed literals" 4 (List.length roots);
+  List.iteri
+    (fun offset (result, (expected_payload, expected_kind)) ->
+      check_typed_unary_not ~index:(index + offset) ~expected_payload
+        ~expected_kind result)
+    (List.combine roots expected)
+
+let test_function_typed_unary_not_emits_instructions () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-unary-not.HC"
+      "extern I64 Target(I64 wrapped,I64 character,F64 floating,U8 *text);\n\
+       I64 Caller(){return \
+       Target(!((+0xFFFFFFFFFFFFFFFF)),!((+'ABC')),!((+0.1)),!((+\"a\\n\\x42\\d\")));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  Test_function_call_expression_result.root_results results "Caller"
+  |> check_typed_unary_not_roots ~index:0
+
+let test_top_level_typed_unary_not_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-unary-not.HC"
+          "!((+0xFFFFFFFFFFFFFFFF));!((+'ABC'));!((+0.1));!((+\"a\\n\\x42\\d\"));"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      Test_top_level_expression_result.root_values results
+      |> check_typed_unary_not_roots ~index:10)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_nested_unary_not_uses_inner_to_outer_order () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-nested-unary-not.HC"
+      "extern I64 Target(I64 wrapped);\n\
+       I64 Caller(){return Target(!(!(-(+((+0xFFFFFFFFFFFFFFFF))))));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  let unary_identities =
+    [ identity 821 1021; identity 822 1022; identity 823 1023 ]
+  in
+  let lowered =
+    lower_typed ~unary_identities ~instruction:820 ~value:1020 result
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ (literal : Sequence.description); minus; inner_not; outer_not ] ->
+      Alcotest.(check bool)
+        "opcode order" true
+        (Opcode.equal Opcode.Ic_unary_minus minus.opcode
+        && Opcode.equal Opcode.Ic_not inner_not.opcode
+        && Opcode.equal Opcode.Ic_not outer_not.opcode);
+      Alcotest.(check bool)
+        "value chain" true
+        (minus.operands = [ value_id 1020 ]
+        && minus.result = Some { value_id = value_id 1021 }
+        && inner_not.operands = [ value_id 1021 ]
+        && inner_not.result = Some { value_id = value_id 1022 }
+        && outer_not.operands = [ value_id 1022 ]
+        && outer_not.result = Some { value_id = value_id 1023 });
+      Alcotest.(check bool)
+        "forwarded types" true
+        (minus.target_type = literal.target_type
+        && inner_not.target_type = literal.target_type
+        && outer_not.target_type = literal.target_type
+        && Some (Literal.result_type lowered) = outer_not.target_type);
+      Alcotest.(check bool)
+        "no folded payloads" true
+        (minus.payload = None && inner_not.payload = None
+       && outer_not.payload = None)
+  | _ -> Alcotest.fail "expected a literal, unary minus, and two logical nots"
+
+let test_typed_unary_not_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-unary-not-nonliteral.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(!((+value)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match
+    lower_typed
+      ~unary_identities:[ identity 831 1031 ]
+      ~instruction:830 ~value:1030 result
+  with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ ->
+      Alcotest.fail "typed logical-not nonliteral produced IR"
+
+let test_typed_unary_not_identity_count_is_checked () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-unary-not-identities.HC"
+      "extern I64 Target(I64 wrapped);\n\
+       I64 Caller(){return Target(!((+0xFFFFFFFFFFFFFFFF)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match typed_lowering_result ~instruction:832 ~value:1032 result with
+  | Error [ error ] ->
+      Alcotest.(check string) "identity diagnostic" "HCIRL0001" error.code
+  | Error errors ->
+      Alcotest.failf "expected one identity diagnostic, got %d"
+        (List.length errors)
+  | Ok Literal.Not_literal ->
+      Alcotest.fail "missing identities returned Not_literal"
+  | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
+
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source
     "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
@@ -1703,6 +1967,16 @@ let tests =
       test_typed_unary_minus_nonliteral_is_explicit;
     Alcotest.test_case "typed unary-minus identity count" `Quick
       test_typed_unary_minus_identity_count_is_checked;
+    Alcotest.test_case "typed function logical not" `Quick
+      test_function_typed_unary_not_emits_instructions;
+    Alcotest.test_case "typed top-level logical not" `Quick
+      test_top_level_typed_unary_not_in_both_modes;
+    Alcotest.test_case "typed nested logical not uses source order" `Quick
+      test_typed_nested_unary_not_uses_inner_to_outer_order;
+    Alcotest.test_case "typed logical-not nonliteral is explicit" `Quick
+      test_typed_unary_not_nonliteral_is_explicit;
+    Alcotest.test_case "typed logical-not identity count" `Quick
+      test_typed_unary_not_identity_count_is_checked;
     Alcotest.test_case "typed generated literal provenance" `Quick
       test_typed_literal_keeps_generated_source_location;
     Alcotest.test_case "typed nonliteral is explicit" `Quick
