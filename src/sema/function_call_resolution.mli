@@ -16,6 +16,12 @@ type unresolved_expression_kind =
   | Call_expression
 
 type defined_operand_kind = Defined_name | Defined_non_name
+
+type defined_operand_resolution =
+  | Defined_non_name_false
+  | Defined_function_query of Function_expression_binding.query
+  | Defined_top_level_name
+
 type defined_expression
 
 type prefix_operator =
@@ -159,9 +165,11 @@ val make_defined_argument_expression :
   operand_kind:defined_operand_kind ->
   operand_spelling:string ->
   operand_origin:Symbol.origin ->
+  operand_resolution:defined_operand_resolution ->
   (argument_expression_kind, string) result
 (** Retain the one source token inspected by ordinary HolyC [defined]. This
-    constructor does not look the spelling up or choose its Boolean value. *)
+    constructor accepts source-ordered function-query evidence or an explicit
+    top-level deferral; it does not perform a new symbol-table lookup. *)
 
 val make_bound_identifier_argument_expression :
   occurrence:Module_expression_binding.occurrence ->
@@ -483,6 +491,8 @@ val argument_expression_origin : argument_expression -> Symbol.origin
 val defined_operand_kind : defined_expression -> defined_operand_kind
 val defined_operand_spelling : defined_expression -> string
 val defined_operand_origin : defined_expression -> Symbol.origin
+val defined_operand_resolution : defined_expression -> defined_operand_resolution
+val defined_known_value : defined_expression -> bool option
 val prefix_operator : prefix_expression -> prefix_operator
 val prefix_operator_origin : prefix_expression -> Symbol.origin
 val prefix_operand : prefix_expression -> argument_expression

@@ -277,6 +277,64 @@ let current_position_statements_use_the_checked_terminator () =
         top_level_lowered)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let defined_statements_use_the_checked_terminator () =
+  let check label expected statement_span lowered =
+    Alcotest.(check (list string))
+      label [ "IC_IMM_I64"; "IC_END_EXP" ] (opcode_names lowered);
+    let producer = List.hd (descriptions lowered) in
+    Alcotest.(check bool)
+      (label ^ " payload") true
+      (producer.payload = Some (Sequence.Integer expected));
+    Alcotest.(check int64)
+      (label ^ " producer flags") 0L producer.flags;
+    check_terminator ~expected_span:statement_span lowered
+  in
+  List.iter
+    (fun mode ->
+      let statements =
+        function_statements ~mode ~path:"ir-defined-statement.HC"
+          "I64 Caller(I64 local){defined(local);defined(+);return 0;}"
+      in
+      Alcotest.(check int)
+        "two function defined statements" 2 (List.length statements);
+      List.iter2
+        (fun statement expected ->
+          let span =
+            statement |> Semantic_result.expression_statement_source
+            |> Semantic_source.expression_statement_origin |> span_of_origin
+          in
+          let lowered =
+            lower_function statement
+            |> require_ok show_sequence_errors
+            |> require_lowered
+          in
+          check "function defined statement" expected span lowered)
+        statements [ 1L; 0L ];
+      let top_level =
+        top_level_roots ~mode ~path:"ir-defined-top-level-statement.HC"
+          "defined(+);defined(name);"
+        |> expression_statement_roots
+      in
+      let false_root = List.hd top_level in
+      let false_span =
+        false_root |> Semantic_result.top_level_root_source
+        |> Top_level_source.root_origin |> span_of_origin
+      in
+      let false_lowered =
+        lower_top_level false_root
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      check "top-level defined statement" 0L false_span false_lowered;
+      match
+        List.nth top_level 1 |> lower_top_level
+        |> require_ok show_sequence_errors
+      with
+      | Statement.Unsupported_expression -> ()
+      | Statement.Lowered _ ->
+          Alcotest.fail "deferred top-level defined statement returned IR")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_statement_values_return_no_sequence () =
   List.iter
     (fun mode ->
@@ -369,6 +427,8 @@ let tests =
       deterministic_statement_dump;
     Alcotest.test_case "current-position statement terminators" `Quick
       current_position_statements_use_the_checked_terminator;
+    Alcotest.test_case "defined statement terminators" `Quick
+      defined_statements_use_the_checked_terminator;
     Alcotest.test_case "unsupported statement values" `Quick
       unsupported_statement_values_return_no_sequence;
     Alcotest.test_case "top-level role validation" `Quick

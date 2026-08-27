@@ -194,6 +194,25 @@ let defined_fact expression =
         ^ Semantic_function_call_resolution.defined_operand_spelling defined)
   | _ -> None
 
+let defined_resolution_fact expression =
+  match
+    Semantic_function_call_resolution.argument_expression_kind expression
+  with
+  | Semantic_function_call_resolution.Defined_expression defined ->
+      let resolution =
+        match
+          Semantic_function_call_resolution.defined_operand_resolution defined
+        with
+        | Semantic_function_call_resolution.Defined_top_level_name -> "deferred"
+        | Semantic_function_call_resolution.Defined_non_name_false -> "false"
+        | Semantic_function_call_resolution.Defined_function_query _ ->
+            "function-query"
+      in
+      Some
+        (Semantic_function_call_resolution.defined_operand_spelling defined
+        ^ ":" ^ resolution)
+  | _ -> None
+
 let complete_shapes_roles_calls_and_identities () =
   let source =
     "I64 F(I64 a=1,I64 b=2);I64 value;I64 values[3];\n\
@@ -482,6 +501,22 @@ let defined_operands_survive_top_level_trees () =
             "name:body";
           ]
           facts;
+        Alcotest.(check (list string))
+          "top-level names stay deferred while a non-name is false"
+          [
+            "top:deferred";
+            "+:false";
+            "left:deferred";
+            "right:deferred";
+            "cast:deferred";
+            "argument:deferred";
+            "condition:deferred";
+            "body:deferred";
+          ]
+          (nodes
+          |> List.filter_map (fun node ->
+              node |> Semantic_top_level_expression_tree.expression_node_source
+              |> defined_resolution_fact));
         facts
       in
       let first = inspect () in
