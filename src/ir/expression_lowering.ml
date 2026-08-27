@@ -3,6 +3,7 @@ module Literal = Literal_lowering
 module Semantic_result = Sema.Function_call_expression_result
 module Semantic_source = Sema.Function_call_resolution
 module Type = Sema.Type
+module Type_reference = Sema.Type_reference
 module Int_map = Map.Make (Int)
 
 type t = {
@@ -44,6 +45,13 @@ type plan_node =
       operand : Semantic_result.expression_result;
       conversion : result_conversion;
     }
+  | Cast of {
+      result : Semantic_result.expression_result;
+      span : Common.Span.t;
+      operand : Semantic_result.expression_result;
+      was_parenthesized : bool;
+      conversion : result_conversion;
+    }
   | Binary of {
       result : Semantic_result.expression_result;
       opcode : Opcode.t;
@@ -67,6 +75,13 @@ type task =
       opcode : Opcode.t;
       span : Common.Span.t;
       operand : Semantic_result.expression_result;
+      conversion : result_conversion;
+    }
+  | Finish_cast of {
+      result : Semantic_result.expression_result;
+      span : Common.Span.t;
+      operand : Semantic_result.expression_result;
+      was_parenthesized : bool;
       conversion : result_conversion;
     }
   | Finish_binary of {
@@ -155,8 +170,9 @@ let checked_f64_type result =
       with
       | ( Semantic_result.F64_result,
           0,
-          Type.Primitive (Type.Internal_storage, Sema.Primitive_type.F64) ) ->
-          Ok (Checked_type type_)
+          Type.Primitive
+            ( (Type.Public_spelling | Type.Internal_storage),
+              Sema.Primitive_type.F64 ) ) -> Ok (Checked_type type_)
       | ( ( Semantic_result.Integer_result
           | Semantic_result.F64_result
           | Semantic_result.Unresolved_actual_class ),
@@ -349,6 +365,49 @@ let checked_alias_types result operand =
       Error
         (metadata_error ?span:(result_span result)
            "transparent expression does not have complete checked types")
+
+let checked_cast_types result operand target =
+  match Semantic_result.result_type result with
+  | None ->
+      Error
+        (metadata_error ?span:(result_span result)
+           "postfix cast does not have a checked target type")
+  | Some result_type -> (
+      let target_type = Type_reference.resolved_type target in
+      if not (type_equal result_type target_type) then
+        Error
+          (metadata_error ?span:(result_span result)
+             "postfix cast result type does not match its checked target")
+      else
+        match (checked_numeric_type operand, checked_numeric_type result) with
+        | Error item, _ | _, Error item -> Error item
+        | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok false
+        | Ok (Checked_type _), Ok (Checked_type _) -> Ok true)
+
+let cast_span result =
+  match result_span result with
+  | Some span -> Ok span
+  | None ->
+      Error
+        (metadata_error
+           "typed semantic postfix cast does not have a source location")
+
+let cast_was_parenthesized operand =
+  match Semantic_source.argument_expression_kind operand with
+  | Semantic_source.Parenthesized_expression _ -> true
+  | Semantic_source.Integer_literal _
+  | Semantic_source.Float_literal _
+  | Semantic_source.Character_literal _
+  | Semantic_source.String_literal _
+  | Semantic_source.Prefix_expression _
+  | Semantic_source.Postfix_expression _
+  | Semantic_source.Postfix_cast_expression _
+  | Semantic_source.Binary_expression _
+  | Semantic_source.Index_expression _
+  | Semantic_source.Member_access_expression _
+  | Semantic_source.Bound_identifier_expression _
+  | Semantic_source.Top_level_bound_identifier_expression _
+  | Semantic_source.Unresolved_expression _ -> false
 
 let validate_numeric_unary result opcode operand =
   let checked_type =
@@ -682,9 +741,32 @@ let plan root =
                                    conversion;
                                  }
                             :: !pending))
+            | Semantic_source.Postfix_cast_expression (source_operand, target)
+              -> (
+                match
+                  ( checked_operand result source_operand "postfix cast",
+                    cast_span result )
+                with
+                | Error item, _ | _, Error item -> error := Some item
+                | Ok operand, Ok span -> (
+                    match checked_cast_types result operand target with
+                    | Error item -> error := Some item
+                    | Ok false -> unsupported := true
+                    | Ok true ->
+                        pending :=
+                          Visit { result = operand; conversion = Keep_result }
+                          :: Finish_cast
+                               {
+                                 result;
+                                 span;
+                                 operand;
+                                 was_parenthesized =
+                                   cast_was_parenthesized source_operand;
+                                 conversion;
+                               }
+                          :: !pending))
             | Semantic_source.String_literal _
             | Semantic_source.Postfix_expression _
-            | Semantic_source.Postfix_cast_expression _
             | Semantic_source.Index_expression _
             | Semantic_source.Member_access_expression _
             | Semantic_source.Bound_identifier_expression _
@@ -695,6 +777,11 @@ let plan root =
         | Finish_unary { result; opcode; span; operand; conversion } ->
             reversed :=
               Unary { result; opcode; span; operand; conversion } :: !reversed
+        | Finish_cast { result; span; operand; was_parenthesized; conversion }
+          ->
+            reversed :=
+              Cast { result; span; operand; was_parenthesized; conversion }
+              :: !reversed
         | Finish_binary { result; opcode; span; left; right; conversion } ->
             reversed :=
               Binary { result; opcode; span; left; right; conversion }
@@ -854,6 +941,41 @@ let emit_plan ~instruction_id ~value_id nodes =
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
                         !lowered))
+        | Cast { result; span; operand; was_parenthesized; conversion } -> (
+            match
+              ( find_lowered !lowered operand "postfix-cast operand",
+                Semantic_result.result_type result )
+            with
+            | Error item, _ -> error := Some item
+            | _, None ->
+                error :=
+                  Some
+                    (metadata_error ~span
+                       "postfix cast does not have a checked target type")
+            | Ok operand_node, Some result_type -> (
+                match take_identity allocator (Some span) with
+                | Error item -> error := Some item
+                | Ok (instruction_id, value_id) ->
+                    let description : Sequence.description =
+                      {
+                        instruction_id;
+                        opcode = Opcode.Ic_holyc_typecast;
+                        operands = [ operand_node.lowered_value ];
+                        result = Some { value_id };
+                        target_type = Some result_type;
+                        payload =
+                          Some
+                            (Sequence.Integer
+                               (if was_parenthesized then 1L else 0L));
+                        flags = conversion_flags conversion;
+                        span = Some span;
+                      }
+                    in
+                    descriptions_rev := description :: !descriptions_rev;
+                    lowered :=
+                      Int_map.add (result_key result)
+                        { lowered_value = value_id; lowered_type = result_type }
+                        !lowered))
         | Binary { result; opcode; span; left; right; conversion } -> (
             match
               ( find_lowered !lowered left "left binary operand",
@@ -905,6 +1027,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                 | Literal { result; _ } :: _
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
+                | Cast { result; _ } :: _
                 | Binary { result; _ } :: _ -> result
                 | [] -> assert false
               in
