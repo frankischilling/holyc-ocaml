@@ -7436,6 +7436,44 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-SEMA-SIZEOF-SOURCE-INPUT"
+description = "Ordinary sizeof expressions retain their complete source input and exact source-ordered root query before semantic size evaluation."
+sources = [
+  "Compiler/PrsExp.HC:303-351 PrsSizeOf target lookup, member traversal, array counts, pointer-size override, and immediate result",
+  "Compiler/PrsExp.HC:909-924 KW_SIZEOF wrapper-parenthesis handling",
+  "Compiler/CompilerA.HH:36-38 IC_SIZEOF identity and shape",
+  "Compiler/CInit.HC:33 IC_SIZEOF registration"
+]
+implementation = [
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/top_level_expression_tree.ml",
+  "src/driver/function_call_resolution.ml",
+  "src/driver/top_level_expression_binding.ml",
+  "src/driver/top_level_expression_tree.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_top_level_expression_tree.ml",
+  "test/test_ir_literal_lowering.ml"
+]
+status = "implemented"
+issue = 482
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary sizeof leaves in checked function-body and executable top-level semantic expression trees"
+retained_evidence = ["keyword spelling and origin", "balanced wrapper origins", "root spelling and origin", "exact function or statement query", "ordered member names and punctuation", "contiguous pointer-layer depths and origins", "complete expression origin"]
+query_results = ["function local", "source-visible module publication", "supplied JIT or AOT outer record", "explicit complete-chain miss"]
+validation = ["sizeof-root query role", "matching root spelling and origin", "balanced wrappers", "contiguous pointer depths", "exact function or statement query ownership"]
+diagnostics = ["HCSEMA0039 inconsistent function query evidence", "HCSEMA0055 inconsistent executable top-level query evidence"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_call_resolution_tests = 4
+focused_top_level_expression_tree_tests = 2
+target_kind_member_lookup_layout_byte_count_immediate_lowering_and_execution = "not implemented"
+ic_sizeof_note = "The separately registered zero-argument IC_SIZEOF operation is a pointer-adjustment opcode; ordinary keyword evaluation in PrsSizeOf ends as IC_IMM_I64."
+native_oracle_status = "not required for this retention boundary; PrsSizeOf and the KW_SIZEOF branch directly state the consumed source and final lookup inputs"
+
+[[feature]]
 id = "HC-IR-INTEGER-BINARY-LOWERING"
 description = "Checked integer literal binary trees lower to one verified IR sequence with source-ordered operands and module-owned identities."
 sources = [
