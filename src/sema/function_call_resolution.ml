@@ -19,7 +19,7 @@ type defined_operand_kind = Defined_name | Defined_non_name
 
 type defined_operand_resolution =
   | Defined_non_name_false
-  | Defined_function_query of Function_expression_binding.query
+  | Defined_function_query of Module_expression_binding.query
   | Defined_top_level_name
 
 type defined_expression = {
@@ -814,16 +814,16 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
       | Defined_name, Defined_top_level_name -> Ok ()
       | Defined_name, Defined_function_query query ->
           if
-            Function_expression_binding.query_role query
+            Module_expression_binding.query_role query
             <> Function_expression_binding.Defined_operand
           then Error "defined operand query has the wrong semantic role"
           else if
             not
               (String.equal operand_spelling
-                 (Function_expression_binding.query_name query))
+                 (Module_expression_binding.query_name query))
           then Error "defined operand spelling does not match its query"
           else if
-            operand_origin <> Function_expression_binding.query_origin query
+            operand_origin <> Module_expression_binding.query_origin query
           then Error "defined operand origin does not match its query"
           else Ok ()
       | Defined_name, Defined_non_name_false ->
@@ -984,9 +984,10 @@ let defined_known_value expression =
   match expression.defined_operand_resolution_ with
   | Defined_non_name_false -> Some false
   | Defined_function_query query -> (
-      match Function_expression_binding.query_resolution query with
-      | Function_expression_binding.Function_binding _ -> Some true
-      | Function_expression_binding.Nonlocal_candidate -> None)
+      match Module_expression_binding.query_resolution query with
+      | Module_expression_binding.Local_binding _
+      | Module_expression_binding.Module_binding _ -> Some true
+      | Module_expression_binding.Outer_candidate -> None)
   | Defined_top_level_name -> None
 
 let make_argument ~index ~kind ~expression ~origin =
@@ -1696,7 +1697,7 @@ let occurrence_map occurrences =
 let query_map queries =
   List.fold_left
     (fun map query ->
-      Int_map.add (Function_expression_binding.query_index query) query map)
+      Int_map.add (Module_expression_binding.query_index query) query map)
     Int_map.empty queries
 
 let rec validate_bound_evidence occurrence_by_index query_by_index expression =
@@ -1758,7 +1759,7 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
             (invalid_input
                "function call input contains a top-level defined query")
       | Defined_function_query query -> (
-          let index = Function_expression_binding.query_index query in
+          let index = Module_expression_binding.query_index query in
           match Int_map.find_opt index query_by_index with
           | Some expected when expected == query -> Ok ()
           | Some _ ->

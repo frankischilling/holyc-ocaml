@@ -1308,6 +1308,38 @@ let deferred_defined_names_return_no_sequence () =
           Alcotest.fail "top-level name lookup was guessed during lowering")
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let module_defined_names_lower_in_both_modes () =
+  let source =
+    "extern class PriorType;I64 PriorGlobal;\
+     extern I64 Target(I64 type_name,I64 global_name,I64 recursive_name,I64 \
+     later_name);I64 Caller(){return \
+     Target(defined(PriorType),defined(PriorGlobal),defined(Caller),\
+     defined(Later));}I64 Later;"
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-defined-module.HC" source in
+      Alcotest.(check int) "four module query roots" 4 (List.length roots);
+      roots
+      |> List.filteri (fun index _ -> index < 3)
+      |> List.iter (fun root ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "module query emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "module query emits true" true
+            (item.payload = Some (Sequence.Integer 1L));
+          Alcotest.(check bool)
+            "module query keeps its complete expression span" true
+            (item.span = Some (source_span root)));
+      match List.nth roots 3 |> lower with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "a later module name was visible before publication")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let deterministic_defined_dump_records_payload () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit ~path:"ir-defined-dump.HC"
@@ -1521,6 +1553,8 @@ let tests =
       defined_constants_lower_in_both_modes;
     Alcotest.test_case "deferred defined lowering" `Quick
       deferred_defined_names_return_no_sequence;
+    Alcotest.test_case "module defined lowering" `Quick
+      module_defined_names_lower_in_both_modes;
     Alcotest.test_case "deterministic defined dump" `Quick
       deterministic_defined_dump_records_payload;
     Alcotest.test_case "postfix cast metadata validation" `Quick

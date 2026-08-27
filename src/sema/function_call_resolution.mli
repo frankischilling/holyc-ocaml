@@ -19,7 +19,7 @@ type defined_operand_kind = Defined_name | Defined_non_name
 
 type defined_operand_resolution =
   | Defined_non_name_false
-  | Defined_function_query of Function_expression_binding.query
+  | Defined_function_query of Module_expression_binding.query
   | Defined_top_level_name
 
 type defined_expression

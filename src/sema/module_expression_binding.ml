@@ -19,9 +19,15 @@ type occurrence = {
   resolution : resolution;
 }
 
+type query = {
+  query_source_ : Function_expression_binding.query;
+  query_resolution_ : resolution;
+}
+
 type resolved_function = {
   source : Function_expression_binding.resolved_function;
   occurrences : occurrence list;
+  queries : query list;
 }
 
 module Int_map = Map.Make (Int)
@@ -65,9 +71,7 @@ let function_item_index (function_ : resolved_function) =
   Function_expression_binding.function_item_index function_.source
 
 let function_occurrences (function_ : resolved_function) = function_.occurrences
-
-let function_queries (function_ : resolved_function) =
-  Function_expression_binding.function_queries function_.source
+let function_queries (function_ : resolved_function) = function_.queries
 
 let occurrence_source (occurrence : occurrence) = occurrence.source
 
@@ -81,6 +85,21 @@ let occurrence_origin (occurrence : occurrence) =
   Function_expression_binding.occurrence_origin occurrence.source
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let query_source (query : query) = query.query_source_
+
+let query_index (query : query) =
+  Function_expression_binding.query_index query.query_source_
+
+let query_role (query : query) =
+  Function_expression_binding.query_role query.query_source_
+
+let query_name (query : query) =
+  Function_expression_binding.query_name query.query_source_
+
+let query_origin (query : query) =
+  Function_expression_binding.query_origin query.query_source_
+
+let query_resolution (query : query) = query.query_resolution_
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let publication_kind_name = function
@@ -246,6 +265,25 @@ let validate_occurrences table function_scope occurrences =
   in
   loop 0 occurrences
 
+let validate_queries table function_scope queries =
+  let rec loop expected_index = function
+    | [] -> Ok ()
+    | query :: rest ->
+        if Function_expression_binding.query_index query <> expected_index then
+          Error
+            (invalid_input
+               "function expression query indexes are not contiguous")
+        else
+          match Function_expression_binding.query_resolution query with
+          | Function_expression_binding.Nonlocal_candidate ->
+              loop (expected_index + 1) rest
+          | Function_expression_binding.Function_binding binding -> (
+              match validate_local_binding table function_scope binding with
+              | Error _ as error -> error
+              | Ok () -> loop (expected_index + 1) rest)
+  in
+  loop 0 queries
+
 let validate_function table parent publication_symbols previous_item function_ =
   let symbol = Function_expression_binding.function_symbol function_ in
   let scope = Function_expression_binding.function_scope function_ in
@@ -280,7 +318,13 @@ let validate_function table parent publication_symbols previous_item function_ =
         (Function_expression_binding.function_occurrences function_)
     with
     | Error _ as error -> error
-    | Ok () -> Ok item_index
+    | Ok () -> (
+        match
+          validate_queries table scope
+            (Function_expression_binding.function_queries function_)
+        with
+        | Error _ as error -> error
+        | Ok () -> Ok item_index)
 
 let validate_functions table parent publication_symbols expressions =
   let rec loop previous_item = function
@@ -320,6 +364,22 @@ let resolve_occurrence environment source =
   in
   { source; resolution }
 
+let resolve_query environment source =
+  let query_resolution_ =
+    match Function_expression_binding.query_resolution source with
+    | Function_expression_binding.Function_binding binding ->
+        Local_binding binding
+    | Function_expression_binding.Nonlocal_candidate -> (
+        match
+          String_map.find_opt
+            (Function_expression_binding.query_name source)
+            environment
+        with
+        | Some publication -> Module_binding publication
+        | None -> Outer_candidate)
+  in
+  { query_source_ = source; query_resolution_ }
+
 let resolve_validated expressions publications =
   let rec loop environment remaining_publications functions_rev by_symbol =
     function
@@ -336,6 +396,9 @@ let resolve_validated expressions publications =
             occurrences =
               Function_expression_binding.function_occurrences source
               |> List.map (resolve_occurrence environment);
+            queries =
+              Function_expression_binding.function_queries source
+              |> List.map (resolve_query environment);
           }
         in
         loop environment remaining_publications
