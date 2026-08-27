@@ -1438,8 +1438,8 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table visible_aggregates global_values defined_queries expected
-    typed locals (item_index, ast) =
+let function_input table visible_aggregates global_values defined_queries
+    expected typed locals (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1535,7 +1535,7 @@ let function_inputs table function_types local_types global_values expressions
               Ok
                 (expected |> Sema.Module_expression_binding.function_queries
                 |> List.map (fun query ->
-                       Sema.Function_call_resolution.Module_query query))
+                    Sema.Function_call_resolution.Module_query query))
           | Some outer -> (
               match
                 Sema.Outer_expression_binding.find_function outer
@@ -1543,20 +1543,20 @@ let function_inputs table function_types local_types global_values expressions
               with
               | None ->
                   Error
-                    "outer expression binding has no matching function query set"
+                    "outer expression binding has no matching function query \
+                     set"
               | Some function_ ->
                   Ok
-                    (function_
-                    |> Sema.Outer_expression_binding.function_queries
+                    (function_ |> Sema.Outer_expression_binding.function_queries
                     |> List.map (fun query ->
-                           Sema.Function_call_resolution.Outer_query query)))
+                        Sema.Function_call_resolution.Outer_query query)))
         in
         match defined_queries with
         | Error _ as error -> error
         | Ok defined_queries -> (
             match
-              function_input table visible global_values defined_queries expected
-                typed locals ast
+              function_input table visible global_values defined_queries
+                expected typed locals ast
             with
             | Error _ as error -> error
             | Ok input ->
@@ -1590,7 +1590,8 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
           || Sema.Outer_expression_binding.source outer != expressions
     then
       Error
-        "function call outer expressions do not match the module expression binding"
+        "function call outer expressions do not match the module expression \
+         binding"
     else
       match global_typed_environment table global_types with
       | Error _ as error -> error

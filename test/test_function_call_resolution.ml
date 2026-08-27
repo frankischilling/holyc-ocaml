@@ -102,8 +102,8 @@ let resolve ?outer prepared =
   Holyc_lib.resolve_function_calls prepared.session
     ~declarations:prepared.declarations ~function_types:prepared.function_types
     ~local_types:prepared.local_types ~global_types:prepared.global_types
-    ~functions:prepared.functions ~expressions:prepared.module_expressions ?outer
-    prepared.ast
+    ~functions:prepared.functions ~expressions:prepared.module_expressions
+    ?outer prepared.ast
 
 let outer_environment prepared records =
   let table = Session.semantic_symbols prepared.session in
@@ -118,19 +118,19 @@ let outer_environment prepared records =
   let entries =
     records
     |> List.mapi (fun entry_index (name, record_kind) ->
-           let symbol =
-             Semantic_symbol_table.add table
-               ~scope:(Semantic_symbol_table.root table)
-               ~name ~kind:(semantic_kind record_kind)
-               ~origin:(Semantic_symbol.Synthesized ("outer fixture " ^ name))
-             |> checked
-           in
-           Semantic_outer_environment.make_entry ~symbol ~record_kind
-             ~entry_index
-           |> function
-           | Ok entry -> entry
-           | Error error ->
-               Alcotest.fail (Semantic_outer_environment.error_to_string error))
+        let symbol =
+          Semantic_symbol_table.add table
+            ~scope:(Semantic_symbol_table.root table)
+            ~name
+            ~kind:(semantic_kind record_kind)
+            ~origin:(Semantic_symbol.Synthesized ("outer fixture " ^ name))
+          |> checked
+        in
+        Semantic_outer_environment.make_entry ~symbol ~record_kind ~entry_index
+        |> function
+        | Ok entry -> entry
+        | Error error ->
+            Alcotest.fail (Semantic_outer_environment.error_to_string error))
   in
   let table_kind =
     match prepared.mode with
@@ -281,18 +281,18 @@ let defined_resolution_fact (_, defined) =
             (Semantic_outer_expression_binding.Module_binding publication) ->
             "module:"
             ^ (publication
-              |> Semantic_module_expression_binding.publication_kind
-              |> Semantic_module_expression_binding.publication_kind_name)
+             |> Semantic_module_expression_binding.publication_kind
+             |> Semantic_module_expression_binding.publication_kind_name)
             ^ ":"
             ^ (publication
-              |> Semantic_module_expression_binding.publication_source_symbol
-              |> Semantic_symbol.name)
+             |> Semantic_module_expression_binding.publication_source_symbol
+             |> Semantic_symbol.name)
         | Semantic_outer_expression_binding.Query_binding
             (Semantic_outer_expression_binding.Outer_binding binding) ->
             "outer:"
             ^ (binding |> Semantic_outer_environment.binding_entry
-              |> Semantic_outer_environment.entry_symbol
-              |> Semantic_symbol.name))
+             |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name
+              ))
   in
   let known =
     match defined_known_value defined with
@@ -1598,9 +1598,9 @@ let defined_values_follow_complete_outer_lookup () =
         function_named unresolved "Caller"
         |> Semantic_function_call_resolution.function_expression_statements
         |> List.concat_map (fun statement ->
-               statement
-               |> Semantic_function_call_resolution.expression_statement_expression
-               |> defined_expressions)
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> defined_expressions)
       in
       Alcotest.(check (list string))
         "without an outer snapshot, absent module names stay deferred"
@@ -1625,9 +1625,9 @@ let defined_values_follow_complete_outer_lookup () =
         function_named result "Caller"
         |> Semantic_function_call_resolution.function_expression_statements
         |> List.concat_map (fun statement ->
-               statement
-               |> Semantic_function_call_resolution.expression_statement_expression
-               |> defined_expressions)
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> defined_expressions)
       in
       Alcotest.(check (list string))
         "the complete outer chain proves hits and misses"
@@ -1642,25 +1642,26 @@ let defined_values_follow_complete_outer_lookup () =
       let caller_queries =
         outer |> Semantic_outer_expression_binding.functions
         |> List.find (fun function_ ->
-               function_ |> Semantic_outer_expression_binding.function_symbol
-               |> Semantic_symbol.name |> String.equal "Caller")
+            function_ |> Semantic_outer_expression_binding.function_symbol
+            |> Semantic_symbol.name |> String.equal "Caller")
         |> Semantic_outer_expression_binding.function_queries
       in
       Alcotest.(check bool)
         "every name operand keeps the exact outer query owned by Caller" true
         (terms
         |> List.for_all (fun (_, defined) ->
-               match
-                 Semantic_function_call_resolution.defined_operand_resolution
-                   defined
-               with
-               | Semantic_function_call_resolution.Defined_function_query
-                   (Semantic_function_call_resolution.Outer_query query) ->
-                   List.exists (( == ) query) caller_queries
-               | Semantic_function_call_resolution.Defined_non_name_false -> true
-               | Semantic_function_call_resolution.Defined_function_query
-                   (Semantic_function_call_resolution.Module_query _)
-               | Semantic_function_call_resolution.Defined_top_level_name -> false)))
+            match
+              Semantic_function_call_resolution.defined_operand_resolution
+                defined
+            with
+            | Semantic_function_call_resolution.Defined_function_query
+                (Semantic_function_call_resolution.Outer_query query) ->
+                List.exists (( == ) query) caller_queries
+            | Semantic_function_call_resolution.Defined_non_name_false -> true
+            | Semantic_function_call_resolution.Defined_function_query
+                (Semantic_function_call_resolution.Module_query _)
+            | Semantic_function_call_resolution.Defined_top_level_name -> false)
+        ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defined_generated_provenance_is_deterministic_and_pure () =
@@ -1837,7 +1838,8 @@ let defined_query_must_belong_to_its_function () =
       Semantic_function_call_resolution.make_function
         ~symbol:(Semantic_function_call_resolution.function_symbol target)
         ~scope:(Semantic_function_call_resolution.function_scope target)
-        ~item_index:(Semantic_function_call_resolution.function_item_index target)
+        ~item_index:
+          (Semantic_function_call_resolution.function_item_index target)
         ~expression_statements:[ statement ] []
       |> checked
     in
@@ -1848,7 +1850,8 @@ let defined_query_must_belong_to_its_function () =
         ~function_types:prepared.function_types ~functions:prepared.functions
         ~expressions:prepared.module_expressions ?outer [ input ]
     with
-    | Ok _ -> Alcotest.fail "a function accepted another function's defined query"
+    | Ok _ ->
+        Alcotest.fail "a function accepted another function's defined query"
     | Error error ->
         Alcotest.(check string)
           "foreign query diagnostic code" "HCSEMA0039"

@@ -828,13 +828,12 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
                   Outer_expression_binding.query_name query,
                   Outer_expression_binding.query_origin query )
           in
-          if
-            query_role <> Function_expression_binding.Defined_operand
-          then Error "defined operand query has the wrong semantic role"
-          else if not (String.equal operand_spelling query_name)
-          then Error "defined operand spelling does not match its query"
-          else if operand_origin <> query_origin
-          then Error "defined operand origin does not match its query"
+          if query_role <> Function_expression_binding.Defined_operand then
+            Error "defined operand query has the wrong semantic role"
+          else if not (String.equal operand_spelling query_name) then
+            Error "defined operand spelling does not match its query"
+          else if operand_origin <> query_origin then
+            Error "defined operand origin does not match its query"
           else Ok ()
       | Defined_name, Defined_non_name_false ->
           Error "name-shaped defined operand cannot use a non-name result"
@@ -2117,7 +2116,8 @@ let validate_function_inputs table parent expressions declarations
               | None ->
                   Error
                     (invalid_input
-                       "outer expression binding has no matching function query set")
+                       "outer expression binding has no matching function \
+                        query set")
               | Some function_ ->
                   Ok
                     (function_ |> Outer_expression_binding.function_queries
@@ -2749,7 +2749,8 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
   then
     Error
       (invalid_input
-         "function call outer expressions do not match the module expression binding")
+         "function call outer expressions do not match the module expression \
+          binding")
   else if
     match members with
     | None -> false

@@ -65,17 +65,18 @@ let function_roots_with_outer ~mode ~path ~records source =
   let entries =
     records
     |> List.mapi (fun entry_index (name, record_kind) ->
-           let symbol =
-             Holyc_lib.Semantic_symbol_table.add table
-               ~scope:(Holyc_lib.Semantic_symbol_table.root table)
-               ~name ~kind:(semantic_kind record_kind)
-               ~origin:(Holyc_lib.Semantic_symbol.Synthesized
-                          ("IR outer fixture " ^ name))
-             |> require_ok Fun.id
-           in
-           Holyc_lib.Semantic_outer_environment.make_entry ~symbol ~record_kind
-             ~entry_index
-           |> require_ok Holyc_lib.Semantic_outer_environment.error_to_string)
+        let symbol =
+          Holyc_lib.Semantic_symbol_table.add table
+            ~scope:(Holyc_lib.Semantic_symbol_table.root table)
+            ~name
+            ~kind:(semantic_kind record_kind)
+            ~origin:
+              (Holyc_lib.Semantic_symbol.Synthesized ("IR outer fixture " ^ name))
+          |> require_ok Fun.id
+        in
+        Holyc_lib.Semantic_outer_environment.make_entry ~symbol ~record_kind
+          ~entry_index
+        |> require_ok Holyc_lib.Semantic_outer_environment.error_to_string)
   in
   let table_kind =
     match mode with
@@ -120,7 +121,8 @@ let function_roots_with_outer ~mode ~path ~records source =
   let results =
     Holyc_lib.type_function_call_expressions prepared.session
       ~members:prepared.members ~policies
-    |> require_ok Holyc_lib.Semantic_function_call_expression_result.error_to_string
+    |> require_ok
+         Holyc_lib.Semantic_function_call_expression_result.error_to_string
   in
   Test_function_call_expression_result.root_results results "Caller"
 
@@ -1433,8 +1435,8 @@ let outer_defined_hits_and_misses_lower_in_both_modes () =
             ]
           source
       in
-      Alcotest.(check int) "one outer hit and one proven miss" 2
-        (List.length roots);
+      Alcotest.(check int)
+        "one outer hit and one proven miss" 2 (List.length roots);
       List.iter2
         (fun root expected ->
           let lowered = lower root |> require_lowered in
