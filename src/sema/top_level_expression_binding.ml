@@ -1,9 +1,22 @@
-type event = { name : string; origin : Symbol.origin }
+type identifier_event = { name : string; origin : Symbol.origin }
+
+type query_event = {
+  role : Function_expression_binding.query_role;
+  name : string;
+  origin : Symbol.origin;
+}
+
+type event = Identifier of identifier_event | Name_query of query_event
 
 let make_identifier ~name ~origin =
   if String.length name = 0 then
     Error "top-level expression identifier cannot be empty"
-  else Ok { name; origin }
+  else Ok (Identifier { name; origin })
+
+let make_name_query ~role ~name ~origin =
+  if String.length name = 0 then
+    Error "top-level expression query cannot be empty"
+  else Ok (Name_query { role; name; origin })
 
 type input = {
   statement_index : int;
@@ -22,14 +35,26 @@ type resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_candidate
 
-type occurrence = { index : int; source : event; resolution : resolution }
-type statement = { source : input; occurrences : occurrence list }
+type occurrence = {
+  index : int;
+  source : identifier_event;
+  resolution : resolution;
+}
+
+type query = { index : int; source : query_event; resolution : resolution }
+
+type statement = {
+  source : input;
+  occurrences : occurrence list;
+  queries : query list;
+}
 
 type t = {
   table : Symbol_table.t;
   module_expressions_ : Module_expression_binding.t;
   statements_ : statement list;
   all_occurrences_ : occurrence list;
+  all_queries_ : query list;
 }
 
 type error_kind = Invalid_input of string
@@ -46,15 +71,22 @@ let owns_module_expressions result module_expressions =
 let module_expressions result = result.module_expressions_
 let statements result = result.statements_
 let all_occurrences result = result.all_occurrences_
+let all_queries result = result.all_queries_
 let statement_source (statement : statement) = statement.source
 let statement_index (statement : statement) = statement.source.statement_index
 let statement_item_index (statement : statement) = statement.source.item_index
 let statement_origin (statement : statement) = statement.source.origin
 let statement_occurrences (statement : statement) = statement.occurrences
+let statement_queries (statement : statement) = statement.queries
 let occurrence_index (occurrence : occurrence) = occurrence.index
 let occurrence_name (occurrence : occurrence) = occurrence.source.name
 let occurrence_origin (occurrence : occurrence) = occurrence.source.origin
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let query_index (query : query) = query.index
+let query_role (query : query) = query.source.role
+let query_name (query : query) = query.source.name
+let query_origin (query : query) = query.source.origin
+let query_resolution (query : query) = query.resolution
 let error_code error = error.code
 let error_kind error = error.kind
 let error_origin error = error.origin
@@ -138,40 +170,66 @@ let rec publish_before item_index visible = function
       publish_before item_index (add_publication visible publication) rest
   | publications -> (visible, publications)
 
-let resolve_events visible next_index events =
-  let rec loop next_index occurrences_rev = function
-    | [] -> Ok (next_index, List.rev occurrences_rev)
-    | event :: rest ->
-        let resolution =
-          match String_map.find_opt event.name visible with
-          | Some publication -> Module_binding publication
-          | None -> Outer_candidate
+let resolve_events visible next_occurrence next_query events =
+  let resolution name =
+    match String_map.find_opt name visible with
+    | Some publication -> Module_binding publication
+    | None -> Outer_candidate
+  in
+  let rec loop next_occurrence next_query occurrences_rev queries_rev =
+    function
+    | [] ->
+        Ok
+          ( next_occurrence,
+            next_query,
+            List.rev occurrences_rev,
+            List.rev queries_rev )
+    | Identifier source :: rest ->
+        let occurrence : occurrence =
+          { index = next_occurrence; source; resolution = resolution source.name }
         in
-        let occurrence = { index = next_index; source = event; resolution } in
-        if next_index = max_int then
+        if next_occurrence = max_int then
           Error
             (invalid_input "top-level occurrence identity space is exhausted")
-        else loop (next_index + 1) (occurrence :: occurrences_rev) rest
+        else
+          loop (next_occurrence + 1) next_query
+            (occurrence :: occurrences_rev) queries_rev rest
+    | Name_query source :: rest ->
+        let query : query =
+          { index = next_query; source; resolution = resolution source.name }
+        in
+        if next_query = max_int then
+          Error (invalid_input "top-level query identity space is exhausted")
+        else
+          loop next_occurrence (next_query + 1) occurrences_rev
+            (query :: queries_rev) rest
   in
-  loop next_index [] events
+  loop next_occurrence next_query [] [] events
 
 let resolve_validated publications inputs =
-  let rec loop visible publications next_index statements_rev occurrences_rev =
-    function
-    | [] -> Ok (List.rev statements_rev, List.rev occurrences_rev)
+  let rec loop visible publications next_occurrence next_query statements_rev
+      occurrences_rev queries_rev = function
+    | [] ->
+        Ok
+          ( List.rev statements_rev,
+            List.rev occurrences_rev,
+            List.rev queries_rev )
     | input :: rest -> (
         let visible, publications =
           publish_before input.item_index visible publications
         in
-        match resolve_events visible next_index input.events with
+        match
+          resolve_events visible next_occurrence next_query input.events
+        with
         | Error _ as error -> error
-        | Ok (next_index, occurrences) ->
-            loop visible publications next_index
-              ({ source = input; occurrences } :: statements_rev)
+        | Ok (next_occurrence, next_query, occurrences, queries) ->
+            loop visible publications next_occurrence next_query
+              ({ source = input; occurrences; queries } :: statements_rev)
               (List.rev_append occurrences occurrences_rev)
+              (List.rev_append queries queries_rev)
               rest)
   in
-  loop String_map.empty publications 0 [] [] inputs
+  loop String_map.empty publications 0 0 [] [] [] inputs
 
 let resolve ~table ~parent ~module_expressions inputs =
   if not (Symbol_table.owns_scope table parent) then
@@ -195,11 +253,12 @@ let resolve ~table ~parent ~module_expressions inputs =
         | Ok () -> (
             match resolve_validated publications inputs with
             | Error _ as error -> error
-            | Ok (statements_, all_occurrences_) ->
+            | Ok (statements_, all_occurrences_, all_queries_) ->
                 Ok
                   {
                     table;
                     module_expressions_ = module_expressions;
                     statements_;
                     all_occurrences_;
+                    all_queries_;
                   }))

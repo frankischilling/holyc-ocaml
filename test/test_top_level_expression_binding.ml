@@ -210,6 +210,53 @@ let nested_statement_expression_order () =
     (Semantic_top_level_expression_binding.all_occurrences result
     |> List.map Semantic_top_level_expression_binding.occurrence_index)
 
+let defined_queries_follow_the_module_prefix () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"top-level-defined-binding.HC"
+          "I64 Prior;defined(Prior);defined(Later);I64 Later;"
+      in
+      let result = resolve prepared |> checked in
+      let queries = Semantic_top_level_expression_binding.all_queries result in
+      let signature query =
+        let resolution =
+          match
+            Semantic_top_level_expression_binding.query_resolution query
+          with
+          | Semantic_top_level_expression_binding.Module_binding publication ->
+              "module:"
+              ^ (publication
+                |> Semantic_module_expression_binding.publication_kind
+                |> Semantic_module_expression_binding.publication_kind_name)
+          | Semantic_top_level_expression_binding.Outer_candidate -> "outer"
+        in
+        ( Semantic_top_level_expression_binding.query_name query,
+          resolution )
+      in
+      Alcotest.(check (list (pair string string)))
+        "defined queries use the statement's visible publication prefix"
+        [ ("Prior", "module:global-variable"); ("Later", "outer") ]
+        (List.map signature queries);
+      Alcotest.(check (list int))
+        "defined query identities are contiguous" [ 0; 1 ]
+        (List.map Semantic_top_level_expression_binding.query_index queries);
+      Alcotest.(check bool)
+        "every top-level query keeps the defined role" true
+        (List.for_all
+           (fun query ->
+             Semantic_top_level_expression_binding.query_role query
+             = Semantic_function_expression_binding.Defined_operand)
+           queries);
+      Alcotest.(check (list int))
+        "each statement owns its query"
+        [ 1; 1 ]
+        (result |> Semantic_top_level_expression_binding.statements
+        |> List.map (fun statement ->
+            statement |> Semantic_top_level_expression_binding.statement_queries
+            |> List.length)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
@@ -364,6 +411,8 @@ let tests =
       source_order_and_outer_candidates;
     Alcotest.test_case "nested statement expression order" `Quick
       nested_statement_expression_order;
+    Alcotest.test_case "defined queries follow the module prefix" `Quick
+      defined_queries_follow_the_module_prefix;
     Alcotest.test_case
       "generated and included provenance, determinism, and purity" `Quick
       generated_and_included_provenance_determinism_and_purity;

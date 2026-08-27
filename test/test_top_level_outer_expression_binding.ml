@@ -161,6 +161,29 @@ let signature result =
       ( Semantic_top_level_outer_expression_binding.occurrence_name occurrence,
         resolution_name occurrence ))
 
+let query_resolution_name query =
+  match
+    Semantic_top_level_outer_expression_binding.query_resolution query
+  with
+  | Semantic_top_level_outer_expression_binding.Query_undefined -> "undefined"
+  | Semantic_top_level_outer_expression_binding.Query_binding
+      (Semantic_top_level_outer_expression_binding.Module_binding publication) ->
+      Printf.sprintf "module:%s:%s"
+        (Semantic_module_expression_binding.publication_kind publication
+        |> Semantic_module_expression_binding.publication_kind_name)
+        (publication
+       |> Semantic_module_expression_binding.publication_source_symbol
+       |> Semantic_symbol.name)
+  | Semantic_top_level_outer_expression_binding.Query_binding
+      (Semantic_top_level_outer_expression_binding.Outer_binding binding) ->
+      outer_signature binding
+
+let query_signature result =
+  Semantic_top_level_outer_expression_binding.all_queries result
+  |> List.map (fun query ->
+      ( Semantic_top_level_outer_expression_binding.query_name query,
+        query_resolution_name query ))
+
 let jit_chain_module_precedence_and_newest_record () =
   let prepared =
     prepare ~path:"top-level-outer-jit.HC"
@@ -262,6 +285,72 @@ let aot_chain_preserves_statement_and_occurrence_identity () =
         "AOT mode appears in the diagnostic" true
         (Semantic_top_level_outer_expression_binding.error_message error
         |> String.ends_with ~suffix:"complete aot outer table chain")
+
+let defined_queries_use_complete_lookup_without_identifier_errors () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"top-level-outer-defined.HC"
+          "I64 ModuleValue;defined(ModuleValue);defined(Current);defined(Parent);defined(Asm);defined(Missing);"
+      in
+      let current_kind, parent_kind =
+        match mode with
+        | Preprocessor.Jit ->
+            ( Semantic_outer_environment.Jit_task 0,
+              Semantic_outer_environment.Jit_task 1 )
+        | Preprocessor.Aot ->
+            ( Semantic_outer_environment.Aot_parent 0,
+              Semantic_outer_environment.Aot_parent 1 )
+      in
+      let tables =
+        [
+          make_table prepared ~table_kind:current_kind ~table_index:0
+            [
+              ("ModuleValue", Semantic_outer_environment.Function);
+              ("Current", Semantic_outer_environment.Global_variable);
+            ];
+          make_table prepared ~table_kind:parent_kind ~table_index:1
+            [ ("Parent", Semantic_outer_environment.Function) ];
+          make_table prepared ~table_kind:Semantic_outer_environment.Assembler
+            ~table_index:2
+            [ ("Asm", Semantic_outer_environment.Export_system_symbol) ];
+        ]
+      in
+      let result = environment prepared mode tables |> resolve prepared in
+      let current_name =
+        Semantic_outer_environment.table_kind_name current_kind
+      in
+      let parent_name =
+        Semantic_outer_environment.table_kind_name parent_kind
+      in
+      Alcotest.(check (list (pair string string)))
+        "defined preserves module precedence and records a complete miss"
+        [
+          ("ModuleValue", "module:global-variable:ModuleValue");
+          ("Current", "outer:" ^ current_name ^ ":global-variable:1");
+          ("Parent", "outer:" ^ parent_name ^ ":function:0");
+          ("Asm", "outer:assembler:export-system-symbol:0");
+          ("Missing", "undefined");
+        ]
+        (query_signature result);
+      let queries =
+        Semantic_top_level_outer_expression_binding.all_queries result
+      in
+      Alcotest.(check (list int))
+        "top-level outer query identities remain contiguous"
+        [ 0; 1; 2; 3; 4 ]
+        (List.map Semantic_top_level_outer_expression_binding.query_index queries);
+      Alcotest.(check bool)
+        "every outer query wraps the exact module-prefix query" true
+        (List.for_all
+           (fun query ->
+             query |> Semantic_top_level_outer_expression_binding.query_source
+             |> fun source ->
+             List.exists (( == ) source)
+               (Semantic_top_level_expression_binding.all_queries
+                  prepared.bindings))
+           queries))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
@@ -424,6 +513,8 @@ let tests =
       jit_chain_module_precedence_and_newest_record;
     Alcotest.test_case "AOT chain preserves source identities" `Quick
       aot_chain_preserves_statement_and_occurrence_identity;
+    Alcotest.test_case "defined queries use the complete lookup chain" `Quick
+      defined_queries_use_complete_lookup_without_identifier_errors;
     Alcotest.test_case "generated failure and included success provenance"
       `Quick generated_failure_and_included_success_keep_provenance;
     Alcotest.test_case "determinism, purity, and validation" `Quick

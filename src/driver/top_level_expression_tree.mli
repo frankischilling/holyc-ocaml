@@ -6,4 +6,5 @@ val build :
   Frontend.Ast.module_ ->
   (Sema.Top_level_expression_tree.t, string) result
 (** Build deterministic semantic expression trees for executable top-level
-    statements from their complete module and outer bindings. *)
+    statements from their complete module and outer bindings, including exact
+    [defined] query evidence. *)

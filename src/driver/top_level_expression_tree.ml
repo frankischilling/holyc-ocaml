@@ -13,6 +13,9 @@ type state = {
   occurrences : Sema.Top_level_outer_expression_binding.occurrence array;
   occurrence_cursor : int;
   next_occurrence : int;
+  queries : Sema.Top_level_outer_expression_binding.query array;
+  query_cursor : int;
+  next_query : int;
   next_root : int;
   next_call : int;
   next_expression_statement : int;
@@ -27,16 +30,19 @@ type state = {
   switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
 }
 
-let initial_state ~next_occurrence ~next_root ~next_call
+let initial_state ~next_occurrence ~next_query ~next_root ~next_call
     ~next_expression_statement ~next_output ~next_condition ~next_selector
     ~next_case ~next_local_declaration ~next_return ~module_expressions
-    ~item_index occurrences =
+    ~item_index occurrences queries =
   {
     module_expressions;
     item_index;
     occurrences = Array.of_list occurrences;
     occurrence_cursor = 0;
     next_occurrence;
+    queries = Array.of_list queries;
+    query_cursor = 0;
+    next_query;
     next_root;
     next_call;
     next_expression_statement;
@@ -157,6 +163,40 @@ let take_occurrence state (identifier : Frontend.Ast.identifier) =
                 state with
                 occurrence_cursor = state.occurrence_cursor + 1;
                 next_occurrence;
+              } )
+
+let take_query state (operand : Frontend.Ast.defined_operand) =
+  if state.query_cursor >= Array.length state.queries then
+    Error "top-level defined expression has no bound name query"
+  else
+    let query = state.queries.(state.query_cursor) in
+    if
+      Sema.Top_level_outer_expression_binding.query_index query
+      <> state.next_query
+    then Error "top-level expression query identities are not contiguous"
+    else if
+      Sema.Top_level_outer_expression_binding.query_role query
+      <> Sema.Function_expression_binding.Defined_operand
+    then Error "top-level defined expression has the wrong query role"
+    else if
+      not
+        (String.equal operand.defined_operand_spelling
+           (Sema.Top_level_outer_expression_binding.query_name query))
+    then Error "top-level defined operand spelling does not match its query"
+    else if
+      origin operand.defined_operand_location
+      <> Sema.Top_level_outer_expression_binding.query_origin query
+    then Error "top-level defined operand origin does not match its query"
+    else
+      match increment "top-level query" state.next_query with
+      | Error _ as error -> error
+      | Ok next_query ->
+          Ok
+            ( query,
+              {
+                state with
+                query_cursor = state.query_cursor + 1;
+                next_query;
               } )
 
 let visible_aggregate state name =
@@ -387,21 +427,25 @@ let rec expression state (source : Frontend.Ast.expression) =
         | Frontend.Ast.Defined_non_name ->
             Sema.Function_call_resolution.Defined_non_name
       in
-      let operand_resolution =
-        match operand.defined_operand_kind with
-        | Frontend.Ast.Defined_name ->
-            Sema.Function_call_resolution.Defined_top_level_name
-        | Frontend.Ast.Defined_non_name ->
-            Sema.Function_call_resolution.Defined_non_name_false
+      let make state operand_resolution =
+        match
+          Sema.Function_call_resolution.make_defined_argument_expression
+            ~operand_kind ~operand_spelling:operand.defined_operand_spelling
+            ~operand_origin:(origin operand.defined_operand_location)
+            ~operand_resolution
+        with
+        | Error _ as error -> error
+        | Ok kind -> finish state kind
       in
-      match
-        Sema.Function_call_resolution.make_defined_argument_expression
-          ~operand_kind ~operand_spelling:operand.defined_operand_spelling
-          ~operand_origin:(origin operand.defined_operand_location)
-          ~operand_resolution
-      with
-      | Error _ as error -> error
-      | Ok kind -> finish state kind)
+      match operand.defined_operand_kind with
+      | Frontend.Ast.Defined_non_name ->
+          make state Sema.Function_call_resolution.Defined_non_name_false
+      | Frontend.Ast.Defined_name -> (
+          match take_query state operand with
+          | Error _ as error -> error
+          | Ok (query, state) ->
+              make state
+                (Sema.Function_call_resolution.Defined_top_level_query query)))
 
 and call_expression state source (call : Frontend.Ast.call_expression) =
   let result_expression =
@@ -864,8 +908,12 @@ let statement_input counters expected (item_index, ast) =
     let occurrences =
       Sema.Top_level_outer_expression_binding.statement_occurrences expected
     in
+    let queries =
+      Sema.Top_level_outer_expression_binding.statement_queries expected
+    in
     let state =
       initial_state ~next_occurrence:counters.next_occurrence
+        ~next_query:counters.next_query
         ~next_root:counters.next_root ~next_call:counters.next_call
         ~next_expression_statement:counters.next_expression_statement
         ~next_output:counters.next_output
@@ -874,12 +922,15 @@ let statement_input counters expected (item_index, ast) =
         ~next_local_declaration:counters.next_local_declaration
         ~next_return:counters.next_return
         ~module_expressions:counters.module_expressions ~item_index occurrences
+        queries
     in
     match statement state ast with
     | Error _ as error -> error
     | Ok state -> (
         if state.occurrence_cursor <> Array.length state.occurrences then
           Error "top-level expression traversal did not consume every binding"
+        else if state.query_cursor <> Array.length state.queries then
+          Error "top-level expression traversal did not consume every query"
         else
           let roots = List.rev state.roots_rev in
           let switch_cases = List.rev state.switch_cases_rev in
@@ -916,10 +967,10 @@ let build_statements source module_ =
       source |> Sema.Top_level_outer_expression_binding.source
       |> Sema.Top_level_expression_binding.module_expressions
     in
-    initial_state ~next_occurrence:0 ~next_root:0 ~next_call:0
+    initial_state ~next_occurrence:0 ~next_query:0 ~next_root:0 ~next_call:0
       ~next_expression_statement:0 ~next_output:0 ~next_condition:0
       ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
-      ~module_expressions ~item_index:0 []
+      ~module_expressions ~item_index:0 [] []
   in
   loop counters []
     (Sema.Top_level_outer_expression_binding.statements source)

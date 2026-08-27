@@ -23,6 +23,10 @@ let add_identifier state (identifier : Frontend.Ast.identifier) =
     ~origin:(origin identifier)
   |> add_event state
 
+let add_name_query state role ~name ~origin =
+  Sema.Top_level_expression_binding.make_name_query ~role ~name ~origin
+  |> add_event state
+
 let rec fold_result apply state = function
   | [] -> Ok state
   | value :: rest -> (
@@ -54,14 +58,21 @@ let rec expression state = function
       | Error _ as error -> error
       | Ok state -> expression state index.index_value)
   | Frontend.Ast.Member_expression member -> expression state member.member_base
+  | Frontend.Ast.Defined_expression defined -> (
+      let operand = defined.defined_operand in
+      match operand.defined_operand_kind with
+      | Frontend.Ast.Defined_name ->
+          add_name_query state Sema.Function_expression_binding.Defined_operand
+            ~name:operand.defined_operand_spelling
+            ~origin:(origin_of_location operand.defined_operand_location)
+      | Frontend.Ast.Defined_non_name -> Ok state)
   | Frontend.Ast.Integer_literal _
   | Frontend.Ast.Float_literal _
   | Frontend.Ast.Character_literal _
   | Frontend.Ast.String_literal _
   | Frontend.Ast.Current_position_expression _
   | Frontend.Ast.Sizeof_expression _
-  | Frontend.Ast.Offset_expression _
-  | Frontend.Ast.Defined_expression _ -> Ok state
+  | Frontend.Ast.Offset_expression _ -> Ok state
 
 and call_argument state (argument : Frontend.Ast.call_argument) =
   match argument.call_argument_value with

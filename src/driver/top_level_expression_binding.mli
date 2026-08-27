@@ -4,5 +4,6 @@ val resolve :
   module_expressions:Sema.Module_expression_binding.t ->
   Frontend.Ast.module_ ->
   (Sema.Top_level_expression_binding.t, string) result
-(** Traverse executable top-level statement expressions in source order and bind
-    ordinary names through the checked module publication prefix. *)
+(** Traverse executable top-level statement expressions in source order. Bind
+    ordinary names and retain specialized [defined] queries against the checked
+    module publication prefix. *)

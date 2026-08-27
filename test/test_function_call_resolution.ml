@@ -252,6 +252,7 @@ let defined_resolution_fact (_, defined) =
     match defined_operand_resolution defined with
     | Defined_non_name_false -> "non-name-false"
     | Defined_top_level_name -> "top-level-deferred"
+    | Defined_top_level_query _ -> "top-level-query"
     | Defined_function_query (Module_query query) -> (
         match Semantic_module_expression_binding.query_resolution query with
         | Semantic_module_expression_binding.Outer_candidate ->
@@ -1515,6 +1516,8 @@ let defined_values_follow_source_local_visibility () =
             | Semantic_function_call_resolution.Defined_function_query
                 (Semantic_function_call_resolution.Outer_query _) -> false
             | Semantic_function_call_resolution.Defined_non_name_false -> true
+            | Semantic_function_call_resolution.Defined_top_level_query _ ->
+                false
             | Semantic_function_call_resolution.Defined_top_level_name -> false)
         ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -1580,6 +1583,8 @@ let defined_values_follow_module_visibility () =
             | Semantic_function_call_resolution.Defined_function_query
                 (Semantic_function_call_resolution.Outer_query _) -> false
             | Semantic_function_call_resolution.Defined_non_name_false -> true
+            | Semantic_function_call_resolution.Defined_top_level_query _ ->
+                false
             | Semantic_function_call_resolution.Defined_top_level_name -> false)
         ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -1658,6 +1663,8 @@ let defined_values_follow_complete_outer_lookup () =
                 (Semantic_function_call_resolution.Outer_query query) ->
                 List.exists (( == ) query) caller_queries
             | Semantic_function_call_resolution.Defined_non_name_false -> true
+            | Semantic_function_call_resolution.Defined_top_level_query _ ->
+                false
             | Semantic_function_call_resolution.Defined_function_query
                 (Semantic_function_call_resolution.Module_query _)
             | Semantic_function_call_resolution.Defined_top_level_name -> false)
@@ -1790,8 +1797,8 @@ let defined_constructor_validates_source_evidence () =
        ~operand_spelling:"local" ~operand_origin:query_origin
        ~operand_resolution:Defined_non_name_false);
   Alcotest.(check (result reject string))
-    "a non-name cannot use a function query"
-    (Error "non-name defined operand cannot use a function query")
+    "a non-name cannot use a name query"
+    (Error "non-name defined operand cannot use a name query")
     (make_defined_argument_expression ~operand_kind:Defined_non_name
        ~operand_spelling:"local" ~operand_origin:query_origin
        ~operand_resolution:(Defined_function_query (Module_query defined_query)))
