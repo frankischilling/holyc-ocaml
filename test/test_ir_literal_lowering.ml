@@ -1111,6 +1111,18 @@ let semantic_span result =
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a typed source location"
 
+let semantic_prefix_span result =
+  match
+    Semantic_result.result_source result
+    |> Semantic_source.argument_expression_kind
+  with
+  | Semantic_source.Prefix_expression prefix -> (
+      match Semantic_source.prefix_operator_origin prefix with
+      | Semantic_symbol.Source_location source -> source.span
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected a typed prefix operator source location")
+  | _ -> Alcotest.fail "expected a typed prefix expression"
+
 let semantic_literal_span result =
   let source = ref (Semantic_result.result_source result) in
   let unwrapping = ref true in
@@ -2304,6 +2316,313 @@ let test_typed_dereference_identity_count_is_checked () =
       Alcotest.fail "missing identities returned Not_literal"
   | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
 
+let check_typed_address ~index ~expected_payload ~expected_kind result =
+  let instruction = 920 + index in
+  let value = 1120 + index in
+  let leaf = typed_leaf result in
+  let lowered =
+    lower_typed
+      ~unary_identities:[ identity (instruction + 1) (value + 1) ]
+      ~instruction ~value result
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ (literal : Sequence.description); address ] ->
+      Alcotest.(check bool)
+        "literal payload" true
+        (literal.payload = Some expected_payload);
+      Alcotest.(check bool)
+        "literal type comes from its semantic leaf" true
+        (literal.target_type = Semantic_result.result_type leaf);
+      Alcotest.(check bool)
+        "address opcode" true
+        (Opcode.equal Opcode.Ic_addr address.opcode);
+      Alcotest.(check bool)
+        "address type comes from its semantic result" true
+        (address.target_type = Semantic_result.result_type result);
+      Alcotest.(check bool)
+        "address adds one pointer layer" true
+        (match (literal.target_type, address.target_type) with
+        | Some operand_type, Some result_type ->
+            Type.base operand_type = Type.base result_type
+            && Type.pointer_depth result_type
+               = Type.pointer_depth operand_type + 1
+        | _ -> false);
+      Alcotest.(check bool)
+        "address operand" true
+        (address.operands = [ value_id value ]);
+      Alcotest.(check bool)
+        "address result" true
+        (address.result = Some { value_id = value_id (value + 1) });
+      Alcotest.(check bool)
+        "address span" true
+        (address.span = Some (semantic_prefix_span result));
+      Alcotest.(check bool)
+        "final result type" true
+        (Some (Literal.result_type lowered) = address.target_type);
+      let kind_line =
+        Literal.human lowered |> String.split_on_char '\n' |> fun lines ->
+        List.nth lines 1
+      in
+      Alcotest.(check bool)
+        "semantic literal kind" true
+        (String.starts_with ~prefix:("kind=" ^ expected_kind ^ " ") kind_line)
+  | _ -> Alcotest.fail "expected a literal and one address instruction"
+
+let check_typed_address_roots ~index roots =
+  let expected =
+    [
+      (Sequence.Integer (-1L), "integer");
+      (Sequence.Integer 0x434241L, "character");
+      (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+      (Sequence.Bytes "a\nB$", "string");
+    ]
+  in
+  Alcotest.(check int) "typed literal addresses" 4 (List.length roots);
+  List.iteri
+    (fun offset (result, (expected_payload, expected_kind)) ->
+      check_typed_address ~index:(index + offset) ~expected_payload
+        ~expected_kind result)
+    (List.combine roots expected)
+
+let test_function_typed_address_emits_instructions () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-address.HC"
+      "extern I64 Target(I64 *integer,I64 *character,F64 *floating,U8 **text);\n\
+       I64 Caller(){return \
+       Target(&((+0xFFFFFFFFFFFFFFFF)),&((+'ABC')),&((+0.1)),&((+\"a\\n\\x42\\d\")));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  Test_function_call_expression_result.root_results results "Caller"
+  |> check_typed_address_roots ~index:0
+
+let test_top_level_typed_address_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-address.HC"
+          "&((+0xFFFFFFFFFFFFFFFF));&((+'ABC'));&((+0.1));&((+\"a\\n\\x42\\d\"));"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      Test_top_level_expression_result.root_values results
+      |> check_typed_address_roots ~index:10)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_address_cancels_immediate_dereference () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-address-cancellation.HC"
+      "extern I64 Target(I64 value);\nI64 Caller(){return Target(~&*+\"a\");}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  let lowered =
+    lower_typed
+      ~unary_identities:[ identity 941 1141; identity 942 1142 ]
+      ~instruction:940 ~value:1140 result
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ literal; address; complement ] ->
+      Alcotest.(check bool)
+        "canceled opcode order" true
+        (Opcode.equal Opcode.Ic_addr address.opcode
+        && Opcode.equal Opcode.Ic_com complement.opcode);
+      Alcotest.(check bool)
+        "address consumes the literal" true
+        (address.operands = [ value_id 1140 ]);
+      Alcotest.(check bool)
+        "address retains the leaf pointer type" true
+        (literal.target_type = address.target_type);
+      Alcotest.(check bool)
+        "complement is internal I64" true
+        (is_internal_i64 complement.target_type);
+      let address_result =
+        match Semantic_result.result_operand result with
+        | Some address_result -> address_result
+        | None -> Alcotest.fail "missing address result"
+      in
+      let dereference_result =
+        match Semantic_result.result_operand address_result with
+        | Some dereference_result -> dereference_result
+        | None -> Alcotest.fail "missing dereference result"
+      in
+      Alcotest.(check bool)
+        "address span retained" true
+        (address.span = Some (semantic_prefix_span address_result));
+      Alcotest.(check bool)
+        "dereference span omitted" true
+        (address.span <> Some (semantic_span dereference_result))
+  | _ ->
+      Alcotest.fail "expected a literal, retained address, and outer complement"
+
+let test_typed_address_direct_cancellation_keeps_address () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-address-direct-cancellation.HC"
+      "extern I64 Target(U8 *value);\nI64 Caller(){return Target(&*+\"a\");}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  let descriptions =
+    lower_typed
+      ~unary_identities:[ identity 946 1146 ]
+      ~instruction:945 ~value:1145 result
+    |> require_lowered |> Literal.sequence |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ literal; address ] ->
+      Alcotest.(check bool)
+        "address opcode remains" true
+        (Opcode.equal Opcode.Ic_addr address.opcode);
+      Alcotest.(check bool)
+        "canceled dereference consumes no identity" true
+        (address.operands = [ value_id 1145 ]
+        && address.result = Some { value_id = value_id 1146 });
+      Alcotest.(check bool)
+        "address restores the literal pointer type" true
+        (literal.target_type = address.target_type);
+      let dereference_result =
+        match Semantic_result.result_operand result with
+        | Some dereference_result -> dereference_result
+        | None -> Alcotest.fail "missing dereference result"
+      in
+      Alcotest.(check bool)
+        "address span retained" true
+        (address.span = Some (semantic_prefix_span result));
+      Alcotest.(check bool)
+        "dereference span omitted" true
+        (address.span <> Some (semantic_span dereference_result))
+  | _ -> Alcotest.fail "expected a literal and retained address instruction"
+
+let test_typed_dereference_outside_address_is_not_canceled () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-address-no-cancellation.HC"
+      "extern I64 Target(I64 value);\nI64 Caller(){return Target(*(&((+42))));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  let descriptions =
+    lower_typed
+      ~unary_identities:[ identity 951 1151; identity 952 1152 ]
+      ~instruction:950 ~value:1150 result
+    |> require_lowered |> Literal.sequence |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ literal; address; dereference ] ->
+      Alcotest.(check bool)
+        "uncanceled opcode order" true
+        (Opcode.equal Opcode.Ic_addr address.opcode
+        && Opcode.equal Opcode.Ic_deref dereference.opcode);
+      Alcotest.(check bool)
+        "pointer depths" true
+        (match
+           (literal.target_type, address.target_type, dereference.target_type)
+         with
+        | Some literal_type, Some address_type, Some dereference_type ->
+            Type.pointer_depth literal_type = 0
+            && Type.pointer_depth address_type = 1
+            && Type.pointer_depth dereference_type = 0
+        | _ -> false)
+  | _ -> Alcotest.fail "expected literal, address, and dereference instructions"
+
+let test_typed_address_identity_count_uses_canceled_sequence () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-address-identities.HC"
+      "extern I64 Target(I64 *value);\nI64 Caller(){return Target(&*1);}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match
+    typed_lowering_result
+      ~unary_identities:[ identity 961 1161; identity 962 1162 ]
+      ~instruction:960 ~value:1160 result
+  with
+  | Error [ error ] ->
+      Alcotest.(check string) "identity diagnostic" "HCIRL0001" error.code;
+      Alcotest.(check string)
+        "identity count follows cancellation"
+        "expected 1 unary instruction identity, got 2" error.message
+  | Error errors ->
+      Alcotest.failf "expected one identity diagnostic, got %d"
+        (List.length errors)
+  | Ok Literal.Not_literal ->
+      Alcotest.fail "excess identities returned Not_literal"
+  | Ok (Literal.Lowered _) -> Alcotest.fail "excess identities produced IR"
+
+let test_typed_address_pointer_depth_failure_is_checked () =
+  let prepared =
+    Test_top_level_expression_result.prepared ~mode:Preprocessor.Jit
+      ~path:"ir-typed-address-depth.HC" "&(&(&(&\"A\")));"
+  in
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  let result =
+    Test_top_level_expression_result.root_values results |> List.hd
+  in
+  match typed_lowering_result ~instruction:970 ~value:1170 result with
+  | Error [ (error : Sequence.error) ] ->
+      Alcotest.(check string) "diagnostic code" "HCIRL0002" error.code;
+      Alcotest.(check string)
+        "diagnostic message"
+        "cannot lower typed prefix address-of: semantic pointer depth 5 \
+         exceeds HolyC's limit of 4"
+        error.message;
+      Alcotest.(check (option int))
+        "no identity was consumed" None error.instruction_id;
+      Alcotest.(check bool) "operator span" true (Option.is_some error.span)
+  | Error errors ->
+      Alcotest.failf "expected one pointer-depth error, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "expected pointer-depth failure"
+
+let test_typed_address_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-address-nonliteral.HC"
+      "extern I64 Target(I64 *value);\n\
+       I64 Caller(I64 value){return Target(&((+value)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match
+    lower_typed
+      ~unary_identities:[ identity 976 1176 ]
+      ~instruction:975 ~value:1175 result
+  with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ -> Alcotest.fail "typed address nonliteral produced IR"
+
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source
     "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
@@ -2460,6 +2779,22 @@ let tests =
       test_typed_dereference_nonliteral_is_explicit;
     Alcotest.test_case "typed dereference identity count" `Quick
       test_typed_dereference_identity_count_is_checked;
+    Alcotest.test_case "typed function address-of" `Quick
+      test_function_typed_address_emits_instructions;
+    Alcotest.test_case "typed top-level address-of" `Quick
+      test_top_level_typed_address_in_both_modes;
+    Alcotest.test_case "typed address-of cancels dereference" `Quick
+      test_typed_address_cancels_immediate_dereference;
+    Alcotest.test_case "typed address-of direct cancellation" `Quick
+      test_typed_address_direct_cancellation_keeps_address;
+    Alcotest.test_case "typed dereference outside address-of" `Quick
+      test_typed_dereference_outside_address_is_not_canceled;
+    Alcotest.test_case "typed address-of canceled identity count" `Quick
+      test_typed_address_identity_count_uses_canceled_sequence;
+    Alcotest.test_case "typed address-of pointer-depth failure" `Quick
+      test_typed_address_pointer_depth_failure_is_checked;
+    Alcotest.test_case "typed address-of nonliteral is explicit" `Quick
+      test_typed_address_nonliteral_is_explicit;
     Alcotest.test_case "typed generated literal provenance" `Quick
       test_typed_literal_keeps_generated_source_location;
     Alcotest.test_case "typed nonliteral is explicit" `Quick

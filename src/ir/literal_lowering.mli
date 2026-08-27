@@ -46,12 +46,13 @@ val lower_typed_result :
   Sema.Function_call_expression_result.expression_result ->
   (expression_result, Instruction_sequence.error list) result
 (** Lower one literal, optionally nested in parentheses, unary plus, unary
-    minus, logical not, bitwise complement, and dereference, from the shared
-    typed semantic result view. Each instruction uses the checked type for its
-    exact semantic node. Parentheses and unary plus add no instruction or
-    identity. Emitting prefixes consume one caller-owned [unary_identities]
-    entry from innermost to outermost. Other semantic expression shapes return
-    [Not_literal]. *)
+    minus, logical not, bitwise complement, dereference, and address-of, from
+    the shared typed semantic result view. Each instruction uses the checked
+    type for its exact semantic node. Parentheses and unary plus add no
+    instruction or identity. Address-of cancels an immediately inner dereference
+    before identities are counted. Emitting prefixes consume one caller-owned
+    [unary_identities] entry from innermost to outermost. Other semantic
+    expression shapes return [Not_literal]. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t
