@@ -7642,6 +7642,38 @@ cast_conversion_folding_optimizer_removal_interpretation_backend_and_execution =
 native_oracle_status = "not required for structural cast lowering; optimizer, numerical conversion, and backend behavior remain separate oracle work"
 
 [[feature]]
+id = "HC-IR-EXPRESSION-STATEMENT-END"
+description = "Accepted checked expression statements end with the source-defined unused-result terminator."
+sources = [
+  "Compiler/PrsStmt.HC:1204-1210 ordinary expression statement dispatch",
+  "Compiler/PrsExp.HC:264-295 end-expression construction",
+  "Compiler/CompilerA.HH:22 IC_END_EXP identity",
+  "Compiler/CInit.HC:19 one-argument, zero-result metadata",
+  "Kernel/KernelA.HH:1611 ICF_RES_NOT_USED definition",
+  "Compiler/OptPass4.HC:540-552 transfer to the producer before terminator removal"
+]
+implementation = [
+  "src/ir/expression_statement_lowering.ml",
+  "src/ir/expression_statement_lowering.mli"
+]
+tests = ["test/test_ir_expression_statement_lowering.ml"]
+status = "implemented"
+issue = 464
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary function-body and executable top-level statements whose values are accepted by the checked numeric expression lowerer"
+instruction_shape = "IC_END_EXP consumes the exact final expression value and has no result, target type, or payload"
+flag_rule = "canonical pre-optimizer IR keeps ICF_RES_NOT_USED on IC_END_EXP; OptPass4 transfer remains later work"
+source_map = "the terminator retains the complete statement or top-level root span"
+identity = "the terminator consumes one instruction identity and no value identity"
+diagnostics = ["HCIRL0004 missing source metadata or invalid top-level role", "HCIRL0005 terminator instruction identity exhaustion"]
+unsupported_result = "an expression shape outside the numeric lowerer's accepted set returns Unsupported_expression before a sequence is exposed"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 7
+calls_storage_side_effect_execution_optimization_interpretation_and_backend = "not implemented"
+native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
+
+[[feature]]
 id = "HC-SEMA-POSTFIX-CAST-OPERAND"
 description = "Each checked postfix-cast result retains the exact immediate operand produced by the same semantic traversal."
 sources = [
