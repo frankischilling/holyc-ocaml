@@ -62,6 +62,10 @@ let internal_i64_type = function
       | _ -> false)
   | None -> false
 
+let pointer_depth expected = function
+  | Some type_ -> Type.pointer_depth type_ = expected
+  | None -> false
+
 let accepted_operators_lower_in_both_modes () =
   let expressions =
     [
@@ -302,6 +306,146 @@ let top_level_mixed_unary_and_binary_tree_keeps_postorder () =
         (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let pointer_prefixes_compose_with_existing_trees () =
+  let source =
+    "extern I64 Target(I64 a,I64 *b,I64 c);I64 Caller(){return \
+     Target(*(1+2),&((~1)+2),*(&((!1)+2)));}"
+  in
+  let body = String.index source '{' in
+  let first_dereference = String.index_from source body '*' in
+  let address = String.index_from source (first_dereference + 1) '&' in
+  let outer_dereference = String.index_from source (address + 1) '*' in
+  let inner_address = String.index_from source (outer_dereference + 1) '&' in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-pointer-unary-trees.HC" source
+      in
+      Alcotest.(check int) "one root per pointer shape" 3 (List.length roots);
+      let first = List.nth roots 0 |> lower |> require_lowered in
+      let first_items = descriptions first in
+      Alcotest.(check (list string))
+        "dereference follows binary result"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_DEREF" ]
+        (opcode_names first);
+      let first_deref = List.nth first_items 3 in
+      Alcotest.(check (list int))
+        "dereference operand" [ 22 ]
+        (List.map Sequence.Value_id.to_int first_deref.operands);
+      Alcotest.(check bool)
+        "dereference result depth" true
+        (pointer_depth 0 first_deref.target_type);
+      (match first_deref.span with
+      | Some span ->
+          Alcotest.(check int)
+            "dereference span start" first_dereference span.start
+      | None -> Alcotest.fail "dereference lost its operator span");
+      let second = List.nth roots 1 |> lower |> require_lowered in
+      let second_items = descriptions second in
+      Alcotest.(check (list string))
+        "address follows numeric tree"
+        [ "IC_IMM_I64"; "IC_COM"; "IC_IMM_I64"; "IC_ADD"; "IC_ADDR" ]
+        (opcode_names second);
+      let second_address = List.nth second_items 4 in
+      Alcotest.(check (list int))
+        "address operand" [ 23 ]
+        (List.map Sequence.Value_id.to_int second_address.operands);
+      Alcotest.(check bool)
+        "address result depth" true
+        (pointer_depth 1 second_address.target_type);
+      (match second_address.span with
+      | Some span ->
+          Alcotest.(check int) "address span start" address span.start
+      | None -> Alcotest.fail "address lost its operator span");
+      let third = List.nth roots 2 |> lower |> require_lowered in
+      let third_items = descriptions third in
+      Alcotest.(check (list string))
+        "dereference outside address remains"
+        [
+          "IC_IMM_I64"; "IC_NOT"; "IC_IMM_I64"; "IC_ADD"; "IC_ADDR"; "IC_DEREF";
+        ]
+        (opcode_names third);
+      let third_address = List.nth third_items 4 in
+      let third_deref = List.nth third_items 5 in
+      Alcotest.(check (list int))
+        "nested address operand" [ 23 ]
+        (List.map Sequence.Value_id.to_int third_address.operands);
+      Alcotest.(check (list int))
+        "outer dereference operand" [ 24 ]
+        (List.map Sequence.Value_id.to_int third_deref.operands);
+      Alcotest.(check bool)
+        "nested address depth" true
+        (pointer_depth 1 third_address.target_type);
+      Alcotest.(check bool)
+        "outer dereference depth" true
+        (pointer_depth 0 third_deref.target_type);
+      (match (third_address.span, third_deref.span) with
+      | Some address_span, Some dereference_span ->
+          Alcotest.(check int)
+            "nested address span" inner_address address_span.start;
+          Alcotest.(check int)
+            "outer dereference span" outer_dereference dereference_span.start
+      | _ -> Alcotest.fail "nested pointer operations lost their spans");
+      Alcotest.(check int)
+        "pointer tree next instruction" 16
+        (Expression.next_instruction_id third |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "pointer tree next value" 26
+        (Expression.next_value_id third |> Sequence.Value_id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let address_cancels_the_nearest_dereference_before_allocation () =
+  let source =
+    "extern I64 Target(I64 *a,I64 *b,I64 *c);I64 Caller(){return \
+     Target(&*((1+2)),&(+(*((1+2)))),&*&*1);}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-address-dereference-cancellation.HC"
+          source
+      in
+      Alcotest.(check int)
+        "one root per cancellation shape" 3 (List.length roots);
+      List.iter
+        (fun index ->
+          let lowered = List.nth roots index |> lower |> require_lowered in
+          Alcotest.(check (list string))
+            "transparent wrappers do not block cancellation"
+            [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_ADDR" ]
+            (opcode_names lowered);
+          let address = List.nth_opt (descriptions lowered) 3 in
+          match address with
+          | Some address ->
+              Alcotest.(check (list int))
+                "retained address consumes the binary result" [ 22 ]
+                (List.map Sequence.Value_id.to_int address.operands);
+              Alcotest.(check int)
+                "canceled tree next instruction" 14
+                (Expression.next_instruction_id lowered
+                |> Sequence.Instruction_id.to_int)
+          | None -> Alcotest.fail "canceled tree lost its address instruction")
+        [ 0; 1 ];
+      let nested = List.nth roots 2 |> lower |> require_lowered in
+      Alcotest.(check (list string))
+        "each nested address removes its immediate dereference"
+        [ "IC_IMM_I64"; "IC_ADDR"; "IC_ADDR" ]
+        (opcode_names nested);
+      let nested_items = descriptions nested in
+      Alcotest.(check (list int))
+        "inner retained address operand" [ 20 ]
+        ((List.nth nested_items 1).operands |> List.map Sequence.Value_id.to_int);
+      Alcotest.(check (list int))
+        "outer retained address operand" [ 21 ]
+        ((List.nth nested_items 2).operands |> List.map Sequence.Value_id.to_int);
+      Alcotest.(check int)
+        "nested cancellation next instruction" 13
+        (Expression.next_instruction_id nested |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "nested cancellation next value" 23
+        (Expression.next_value_id nested |> Sequence.Value_id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let deterministic_dump_records_result_and_next_ids () =
   let root =
     function_roots ~mode:Preprocessor.Jit ~path:"ir-integer-binary-dump.HC"
@@ -330,7 +474,7 @@ let deterministic_dump_records_result_and_next_ids () =
 let unsupported_shapes_return_no_sequence () =
   let source =
     "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
-     f);I64 Caller(I64 x){return Target(1+2.0,1`2,x=1,x+1,*1+2,Helper()+1);}"
+     f);I64 Caller(I64 x){return Target(1+2.0,1`2,x=1,x+1,(&1)+2,Helper()+1);}"
   in
   List.iter
     (fun mode ->
@@ -377,14 +521,38 @@ let exhausted_starting_ids_are_rejected () =
   check (lower_result ~instruction:Int.max_int root);
   check (lower_result ~value:Int.max_int root)
 
+let excessive_address_depth_reports_checked_metadata () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-address-depth-metadata.HC"
+      "&(&(&(&(&1))));"
+    |> List.hd
+  in
+  match lower_result root with
+  | Error [ (error : Sequence.error) ] ->
+      Alcotest.(check string) "diagnostic code" "HCIRL0004" error.code;
+      Alcotest.(check string)
+        "diagnostic message"
+        "typed semantic expression does not have a checked result type"
+        error.message;
+      Alcotest.(check (option int))
+        "no identity was consumed" None error.instruction_id;
+      Alcotest.(check bool)
+        "outer address span" true
+        (Option.is_some error.span)
+  | Error errors ->
+      Alcotest.failf "expected one pointer metadata error, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "excessive pointer depth produced expression IR"
+
 let deep_mixed_tree_uses_the_explicit_worklist () =
   let leaf_count = 2_000 in
   let expression =
     List.init leaf_count (fun index ->
-        match index mod 3 with
+        match index mod 4 with
         | 0 -> "-1"
         | 1 -> "!1"
-        | _ -> "~1")
+        | 2 -> "~1"
+        | _ -> "*(&1)")
     |> String.concat "+"
   in
   let source =
@@ -397,7 +565,10 @@ let deep_mixed_tree_uses_the_explicit_worklist () =
     |> List.hd
   in
   let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
-  let instruction_count = (leaf_count * 3) - 1 in
+  let pointer_leaf_count = leaf_count / 4 in
+  let instruction_count =
+    (leaf_count * 2) + pointer_leaf_count + (leaf_count - 1)
+  in
   Alcotest.(check int)
     "one instruction per literal, unary, and binary node" instruction_count
     (Expression.sequence lowered |> Sequence.length);
@@ -421,12 +592,18 @@ let tests =
       top_level_characters_grouping_and_unary_plus_are_transparent;
     Alcotest.test_case "top-level mixed unary and binary tree" `Quick
       top_level_mixed_unary_and_binary_tree_keeps_postorder;
+    Alcotest.test_case "pointer prefixes inside expression trees" `Quick
+      pointer_prefixes_compose_with_existing_trees;
+    Alcotest.test_case "address and dereference cancellation" `Quick
+      address_cancels_the_nearest_dereference_before_allocation;
     Alcotest.test_case "deterministic expression dump" `Quick
       deterministic_dump_records_result_and_next_ids;
     Alcotest.test_case "unsupported expression shapes" `Quick
       unsupported_shapes_return_no_sequence;
     Alcotest.test_case "identity exhaustion" `Quick
       exhausted_starting_ids_are_rejected;
+    Alcotest.test_case "address depth metadata" `Quick
+      excessive_address_depth_reports_checked_metadata;
     Alcotest.test_case "deep explicit worklist" `Slow
       deep_mixed_tree_uses_the_explicit_worklist;
   ]
