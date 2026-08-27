@@ -976,7 +976,9 @@ let argument_expression_origin expression = expression.expression_origin
 let defined_operand_kind expression = expression.defined_operand_kind_
 let defined_operand_spelling expression = expression.defined_operand_spelling_
 let defined_operand_origin expression = expression.defined_operand_origin_
-let defined_operand_resolution expression = expression.defined_operand_resolution_
+
+let defined_operand_resolution expression =
+  expression.defined_operand_resolution_
 
 let defined_known_value expression =
   match expression.defined_operand_resolution_ with
@@ -1686,7 +1688,8 @@ let validate_calls calls occurrences =
 let occurrence_map occurrences =
   List.fold_left
     (fun map occurrence ->
-      Int_map.add (Module_expression_binding.occurrence_index occurrence)
+      Int_map.add
+        (Module_expression_binding.occurrence_index occurrence)
         occurrence map)
     Int_map.empty occurrences
 
@@ -1760,8 +1763,7 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
           | Some expected when expected == query -> Ok ()
           | Some _ ->
               Error
-                (invalid_input
-                   "defined operand uses a different function query")
+                (invalid_input "defined operand uses a different function query")
           | None ->
               Error
                 (invalid_input
@@ -2046,7 +2048,8 @@ let validate_function_input table parent visible declarations compilation_mode
                     | Ok () -> (
                         match
                           validate_conditions table parent visible declarations
-                            compilation_mode input.conditions occurrences queries
+                            compilation_mode input.conditions occurrences
+                            queries
                         with
                         | Error _ as error -> error
                         | Ok () -> (

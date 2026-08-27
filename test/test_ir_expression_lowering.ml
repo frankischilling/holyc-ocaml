@@ -1220,15 +1220,13 @@ let deterministic_current_position_dump () =
 
 let defined_constants_lower_in_both_modes () =
   let source =
-    "extern I64 Target(I64 parameter,I64 local,I64 token,F64 mixed);\
-     I64 Caller(I64 parameter){I64 local;return \
+    "extern I64 Target(I64 parameter,I64 local,I64 token,F64 mixed);I64 \
+     Caller(I64 parameter){I64 local;return \
      Target(defined(parameter),defined(local),defined(+),defined(local)+2.0);}"
   in
   List.iter
     (fun mode ->
-      let roots =
-        function_roots ~mode ~path:"ir-defined-constants.HC" source
-      in
+      let roots = function_roots ~mode ~path:"ir-defined-constants.HC" source in
       Alcotest.(check int) "four defined roots" 4 (List.length roots);
       List.iter2
         (fun root expected ->
@@ -1268,8 +1266,7 @@ let defined_constants_lower_in_both_modes () =
         (opcode_names mixed);
       Alcotest.(check (list int64))
         "the conversion flag belongs to the defined producer"
-        [ result_to_f64; 0L; 0L ]
-        (instruction_flags mixed);
+        [ result_to_f64; 0L; 0L ] (instruction_flags mixed);
       Alcotest.(check bool)
         "mixed defined remains one" true
         ((List.hd (descriptions mixed)).payload = Some (Sequence.Integer 1L)))
@@ -1280,12 +1277,13 @@ let deferred_defined_names_return_no_sequence () =
     (fun mode ->
       let function_roots =
         function_roots ~mode ~path:"ir-defined-deferred-function.HC"
-          "extern I64 Target(I64 before,I64 missing);\
-           I64 Caller(){Target(defined(later),defined(missing));I64 later;return \
+          "extern I64 Target(I64 before,I64 missing);I64 \
+           Caller(){Target(defined(later),defined(missing));I64 later;return \
            0;}"
       in
       Alcotest.(check int)
-        "two deferred function names" 2 (List.length function_roots);
+        "two deferred function names" 2
+        (List.length function_roots);
       List.iter
         (fun root ->
           match lower root with
@@ -1303,7 +1301,7 @@ let deferred_defined_names_return_no_sequence () =
       Alcotest.(check bool)
         "top-level non-name lowers to false" true
         ((List.hd (descriptions false_lowered)).payload
-        = Some (Sequence.Integer 0L));
+       = Some (Sequence.Integer 0L));
       match List.nth roots 1 |> lower with
       | Expression.Unsupported_expression -> ()
       | Expression.Lowered _ ->

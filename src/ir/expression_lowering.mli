@@ -15,16 +15,15 @@ val lower_typed_result :
     zero-operand [IC_RIP] address producer, while concrete address selection
     remains backend work. Integer trees accept the checked integer binary
     operations; pure [F64] trees and mixed integer/[F64] trees accept
-    multiplication, division, addition, and subtraction. A mixed edge marks
-    the retained integer producer with [ICF_RES_TO_F64] intent without folding
-    its payload. Numeric prefixes and primitive postfix casts compose within
-    their checked domain; address and dereference remain confined to integer
-    and pointer trees. A postfix cast emits [IC_HOLYC_TYPECAST] with the full
-    cast span and pinned [was_paren] payload. The module owns source-order
-    traversal, TempleOS's immediate address/dereference cancellation, and
-    consecutive identity allocation. Expressions outside the implemented tree
-    shapes return [Unsupported_expression] without returning a partial
-    sequence. *)
+    multiplication, division, addition, and subtraction. A mixed edge marks the
+    retained integer producer with [ICF_RES_TO_F64] intent without folding its
+    payload. Numeric prefixes and primitive postfix casts compose within their
+    checked domain; address and dereference remain confined to integer and
+    pointer trees. A postfix cast emits [IC_HOLYC_TYPECAST] with the full cast
+    span and pinned [was_paren] payload. The module owns source-order traversal,
+    TempleOS's immediate address/dereference cancellation, and consecutive
+    identity allocation. Expressions outside the implemented tree shapes return
+    [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t

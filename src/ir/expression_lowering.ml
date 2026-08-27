@@ -257,8 +257,7 @@ let checked_defined result defined =
       match result_span result with
       | None ->
           Error
-            (metadata_error
-               "defined expression does not have a source location")
+            (metadata_error "defined expression does not have a source location")
       | Some span -> (
           match
             ( Semantic_result.result_type result,
@@ -272,8 +271,8 @@ let checked_defined result defined =
               0 ) -> (
               match (Type.base result_type, Type.pointer_depth result_type) with
               | Type.Primitive (Type.Internal_storage, primitive), 0
-                when Sema.Primitive_type.equal primitive
-                       Sema.Primitive_type.I64 ->
+                when Sema.Primitive_type.equal primitive Sema.Primitive_type.I64
+                ->
                   Ok
                     (Checked_defined
                        (span, result_type, if known_value then 1L else 0L))
@@ -1036,10 +1035,9 @@ let emit_plan ~instruction_id ~value_id nodes =
                 descriptions_rev := description :: !descriptions_rev;
                 lowered :=
                   Int_map.add (result_key result)
-                     { lowered_value = value_id; lowered_type = result_type }
-                     !lowered)
-        | Defined_constant
-            { result; span; result_type; value; conversion } -> (
+                    { lowered_value = value_id; lowered_type = result_type }
+                    !lowered)
+        | Defined_constant { result; span; result_type; value; conversion } -> (
             match take_identity allocator (Some span) with
             | Error item -> error := Some item
             | Ok (instruction_id, value_id) ->

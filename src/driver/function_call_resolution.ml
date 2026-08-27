@@ -469,8 +469,7 @@ let defined_query queries (operand : Frontend.Ast.defined_operand) =
   let matches query =
     Sema.Function_expression_binding.query_role query
     = Sema.Function_expression_binding.Defined_operand
-    && String.equal spelling
-         (Sema.Function_expression_binding.query_name query)
+    && String.equal spelling (Sema.Function_expression_binding.query_name query)
     && operand_origin = Sema.Function_expression_binding.query_origin query
   in
   match List.filter matches queries with
@@ -529,8 +528,7 @@ let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Current_position_expression _ -> Ok ()
 
 let rec argument_expression visible locals globals occurrences defined_queries
-    cursor
-    (expression : Frontend.Ast.expression) =
+    cursor (expression : Frontend.Ast.expression) =
   let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal literal -> (
@@ -562,8 +560,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
     | Frontend.Ast.Parenthesized_expression grouped -> (
         match
           argument_expression visible locals globals occurrences defined_queries
-            cursor
-            grouped.grouped_expression
+            cursor grouped.grouped_expression
         with
         | Error _ as error -> error
         | Ok grouped ->
@@ -623,8 +620,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
     | Frontend.Ast.Prefix_expression prefix -> (
         match
           argument_expression visible locals globals occurrences defined_queries
-            cursor
-            prefix.prefix_operand
+            cursor prefix.prefix_operand
         with
         | Error _ as error -> error
         | Ok operand ->
@@ -635,8 +631,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
     | Frontend.Ast.Postfix_expression postfix -> (
         match
           argument_expression visible locals globals occurrences defined_queries
-            cursor
-            postfix.postfix_operand
+            cursor postfix.postfix_operand
         with
         | Error _ as error -> error
         | Ok operand ->
@@ -651,8 +646,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
         | Ok target -> (
             match
               argument_expression visible locals globals occurrences
-                defined_queries cursor
-                cast.cast_operand
+                defined_queries cursor cast.cast_operand
             with
             | Error _ as error -> error
             | Ok operand ->
@@ -671,15 +665,13 @@ let rec argument_expression visible locals globals occurrences defined_queries
         | Some operator -> (
             match
               argument_expression visible locals globals occurrences
-                defined_queries cursor
-                binary.binary_left
+                defined_queries cursor binary.binary_left
             with
             | Error _ as error -> error
             | Ok left -> (
                 match
                   argument_expression visible locals globals occurrences
-                    defined_queries cursor
-                    binary.binary_right
+                    defined_queries cursor binary.binary_right
                 with
                 | Error _ as error -> error
                 | Ok right ->
@@ -697,15 +689,13 @@ let rec argument_expression visible locals globals occurrences defined_queries
     | Frontend.Ast.Index_expression index -> (
         match
           argument_expression visible locals globals occurrences defined_queries
-            cursor
-            index.index_base
+            cursor index.index_base
         with
         | Error _ as error -> error
         | Ok base -> (
             match
               argument_expression visible locals globals occurrences
-                defined_queries cursor
-                index.index_value
+                defined_queries cursor index.index_value
             with
             | Error _ as error -> error
             | Ok value ->
@@ -717,8 +707,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
     | Frontend.Ast.Member_expression member -> (
         match
           argument_expression visible locals globals occurrences defined_queries
-            cursor
-            member.member_base
+            cursor member.member_base
         with
         | Error _ as error -> error
         | Ok base ->
@@ -1463,7 +1452,8 @@ let function_input table visible_aggregates global_values expected typed locals
         let collected =
           let state =
             empty_state visible_aggregates typed_values global_values
-              (occurrence_map expected_occurrences) defined_queries
+              (occurrence_map expected_occurrences)
+              defined_queries
           in
           match body with
           | None -> Ok state
