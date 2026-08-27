@@ -344,6 +344,87 @@ let local_and_module_bindings_take_precedence () =
     ]
     tags
 
+let defined_queries_use_complete_lookup_without_errors () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"outer-defined-query.HC"
+          "I64 ModuleValue;I64 Read(I64 LocalValue){defined(LocalValue);\
+           defined(ModuleValue);defined(OuterValue);defined(Missing);return 0;}"
+      in
+      let table_kind =
+        match mode with
+        | Preprocessor.Jit -> Semantic_outer_environment.Jit_task 0
+        | Preprocessor.Aot -> Semantic_outer_environment.Aot_parent 0
+      in
+      let outer_table =
+        make_table prepared ~table_kind ~table_index:0
+          [
+            ("LocalValue", Semantic_outer_environment.Global_variable);
+            ("ModuleValue", Semantic_outer_environment.Global_variable);
+            ("OuterValue", Semantic_outer_environment.Global_variable);
+          ]
+      in
+      let assembler =
+        make_table prepared ~table_kind:Semantic_outer_environment.Assembler
+          ~table_index:1 []
+      in
+      let result =
+        environment prepared mode [ outer_table; assembler ] |> resolve prepared
+      in
+      let queries =
+        function_named result "Read"
+        |> Semantic_outer_expression_binding.function_queries
+      in
+      let signature query =
+        let name = Semantic_outer_expression_binding.query_name query in
+        let resolution =
+          match Semantic_outer_expression_binding.query_resolution query with
+          | Semantic_outer_expression_binding.Query_undefined -> "undefined"
+          | Semantic_outer_expression_binding.Query_binding
+              (Semantic_outer_expression_binding.Local_binding _) -> "local"
+          | Semantic_outer_expression_binding.Query_binding
+              (Semantic_outer_expression_binding.Module_binding _) -> "module"
+          | Semantic_outer_expression_binding.Query_binding
+              (Semantic_outer_expression_binding.Outer_binding binding) ->
+              let table = Semantic_outer_environment.binding_table binding in
+              let entry = Semantic_outer_environment.binding_entry binding in
+              Printf.sprintf "outer:%s:%s"
+                (Semantic_outer_environment.table_kind table
+                |> Semantic_outer_environment.table_kind_name)
+                (Semantic_outer_environment.entry_record_kind entry
+                |> Semantic_outer_environment.record_kind_name)
+        in
+        (name, resolution)
+      in
+      let outer_kind =
+        Semantic_outer_environment.table_kind_name table_kind
+      in
+      Alcotest.(check (list (pair string string)))
+        "defined keeps inner precedence and a proven miss"
+        [
+          ("LocalValue", "local");
+          ("ModuleValue", "module");
+          ("OuterValue", "outer:" ^ outer_kind ^ ":global-variable");
+          ("Missing", "undefined");
+        ]
+        (List.map signature queries);
+      Alcotest.(check bool)
+        "outer query wraps its exact module query" true
+        (List.for_all
+           (fun query ->
+             query |> Semantic_outer_expression_binding.query_source
+             |> fun source ->
+             List.exists (( == ) source)
+               (prepared.expressions
+               |> Semantic_module_expression_binding.functions
+               |> List.find (fun function_ ->
+                      function_ |> Semantic_module_expression_binding.function_symbol
+                      |> Semantic_symbol.name |> String.equal "Read")
+               |> Semantic_module_expression_binding.function_queries))
+           queries))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
@@ -529,6 +610,8 @@ let tests =
       top_level_aot_has_only_the_assembler_table;
     Alcotest.test_case "local and module bindings take precedence" `Quick
       local_and_module_bindings_take_precedence;
+    Alcotest.test_case "defined queries use the complete outer lookup" `Quick
+      defined_queries_use_complete_lookup_without_errors;
     Alcotest.test_case "generated unresolved identifier keeps provenance" `Quick
       generated_unresolved_identifier_keeps_provenance;
     Alcotest.test_case "determinism, purity, and validation" `Quick

@@ -330,11 +330,11 @@ let analyze_function_headers session ~functions inputs =
     ~functions inputs
 
 let resolve_function_calls session ~declarations ?members ~function_types
-    ~local_types ~global_types ~functions ~expressions module_ =
+    ~local_types ~global_types ~functions ~expressions ?outer module_ =
   Driver.Function_call_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~declarations ?members ~function_types ~local_types ~global_types ~functions
-    ~expressions module_
+    ~expressions ?outer module_
 
 let analyze_function_call_conversions session ~declarations ~headers ~calls =
   Sema.Function_call_conversion_policy.analyze

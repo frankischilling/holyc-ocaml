@@ -17,9 +17,13 @@ type unresolved_expression_kind =
 
 type defined_operand_kind = Defined_name | Defined_non_name
 
+type defined_function_query =
+  | Module_query of Module_expression_binding.query
+  | Outer_query of Outer_expression_binding.query
+
 type defined_operand_resolution =
   | Defined_non_name_false
-  | Defined_function_query of Module_expression_binding.query
+  | Defined_function_query of defined_function_query
   | Defined_top_level_name
 
 type defined_expression
@@ -359,6 +363,7 @@ val resolve :
   function_types:Function_type_resolution.t ->
   functions:Function_resolution.t ->
   expressions:Module_expression_binding.t ->
+  ?outer:Outer_expression_binding.t ->
   function_input list ->
   (t, error) result
 (** Resolve function-body calls. A module function receives the source header

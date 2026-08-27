@@ -7,10 +7,13 @@ val resolve :
   global_types:Sema.Global_type_resolution.t ->
   functions:Sema.Function_resolution.t ->
   expressions:Sema.Module_expression_binding.t ->
+  ?outer:Sema.Outer_expression_binding.t ->
   Frontend.Ast.module_ ->
   (Sema.Function_call_resolution.t, string) result
 (** Collect syntactically direct calls from function bodies, associate each
     callee with its ordinary-expression occurrence, retain audited argument
     source classes, typed bound identifiers, recursive prefix, postfix, and
     binary operands, and source-visible cast targets, and resolve fixed and
-    variadic slots against the source-visible function header. *)
+    variadic slots against the source-visible function header. Supplying [outer]
+    proves ordinary [defined] operands against the complete mode-specific outer
+    lookup chain. *)

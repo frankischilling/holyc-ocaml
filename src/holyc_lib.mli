@@ -458,6 +458,7 @@ val resolve_function_calls :
   global_types:Semantic_global_type_resolution.t ->
   functions:Semantic_function_resolution.t ->
   expressions:Semantic_module_expression_binding.t ->
+  ?outer:Semantic_outer_expression_binding.t ->
   Ast.module_ ->
   (Semantic_function_call_resolution.t, string) result
 (** Bind calls in function bodies to the source-visible function or callback
@@ -466,8 +467,9 @@ val resolve_function_calls :
     or declared-default origins; prefix and binary operands retain their
     recursive source views; bound identifier arguments retain their checked type
     and declarator shape; named aggregate cast targets retain the identity
-    visible before the caller; indirect and outer targets remain explicit
-    deferred results. *)
+    visible before the caller. Supplying [outer] proves ordinary [defined]
+    operands against the complete mode-specific outer lookup chain; indirect
+    call targets outside the compilation unit remain deferred. *)
 
 val analyze_function_call_conversions :
   Session.t ->

@@ -47,6 +47,83 @@ let function_roots ~mode ~path source =
   let _, results = Test_function_call_expression_result.analyze prepared in
   Test_function_call_expression_result.root_results results "Caller"
 
+let function_roots_with_outer ~mode ~path ~records source =
+  let prepared =
+    Test_function_call_conversion_policy.prepare ~mode ~path source
+  in
+  let table = Holyc_lib.Session.semantic_symbols prepared.session in
+  let semantic_kind = function
+    | Holyc_lib.Semantic_outer_environment.Aggregate ->
+        Holyc_lib.Semantic_symbol.Aggregate_type
+    | Holyc_lib.Semantic_outer_environment.Function ->
+        Holyc_lib.Semantic_symbol.Function
+    | Holyc_lib.Semantic_outer_environment.Global_variable ->
+        Holyc_lib.Semantic_symbol.Global_variable
+    | Holyc_lib.Semantic_outer_environment.Export_system_symbol ->
+        Holyc_lib.Semantic_symbol.Assembler_symbol
+  in
+  let entries =
+    records
+    |> List.mapi (fun entry_index (name, record_kind) ->
+           let symbol =
+             Holyc_lib.Semantic_symbol_table.add table
+               ~scope:(Holyc_lib.Semantic_symbol_table.root table)
+               ~name ~kind:(semantic_kind record_kind)
+               ~origin:(Holyc_lib.Semantic_symbol.Synthesized
+                          ("IR outer fixture " ^ name))
+             |> require_ok Fun.id
+           in
+           Holyc_lib.Semantic_outer_environment.make_entry ~symbol ~record_kind
+             ~entry_index
+           |> require_ok Holyc_lib.Semantic_outer_environment.error_to_string)
+  in
+  let table_kind =
+    match mode with
+    | Preprocessor.Jit -> Holyc_lib.Semantic_outer_environment.Jit_task 0
+    | Preprocessor.Aot -> Holyc_lib.Semantic_outer_environment.Aot_parent 0
+  in
+  let outer_table =
+    Holyc_lib.Semantic_outer_environment.make_table ~table_kind ~table_index:0
+      entries
+    |> require_ok Holyc_lib.Semantic_outer_environment.error_to_string
+  in
+  let assembler =
+    Holyc_lib.Semantic_outer_environment.make_table
+      ~table_kind:Holyc_lib.Semantic_outer_environment.Assembler ~table_index:1
+      []
+    |> require_ok Holyc_lib.Semantic_outer_environment.error_to_string
+  in
+  let environment =
+    Holyc_lib.create_outer_environment prepared.session ~compilation_mode:mode
+      [ outer_table; assembler ]
+    |> require_ok Fun.id
+  in
+  let outer =
+    Holyc_lib.resolve_outer_expressions prepared.session ~environment
+      ~expressions:prepared.module_expressions
+    |> require_ok Fun.id
+  in
+  let calls =
+    Holyc_lib.resolve_function_calls prepared.session
+      ~declarations:prepared.declarations ~members:prepared.members
+      ~function_types:prepared.function_types ~local_types:prepared.local_types
+      ~global_types:prepared.global_types ~functions:prepared.functions
+      ~expressions:prepared.module_expressions ~outer prepared.ast
+    |> require_ok Fun.id
+  in
+  let policies =
+    Holyc_lib.analyze_function_call_conversions prepared.session
+      ~declarations:prepared.declarations ~headers:prepared.headers ~calls
+    |> require_ok
+         Holyc_lib.Semantic_function_call_conversion_policy.error_to_string
+  in
+  let results =
+    Holyc_lib.type_function_call_expressions prepared.session
+      ~members:prepared.members ~policies
+    |> require_ok Holyc_lib.Semantic_function_call_expression_result.error_to_string
+  in
+  Test_function_call_expression_result.root_results results "Caller"
+
 let top_level_roots ~mode ~path source =
   let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
   let _, _, _, results = Test_top_level_expression_result.analyze prepared in
@@ -1340,6 +1417,43 @@ let module_defined_names_lower_in_both_modes () =
           Alcotest.fail "a later module name was visible before publication")
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let outer_defined_hits_and_misses_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I64 present,I64 absent);I64 Caller(){return \
+     Target(defined(OuterValue),defined(Missing));}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots_with_outer ~mode ~path:"ir-defined-outer.HC"
+          ~records:
+            [
+              ( "OuterValue",
+                Holyc_lib.Semantic_outer_environment.Global_variable );
+            ]
+          source
+      in
+      Alcotest.(check int) "one outer hit and one proven miss" 2
+        (List.length roots);
+      List.iter2
+        (fun root expected ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "outer defined emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "outer defined retains its Boolean payload" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "outer defined keeps internal I64 storage" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check bool)
+            "outer defined keeps its complete expression span" true
+            (item.span = Some (source_span root)))
+        roots [ 1L; 0L ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let deterministic_defined_dump_records_payload () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit ~path:"ir-defined-dump.HC"
@@ -1555,6 +1669,8 @@ let tests =
       deferred_defined_names_return_no_sequence;
     Alcotest.test_case "module defined lowering" `Quick
       module_defined_names_lower_in_both_modes;
+    Alcotest.test_case "outer defined lowering" `Quick
+      outer_defined_hits_and_misses_lower_in_both_modes;
     Alcotest.test_case "deterministic defined dump" `Quick
       deterministic_defined_dump_records_payload;
     Alcotest.test_case "postfix cast metadata validation" `Quick
