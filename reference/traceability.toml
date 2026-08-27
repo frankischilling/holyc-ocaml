@@ -7795,8 +7795,40 @@ nonliteral_rule = "a grouped nonliteral returns Not_literal without constructing
 traversal_rule = "iterative semantic grouping traversal uses constant host stack"
 compilation_modes = ["jit", "aot"]
 focused_typed_grouping_tests = 3
-semantic_prefix_traversal_string_storage_constant_folding_and_execution = "not implemented by this feature"
+semantic_prefix_traversal_string_storage_constant_folding_and_execution = "not implemented by this feature; unary plus is HC-IR-TYPED-LITERAL-UNARY-PLUS"
 native_oracle_status = "not required for this source-stated transparent boundary; the recursive parser branch and absence of another ICAdd directly define grouping behavior"
+
+[[feature]]
+id = "HC-IR-TYPED-LITERAL-UNARY-PLUS"
+description = "Unary plus is transparent when typed semantic literal results lower to checked IR."
+sources = [
+  "Compiler/PrsExp.HC:679-700 literal payload and opcode branches",
+  "Compiler/PrsExp.HC:750-759 unary plus consumes syntax without selecting an opcode",
+  "Compiler/PrsExp.HC:728-747 recursive parenthesized expression without another ICAdd",
+  "Compiler/CInit.HC:27-29 zero-argument and one-result literal instruction shapes",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = [
+  "test/test_ir_literal_lowering.ml"
+]
+status = "implemented"
+issue = 435
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "unary plus, including mixed parentheses, around integer, character, F64, and string leaves in function-body and executable top-level typed results"
+payload_rule = "copy the retained literal leaf payload without consulting a frontend AST node"
+type_rule = "copy the outer typed result's checked type"
+source_rule = "attach the literal leaf's source span after validating the outer typed result metadata"
+identity_rule = "unary plus consumes no instruction or value identity"
+nonliteral_rule = "unary plus around a nonliteral returns Not_literal without constructing IR"
+traversal_rule = "iterative semantic grouping and unary-plus traversal uses constant host stack"
+compilation_modes = ["jit", "aot"]
+focused_typed_unary_plus_tests = 3
+emitting_semantic_prefix_traversal_string_storage_constant_folding_and_execution = "not implemented by this feature"
+native_oracle_status = "not required for this source-stated transparent boundary; the unary-plus parser branch returns without selecting or adding an opcode"
 
 [[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
