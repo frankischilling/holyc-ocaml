@@ -273,13 +273,12 @@ let sizeof_resolution_fact (_, sizeof) =
               (binding : Semantic_function_binding_index.binding).symbol
       | Semantic_module_expression_binding.Module_binding publication ->
           "module:"
-          ^ (publication
-            |> Semantic_module_expression_binding.publication_kind
-            |> Semantic_module_expression_binding.publication_kind_name)
+          ^ (publication |> Semantic_module_expression_binding.publication_kind
+           |> Semantic_module_expression_binding.publication_kind_name)
           ^ ":"
           ^ (publication
-            |> Semantic_module_expression_binding.publication_source_symbol
-            |> Semantic_symbol.name)
+           |> Semantic_module_expression_binding.publication_source_symbol
+           |> Semantic_symbol.name)
       | Semantic_module_expression_binding.Outer_candidate -> "outer-candidate")
   | Sizeof_function_query (Outer_query query) -> (
       match Semantic_outer_expression_binding.query_resolution query with
@@ -292,18 +291,17 @@ let sizeof_resolution_fact (_, sizeof) =
       | Semantic_outer_expression_binding.Query_binding
           (Semantic_outer_expression_binding.Module_binding publication) ->
           "module:"
-          ^ (publication
-            |> Semantic_module_expression_binding.publication_kind
-            |> Semantic_module_expression_binding.publication_kind_name)
+          ^ (publication |> Semantic_module_expression_binding.publication_kind
+           |> Semantic_module_expression_binding.publication_kind_name)
           ^ ":"
           ^ (publication
-            |> Semantic_module_expression_binding.publication_source_symbol
-            |> Semantic_symbol.name)
+           |> Semantic_module_expression_binding.publication_source_symbol
+           |> Semantic_symbol.name)
       | Semantic_outer_expression_binding.Query_binding
           (Semantic_outer_expression_binding.Outer_binding binding) ->
           "outer:"
           ^ (binding |> Semantic_outer_environment.binding_entry
-            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
+           |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name))
 
 let defined_fact (_, defined) =
   let open Semantic_function_call_resolution in
@@ -1546,7 +1544,8 @@ let sizeof_inputs_survive_function_expression_contexts () =
       let table = Session.semantic_symbols prepared.session in
       let before = Semantic_symbol_table.all_symbols table |> List.length in
       let inspect () =
-        let caller = resolve prepared |> checked |> fun result ->
+        let caller =
+          resolve prepared |> checked |> fun result ->
           function_named result "Caller"
         in
         let statement_terms =
@@ -1554,8 +1553,8 @@ let sizeof_inputs_survive_function_expression_contexts () =
           |> Semantic_function_call_resolution.function_expression_statements
           |> List.concat_map (fun statement ->
               statement
-              |> Semantic_function_call_resolution.expression_statement_expression
-              |> sizeof_expressions)
+              |> Semantic_function_call_resolution
+                 .expression_statement_expression |> sizeof_expressions)
         in
         let call_terms =
           caller |> Semantic_function_call_resolution.function_calls
@@ -1573,7 +1572,8 @@ let sizeof_inputs_survive_function_expression_contexts () =
               |> List.concat_map (fun argument ->
                   argument
                   |> Semantic_function_call_resolution.argument_expression
-                  |> Option.to_list |> List.concat_map sizeof_expressions))
+                  |> Option.to_list
+                  |> List.concat_map sizeof_expressions))
         in
         let condition_terms =
           caller |> Semantic_function_call_resolution.function_conditions
@@ -1585,8 +1585,7 @@ let sizeof_inputs_survive_function_expression_contexts () =
         let selector_terms =
           caller |> Semantic_function_call_resolution.function_selectors
           |> List.concat_map (fun selector ->
-              selector
-              |> Semantic_function_call_resolution.selector_expression
+              selector |> Semantic_function_call_resolution.selector_expression
               |> sizeof_expressions)
         in
         let case_terms =
@@ -1607,7 +1606,8 @@ let sizeof_inputs_survive_function_expression_contexts () =
           caller |> Semantic_function_call_resolution.function_returns
           |> List.concat_map (fun return_ ->
               return_ |> Semantic_function_call_resolution.return_expression
-              |> Option.to_list |> List.concat_map sizeof_expressions)
+              |> Option.to_list
+              |> List.concat_map sizeof_expressions)
         in
         let terms =
           statement_terms @ call_terms @ condition_terms @ selector_terms
@@ -1625,16 +1625,16 @@ let sizeof_inputs_survive_function_expression_contexts () =
           (terms
           |> List.map (fun (_, sizeof) ->
               sizeof |> Semantic_function_call_resolution.sizeof_members
-              |> List.map
-                   Semantic_function_call_resolution.sizeof_member_name));
+              |> List.map Semantic_function_call_resolution.sizeof_member_name)
+          );
         Alcotest.(check (list (list int)))
           "pointer layers keep contiguous source depths"
           [ []; []; [ 1; 2 ]; []; []; []; [] ]
           (terms
           |> List.map (fun (_, sizeof) ->
               sizeof |> Semantic_function_call_resolution.sizeof_pointer_layers
-              |> List.map
-                   Semantic_function_call_resolution.sizeof_pointer_depth));
+              |> List.map Semantic_function_call_resolution.sizeof_pointer_depth)
+          );
         Alcotest.(check (list (pair int int)))
           "wrapper parentheses remain balanced and ordered"
           [ (3, 3); (1, 1); (1, 1); (1, 1); (1, 1); (1, 1); (1, 1) ]
@@ -1662,11 +1662,11 @@ let sizeof_inputs_survive_function_expression_contexts () =
         Alcotest.(check string)
           "keyword origin" "sizeof"
           (nested |> Semantic_function_call_resolution.sizeof_keyword_origin
-          |> origin_slice source);
+         |> origin_slice source);
         Alcotest.(check string)
           "target origin" "Root"
           (nested |> Semantic_function_call_resolution.sizeof_target_origin
-          |> origin_slice source);
+         |> origin_slice source);
         Alcotest.(check (list string))
           "member name origins" [ "leaf"; "value" ]
           (nested |> Semantic_function_call_resolution.sizeof_members
@@ -1708,7 +1708,8 @@ let sizeof_generated_provenance_is_deterministic_and_pure () =
   let before = Semantic_symbol_table.all_symbols table |> List.length in
   let inspect () =
     let expression, sizeof =
-      resolve prepared |> checked |> fun result -> function_named result "Caller"
+      resolve prepared |> checked |> fun result ->
+      function_named result "Caller"
       |> Semantic_function_call_resolution.function_expression_statements
       |> List.hd
       |> Semantic_function_call_resolution.expression_statement_expression
@@ -1719,8 +1720,7 @@ let sizeof_generated_provenance_is_deterministic_and_pure () =
     in
     let origins =
       [
-        Semantic_function_call_resolution.argument_expression_origin
-          expression;
+        Semantic_function_call_resolution.argument_expression_origin expression;
         Semantic_function_call_resolution.sizeof_keyword_origin sizeof;
         Semantic_function_call_resolution.sizeof_target_origin sizeof;
         Semantic_function_call_resolution.sizeof_member_dot_origin member;
@@ -1793,7 +1793,8 @@ let sizeof_constructors_validate_source_and_query_evidence () =
       ?(closing_origins = [ source_origin ]) ?(members = [ member ])
       ?(pointer_layers = [ pointer ]) ?(target_spelling = "local")
       ?(target_origin = target_origin)
-      ?(root_resolution = Sizeof_function_query (Module_query sizeof_query)) () =
+      ?(root_resolution = Sizeof_function_query (Module_query sizeof_query)) ()
+      =
     make_sizeof_argument_expression ~keyword_spelling:"sizeof"
       ~keyword_origin:source_origin ~opening_origins ~target_spelling
       ~target_origin ~members ~pointer_layers ~closing_origins ~root_resolution
@@ -1810,8 +1811,7 @@ let sizeof_constructors_validate_source_and_query_evidence () =
         "checked constructor retains its pointer depth" 1
         (sizeof_pointer_layers sizeof |> List.hd |> sizeof_pointer_depth)
   | _ -> Alcotest.fail "expected checked sizeof evidence");
-  expect_error "unbalanced wrappers"
-    "sizeof wrapper parentheses are unbalanced"
+  expect_error "unbalanced wrappers" "sizeof wrapper parentheses are unbalanced"
     (make ~closing_origins:[] ());
   let second_pointer =
     make_sizeof_pointer_layer ~depth:2 ~spelling:"*" ~origin:source_origin
@@ -1825,9 +1825,7 @@ let sizeof_constructors_validate_source_and_query_evidence () =
     (make
        ~target_origin:
          (Semantic_module_expression_binding.query_origin defined_query)
-       ~root_resolution:
-         (Sizeof_function_query (Module_query defined_query))
-       ());
+       ~root_resolution:(Sizeof_function_query (Module_query defined_query)) ());
   expect_error "query spelling mismatch"
     "sizeof target spelling does not match its query"
     (make ~target_spelling:"other" ());
@@ -1892,8 +1890,7 @@ let sizeof_query_must_belong_to_its_function () =
     Semantic_function_call_resolution.make_function
       ~symbol:(Semantic_function_call_resolution.function_symbol target)
       ~scope:(Semantic_function_call_resolution.function_scope target)
-      ~item_index:
-        (Semantic_function_call_resolution.function_item_index target)
+      ~item_index:(Semantic_function_call_resolution.function_item_index target)
       ~expression_statements:[ statement ] []
     |> checked
   in

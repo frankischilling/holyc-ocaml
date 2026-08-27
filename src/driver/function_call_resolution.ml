@@ -540,13 +540,12 @@ let sizeof_kind queries (sizeof : Frontend.Ast.sizeof_expression) =
           | Ok pointer_layers ->
               Sema.Function_call_resolution.make_sizeof_argument_expression
                 ~keyword_spelling:sizeof.sizeof_keyword_spelling
-                ~keyword_origin:
-                  (origin sizeof.sizeof_keyword_location)
+                ~keyword_origin:(origin sizeof.sizeof_keyword_location)
                 ~opening_origins:
                   (List.map origin sizeof.sizeof_opening_parentheses)
                 ~target_spelling:sizeof.sizeof_target.spelling
-                ~target_origin:(origin sizeof.sizeof_target.location) ~members
-                ~pointer_layers
+                ~target_origin:(origin sizeof.sizeof_target.location)
+                ~members ~pointer_layers
                 ~closing_origins:
                   (List.map origin sizeof.sizeof_closing_parentheses)
                 ~root_resolution:
@@ -660,7 +659,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Current_position_expression)
-    | Frontend.Ast.Sizeof_expression sizeof -> sizeof_kind defined_queries sizeof
+    | Frontend.Ast.Sizeof_expression sizeof ->
+        sizeof_kind defined_queries sizeof
     | Frontend.Ast.Offset_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
