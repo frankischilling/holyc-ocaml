@@ -680,8 +680,8 @@ let validate_binary result opcode left right =
       validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
         ~operation_flags:0L result left right
   | Ok false when accepted_f64_comparison_opcode opcode ->
-      validate_f64_binary_with checked_integer_type
-        ~allow_integer_pair:false ~operation_flags:use_f64_flag result left right
+      validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
+        ~operation_flags:use_f64_flag result left right
   | Ok false when opcode = Opcode.Ic_power ->
       validate_f64_binary_with checked_f64_type ~allow_integer_pair:true
         ~operation_flags:0L result left right

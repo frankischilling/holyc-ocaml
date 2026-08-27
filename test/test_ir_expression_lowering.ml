@@ -773,7 +773,8 @@ let power_operand_domains_lower_in_both_modes () =
           Alcotest.(check bool)
             "power result is internal F64" true
             (internal_f64_type power.target_type);
-          Alcotest.(check int64) "power carries no operation flag" 0L power.flags;
+          Alcotest.(check int64)
+            "power carries no operation flag" 0L power.flags;
           (match power.span with
           | Some span ->
               Alcotest.(check string)
@@ -816,7 +817,8 @@ let right_associated_power_and_unary_minus_keep_checked_order () =
         [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER"; "IC_UNARY_MINUS" ]
         (opcode_names negative);
       Alcotest.(check (list int64))
-        "negative power flags" [ result_to_f64; result_to_f64; 0L; 0L ]
+        "negative power flags"
+        [ result_to_f64; result_to_f64; 0L; 0L ]
         (instruction_flags negative);
       ignore (verify_x87 negative))
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -825,15 +827,16 @@ let top_level_power_uses_the_same_lowering () =
   List.iter
     (fun mode ->
       let root =
-        top_level_roots ~mode ~path:"ir-top-level-power.HC" "2`3;"
-        |> List.hd
+        top_level_roots ~mode ~path:"ir-top-level-power.HC" "2`3;" |> List.hd
       in
       let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
       Alcotest.(check (list string))
-        "top-level power" [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER" ]
+        "top-level power"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_POWER" ]
         (opcode_names lowered);
       Alcotest.(check (list int64))
-        "top-level power conversions" [ result_to_f64; result_to_f64; 0L ]
+        "top-level power conversions"
+        [ result_to_f64; result_to_f64; 0L ]
         (instruction_flags lowered);
       Alcotest.(check bool)
         "top-level result is F64" true
@@ -857,7 +860,8 @@ let deterministic_power_dump_records_both_conversions () =
   let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
   let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
   let dump = Expression.human lowered in
-  Alcotest.(check string) "deterministic power replay" dump
+  Alcotest.(check string)
+    "deterministic power replay" dump
     (Expression.human repeated);
   Alcotest.(check int)
     "dump contains both conversion flags" 2
@@ -877,8 +881,7 @@ let deep_power_tree_uses_the_explicit_worklist () =
   let expression = List.init leaf_count (fun _ -> "1") |> String.concat "`" in
   let source =
     Printf.sprintf
-      "extern F64 Target(F64 value);F64 Caller(){return Target(%s);}"
-      expression
+      "extern F64 Target(F64 value);F64 Caller(){return Target(%s);}" expression
   in
   let root =
     function_roots ~mode:Preprocessor.Jit ~path:"ir-deep-power.HC" source
@@ -900,7 +903,8 @@ let deep_power_tree_uses_the_explicit_worklist () =
     "deep power next instruction" (100 + instruction_count)
     (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
   Alcotest.(check int)
-    "deep power next value" (1_000 + instruction_count)
+    "deep power next value"
+    (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
 let f64_unary_and_binary_tree_keeps_checked_postorder () =
@@ -1957,7 +1961,8 @@ let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
 let unsupported_shapes_return_no_sequence () =
   let source =
     "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
-     f);I64 Caller(I64 x){return Target(1+2.0,1%2.0,x=1,x+1,(&1)+2,Helper()+1);}"
+     f);I64 Caller(I64 x){return \
+     Target(1+2.0,1%2.0,x=1,x+1,(&1)+2,Helper()+1);}"
   in
   List.iter
     (fun mode ->

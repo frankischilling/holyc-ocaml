@@ -23,11 +23,10 @@ val lower_typed_result :
     [ICF_RES_TO_F64], and emits an unflagged [IC_POWER] with an internal [F64]
     result. Numeric prefixes and primitive postfix casts compose within their
     checked domain; address and dereference remain confined to integer and
-    pointer trees. A postfix cast emits
-    [IC_HOLYC_TYPECAST] with the full cast span and pinned [was_paren] payload.
-    The module owns source-order traversal, TempleOS's immediate
-    address/dereference cancellation, and consecutive identity allocation.
-    Expressions outside the implemented tree shapes return
+    pointer trees. A postfix cast emits [IC_HOLYC_TYPECAST] with the full cast
+    span and pinned [was_paren] payload. The module owns source-order traversal,
+    TempleOS's immediate address/dereference cancellation, and consecutive
+    identity allocation. Expressions outside the implemented tree shapes return
     [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t
