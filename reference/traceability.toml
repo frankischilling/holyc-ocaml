@@ -7436,6 +7436,39 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-INTEGER-BINARY-LOWERING"
+description = "Checked integer literal binary trees lower to one verified IR sequence with source-ordered operands and module-owned identities."
+sources = [
+  "Compiler/PrsExp.HC:15-61 binary completion and source-grounded pointer-adjustment boundary",
+  "Compiler/PrsExp.HC:167-255 source-term emission and precedence completion",
+  "Compiler/CInit.HC:60-84 two-argument, one-result integer binary opcode entries",
+  "Compiler/OptPass012.HC:40-61 right and left operand-tree reconstruction",
+  "Compiler/OptPass3.HC:68-88 stable binary operand slots and result processing"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 450
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "integer and character literal binary trees beneath transparent parentheses and unary plus in checked function-body and executable top-level results"
+supported_opcodes = ["IC_SHL", "IC_SHR", "IC_MUL", "IC_DIV", "IC_MOD", "IC_AND", "IC_OR", "IC_XOR", "IC_ADD", "IC_SUB", "IC_EQU_EQU", "IC_NOT_EQU", "IC_LESS", "IC_GREATER_EQU", "IC_GREATER", "IC_LESS_EQU", "IC_AND_AND", "IC_OR_OR", "IC_XOR_XOR"]
+traversal = "validate iteratively, then emit source-left, source-right, operator postorder without recursive host-stack use"
+identity = "the module allocates consecutive instruction and value IDs from caller-supplied starting IDs and returns the next unused IDs"
+result = "one checked instruction sequence, final value, final type, and next instruction and value IDs"
+diagnostics = ["HCIRL0004 inconsistent semantic tree metadata", "HCIRL0005 instruction or value identity exhaustion"]
+unsupported_result = "F64, power, assignment, compound assignment, identifier, call, pointer, emitting-prefix, conversion, and other semantic shapes return Unsupported_expression before a sequence is exposed"
+compilation_modes = ["jit", "aot"]
+focused_tests = 7
+deep_tree = "2,000 integer leaves and 1,999 additions produce 3,999 checked instructions"
+pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "not implemented"
+native_oracle_status = "not required for this structural source mapping; runtime operator behavior remains separate oracle work"
+
+[[feature]]
 id = "HC-SEMA-BINARY-OPERANDS"
 description = "Completed binary semantic results retain their exact checked left and right children in source order."
 sources = [
