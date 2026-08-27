@@ -8,11 +8,14 @@ val lower_typed_result :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
   (lowering_result, Instruction_sequence.error list) result
-(** Lower an integer or character literal-backed semantic expression tree with
-    the checked integer binary operations and supported numeric, address, and
-    dereference prefixes. The module owns source-order traversal, TempleOS's
-    immediate address/dereference cancellation, and consecutive identity
-    allocation. Expressions outside the implemented tree shapes return
+(** Lower an integer, character, or [F64] literal-backed semantic expression
+    tree. Integer trees accept the checked integer binary operations; pure
+    [F64] trees accept multiplication, division, addition, and subtraction.
+    Numeric prefixes compose within their checked domain; address and
+    dereference remain confined to integer and pointer trees. The module owns
+    source-order traversal, TempleOS's immediate
+    address/dereference cancellation, and consecutive identity allocation.
+    Expressions outside the implemented tree shapes return
     [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t
