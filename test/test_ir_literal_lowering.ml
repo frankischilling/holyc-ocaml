@@ -1144,6 +1144,7 @@ let semantic_literal_span result =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   match Semantic_source.argument_expression_origin !source with
@@ -1192,6 +1193,7 @@ let typed_unary_minus_spans result =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   let leaf_span =
@@ -1620,6 +1622,7 @@ let typed_unary_not_spans result =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   let leaf_span =
@@ -1892,6 +1895,7 @@ let typed_unary_complement_spans result =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
+    | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   let leaf_span =

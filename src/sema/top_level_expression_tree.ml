@@ -323,6 +323,7 @@ let rec flatten_expression rev expression =
   | Function_call_resolution.String_literal _
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
+  | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> rev
 
 let call_expressions rev (call : call) =

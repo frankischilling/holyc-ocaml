@@ -7674,6 +7674,42 @@ calls_storage_side_effect_execution_optimization_interpretation_and_backend = "n
 native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
 
 [[feature]]
+id = "HC-SEMA-DEFINED-OPERAND-RETENTION"
+description = "Ordinary language defined expressions retain the exact source token needed by later source-ordered evaluation."
+sources = [
+  "Compiler/PrsExp.HC:936-954 wrapper, token-kind, local/hash lookup, and IC_IMM_I64 branch",
+  "Compiler/Lex.HC:493-514 identifier token and hash-entry selection",
+  "Compiler/PrsLib.HC:79-97 source-positioned IC insertion boundary",
+  "Compiler/CompilerA.HH:30 IC_IMM_I64 identity",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/driver/top_level_expression_tree.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_top_level_expression_tree.ml"
+]
+status = "implemented"
+issue = 468
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary defined expressions in checked function bodies and executable top-level trees"
+retained_operand = ["name or non-name shape", "exact spelling", "exact operand origin"]
+retained_expression = "complete expression origin, including repeated wrapper parentheses"
+composition = ["grouping", "unary operation", "binary operation", "postfix cast", "call argument", "ordinary statement", "condition", "return", "executable top-level root"]
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+validation = ["nonempty operand spelling", "valid operand source origin"]
+mutation = "none"
+focused_function_tests = 3
+focused_top_level_tests = 1
+source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "not implemented"
+native_oracle_status = "not required for this source-evidence boundary; the pinned parser branch directly defines the retained token shape"
+
+[[feature]]
 id = "HC-IR-CURRENT-POSITION-LOWERING"
 description = "Ordinary current-position expressions lower to the source-defined IC_RIP producer."
 sources = [

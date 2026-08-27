@@ -156,6 +156,46 @@ let source_location = function
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected a source-positioned call"
 
+let rec defined_expressions expression =
+  let open Semantic_function_call_resolution in
+  match argument_expression_kind expression with
+  | Defined_expression defined -> [ (expression, defined) ]
+  | Parenthesized_expression grouped -> defined_expressions grouped
+  | Prefix_expression prefix -> defined_expressions (prefix_operand prefix)
+  | Postfix_expression postfix -> defined_expressions (postfix_operand postfix)
+  | Postfix_cast_expression (operand, _) -> defined_expressions operand
+  | Binary_expression binary ->
+      defined_expressions (binary_left binary)
+      @ defined_expressions (binary_right binary)
+  | Index_expression index ->
+      defined_expressions (index_base index)
+      @ defined_expressions (index_value index)
+  | Member_access_expression member -> defined_expressions (member_base member)
+  | Integer_literal _
+  | Float_literal _
+  | Character_literal _
+  | String_literal _
+  | Bound_identifier_expression _
+  | Top_level_bound_identifier_expression _
+  | Unresolved_expression _ -> []
+
+let defined_fact (_, defined) =
+  let open Semantic_function_call_resolution in
+  let kind =
+    match defined_operand_kind defined with
+    | Defined_name -> "name"
+    | Defined_non_name -> "non-name"
+  in
+  kind ^ ":" ^ defined_operand_spelling defined
+
+let expression_slice source expression =
+  let location =
+    expression |> Semantic_function_call_resolution.argument_expression_origin
+    |> source_location
+  in
+  let span = location.span in
+  String.sub source span.start (span.stop - span.start)
+
 let fixed_defaults_and_sparse_slots () =
   let prepared =
     prepare ~path:"function-call-fixed.HC"
@@ -1212,6 +1252,176 @@ let index_expression_constructors_validate_bracket_origins () =
     (Semantic_function_call_resolution.make_index_argument_expression ~base
        ~opening_origin ~index ~closing_origin:(Semantic_symbol.Synthesized ""))
 
+let defined_operands_survive_function_expression_shapes () =
+  let source =
+    "extern I64 Use(I64 value);\n\
+     I64 Caller(I64 local){\n\
+     ((defined(((local)))));\n\
+     -defined(+);\n\
+     defined(left)+defined(right);\n\
+     defined(cast)(I64);\n\
+     Use(defined(argument));\n\
+     if(defined(condition)) return defined(result);\n\
+     return 0;\n\
+     }"
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-defined-retention.HC" source
+      in
+      let result = resolve prepared |> checked in
+      let caller = function_named result "Caller" in
+      let statement_terms =
+        caller
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> defined_expressions)
+      in
+      Alcotest.(check (list string))
+        "statement expression shapes retain defined operands"
+        [ "name:local"; "non-name:+"; "name:left"; "name:right"; "name:cast" ]
+        (List.map defined_fact statement_terms);
+      let call_terms =
+        caller |> Semantic_function_call_resolution.function_calls
+        |> List.concat_map (fun resolution ->
+            let call =
+              match resolution with
+              | Semantic_function_call_resolution.Direct_call direct ->
+                  Semantic_function_call_resolution.direct_source direct
+              | Semantic_function_call_resolution.Indirect_call indirect ->
+                  Semantic_function_call_resolution.indirect_source indirect
+              | Semantic_function_call_resolution.Deferred_call { call; _ } ->
+                  call
+            in
+            call |> Semantic_function_call_resolution.call_arguments
+            |> List.concat_map (fun argument ->
+                argument
+                |> Semantic_function_call_resolution.argument_expression
+                |> Option.to_list
+                |> List.concat_map defined_expressions))
+      in
+      Alcotest.(check (list string))
+        "call argument retains its defined operand" [ "name:argument" ]
+        (List.map defined_fact call_terms);
+      let condition_terms =
+        caller |> Semantic_function_call_resolution.function_conditions
+        |> List.concat_map (fun condition ->
+            condition |> Semantic_function_call_resolution.condition_expression
+            |> defined_expressions)
+      in
+      Alcotest.(check (list string))
+        "condition retains its defined operand" [ "name:condition" ]
+        (List.map defined_fact condition_terms);
+      let return_terms =
+        caller |> Semantic_function_call_resolution.function_returns
+        |> List.concat_map (fun return_ ->
+            return_ |> Semantic_function_call_resolution.return_expression
+            |> Option.to_list
+            |> List.concat_map defined_expressions)
+      in
+      Alcotest.(check (list string))
+        "return retains its defined operand" [ "name:result" ]
+        (List.map defined_fact return_terms);
+      let wrapped_expression, wrapped = List.hd statement_terms in
+      Alcotest.(check string)
+        "multiply wrapped defined expression keeps its complete origin"
+        "defined(((local)))"
+        (expression_slice source wrapped_expression);
+      Alcotest.(check string)
+        "multiply wrapped defined expression keeps its exact operand" "local"
+        (let span =
+           wrapped |> Semantic_function_call_resolution.defined_operand_origin
+           |> source_location
+           |> fun location -> location.span
+         in
+         String.sub source span.start (span.stop - span.start)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let defined_generated_provenance_is_deterministic_and_pure () =
+  let prepared =
+    prepare ~path:"function-defined-generated.HC"
+      "#define QUERY defined(Generated)\nI64 Caller(){QUERY;}"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let before = Semantic_symbol_table.all_symbols table |> List.length in
+  let inspect () =
+    let result = resolve prepared |> checked in
+    let statement =
+      result |> fun result ->
+      function_named result "Caller"
+      |> Semantic_function_call_resolution.function_expression_statements
+      |> List.hd
+    in
+    let expression, defined =
+      statement
+      |> Semantic_function_call_resolution.expression_statement_expression
+      |> defined_expressions |> List.hd
+    in
+    let expression_origin =
+      expression |> Semantic_function_call_resolution.argument_expression_origin
+      |> source_location
+    in
+    let operand_origin =
+      defined |> Semantic_function_call_resolution.defined_operand_origin
+      |> source_location
+    in
+    Alcotest.(check bool)
+      "generated expression keeps its invocation" true
+      (Option.is_some expression_origin.generated_from);
+    Alcotest.(check bool)
+      "generated expression keeps its definition" true
+      (Option.is_some expression_origin.defined_at);
+    Alcotest.(check bool)
+      "generated operand keeps its invocation" true
+      (Option.is_some operand_origin.generated_from);
+    Alcotest.(check bool)
+      "generated operand keeps its definition" true
+      (Option.is_some operand_origin.defined_at);
+    defined_fact (expression, defined)
+  in
+  let first = inspect () in
+  let middle = Semantic_symbol_table.all_symbols table |> List.length in
+  let second = inspect () in
+  let after = Semantic_symbol_table.all_symbols table |> List.length in
+  Alcotest.(check string)
+    "repeated resolution retains the same operand" first second;
+  Alcotest.(check (pair int int))
+    "defined retention does not mutate the symbol table" (before, before)
+    (middle, after)
+
+let defined_constructor_validates_source_evidence () =
+  let open Semantic_function_call_resolution in
+  let origin = Semantic_symbol.Synthesized "defined operand" in
+  let retained =
+    make_defined_argument_expression ~operand_kind:Defined_non_name
+      ~operand_spelling:"+" ~operand_origin:origin
+    |> checked
+  in
+  (match retained with
+  | Defined_expression defined ->
+      Alcotest.(check string)
+        "constructor retains the non-name kind and spelling" "non-name:+"
+        (defined_fact
+           (make_argument_expression ~kind:retained ~origin, defined));
+      Alcotest.(check bool)
+        "constructor retains the operand origin" true
+        (defined_operand_origin defined = origin)
+  | _ -> Alcotest.fail "expected a checked defined expression");
+  Alcotest.(check (result reject string))
+    "an empty operand spelling is rejected"
+    (Error "defined operand spelling cannot be empty")
+    (make_defined_argument_expression ~operand_kind:Defined_name
+       ~operand_spelling:"" ~operand_origin:origin);
+  Alcotest.(check (result reject string))
+    "an invalid operand origin is rejected"
+    (Error "defined operand has an invalid source origin")
+    (make_defined_argument_expression ~operand_kind:Defined_name
+       ~operand_spelling:"Known"
+       ~operand_origin:(Semantic_symbol.Synthesized ""))
+
 let expression_statement_constructors_validate_identity_and_origin () =
   let expression_origin = Semantic_symbol.Synthesized "statement expression" in
   let statement_origin = Semantic_symbol.Synthesized "expression statement" in
@@ -1582,6 +1792,12 @@ let tests =
       named_cast_targets_validate_source_identity;
     Alcotest.test_case "index expression constructor validation" `Quick
       index_expression_constructors_validate_bracket_origins;
+    Alcotest.test_case "defined operands across function expressions" `Quick
+      defined_operands_survive_function_expression_shapes;
+    Alcotest.test_case "defined generated provenance and purity" `Quick
+      defined_generated_provenance_is_deterministic_and_pure;
+    Alcotest.test_case "defined constructor source validation" `Quick
+      defined_constructor_validates_source_evidence;
     Alcotest.test_case "expression statement constructor validation" `Quick
       expression_statement_constructors_validate_identity_and_origin;
     Alcotest.test_case "implicit output constructor validation" `Quick
