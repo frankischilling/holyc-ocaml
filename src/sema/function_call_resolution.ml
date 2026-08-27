@@ -17,10 +17,16 @@ type unresolved_expression_kind =
 
 type defined_operand_kind = Defined_name | Defined_non_name
 
+type defined_operand_resolution =
+  | Defined_non_name_false
+  | Defined_function_query of Function_expression_binding.query
+  | Defined_top_level_name
+
 type defined_expression = {
   defined_operand_kind_ : defined_operand_kind;
   defined_operand_spelling_ : string;
   defined_operand_origin_ : Symbol.origin;
+  defined_operand_resolution_ : defined_operand_resolution;
 }
 
 type prefix_operator =
@@ -796,19 +802,47 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
          })
 
 let make_defined_argument_expression ~operand_kind ~operand_spelling
-    ~operand_origin =
+    ~operand_origin ~operand_resolution =
   if String.equal operand_spelling "" then
     Error "defined operand spelling cannot be empty"
   else if not (valid_origin operand_origin) then
     Error "defined operand has an invalid source origin"
   else
-    Ok
-      (Defined_expression
-         {
-           defined_operand_kind_ = operand_kind;
-           defined_operand_spelling_ = operand_spelling;
-           defined_operand_origin_ = operand_origin;
-         })
+    let valid_resolution =
+      match (operand_kind, operand_resolution) with
+      | Defined_non_name, Defined_non_name_false
+      | Defined_name, Defined_top_level_name -> Ok ()
+      | Defined_name, Defined_function_query query ->
+          if
+            Function_expression_binding.query_role query
+            <> Function_expression_binding.Defined_operand
+          then Error "defined operand query has the wrong semantic role"
+          else if
+            not
+              (String.equal operand_spelling
+                 (Function_expression_binding.query_name query))
+          then Error "defined operand spelling does not match its query"
+          else if
+            operand_origin <> Function_expression_binding.query_origin query
+          then Error "defined operand origin does not match its query"
+          else Ok ()
+      | Defined_name, Defined_non_name_false ->
+          Error "name-shaped defined operand cannot use a non-name result"
+      | Defined_non_name, Defined_function_query _ ->
+          Error "non-name defined operand cannot use a function query"
+      | Defined_non_name, Defined_top_level_name ->
+          Error "non-name defined operand cannot use a top-level name result"
+    in
+    Result.map
+      (fun () ->
+        Defined_expression
+          {
+            defined_operand_kind_ = operand_kind;
+            defined_operand_spelling_ = operand_spelling;
+            defined_operand_origin_ = operand_origin;
+            defined_operand_resolution_ = operand_resolution;
+          })
+      valid_resolution
 
 let function_declaration_matches_publication declaration publication =
   let site = Function_resolution.resolved_declaration_site declaration in
@@ -942,6 +976,16 @@ let argument_expression_origin expression = expression.expression_origin
 let defined_operand_kind expression = expression.defined_operand_kind_
 let defined_operand_spelling expression = expression.defined_operand_spelling_
 let defined_operand_origin expression = expression.defined_operand_origin_
+let defined_operand_resolution expression = expression.defined_operand_resolution_
+
+let defined_known_value expression =
+  match expression.defined_operand_resolution_ with
+  | Defined_non_name_false -> Some false
+  | Defined_function_query query -> (
+      match Function_expression_binding.query_resolution query with
+      | Function_expression_binding.Function_binding _ -> Some true
+      | Function_expression_binding.Nonlocal_candidate -> None)
+  | Defined_top_level_name -> None
 
 let make_argument ~index ~kind ~expression ~origin =
   if index < 0 then Error "call argument index cannot be negative"
@@ -1639,30 +1683,52 @@ let validate_calls calls occurrences =
   in
   loop 0 (-1) calls
 
-let rec validate_bound_occurrences occurrence_by_index expression =
+let occurrence_map occurrences =
+  List.fold_left
+    (fun map occurrence ->
+      Int_map.add (Module_expression_binding.occurrence_index occurrence)
+        occurrence map)
+    Int_map.empty occurrences
+
+let query_map queries =
+  List.fold_left
+    (fun map query ->
+      Int_map.add (Function_expression_binding.query_index query) query map)
+    Int_map.empty queries
+
+let rec validate_bound_evidence occurrence_by_index query_by_index expression =
   match argument_expression_kind expression with
   | Parenthesized_expression grouped ->
-      validate_bound_occurrences occurrence_by_index grouped
+      validate_bound_evidence occurrence_by_index query_by_index grouped
   | Prefix_expression prefix ->
-      validate_bound_occurrences occurrence_by_index prefix.prefix_operand
+      validate_bound_evidence occurrence_by_index query_by_index
+        prefix.prefix_operand
   | Postfix_expression postfix ->
-      validate_bound_occurrences occurrence_by_index postfix.postfix_operand
+      validate_bound_evidence occurrence_by_index query_by_index
+        postfix.postfix_operand
   | Binary_expression binary -> (
       match
-        validate_bound_occurrences occurrence_by_index binary.binary_left
+        validate_bound_evidence occurrence_by_index query_by_index
+          binary.binary_left
       with
       | Error _ as error -> error
       | Ok () ->
-          validate_bound_occurrences occurrence_by_index binary.binary_right)
+          validate_bound_evidence occurrence_by_index query_by_index
+            binary.binary_right)
   | Index_expression index -> (
-      match validate_bound_occurrences occurrence_by_index index.index_base with
+      match
+        validate_bound_evidence occurrence_by_index query_by_index
+          index.index_base
+      with
       | Error _ as error -> error
       | Ok () ->
-          validate_bound_occurrences occurrence_by_index index.index_value)
+          validate_bound_evidence occurrence_by_index query_by_index
+            index.index_value)
   | Member_access_expression member ->
-      validate_bound_occurrences occurrence_by_index member.member_base
+      validate_bound_evidence occurrence_by_index query_by_index
+        member.member_base
   | Postfix_cast_expression (operand, _) ->
-      validate_bound_occurrences occurrence_by_index operand
+      validate_bound_evidence occurrence_by_index query_by_index operand
   | Bound_identifier_expression identifier -> (
       let occurrence = bound_identifier_occurrence identifier in
       let index = Module_expression_binding.occurrence_index occurrence in
@@ -1681,22 +1747,34 @@ let rec validate_bound_occurrences occurrence_by_index expression =
       Error
         (invalid_input
            "function call input contains a top-level identifier binding")
+  | Defined_expression defined -> (
+      match defined_operand_resolution defined with
+      | Defined_non_name_false -> Ok ()
+      | Defined_top_level_name ->
+          Error
+            (invalid_input
+               "function call input contains a top-level defined query")
+      | Defined_function_query query -> (
+          let index = Function_expression_binding.query_index query in
+          match Int_map.find_opt index query_by_index with
+          | Some expected when expected == query -> Ok ()
+          | Some _ ->
+              Error
+                (invalid_input
+                   "defined operand uses a different function query")
+          | None ->
+              Error
+                (invalid_input
+                   "defined operand query does not belong to its function")))
   | Integer_literal _
   | Float_literal _
   | Character_literal _
   | String_literal _
-  | Defined_expression _
   | Unresolved_expression _ -> Ok ()
 
-let validate_call_bound_occurrences calls occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+let validate_call_bound_evidence calls occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let rec arguments (values : argument list) =
     match values with
     | [] -> Ok ()
@@ -1704,7 +1782,10 @@ let validate_call_bound_occurrences calls occurrences =
         match argument.expression with
         | None -> arguments rest
         | Some expression -> (
-            match validate_bound_occurrences occurrence_by_index expression with
+            match
+              validate_bound_evidence occurrence_by_index query_by_index
+                expression
+            with
             | Error _ as error -> error
             | Ok () -> arguments rest))
   in
@@ -1715,7 +1796,8 @@ let validate_call_bound_occurrences calls occurrences =
           match call.computed_callee with
           | None -> Ok ()
           | Some expression ->
-              validate_bound_occurrences occurrence_by_index expression
+              validate_bound_evidence occurrence_by_index query_by_index
+                expression
         with
         | Error _ as error -> error
         | Ok () -> (
@@ -1726,15 +1808,9 @@ let validate_call_bound_occurrences calls occurrences =
   loop calls
 
 let validate_returns table parent visible declarations compilation_mode returns
-    occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let rec loop expected = function
     | [] -> Ok ()
     | (return_ : return_input) :: rest -> (
@@ -1751,7 +1827,8 @@ let validate_returns table parent visible declarations compilation_mode returns
               | Error _ as error -> error
               | Ok () -> (
                   match
-                    validate_bound_occurrences occurrence_by_index expression
+                    validate_bound_evidence occurrence_by_index query_by_index
+                      expression
                   with
                   | Error _ as error -> error
                   | Ok () -> loop (expected + 1) rest)))
@@ -1759,15 +1836,9 @@ let validate_returns table parent visible declarations compilation_mode returns
   loop 0 returns
 
 let validate_expression_statements table parent visible declarations
-    compilation_mode statements occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    compilation_mode statements occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let rec loop expected = function
     | [] -> Ok ()
     | (statement : expression_statement_input) :: rest -> (
@@ -1783,7 +1854,7 @@ let validate_expression_statements table parent visible declarations
           | Error _ as error -> error
           | Ok () -> (
               match
-                validate_bound_occurrences occurrence_by_index
+                validate_bound_evidence occurrence_by_index query_by_index
                   statement.expression
               with
               | Error _ as error -> error
@@ -1792,22 +1863,17 @@ let validate_expression_statements table parent visible declarations
   loop 0 statements
 
 let validate_implicit_outputs table parent visible declarations compilation_mode
-    outputs occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    outputs occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let validate_expression expression =
     match
       validate_argument_expression table parent visible declarations
         compilation_mode expression
     with
     | Error _ as error -> error
-    | Ok () -> validate_bound_occurrences occurrence_by_index expression
+    | Ok () ->
+        validate_bound_evidence occurrence_by_index query_by_index expression
   in
   let rec validate_arguments expected = function
     | [] -> Ok ()
@@ -1841,15 +1907,9 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
   loop 0 outputs
 
 let validate_conditions table parent visible declarations compilation_mode
-    conditions occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    conditions occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let rec loop expected = function
     | [] -> Ok ()
     | (condition : condition_input) :: rest -> (
@@ -1863,7 +1923,7 @@ let validate_conditions table parent visible declarations compilation_mode
           | Error _ as error -> error
           | Ok () -> (
               match
-                validate_bound_occurrences occurrence_by_index
+                validate_bound_evidence occurrence_by_index query_by_index
                   condition.expression
               with
               | Error _ as error -> error
@@ -1872,15 +1932,9 @@ let validate_conditions table parent visible declarations compilation_mode
   loop 0 conditions
 
 let validate_selectors table parent visible declarations compilation_mode
-    selectors occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    selectors occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let rec loop expected = function
     | [] -> Ok ()
     | (selector : selector_input) :: rest -> (
@@ -1895,7 +1949,7 @@ let validate_selectors table parent visible declarations compilation_mode
           | Error _ as error -> error
           | Ok () -> (
               match
-                validate_bound_occurrences occurrence_by_index
+                validate_bound_evidence occurrence_by_index query_by_index
                   selector.expression
               with
               | Error _ as error -> error
@@ -1904,22 +1958,17 @@ let validate_selectors table parent visible declarations compilation_mode
   loop 0 selectors
 
 let validate_switch_cases table parent visible declarations compilation_mode
-    cases occurrences =
-  let occurrence_by_index =
-    List.fold_left
-      (fun map occurrence ->
-        Int_map.add
-          (Module_expression_binding.occurrence_index occurrence)
-          occurrence map)
-      Int_map.empty occurrences
-  in
+    cases occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
   let validate_expression expression =
     match
       validate_argument_expression table parent visible declarations
         compilation_mode expression
     with
     | Error _ as error -> error
-    | Ok () -> validate_bound_occurrences occurrence_by_index expression
+    | Ok () ->
+        validate_bound_evidence occurrence_by_index query_by_index expression
   in
   let validate_pattern = function
     | Implicit_case -> Ok ()
@@ -1974,7 +2023,8 @@ let validate_function_input table parent visible declarations compilation_mode
         let occurrences =
           Module_expression_binding.function_occurrences expected
         in
-        match validate_call_bound_occurrences input.calls occurrences with
+        let queries = Module_expression_binding.function_queries expected in
+        match validate_call_bound_evidence input.calls occurrences queries with
         | Error _ as error -> error
         | Ok () -> (
             match validate_calls input.calls occurrences with
@@ -1983,40 +2033,40 @@ let validate_function_input table parent visible declarations compilation_mode
                 match
                   validate_expression_statements table parent visible
                     declarations compilation_mode input.expression_statements
-                    occurrences
+                    occurrences queries
                 with
                 | Error _ as error -> error
                 | Ok () -> (
                     match
                       validate_implicit_outputs table parent visible
                         declarations compilation_mode input.implicit_outputs
-                        occurrences
+                        occurrences queries
                     with
                     | Error _ as error -> error
                     | Ok () -> (
                         match
                           validate_conditions table parent visible declarations
-                            compilation_mode input.conditions occurrences
+                            compilation_mode input.conditions occurrences queries
                         with
                         | Error _ as error -> error
                         | Ok () -> (
                             match
                               validate_selectors table parent visible
                                 declarations compilation_mode input.selectors
-                                occurrences
+                                occurrences queries
                             with
                             | Error _ as error -> error
                             | Ok () -> (
                                 match
                                   validate_switch_cases table parent visible
                                     declarations compilation_mode
-                                    input.switch_cases occurrences
+                                    input.switch_cases occurrences queries
                                 with
                                 | Error _ as error -> error
                                 | Ok () ->
                                     validate_returns table parent visible
                                       declarations compilation_mode
-                                      input.returns occurrences)))))))
+                                      input.returns occurrences queries)))))))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode inputs =

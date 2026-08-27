@@ -354,9 +354,11 @@ type state = {
   typed_values : typed_environment;
   global_values : typed_environment;
   occurrences : Sema.Module_expression_binding.occurrence Int_map.t;
+  defined_queries : Sema.Function_expression_binding.query list;
 }
 
-let empty_state visible_aggregates typed_values global_values occurrences =
+let empty_state visible_aggregates typed_values global_values occurrences
+    defined_queries =
   {
     next_occurrence = 0;
     next_call = 0;
@@ -377,6 +379,7 @@ let empty_state visible_aggregates typed_values global_values occurrences =
     typed_values;
     global_values;
     occurrences;
+    defined_queries;
   }
 
 let add_identifier state =
@@ -460,6 +463,21 @@ let take_occurrence occurrences cursor identifier =
         cursor := !cursor + 1;
         Ok occurrence)
 
+let defined_query queries (operand : Frontend.Ast.defined_operand) =
+  let spelling = operand.defined_operand_spelling in
+  let operand_origin = origin operand.defined_operand_location in
+  let matches query =
+    Sema.Function_expression_binding.query_role query
+    = Sema.Function_expression_binding.Defined_operand
+    && String.equal spelling
+         (Sema.Function_expression_binding.query_name query)
+    && operand_origin = Sema.Function_expression_binding.query_origin query
+  in
+  match List.filter matches queries with
+  | [ query ] -> Ok query
+  | [] -> Error "defined operand has no matching function query"
+  | _ -> Error "defined operand has more than one matching function query"
+
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
       Result.map (fun _ -> ()) (take_occurrence occurrences cursor identifier)
@@ -510,7 +528,8 @@ let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.String_literal _
   | Frontend.Ast.Current_position_expression _ -> Ok ()
 
-let rec argument_expression visible locals globals occurrences cursor
+let rec argument_expression visible locals globals occurrences defined_queries
+    cursor
     (expression : Frontend.Ast.expression) =
   let kind_result =
     match expression with
@@ -542,7 +561,8 @@ let rec argument_expression visible locals globals occurrences cursor
             Error "string literal has a non-byte payload")
     | Frontend.Ast.Parenthesized_expression grouped -> (
         match
-          argument_expression visible locals globals occurrences cursor
+          argument_expression visible locals globals occurrences defined_queries
+            cursor
             grouped.grouped_expression
         with
         | Error _ as error -> error
@@ -585,12 +605,25 @@ let rec argument_expression visible locals globals occurrences cursor
           | Frontend.Ast.Defined_non_name ->
               Sema.Function_call_resolution.Defined_non_name
         in
-        Sema.Function_call_resolution.make_defined_argument_expression
-          ~operand_kind ~operand_spelling:operand.defined_operand_spelling
-          ~operand_origin:(origin operand.defined_operand_location)
+        let resolution =
+          match operand.defined_operand_kind with
+          | Frontend.Ast.Defined_non_name ->
+              Ok Sema.Function_call_resolution.Defined_non_name_false
+          | Frontend.Ast.Defined_name ->
+              Result.map
+                (fun query ->
+                  Sema.Function_call_resolution.Defined_function_query query)
+                (defined_query defined_queries operand)
+        in
+        Result.bind resolution (fun operand_resolution ->
+            Sema.Function_call_resolution.make_defined_argument_expression
+              ~operand_kind ~operand_spelling:operand.defined_operand_spelling
+              ~operand_origin:(origin operand.defined_operand_location)
+              ~operand_resolution)
     | Frontend.Ast.Prefix_expression prefix -> (
         match
-          argument_expression visible locals globals occurrences cursor
+          argument_expression visible locals globals occurrences defined_queries
+            cursor
             prefix.prefix_operand
         with
         | Error _ as error -> error
@@ -601,7 +634,8 @@ let rec argument_expression visible locals globals occurrences cursor
               ~operand)
     | Frontend.Ast.Postfix_expression postfix -> (
         match
-          argument_expression visible locals globals occurrences cursor
+          argument_expression visible locals globals occurrences defined_queries
+            cursor
             postfix.postfix_operand
         with
         | Error _ as error -> error
@@ -616,7 +650,8 @@ let rec argument_expression visible locals globals occurrences cursor
         | Error _ as error -> error
         | Ok target -> (
             match
-              argument_expression visible locals globals occurrences cursor
+              argument_expression visible locals globals occurrences
+                defined_queries cursor
                 cast.cast_operand
             with
             | Error _ as error -> error
@@ -635,13 +670,15 @@ let rec argument_expression visible locals globals occurrences cursor
                  binary.binary_operator_spec.ic_name)
         | Some operator -> (
             match
-              argument_expression visible locals globals occurrences cursor
+              argument_expression visible locals globals occurrences
+                defined_queries cursor
                 binary.binary_left
             with
             | Error _ as error -> error
             | Ok left -> (
                 match
-                  argument_expression visible locals globals occurrences cursor
+                  argument_expression visible locals globals occurrences
+                    defined_queries cursor
                     binary.binary_right
                 with
                 | Error _ as error -> error
@@ -659,13 +696,15 @@ let rec argument_expression visible locals globals occurrences cursor
           (advance_expression_occurrences occurrences cursor expression)
     | Frontend.Ast.Index_expression index -> (
         match
-          argument_expression visible locals globals occurrences cursor
+          argument_expression visible locals globals occurrences defined_queries
+            cursor
             index.index_base
         with
         | Error _ as error -> error
         | Ok base -> (
             match
-              argument_expression visible locals globals occurrences cursor
+              argument_expression visible locals globals occurrences
+                defined_queries cursor
                 index.index_value
             with
             | Error _ as error -> error
@@ -677,7 +716,8 @@ let rec argument_expression visible locals globals occurrences cursor
                   ~closing_origin:(origin index.index_closing_bracket)))
     | Frontend.Ast.Member_expression member -> (
         match
-          argument_expression visible locals globals occurrences cursor
+          argument_expression visible locals globals occurrences defined_queries
+            cursor
             member.member_base
         with
         | Error _ as error -> error
@@ -701,7 +741,7 @@ let rec argument_expression visible locals globals occurrences cursor
         ~origin:(origin (Frontend.Ast.expression_location expression)))
     kind_result
 
-let argument visible locals globals occurrences cursor index
+let argument visible locals globals occurrences defined_queries cursor index
     (argument : Frontend.Ast.call_argument) =
   let prepared =
     match argument.call_argument_value with
@@ -709,8 +749,8 @@ let argument visible locals globals occurrences cursor index
         Result.map
           (fun expression ->
             (Sema.Function_call_resolution.Provided, Some expression))
-          (argument_expression visible locals globals occurrences cursor
-             expression)
+          (argument_expression visible locals globals occurrences
+             defined_queries cursor expression)
     | Frontend.Ast.Omitted_call_argument ->
         Ok (Sema.Function_call_resolution.Omitted, None)
   in
@@ -720,13 +760,15 @@ let argument visible locals globals occurrences cursor index
       Sema.Function_call_resolution.make_argument ~index ~kind ~expression
         ~origin:(origin argument.call_argument_location)
 
-let call_arguments visible locals globals occurrences first_occurrence call =
+let call_arguments visible locals globals occurrences defined_queries
+    first_occurrence call =
   let cursor = ref first_occurrence in
   let rec loop index rev = function
     | [] -> Ok (List.rev rev)
     | argument_ast :: rest -> (
         match
-          argument visible locals globals occurrences cursor index argument_ast
+          argument visible locals globals occurrences defined_queries cursor
+            index argument_ast
         with
         | Error _ as error -> error
         | Ok argument ->
@@ -793,7 +835,7 @@ let record_call state call =
         calls_rev = call :: state.calls_rev;
       }
 
-let collect_call visible locals globals occurrences state
+let collect_call visible locals globals occurrences defined_queries state
     (call : Frontend.Ast.call_expression) =
   match identifier_callee 0 call.call_callee with
   | Some (callee, callee_form) -> (
@@ -801,7 +843,7 @@ let collect_call visible locals globals occurrences state
         Error "function call occurrence space is exhausted"
       else
         match
-          call_arguments visible locals globals occurrences
+          call_arguments visible locals globals occurrences defined_queries
             (state.next_occurrence + 1)
             call
         with
@@ -833,13 +875,14 @@ let collect_call visible locals globals occurrences state
       | Some callee -> (
           let cursor = ref state.next_occurrence in
           match
-            argument_expression visible locals globals occurrences cursor
-              call.call_callee
+            argument_expression visible locals globals occurrences
+              defined_queries cursor call.call_callee
           with
           | Error _ as error -> error
           | Ok computed_callee -> (
               match
-                call_arguments visible locals globals occurrences !cursor call
+                call_arguments visible locals globals occurrences
+                  defined_queries !cursor call
               with
               | Error _ as error -> error
               | Ok arguments -> (
@@ -886,7 +929,7 @@ let rec expression state = function
   | Frontend.Ast.Call_expression call -> (
       match
         collect_call state.visible_aggregates state.typed_values
-          state.global_values state.occurrences state call
+          state.global_values state.occurrences state.defined_queries state call
       with
       | Error _ as error -> error
       | Ok state -> (
@@ -951,6 +994,7 @@ let record_implicit_output state
   let locals = state.typed_values in
   let globals = state.global_values in
   let occurrences = state.occurrences in
+  let defined_queries = state.defined_queries in
   let fixed_value, fixed_source =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value ->
@@ -971,8 +1015,8 @@ let record_implicit_output state
       | Ok state -> (
           let cursor = ref first_occurrence in
           match
-            argument_expression visible locals globals occurrences cursor
-              fixed_value
+            argument_expression visible locals globals occurrences
+              defined_queries cursor fixed_value
           with
           | Error _ as error -> error
           | Ok fixed_expression -> (
@@ -982,7 +1026,7 @@ let record_implicit_output state
                   -> (
                     match
                       argument_expression visible locals globals occurrences
-                        cursor argument.value
+                        defined_queries cursor argument.value
                     with
                     | Error _ as error -> error
                     | Ok expression -> (
@@ -1052,13 +1096,15 @@ let record_expression_statement state
   let locals = state.typed_values in
   let globals = state.global_values in
   let occurrences = state.occurrences in
+  let defined_queries = state.defined_queries in
   let value = statement.expression_statement_expression in
   match expression state value with
   | Error _ as error -> error
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences cursor value
+        argument_expression visible locals globals occurrences defined_queries
+          cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1113,13 +1159,14 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
         let locals = state.typed_values in
         let globals = state.global_values in
         let occurrences = state.occurrences in
+        let defined_queries = state.defined_queries in
         match expression state value with
         | Error _ as error -> error
         | Ok state -> (
             let cursor = ref first_occurrence in
             match
-              argument_expression visible locals globals occurrences cursor
-                value
+              argument_expression visible locals globals occurrences
+                defined_queries cursor value
             with
             | Error _ as error -> error
             | Ok _ when !cursor <> state.next_occurrence ->
@@ -1134,12 +1181,14 @@ let record_condition role keyword location state value =
   let locals = state.typed_values in
   let globals = state.global_values in
   let occurrences = state.occurrences in
+  let defined_queries = state.defined_queries in
   match expression state value with
   | Error _ as error -> error
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences cursor value
+        argument_expression visible locals globals occurrences defined_queries
+          cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1170,12 +1219,14 @@ let record_selector mode keyword location state value =
   let locals = state.typed_values in
   let globals = state.global_values in
   let occurrences = state.occurrences in
+  let defined_queries = state.defined_queries in
   match expression state value with
   | Error _ as error -> error
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences cursor value
+        argument_expression visible locals globals occurrences defined_queries
+          cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1211,12 +1262,14 @@ let record_switch_case state (case_ : Frontend.Ast.switch_case_label) =
   let locals = state.typed_values in
   let globals = state.global_values in
   let occurrences = state.occurrences in
+  let defined_queries = state.defined_queries in
   match case_pattern state case_.switch_case_pattern with
   | Error _ as error -> error
   | Ok state -> (
       let cursor = ref first_occurrence in
       let checked_expression value =
-        argument_expression visible locals globals occurrences cursor value
+        argument_expression visible locals globals occurrences defined_queries
+          cursor value
       in
       let pattern =
         match case_.switch_case_pattern with
@@ -1404,10 +1457,13 @@ let function_input table visible_aggregates global_values expected typed locals
         let expected_occurrences =
           Sema.Module_expression_binding.function_occurrences expected
         in
+        let defined_queries =
+          Sema.Module_expression_binding.function_queries expected
+        in
         let collected =
           let state =
             empty_state visible_aggregates typed_values global_values
-              (occurrence_map expected_occurrences)
+              (occurrence_map expected_occurrences) defined_queries
           in
           match body with
           | None -> Ok state

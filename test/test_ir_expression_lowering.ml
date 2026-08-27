@@ -1218,6 +1218,115 @@ let deterministic_current_position_dump () =
         String.equal line
           "!i70 %v90:internal:I64 = IC_RIP flags=0x000000000 @source=0:0..2"))
 
+let defined_constants_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I64 parameter,I64 local,I64 token,F64 mixed);\
+     I64 Caller(I64 parameter){I64 local;return \
+     Target(defined(parameter),defined(local),defined(+),defined(local)+2.0);}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-defined-constants.HC" source
+      in
+      Alcotest.(check int) "four defined roots" 4 (List.length roots);
+      List.iter2
+        (fun root expected ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "defined emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "defined retains its Boolean payload" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "defined retains internal I64 storage" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check bool)
+            "defined keeps its complete expression span" true
+            (item.span = Some (source_span root));
+          Alcotest.(check (list int))
+            "defined has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int)
+            "defined result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "defined advances one instruction" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "defined advances one value" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        (List.filteri (fun index _ -> index < 3) roots)
+        [ 1L; 1L; 0L ];
+      let mixed = List.nth roots 3 |> lower |> require_lowered in
+      Alcotest.(check (list string))
+        "defined composes with mixed F64 arithmetic"
+        [ "IC_IMM_I64"; "IC_IMM_F64"; "IC_ADD" ]
+        (opcode_names mixed);
+      Alcotest.(check (list int64))
+        "the conversion flag belongs to the defined producer"
+        [ result_to_f64; 0L; 0L ]
+        (instruction_flags mixed);
+      Alcotest.(check bool)
+        "mixed defined remains one" true
+        ((List.hd (descriptions mixed)).payload = Some (Sequence.Integer 1L)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deferred_defined_names_return_no_sequence () =
+  List.iter
+    (fun mode ->
+      let function_roots =
+        function_roots ~mode ~path:"ir-defined-deferred-function.HC"
+          "extern I64 Target(I64 before,I64 missing);\
+           I64 Caller(){Target(defined(later),defined(missing));I64 later;return \
+           0;}"
+      in
+      Alcotest.(check int)
+        "two deferred function names" 2 (List.length function_roots);
+      List.iter
+        (fun root ->
+          match lower root with
+          | Expression.Unsupported_expression -> ()
+          | Expression.Lowered _ ->
+              Alcotest.fail
+                "deferred function defined expression returned a sequence")
+        function_roots;
+      let roots =
+        top_level_roots ~mode ~path:"ir-defined-top-level.HC"
+          "defined(+);defined(name);"
+      in
+      let false_root = List.nth roots 0 in
+      let false_lowered = lower false_root |> require_lowered in
+      Alcotest.(check bool)
+        "top-level non-name lowers to false" true
+        ((List.hd (descriptions false_lowered)).payload
+        = Some (Sequence.Integer 0L));
+      match List.nth roots 1 |> lower with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "top-level name lookup was guessed during lowering")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_defined_dump_records_payload () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-defined-dump.HC"
+      "defined(+);"
+    |> List.hd
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let first = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "defined lowering replays deterministically" dump
+    (Expression.human (lower_once ()));
+  Alcotest.(check bool)
+    "dump records the false internal I64 immediate" true
+    (contains_substring dump
+       "%v90:internal:I64 = IC_IMM_I64 i64:0 flags=0x000000000")
+
 let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit
@@ -1410,6 +1519,12 @@ let tests =
       current_position_composes_with_numeric_trees;
     Alcotest.test_case "deterministic current-position dump" `Quick
       deterministic_current_position_dump;
+    Alcotest.test_case "defined constant lowering" `Quick
+      defined_constants_lower_in_both_modes;
+    Alcotest.test_case "deferred defined lowering" `Quick
+      deferred_defined_names_return_no_sequence;
+    Alcotest.test_case "deterministic defined dump" `Quick
+      deterministic_defined_dump_records_payload;
     Alcotest.test_case "postfix cast metadata validation" `Quick
       inconsistent_postfix_cast_metadata_reports_no_partial_sequence;
     Alcotest.test_case "unsupported expression shapes" `Quick

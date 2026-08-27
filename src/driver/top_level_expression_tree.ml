@@ -387,10 +387,18 @@ let rec expression state (source : Frontend.Ast.expression) =
         | Frontend.Ast.Defined_non_name ->
             Sema.Function_call_resolution.Defined_non_name
       in
+      let operand_resolution =
+        match operand.defined_operand_kind with
+        | Frontend.Ast.Defined_name ->
+            Sema.Function_call_resolution.Defined_top_level_name
+        | Frontend.Ast.Defined_non_name ->
+            Sema.Function_call_resolution.Defined_non_name_false
+      in
       match
         Sema.Function_call_resolution.make_defined_argument_expression
           ~operand_kind ~operand_spelling:operand.defined_operand_spelling
           ~operand_origin:(origin operand.defined_operand_location)
+          ~operand_resolution
       with
       | Error _ as error -> error
       | Ok kind -> finish state kind)
