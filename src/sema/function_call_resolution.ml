@@ -49,6 +49,9 @@ type sizeof_expression = {
   sizeof_pointer_layers_ : sizeof_pointer_layer list;
   sizeof_closing_origins_ : Symbol.origin list;
   sizeof_root_resolution_ : sizeof_root_resolution;
+  sizeof_primitive_ : Primitive_type.t option;
+  sizeof_known_value_ : int64 option;
+  sizeof_uses_pointer_size_ : bool;
 }
 
 type defined_operand_resolution =
@@ -878,6 +881,36 @@ let function_query_facts = function
         Outer_expression_binding.query_name query,
         Outer_expression_binding.query_origin query )
 
+let sizeof_root_is_unbound = function
+  | Sizeof_function_query (Module_query query) -> (
+      match Module_expression_binding.query_resolution query with
+      | Module_expression_binding.Outer_candidate -> true
+      | Module_expression_binding.Local_binding _
+      | Module_expression_binding.Module_binding _ -> false)
+  | Sizeof_function_query (Outer_query query) -> (
+      match Outer_expression_binding.query_resolution query with
+      | Outer_expression_binding.Query_undefined -> true
+      | Outer_expression_binding.Query_binding _ -> false)
+  | Sizeof_top_level_query query -> (
+      match Top_level_outer_expression_binding.query_resolution query with
+      | Top_level_outer_expression_binding.Query_undefined -> true
+      | Top_level_outer_expression_binding.Query_binding _ -> false)
+
+let sizeof_primitive_value ~target_spelling ~members ~pointer_layers
+    ~root_resolution =
+  if members <> [] || not (sizeof_root_is_unbound root_resolution) then
+    (None, None, false)
+  else
+    match Primitive_type.of_spelling target_spelling with
+    | None -> (None, None, false)
+    | Some primitive ->
+        let uses_pointer_size = pointer_layers <> [] in
+        let byte_size =
+          if uses_pointer_size then Primitive_type.pointer_byte_size
+          else (Primitive_type.info primitive).byte_size
+        in
+        (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size)
+
 let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
     ~closing_origins ~root_resolution =
@@ -930,6 +963,10 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     else if target_origin <> origin then
       Error "sizeof target origin does not match its query"
     else
+      let sizeof_primitive_, sizeof_known_value_, sizeof_uses_pointer_size_ =
+        sizeof_primitive_value ~target_spelling ~members ~pointer_layers
+          ~root_resolution
+      in
       Ok
         (Sizeof_expression
            {
@@ -942,6 +979,9 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
              sizeof_pointer_layers_ = pointer_layers;
              sizeof_closing_origins_ = closing_origins;
              sizeof_root_resolution_ = root_resolution;
+             sizeof_primitive_;
+             sizeof_known_value_;
+             sizeof_uses_pointer_size_;
            })
 
 let make_defined_argument_expression ~operand_kind ~operand_spelling
@@ -1145,6 +1185,12 @@ let sizeof_members expression = expression.sizeof_members_
 let sizeof_pointer_layers expression = expression.sizeof_pointer_layers_
 let sizeof_closing_origins expression = expression.sizeof_closing_origins_
 let sizeof_root_resolution expression = expression.sizeof_root_resolution_
+let sizeof_primitive expression = expression.sizeof_primitive_
+let sizeof_known_value expression = expression.sizeof_known_value_
+
+let sizeof_uses_pointer_size expression =
+  expression.sizeof_uses_pointer_size_
+
 let sizeof_member_dot_origin member = member.sizeof_member_dot_origin_
 let sizeof_member_name member = member.sizeof_member_name_
 let sizeof_member_name_origin member = member.sizeof_member_name_origin_

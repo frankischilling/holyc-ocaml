@@ -221,7 +221,10 @@ let pointer_alias () =
   Alcotest.(check int) "pointer ID" 10 pointer.raw_id;
   Alcotest.(check int) "pointer source line" 1573 pointer.source_line;
   Alcotest.(check int)
-    "pointer and I64 share the raw ID" i64.raw_id pointer.raw_id
+    "pointer and I64 share the raw ID" i64.raw_id pointer.raw_id;
+  Alcotest.(check int)
+    "pointer uses the pinned I64 byte size" i64.byte_size
+    Primitive.pointer_byte_size
 
 let provenance () =
   Alcotest.(check string)

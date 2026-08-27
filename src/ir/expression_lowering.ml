@@ -18,9 +18,9 @@ type lowering_result = Lowered of t | Unsupported_expression
 type checked_type = Checked_type of Type.t | Unsupported_type
 type result_conversion = Keep_result | Result_to_f64
 
-type checked_defined =
-  | Deferred_defined
-  | Checked_defined of Common.Span.t * Type.t * int64
+type checked_constant =
+  | Deferred_constant
+  | Checked_constant of Common.Span.t * Type.t * int64
 
 type binary_validation =
   | Unsupported_binary
@@ -45,7 +45,7 @@ type plan_node =
       result_type : Type.t;
       conversion : result_conversion;
     }
-  | Defined_constant of {
+  | Integer_constant of {
       result : Semantic_result.expression_result;
       span : Common.Span.t;
       result_type : Type.t;
@@ -248,20 +248,20 @@ let checked_current_position result =
           | Semantic_result.Unavailable ),
           _ ) -> invalid ~span ())
 
-let checked_defined result defined =
+let checked_internal_i64_constant result ~description known_value =
   let invalid ?span () =
     Error
       (metadata_error ?span
-         "defined expression does not retain the checked internal I64 object \
-          result")
+         (description
+         ^ " does not retain the checked internal I64 object result"))
   in
-  match Semantic_source.defined_known_value defined with
-  | None -> Ok Deferred_defined
+  match known_value with
+  | None -> Ok Deferred_constant
   | Some known_value -> (
       match result_span result with
       | None ->
           Error
-            (metadata_error "defined expression does not have a source location")
+            (metadata_error (description ^ " does not have a source location"))
       | Some span -> (
           match
             ( Semantic_result.result_type result,
@@ -276,10 +276,7 @@ let checked_defined result defined =
               match (Type.base result_type, Type.pointer_depth result_type) with
               | Type.Primitive (Type.Internal_storage, primitive), 0
                 when Sema.Primitive_type.equal primitive Sema.Primitive_type.I64
-                ->
-                  Ok
-                    (Checked_defined
-                       (span, result_type, if known_value then 1L else 0L))
+                -> Ok (Checked_constant (span, result_type, known_value))
               | Type.Primitive _, _ | Type.Aggregate _, _ -> invalid ~span ())
           | ( (None | Some _),
               ( Semantic_result.Integer_result
@@ -294,6 +291,18 @@ let checked_defined result defined =
               | Semantic_result.Lvalue
               | Semantic_result.Unavailable ),
               _ ) -> invalid ~span ()))
+
+let checked_defined result defined =
+  let known_value =
+    Semantic_source.defined_known_value defined
+    |> Option.map (fun value -> if value then 1L else 0L)
+  in
+  checked_internal_i64_constant result ~description:"defined expression"
+    known_value
+
+let checked_sizeof result sizeof =
+  checked_internal_i64_constant result ~description:"sizeof expression"
+    (Semantic_source.sizeof_known_value sizeof)
 
 let checked_integer_or_pointer_type result =
   match Semantic_result.result_type result with
@@ -731,10 +740,19 @@ let plan root =
             | Semantic_source.Defined_expression defined -> (
                 match checked_defined result defined with
                 | Error item -> error := Some item
-                | Ok Deferred_defined -> unsupported := true
-                | Ok (Checked_defined (span, result_type, value)) ->
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
                     reversed :=
-                      Defined_constant
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
+                      :: !reversed)
+            | Semantic_source.Sizeof_expression sizeof -> (
+                match checked_sizeof result sizeof with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
             | Semantic_source.Parenthesized_expression source -> (
@@ -934,7 +952,6 @@ let plan root =
             | Semantic_source.Member_access_expression _
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
-            | Semantic_source.Sizeof_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Offset_expression
@@ -1086,7 +1103,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                   Int_map.add (result_key result)
                     { lowered_value = value_id; lowered_type = result_type }
                     !lowered)
-        | Defined_constant { result; span; result_type; value; conversion } -> (
+        | Integer_constant { result; span; result_type; value; conversion } -> (
             match take_identity allocator (Some span) with
             | Error item -> error := Some item
             | Ok (instruction_id, value_id) ->
@@ -1251,7 +1268,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                 match List.rev nodes with
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _
-                | Defined_constant { result; _ } :: _
+                | Integer_constant { result; _ } :: _
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
                 | Cast { result; _ } :: _

@@ -1935,6 +1935,121 @@ let deterministic_defined_dump_records_payload () =
     (contains_substring dump
        "%v90:internal:I64 = IC_IMM_I64 i64:0 flags=0x000000000")
 
+let primitive_sizeof_constants_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,\
+     I64 i,I64 j,I64 k,I64 l,I64 m,I64 n);\
+     I64 Caller(){return Target(sizeof(I0),sizeof(I8),sizeof(I16),sizeof(I32),\
+     sizeof(I64),sizeof(U0),sizeof(U8),sizeof(U16),sizeof(U32),sizeof(U64),\
+     sizeof(F64),sizeof(Bool),sizeof(U8*),sizeof(I0**));}"
+  in
+  let expected = [ 0L; 1L; 2L; 4L; 8L; 0L; 1L; 2L; 4L; 8L; 8L; 1L; 8L; 8L ] in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-primitive-sizeof.HC" source in
+      Alcotest.(check int) "fourteen primitive sizeof roots" 14
+        (List.length roots);
+      List.iter2
+        (fun root value ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "sizeof emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "sizeof retains its checked byte count" true
+            (item.payload = Some (Sequence.Integer value));
+          Alcotest.(check bool)
+            "sizeof retains internal I64 storage" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check bool)
+            "sizeof keeps its complete expression span" true
+            (item.span = Some (source_span root));
+          Alcotest.(check (list int))
+            "sizeof has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int)
+            "sizeof result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "sizeof advances one instruction" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "sizeof advances one value" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let top_level_sizeof_composes_with_f64_conversion () =
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-sizeof.HC"
+          "sizeof(I16)+2.0;"
+        |> List.hd
+      in
+      let lowered = lower root |> require_lowered in
+      Alcotest.(check (list string))
+        "top-level sizeof uses the shared numeric path"
+        [ "IC_IMM_I64"; "IC_IMM_F64"; "IC_ADD" ]
+        (opcode_names lowered);
+      Alcotest.(check (list int64))
+        "the conversion flag belongs to the sizeof producer"
+        [ result_to_f64; 0L; 0L ] (instruction_flags lowered);
+      Alcotest.(check bool)
+        "top-level sizeof retains two bytes" true
+        ((List.hd (descriptions lowered)).payload = Some (Sequence.Integer 2L)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let shadowed_and_nonprimitive_sizeof_return_no_sequence () =
+  List.iter
+    (fun mode ->
+      let outer_root =
+        function_roots_with_outer ~mode ~path:"ir-outer-shadowed-sizeof.HC"
+          ~records:
+            [
+              ( "I64",
+                Holyc_lib.Semantic_outer_environment.Global_variable );
+            ]
+          "extern I64 Target(I64 value);I64 Caller(){return \
+           Target(sizeof(I64));}"
+        |> List.hd
+      in
+      let top_level_roots =
+        top_level_roots ~mode ~path:"ir-unsupported-sizeof.HC"
+          "I64 I64;class Box{I64 member;};sizeof(I64);sizeof(Box.member);\
+           sizeof(Missing);"
+      in
+      List.iter
+        (fun root ->
+          match lower root with
+          | Expression.Unsupported_expression -> ()
+          | Expression.Lowered _ ->
+              Alcotest.fail
+                "shadowed or nonprimitive sizeof returned a partial sequence")
+        (outer_root :: top_level_roots))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_sizeof_dump_records_payload () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-sizeof-dump.HC"
+      "sizeof(U8**);"
+    |> List.hd
+  in
+  let lower_once () =
+    lower ~instruction:70 ~value:90 root |> require_lowered
+  in
+  let first = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "sizeof lowering replays deterministically" dump
+    (Expression.human (lower_once ()));
+  Alcotest.(check bool)
+    "dump records the pointer-sized internal I64 immediate" true
+    (contains_substring dump
+       "%v90:internal:I64 = IC_IMM_I64 i64:8 flags=0x000000000")
+
 let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit
@@ -2160,6 +2275,14 @@ let tests =
       outer_defined_hits_and_misses_lower_in_both_modes;
     Alcotest.test_case "deterministic defined dump" `Quick
       deterministic_defined_dump_records_payload;
+    Alcotest.test_case "primitive sizeof constant lowering" `Quick
+      primitive_sizeof_constants_lower_in_both_modes;
+    Alcotest.test_case "top-level sizeof composition" `Quick
+      top_level_sizeof_composes_with_f64_conversion;
+    Alcotest.test_case "unsupported sizeof roots" `Quick
+      shadowed_and_nonprimitive_sizeof_return_no_sequence;
+    Alcotest.test_case "deterministic sizeof dump" `Quick
+      deterministic_sizeof_dump_records_payload;
     Alcotest.test_case "postfix cast metadata validation" `Quick
       inconsistent_postfix_cast_metadata_reports_no_partial_sequence;
     Alcotest.test_case "unsupported expression shapes" `Quick
