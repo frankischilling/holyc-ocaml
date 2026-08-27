@@ -15,13 +15,24 @@ type t = {
 
 type lowering_result = Lowered of t | Unsupported_expression
 type checked_type = Checked_type of Type.t | Unsupported_type
+type result_conversion = Keep_result | Result_to_f64
+
+type binary_validation =
+  | Unsupported_binary
+  | Supported_binary of {
+      left_conversion : result_conversion;
+      right_conversion : result_conversion;
+    }
 
 type cancellation =
   | No_cancellation
   | Canceled_dereference of Semantic_result.expression_result
 
 type plan_node =
-  | Literal of Semantic_result.expression_result
+  | Literal of {
+      result : Semantic_result.expression_result;
+      conversion : result_conversion;
+    }
   | Alias of {
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
@@ -31,6 +42,7 @@ type plan_node =
       opcode : Opcode.t;
       span : Common.Span.t;
       operand : Semantic_result.expression_result;
+      conversion : result_conversion;
     }
   | Binary of {
       result : Semantic_result.expression_result;
@@ -38,10 +50,14 @@ type plan_node =
       span : Common.Span.t;
       left : Semantic_result.expression_result;
       right : Semantic_result.expression_result;
+      conversion : result_conversion;
     }
 
 type task =
-  | Visit of Semantic_result.expression_result
+  | Visit of {
+      result : Semantic_result.expression_result;
+      conversion : result_conversion;
+    }
   | Finish_alias of {
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
@@ -51,6 +67,7 @@ type task =
       opcode : Opcode.t;
       span : Common.Span.t;
       operand : Semantic_result.expression_result;
+      conversion : result_conversion;
     }
   | Finish_binary of {
       result : Semantic_result.expression_result;
@@ -58,6 +75,7 @@ type task =
       span : Common.Span.t;
       left : Semantic_result.expression_result;
       right : Semantic_result.expression_result;
+      conversion : result_conversion;
     }
 
 type planned = Planned of plan_node list | Unsupported_plan
@@ -70,6 +88,11 @@ type lowered_node = {
 type allocator = { mutable instruction : int; mutable value : int }
 
 let reference_commit = Opcode.reference_commit
+let result_to_f64_flag = 0x000000001L
+
+let conversion_flags = function
+  | Keep_result -> 0L
+  | Result_to_f64 -> result_to_f64_flag
 
 let result_span result =
   match Semantic_result.result_origin result with
@@ -431,16 +454,43 @@ let validate_binary_with checked_type result left right =
       | Ok Unsupported_type -> Ok false
       | Ok (Checked_type _) -> Ok true)
 
+let numeric_conversion result =
+  match checked_integer_type result with
+  | Error _ as error -> error
+  | Ok (Checked_type _) -> Ok (Some Result_to_f64)
+  | Ok Unsupported_type -> (
+      match checked_f64_type result with
+      | Error _ as error -> error
+      | Ok (Checked_type _) -> Ok (Some Keep_result)
+      | Ok Unsupported_type -> Ok None)
+
+let validate_f64_binary result left right =
+  match (numeric_conversion left, numeric_conversion right) with
+  | Error item, _ | _, Error item -> Error item
+  | Ok None, _ | _, Ok None -> Ok Unsupported_binary
+  | Ok (Some left_conversion), Ok (Some right_conversion) -> (
+      if left_conversion = Result_to_f64 && right_conversion = Result_to_f64
+      then Ok Unsupported_binary
+      else
+        match checked_f64_type result with
+        | Error item -> Error item
+        | Ok Unsupported_type -> Ok Unsupported_binary
+        | Ok (Checked_type _) ->
+            Ok (Supported_binary { left_conversion; right_conversion }))
+
 let validate_binary result opcode left right =
   match validate_binary_with checked_integer_type result left right with
   | Error _ as error -> error
-  | Ok true -> Ok true
+  | Ok true ->
+      Ok
+        (Supported_binary
+           { left_conversion = Keep_result; right_conversion = Keep_result })
   | Ok false when accepted_f64_binary_opcode opcode ->
-      validate_binary_with checked_f64_type result left right
-  | Ok false -> Ok false
+      validate_f64_binary result left right
+  | Ok false -> Ok Unsupported_binary
 
 let plan root =
-  let pending = ref [ Visit root ] in
+  let pending = ref [ Visit { result = root; conversion = Keep_result } ] in
   let reversed = ref [] in
   let unsupported = ref false in
   let error = ref None in
@@ -450,7 +500,7 @@ let plan root =
     | task :: remaining -> (
         pending := remaining;
         match task with
-        | Visit result -> (
+        | Visit { result; conversion } -> (
             match
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
@@ -460,14 +510,16 @@ let plan root =
                 match checked_integer_type result with
                 | Error item -> error := Some item
                 | Ok Unsupported_type -> unsupported := true
-                | Ok (Checked_type _) -> reversed := Literal result :: !reversed
-                )
+                | Ok (Checked_type _) ->
+                    reversed := Literal { result; conversion } :: !reversed)
             | Semantic_source.Float_literal _ -> (
                 match checked_f64_type result with
                 | Error item -> error := Some item
                 | Ok Unsupported_type -> unsupported := true
-                | Ok (Checked_type _) -> reversed := Literal result :: !reversed
-                )
+                | Ok (Checked_type _) ->
+                    if conversion = Keep_result then
+                      reversed := Literal { result; conversion } :: !reversed
+                    else unsupported := true)
             | Semantic_source.Parenthesized_expression source -> (
                 match
                   checked_operand result source "parenthesized expression"
@@ -475,7 +527,7 @@ let plan root =
                 | Error item -> error := Some item
                 | Ok operand ->
                     pending :=
-                      Visit operand
+                      Visit { result = operand; conversion }
                       :: Finish_alias { result; operand }
                       :: !pending)
             | Semantic_source.Prefix_expression prefix -> (
@@ -489,7 +541,7 @@ let plan root =
                     | Error item -> error := Some item
                     | Ok operand ->
                         pending :=
-                          Visit operand
+                          Visit { result = operand; conversion }
                           :: Finish_alias { result; operand }
                           :: !pending)
                 | (Semantic_source.Dereference | Semantic_source.Address_of) as
@@ -522,26 +574,48 @@ let plan root =
                               | Error item -> error := Some item
                               | Ok No_cancellation ->
                                   pending :=
-                                    Visit operand
+                                    Visit
+                                      {
+                                        result = operand;
+                                        conversion = Keep_result;
+                                      }
                                     :: Finish_unary
-                                         { result; opcode; span; operand }
+                                         {
+                                           result;
+                                           opcode;
+                                           span;
+                                           operand;
+                                           conversion;
+                                         }
                                     :: !pending
                               | Ok (Canceled_dereference source_operand) ->
                                   pending :=
-                                    Visit source_operand
+                                    Visit
+                                      {
+                                        result = source_operand;
+                                        conversion = Keep_result;
+                                      }
                                     :: Finish_unary
                                          {
                                            result;
                                            opcode;
                                            span;
                                            operand = source_operand;
+                                           conversion;
                                          }
                                     :: !pending
                             else
                               pending :=
-                                Visit operand
+                                Visit
+                                  { result = operand; conversion = Keep_result }
                                 :: Finish_unary
-                                     { result; opcode; span; operand }
+                                     {
+                                       result;
+                                       opcode;
+                                       span;
+                                       operand;
+                                       conversion;
+                                     }
                                 :: !pending))
                 | operator -> (
                     match accepted_prefix operator with
@@ -560,9 +634,19 @@ let plan root =
                             | Ok false -> unsupported := true
                             | Ok true ->
                                 pending :=
-                                  Visit operand
+                                  Visit
+                                    {
+                                      result = operand;
+                                      conversion = Keep_result;
+                                    }
                                   :: Finish_unary
-                                       { result; opcode; span; operand }
+                                       {
+                                         result;
+                                         opcode;
+                                         span;
+                                         operand;
+                                         conversion;
+                                       }
                                   :: !pending))))
             | Semantic_source.Binary_expression binary -> (
                 let opcode = Semantic_source.binary_operator binary in
@@ -576,12 +660,27 @@ let plan root =
                   | Ok (left, right), Ok span -> (
                       match validate_binary result opcode left right with
                       | Error item -> error := Some item
-                      | Ok false -> unsupported := true
-                      | Ok true ->
+                      | Ok Unsupported_binary -> unsupported := true
+                      | Ok
+                          (Supported_binary
+                             { left_conversion; right_conversion }) ->
                           pending :=
-                            Visit left :: Visit right
+                            Visit
+                              { result = left; conversion = left_conversion }
+                            :: Visit
+                                 {
+                                   result = right;
+                                   conversion = right_conversion;
+                                 }
                             :: Finish_binary
-                                 { result; opcode; span; left; right }
+                                 {
+                                   result;
+                                   opcode;
+                                   span;
+                                   left;
+                                   right;
+                                   conversion;
+                                 }
                             :: !pending))
             | Semantic_source.String_literal _
             | Semantic_source.Postfix_expression _
@@ -593,11 +692,13 @@ let plan root =
             | Semantic_source.Unresolved_expression _ -> unsupported := true)
         | Finish_alias { result; operand } ->
             reversed := Alias { result; operand } :: !reversed
-        | Finish_unary { result; opcode; span; operand } ->
-            reversed := Unary { result; opcode; span; operand } :: !reversed
-        | Finish_binary { result; opcode; span; left; right } ->
+        | Finish_unary { result; opcode; span; operand; conversion } ->
             reversed :=
-              Binary { result; opcode; span; left; right } :: !reversed)
+              Unary { result; opcode; span; operand; conversion } :: !reversed
+        | Finish_binary { result; opcode; span; left; right; conversion } ->
+            reversed :=
+              Binary { result; opcode; span; left; right; conversion }
+              :: !reversed)
   done;
   match (!error, !unsupported) with
   | Some item, _ -> Error [ item ]
@@ -683,10 +784,18 @@ let emit_plan ~instruction_id ~value_id nodes =
     (fun node ->
       if Option.is_none !error then
         match node with
-        | Literal result -> (
+        | Literal { result; conversion } -> (
             match lower_literal allocator result with
             | Error item -> error := Some item
             | Ok (description, lowered_node) ->
+                let description =
+                  {
+                    description with
+                    flags =
+                      Int64.logor description.flags
+                        (conversion_flags conversion);
+                  }
+                in
                 descriptions_rev := description :: !descriptions_rev;
                 lowered := Int_map.add (result_key result) lowered_node !lowered
             )
@@ -713,7 +822,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                       lowered :=
                         Int_map.add (result_key result) lowered_operand !lowered
                 ))
-        | Unary { result; opcode; span; operand } -> (
+        | Unary { result; opcode; span; operand; conversion } -> (
             match
               ( find_lowered !lowered operand "unary operand",
                 Semantic_result.result_type result )
@@ -736,7 +845,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                         result = Some { value_id };
                         target_type = Some result_type;
                         payload = None;
-                        flags = 0L;
+                        flags = conversion_flags conversion;
                         span = Some span;
                       }
                     in
@@ -745,7 +854,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
                         !lowered))
-        | Binary { result; opcode; span; left; right } -> (
+        | Binary { result; opcode; span; left; right; conversion } -> (
             match
               ( find_lowered !lowered left "left binary operand",
                 find_lowered !lowered right "right binary operand",
@@ -770,7 +879,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                         result = Some { value_id };
                         target_type = Some result_type;
                         payload = None;
-                        flags = 0L;
+                        flags = conversion_flags conversion;
                         span = Some span;
                       }
                     in
@@ -793,7 +902,7 @@ let emit_plan ~instruction_id ~value_id nodes =
           | Ok sequence -> (
               let root =
                 match List.rev nodes with
-                | Literal result :: _
+                | Literal { result; _ } :: _
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
                 | Binary { result; _ } :: _ -> result

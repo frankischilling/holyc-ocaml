@@ -7561,14 +7561,49 @@ payload_rule = "IC_IMM_F64 retains the semantic literal's exact 64-bit payload"
 evaluation_rule = "lowering performs no arithmetic or constant folding; a zero divisor remains an IC_DIV operand"
 source_map = "every emitted unary and binary instruction retains its operator span"
 identity = "floating leaves and operations share the module-owned consecutive instruction and value allocator"
-unsupported_result = "mixed integer and F64 operands, comparisons, logical binary operations, power, modulo, bitwise operations, conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed"
-conversion_boundary = "OptFixupBinaryOp1 records ICF_RES_TO_F64 for mixed non-immediate operands; that flag is not yet represented by this checked lowering path"
+unsupported_result = "comparisons, logical binary operations, power, modulo, bitwise operations, result-to-integer conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed; mixed arithmetic is recorded separately"
+conversion_boundary = "HC-IR-MIXED-F64-CONVERSION-INTENT records the ICF_RES_TO_F64 edge without changing this feature's pure-F64 rule"
 compilation_modes = ["jit", "aot"]
 focused_tests = 6
-expression_lowering_group_tests = 18
+expression_lowering_group_tests = 23
 deep_tree = "2,000 F64 leaves and 1,999 additions produce 3,999 checked instructions without recursive host-stack use"
 x87_numerical_behavior_optimization_interpretation_and_execution = "not implemented"
 native_oracle_status = "not required for structural lowering; floating numerical and backend compatibility remain separate oracle work"
+
+[[feature]]
+id = "HC-IR-MIXED-F64-CONVERSION-INTENT"
+description = "Mixed integer and F64 arithmetic records source-backed integer-to-F64 conversion intent on the retained integer producer."
+sources = [
+  "Kernel/KernelA.HH:1602 ICF_RES_TO_F64 value",
+  "Compiler/CInit.HC:60-84 two-argument, one-result arithmetic opcode entries",
+  "Compiler/OptLib.HC:92-179 FBO1_F64 and OptFixupBinaryOp1 class selection, flagging, and immediate rewrite",
+  "Compiler/OptPass012.HC:308-629 mixed multiplication, division, addition, and subtraction paths",
+  "Compiler/OptPass789A.HC:455-565 floating conversion and arithmetic selection",
+  "Compiler/BackFB.HC:488-570 ICFMul, ICFDiv, ICFAdd, and ICFSub consumers"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 458
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "IC_MUL, IC_DIV, IC_ADD, and IC_SUB with an internal-F64 result, at least one checked F64 operand, and checked integer operands in the remaining positions"
+classification_rule = "a checked F64 operand keeps its producer unchanged; each checked integer operand requests ICF_RES_TO_F64 on its retained producer"
+transparent_rule = "parentheses and unary plus forward the conversion request because they allocate no instruction"
+subtree_rule = "a composite integer operand carries the flag on its root alone; earlier integer nodes keep zero flags"
+immediate_rule = "canonical pre-optimizer IR retains IC_IMM_I64, the exact integer payload, the checked integer type, and ICF_RES_TO_F64; OptFixupBinaryOp1's IC_IMM_F64 rewrite remains optimizer work"
+traversal = "validate iteratively, then emit each operand before its parent with source-left preceding source-right"
+source_map = "the flagged producer retains its own literal or operator span"
+identity = "conversion intent does not add an instruction or consume another instruction or value identity"
+unsupported_result = "floating comparisons, logical binary operations, power, modulo, bitwise operations, assignments, identifiers, calls, result-to-integer conversions, and other semantic shapes return Unsupported_expression before a sequence is exposed"
+compilation_modes = ["jit", "aot"]
+focused_tests = 5
+expression_lowering_group_tests = 23
+deep_tree = "2,000 integer leaves, 1,999 integer additions, one F64 literal, and one mixed addition produce 4,001 checked instructions with one conversion flag"
+x87_numerical_behavior_immediate_rewrite_optimization_interpretation_and_execution = "not implemented"
+native_oracle_status = "not required for structural conversion intent; optimizer and floating numerical compatibility remain separate oracle work"
 
 [[feature]]
 id = "HC-SEMA-BINARY-OPERANDS"
