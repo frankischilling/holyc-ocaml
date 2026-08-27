@@ -1118,8 +1118,8 @@ let semantic_literal_span result =
     match Semantic_source.argument_expression_kind !source with
     | Semantic_source.Parenthesized_expression inner -> source := inner
     | Semantic_source.Prefix_expression prefix
-      when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus ->
-        source := Semantic_source.prefix_operand prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus
+      -> source := Semantic_source.prefix_operand prefix
     | Semantic_source.Integer_literal _
     | Semantic_source.Float_literal _
     | Semantic_source.Character_literal _
