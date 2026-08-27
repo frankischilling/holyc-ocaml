@@ -1,6 +1,8 @@
 module Expression = Holyc_lib.Ir_expression_lowering
 module Sequence = Holyc_lib.Ir_instruction_sequence
 module Opcode = Holyc_lib.Ir_opcode
+module Graph = Holyc_lib.Ir_block_graph
+module X87 = Holyc_lib.Ir_x87_stack
 module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Preprocessor = Holyc_lib.Preprocessor
@@ -17,11 +19,17 @@ let show_sequence_error (error : Sequence.error) =
 let show_sequence_errors errors =
   String.concat "; " (List.map show_sequence_error errors)
 
+let show_graph_error (error : Graph.error) = error.code ^ ": " ^ error.message
+let show_x87_error (error : X87.error) = error.code ^ ": " ^ error.message
+
 let instruction_id value =
   Sequence.Instruction_id.of_int value |> require_ok show_sequence_error
 
 let value_id value =
   Sequence.Value_id.of_int value |> require_ok show_sequence_error
+
+let block_id value =
+  Sequence.Block_id.of_int value |> require_ok show_sequence_error
 
 let lower_result ?(instruction = 10) ?(value = 20) result =
   Expression.lower_typed_result
@@ -157,6 +165,35 @@ let instruction_flags lowered =
   |> List.map (fun (description : Sequence.description) -> description.flags)
 
 let result_to_f64 = 0x000000001L
+let use_f64 = 0x000000040L
+
+let verify_x87 lowered =
+  let terminal : Sequence.description =
+    {
+      instruction_id = Expression.next_instruction_id lowered;
+      opcode = Opcode.Ic_end;
+      operands = [];
+      result = None;
+      target_type = None;
+      payload = None;
+      flags = 0L;
+      span = None;
+    }
+  in
+  let graph =
+    Graph.create ~entry:(block_id 0)
+      [
+        {
+          Graph.block_id = block_id 0;
+          instructions = descriptions lowered @ [ terminal ];
+        };
+      ]
+    |> require_ok (fun errors ->
+        String.concat "; " (List.map show_graph_error errors))
+  in
+  X87.verify graph
+  |> require_ok (fun errors ->
+      String.concat "; " (List.map show_x87_error errors))
 
 let contains_substring text fragment =
   let text_length = String.length text in
@@ -488,6 +525,215 @@ let f64_arithmetic_operators_lower_in_both_modes () =
         roots expressions)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let f64_comparison_operators_lower_in_both_modes () =
+  let expressions =
+    [
+      ("1.0==2.0", "==", "IC_EQU_EQU");
+      ("1.0!=2.0", "!=", "IC_NOT_EQU");
+      ("1.0<2.0", "<", "IC_LESS");
+      ("1.0>=2.0", ">=", "IC_GREATER_EQU");
+      ("1.0>2.0", ">", "IC_GREATER");
+      ("1.0<=2.0", "<=", "IC_LESS_EQU");
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "I64 a%d" index) expressions
+    |> String.concat ","
+  in
+  let arguments =
+    expressions |> List.map (fun (source, _, _) -> source) |> String.concat ","
+  in
+  let source =
+    Printf.sprintf "extern I64 Target(%s);I64 Caller(){return Target(%s);}"
+      parameters arguments
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-f64-comparison-operators.HC" source
+      in
+      Alcotest.(check int)
+        "one root per floating comparison" (List.length expressions)
+        (List.length roots);
+      List.iter2
+        (fun root (_, operator, expected_opcode) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          Alcotest.(check (list string))
+            expected_opcode
+            [ "IC_IMM_F64"; "IC_IMM_F64"; expected_opcode ]
+            (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "floating comparison flags" [ 0L; 0L; use_f64 ]
+            (instruction_flags lowered);
+          let comparison = List.nth items 2 in
+          Alcotest.(check (list int))
+            "comparison operands" [ 20; 21 ]
+            (List.map Sequence.Value_id.to_int comparison.operands);
+          Alcotest.(check bool)
+            "comparison result is internal I64" true
+            (internal_i64_type comparison.target_type);
+          (match comparison.span with
+          | Some span ->
+              Alcotest.(check string)
+                "comparison operator span" operator
+                (String.sub source span.start (span.stop - span.start))
+          | None -> Alcotest.fail "floating comparison lost its operator span");
+          ignore (verify_x87 lowered))
+        roots expressions)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let mixed_f64_comparisons_mark_integer_subtree_roots () =
+  let source =
+    "extern I64 Target(I64 left,I64 right,I64 nested);I64 Caller(){return \
+     Target(1<2.0,1.0<2,(1+2)<3.0);}"
+  in
+  let expected =
+    [
+      ( [ "IC_IMM_I64"; "IC_IMM_F64"; "IC_LESS" ],
+        [ result_to_f64; 0L; use_f64 ],
+        0 );
+      ( [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_LESS" ],
+        [ 0L; result_to_f64; use_f64 ],
+        1 );
+      ( [
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_ADD";
+          "IC_IMM_F64";
+          "IC_LESS";
+        ],
+        [ 0L; 0L; result_to_f64; 0L; use_f64 ],
+        2 );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-mixed-f64-comparisons.HC" source
+      in
+      Alcotest.(check int) "three mixed comparisons" 3 (List.length roots);
+      List.iter2
+        (fun root (expected_opcodes, expected_flags, converted_index) ->
+          let lowered = lower root |> require_lowered in
+          let items = descriptions lowered in
+          Alcotest.(check (list string))
+            "mixed comparison postorder" expected_opcodes
+            (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "mixed comparison flags" expected_flags
+            (instruction_flags lowered);
+          Alcotest.(check bool)
+            "converted producer remains integer" true
+            (internal_i64_type (List.nth items converted_index).target_type);
+          Alcotest.(check bool)
+            "mixed comparison result is integer" true
+            (internal_i64_type (List.hd (List.rev items)).target_type);
+          ignore (verify_x87 lowered))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let f64_comparison_flags_compose_with_a_parent_conversion () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit
+      ~path:"ir-f64-comparison-parent-conversion.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return \
+       Target((1.0<2.0)+3.0);}"
+    |> List.hd
+  in
+  let lowered = lower root |> require_lowered in
+  Alcotest.(check (list string))
+    "comparison feeds floating arithmetic"
+    [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_LESS"; "IC_IMM_F64"; "IC_ADD" ]
+    (opcode_names lowered);
+  Alcotest.(check (list int64))
+    "comparison keeps execution and result conversion flags"
+    [ 0L; 0L; Int64.logor use_f64 result_to_f64; 0L; 0L ]
+    (instruction_flags lowered);
+  ignore (verify_x87 lowered)
+
+let deterministic_f64_comparison_dump_records_execution_domain () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-comparison-dump.HC"
+      "extern I64 Target(I64 value);I64 Caller(){return Target(1<2.0);}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let repeated = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let dump = Expression.human lowered in
+  Alcotest.(check string) "deterministic comparison replay" dump
+    (Expression.human repeated);
+  Alcotest.(check bool)
+    "dump records conversion on the integer producer" true
+    (contains_substring dump "IC_IMM_I64 i64:1 flags=0x000000001");
+  Alcotest.(check bool)
+    "dump records the F64 comparison path" true
+    (contains_substring dump "IC_LESS %v90 %v91 flags=0x000000040");
+  Alcotest.(check string)
+    "comparison result and next identities"
+    "result=%v92 result-type=internal:I64 next-instruction=73 next-value=93"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
+let top_level_f64_comparisons_use_the_same_lowering () =
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-f64-comparison.HC"
+          "1.0<=2;"
+        |> List.hd
+      in
+      let lowered = lower ~instruction:40 ~value:60 root |> require_lowered in
+      Alcotest.(check (list string))
+        "top-level comparison"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_LESS_EQU" ]
+        (opcode_names lowered);
+      Alcotest.(check (list int64))
+        "top-level comparison flags" [ 0L; result_to_f64; use_f64 ]
+        (instruction_flags lowered);
+      Alcotest.(check int)
+        "top-level next instruction" 43
+        (Expression.next_instruction_id lowered
+        |> Sequence.Instruction_id.to_int);
+      Alcotest.(check int)
+        "top-level next value" 63
+        (Expression.next_value_id lowered |> Sequence.Value_id.to_int);
+      ignore (verify_x87 lowered))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deep_mixed_f64_comparison_uses_the_explicit_worklist () =
+  let leaf_count = 2_000 in
+  let integer_tree =
+    List.init leaf_count (fun _ -> "1") |> String.concat "+"
+  in
+  let source =
+    Printf.sprintf
+      "extern I64 Target(I64 value);I64 Caller(){return Target((%s)<0.5);}"
+      integer_tree
+  in
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-deep-f64-comparison.HC"
+      source
+    |> List.hd
+  in
+  let lowered = lower ~instruction:100 ~value:1_000 root |> require_lowered in
+  let flags = instruction_flags lowered in
+  let instruction_count = (leaf_count * 2) + 1 in
+  Alcotest.(check int)
+    "deep comparison instruction count" instruction_count
+    (Expression.sequence lowered |> Sequence.length);
+  Alcotest.(check int64)
+    "deep integer root converts" result_to_f64
+    (List.nth flags ((leaf_count * 2) - 2));
+  Alcotest.(check int64)
+    "deep comparison uses F64" use_f64
+    (List.hd (List.rev flags));
+  Alcotest.(check int)
+    "deep comparison next instruction" (100 + instruction_count)
+    (Expression.next_instruction_id lowered |> Sequence.Instruction_id.to_int);
+  Alcotest.(check int)
+    "deep comparison next value" (1_000 + instruction_count)
+    (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
+
 let f64_unary_and_binary_tree_keeps_checked_postorder () =
   let source =
     "extern F64 Target(F64 value);F64 Caller(){return \
@@ -573,16 +819,15 @@ let f64_division_by_zero_remains_unfolded_ir () =
 
 let unsupported_f64_domains_return_no_sequence () =
   let source =
-    "extern F64 Target(F64 modulo,I64 comparison,I64 logical,I64 \
-     complement,F64 power);F64 Caller(){return \
-     Target(1%2.0,1<2.0,1&&2.0,~1.0,1`2.0);}"
+    "extern F64 Target(F64 modulo,I64 logical,I64 complement,F64 power);F64 \
+     Caller(){return Target(1%2.0,1&&2.0,~1.0,1`2.0);}"
   in
   List.iter
     (fun mode ->
       let roots =
         function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
       in
-      Alcotest.(check int) "unsupported floating roots" 5 (List.length roots);
+      Alcotest.(check int) "unsupported floating roots" 4 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -1667,6 +1912,18 @@ let tests =
       top_level_mixed_unary_and_binary_tree_keeps_postorder;
     Alcotest.test_case "F64 arithmetic operators" `Quick
       f64_arithmetic_operators_lower_in_both_modes;
+    Alcotest.test_case "F64 comparison operators" `Quick
+      f64_comparison_operators_lower_in_both_modes;
+    Alcotest.test_case "mixed F64 comparison conversions" `Quick
+      mixed_f64_comparisons_mark_integer_subtree_roots;
+    Alcotest.test_case "F64 comparison parent conversion" `Quick
+      f64_comparison_flags_compose_with_a_parent_conversion;
+    Alcotest.test_case "deterministic F64 comparison dump" `Quick
+      deterministic_f64_comparison_dump_records_execution_domain;
+    Alcotest.test_case "top-level F64 comparison" `Quick
+      top_level_f64_comparisons_use_the_same_lowering;
+    Alcotest.test_case "deep F64 comparison explicit worklist" `Slow
+      deep_mixed_f64_comparison_uses_the_explicit_worklist;
     Alcotest.test_case "F64 unary and binary postorder" `Quick
       f64_unary_and_binary_tree_keeps_checked_postorder;
     Alcotest.test_case "F64 division by zero remains IR" `Quick
