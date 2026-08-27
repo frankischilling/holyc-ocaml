@@ -325,7 +325,8 @@ let defined_statements_use_the_checked_terminator () =
             |> Top_level_source.root_origin |> span_of_origin
           in
           let lowered =
-            root |> lower_top_level |> require_ok show_sequence_errors
+            root |> lower_top_level
+            |> require_ok show_sequence_errors
             |> require_lowered
           in
           check "top-level defined statement" expected span lowered)

@@ -162,12 +162,11 @@ let signature result =
         resolution_name occurrence ))
 
 let query_resolution_name query =
-  match
-    Semantic_top_level_outer_expression_binding.query_resolution query
-  with
+  match Semantic_top_level_outer_expression_binding.query_resolution query with
   | Semantic_top_level_outer_expression_binding.Query_undefined -> "undefined"
   | Semantic_top_level_outer_expression_binding.Query_binding
-      (Semantic_top_level_outer_expression_binding.Module_binding publication) ->
+      (Semantic_top_level_outer_expression_binding.Module_binding publication)
+    ->
       Printf.sprintf "module:%s:%s"
         (Semantic_module_expression_binding.publication_kind publication
         |> Semantic_module_expression_binding.publication_kind_name)
@@ -291,7 +290,8 @@ let defined_queries_use_complete_lookup_without_identifier_errors () =
     (fun mode ->
       let prepared =
         prepare ~mode ~path:"top-level-outer-defined.HC"
-          "I64 ModuleValue;defined(ModuleValue);defined(Current);defined(Parent);defined(Asm);defined(Missing);"
+          "I64 \
+           ModuleValue;defined(ModuleValue);defined(Current);defined(Parent);defined(Asm);defined(Missing);"
       in
       let current_kind, parent_kind =
         match mode with
@@ -337,9 +337,9 @@ let defined_queries_use_complete_lookup_without_identifier_errors () =
         Semantic_top_level_outer_expression_binding.all_queries result
       in
       Alcotest.(check (list int))
-        "top-level outer query identities remain contiguous"
-        [ 0; 1; 2; 3; 4 ]
-        (List.map Semantic_top_level_outer_expression_binding.query_index queries);
+        "top-level outer query identities remain contiguous" [ 0; 1; 2; 3; 4 ]
+        (List.map Semantic_top_level_outer_expression_binding.query_index
+           queries);
       Alcotest.(check bool)
         "every outer query wraps the exact module-prefix query" true
         (List.for_all

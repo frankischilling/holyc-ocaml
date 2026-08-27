@@ -217,8 +217,8 @@ let defined_resolution_fact expression =
             | Semantic_top_level_outer_expression_binding.Query_undefined ->
                 "false"
             | Semantic_top_level_outer_expression_binding.Query_binding
-                (Semantic_top_level_outer_expression_binding.Module_binding _) ->
-                "module"
+                (Semantic_top_level_outer_expression_binding.Module_binding _)
+              -> "module"
             | Semantic_top_level_outer_expression_binding.Query_binding
                 (Semantic_top_level_outer_expression_binding.Outer_binding _) ->
                 "outer")
@@ -553,7 +553,8 @@ let defined_queries_follow_module_and_outer_bindings () =
     (fun mode ->
       let prepared =
         prepare ~mode ~path:"top-level-defined-resolution.HC"
-          "I64 ModuleValue;defined(ModuleValue);defined(OuterValue);defined(Missing);"
+          "I64 \
+           ModuleValue;defined(ModuleValue);defined(OuterValue);defined(Missing);"
       in
       let result =
         build prepared mode
@@ -583,7 +584,8 @@ let defined_queries_follow_module_and_outer_bindings () =
       in
       Alcotest.(check (list (option bool)))
         "complete top-level queries have checked Boolean values"
-        [ Some true; Some true; Some false ] values)
+        [ Some true; Some true; Some false ]
+        values)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defined_query_must_belong_to_its_statement () =
@@ -616,7 +618,8 @@ let defined_query_must_belong_to_its_statement () =
   in
   let forged_statement =
     Semantic_top_level_expression_tree.make_statement
-      ~source:(Semantic_top_level_expression_tree.statement_source source_statement)
+      ~source:
+        (Semantic_top_level_expression_tree.statement_source source_statement)
       ~roots:[ forged_root ] ~calls:[] ~switch_cases:[]
     |> checked_tree
   in
@@ -639,7 +642,8 @@ let defined_query_must_belong_to_its_statement () =
   in
   let empty_statement =
     Semantic_top_level_expression_tree.make_statement
-      ~source:(Semantic_top_level_expression_tree.statement_source source_statement)
+      ~source:
+        (Semantic_top_level_expression_tree.statement_source source_statement)
       ~roots:[] ~calls:[] ~switch_cases:[]
     |> checked_tree
   in
