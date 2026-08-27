@@ -44,11 +44,11 @@ val lower_typed_result :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
   (expression_result, Instruction_sequence.error list) result
-(** Lower one literal, optionally nested in parentheses, from the shared typed
-    semantic result view. The semantic payload, checked result type, and literal
-    source location are copied without consulting a frontend AST node.
-    Parentheses add no instruction or identity. Other semantic expression shapes
-    return [Not_literal]. *)
+(** Lower one literal, optionally nested in parentheses and unary plus, from the
+    shared typed semantic result view. The semantic payload, checked result
+    type, and literal source location are copied without consulting a frontend
+    AST node. Parentheses and unary plus add no instruction or identity. Other
+    semantic expression shapes return [Not_literal]. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_type : t -> Sema.Type.t

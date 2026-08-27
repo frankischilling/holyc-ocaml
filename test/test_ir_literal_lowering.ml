@@ -1113,10 +1113,13 @@ let semantic_span result =
 
 let semantic_literal_span result =
   let source = ref (Semantic_result.result_source result) in
-  let grouped = ref true in
-  while !grouped do
+  let unwrapping = ref true in
+  while !unwrapping do
     match Semantic_source.argument_expression_kind !source with
     | Semantic_source.Parenthesized_expression inner -> source := inner
+    | Semantic_source.Prefix_expression prefix
+      when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus
+      -> source := Semantic_source.prefix_operand prefix
     | Semantic_source.Integer_literal _
     | Semantic_source.Float_literal _
     | Semantic_source.Character_literal _
@@ -1129,7 +1132,7 @@ let semantic_literal_span result =
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
-    | Semantic_source.Unresolved_expression _ -> grouped := false
+    | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   match Semantic_source.argument_expression_origin !source with
   | Semantic_symbol.Source_location source -> source.span
@@ -1296,6 +1299,49 @@ let test_typed_grouped_nonliteral_is_explicit () =
   | Literal.Not_literal -> ()
   | Literal.Lowered _ -> Alcotest.fail "typed grouped nonliteral produced IR"
 
+let test_function_typed_unary_plus_is_transparent () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-unary-plus.HC"
+      "extern I64 Target(I64 wrapped,I64 character,F64 floating,U8 *text);\n\
+       I64 Caller(){return \
+       Target(+((+0xFFFFFFFFFFFFFFFF)),+((+'ABC')),+((+0.1)),+((+\"a\\n\\x42\\d\")));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  Test_function_call_expression_result.root_results results "Caller"
+  |> check_grouped_typed_literals ~index:50
+
+let test_top_level_typed_unary_plus_is_transparent_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-unary-plus.HC"
+          "+((+0xFFFFFFFFFFFFFFFF));+((+'ABC'));+((+0.1));+((+\"a\\n\\x42\\d\"));"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      Test_top_level_expression_result.root_values results
+      |> check_grouped_typed_literals ~index:60)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_unary_plus_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-unary-plus-nonliteral.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(+((+value)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match lower_typed ~instruction:770 ~value:970 result with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ -> Alcotest.fail "typed unary-plus nonliteral produced IR"
+
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source
     "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
@@ -1406,6 +1452,12 @@ let tests =
       test_top_level_typed_grouping_is_transparent_in_both_modes;
     Alcotest.test_case "typed grouped nonliteral is explicit" `Quick
       test_typed_grouped_nonliteral_is_explicit;
+    Alcotest.test_case "typed function unary plus" `Quick
+      test_function_typed_unary_plus_is_transparent;
+    Alcotest.test_case "typed top-level unary plus" `Quick
+      test_top_level_typed_unary_plus_is_transparent_in_both_modes;
+    Alcotest.test_case "typed unary-plus nonliteral is explicit" `Quick
+      test_typed_unary_plus_nonliteral_is_explicit;
     Alcotest.test_case "typed generated literal provenance" `Quick
       test_typed_literal_keeps_generated_source_location;
     Alcotest.test_case "typed nonliteral is explicit" `Quick
