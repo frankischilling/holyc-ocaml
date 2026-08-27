@@ -149,6 +149,25 @@ let literal_of_typed_source source =
                 (typed_result_error
                    "typed unary-minus operator does not have a source location");
             unwrapping := false)
+    | Sema.Function_call_resolution.Prefix_expression prefix
+      when Sema.Function_call_resolution.prefix_operator prefix
+           = Sema.Function_call_resolution.Logical_not -> (
+        match Sema.Function_call_resolution.prefix_operator_origin prefix with
+        | Sema.Symbol.Source_location location ->
+            unary_operations :=
+              {
+                opcode = Opcode.Ic_not;
+                span = location.span;
+                cancels_dereference = false;
+              }
+              :: !unary_operations;
+            current := Sema.Function_call_resolution.prefix_operand prefix
+        | Sema.Symbol.Pinned_source _ | Sema.Symbol.Synthesized _ ->
+            error :=
+              Some
+                (typed_result_error
+                   "typed logical-not operator does not have a source location");
+            unwrapping := false)
     | Sema.Function_call_resolution.Integer_literal _
     | Sema.Function_call_resolution.Float_literal _
     | Sema.Function_call_resolution.Character_literal _
