@@ -7706,7 +7706,7 @@ validation = ["nonempty operand spelling", "valid operand source origin"]
 mutation = "none"
 focused_function_tests = 3
 focused_top_level_tests = 1
-source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "HC-SEMA-LOCAL-DEFINED-LOWERING implements function-local and non-name selection plus canonical immediate lowering; HC-SEMA-MODULE-DEFINED-LOWERING implements current-module publication lookup; HC-SEMA-OUTER-DEFINED-LOWERING implements supplied outer-chain lookup; execution remains separate"
+source_ordered_lookup_boolean_selection_ic_imm_i64_lowering_and_execution = "HC-SEMA-LOCAL-DEFINED-LOWERING implements function-local and non-name selection plus canonical immediate lowering; HC-SEMA-MODULE-DEFINED-LOWERING implements current-module publication lookup; HC-SEMA-OUTER-DEFINED-LOWERING implements supplied function outer-chain lookup; HC-SEMA-TOP-LEVEL-DEFINED-LOWERING implements executable top-level module-prefix and outer-chain lookup; execution remains separate"
 native_oracle_status = "not required for this source-evidence boundary; the pinned parser branch directly defines the retained token shape"
 
 [[feature]]
@@ -7836,7 +7836,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "ordinary defined expressions in checked function bodies when the caller supplies an outer-expression batch"
 lookup_precedence = ["visible function-local binding", "source-visible compilation-unit publication", "complete mode-specific outer table chain"]
 known_values = ["a supported outer record is true", "a name absent from the complete outer chain is false", "retained local and module bindings remain true"]
-deferred_values = ["a module candidate when no outer batch is supplied", "every executable top-level name"]
+deferred_values = ["a module candidate when no outer batch is supplied", "executable top-level names outside this function-body feature"]
 outer_chains = ["current JIT task followed by parent tasks and assembler", "enclosing AOT compilations followed by assembler"]
 identity_rule = "each function operand retains the exact query from either the selected module batch or the selected outer batch"
 validation = ["outer batch owns the same symbol table", "outer batch has the exact module-expression source", "query role, spelling, origin, index, and exact identity match the defined operand"]
@@ -7849,8 +7849,64 @@ outer_expression_binding_group_tests = 8
 function_call_resolution_group_tests = 24
 expression_lowering_group_tests = 37
 focused_tests = 3
-unrepresented_hash_records_top_level_lookup_interpretation_optimization_backend_and_execution = "not implemented"
+unrepresented_hash_records_interpretation_optimization_backend_and_execution = "not implemented"
 native_oracle_status = "not required for the immutable lookup seam; execution and live task-table construction remain oracle work"
+
+[[feature]]
+id = "HC-SEMA-TOP-LEVEL-DEFINED-LOWERING"
+description = "Ordinary executable top-level defined expressions resolve the visible module prefix and supplied outer chain before lowering proven hits and misses to canonical integer immediates."
+sources = [
+  "Compiler/Lex.HC:38-40 ordinary identifier hash mask and initial table list",
+  "Compiler/Lex.HC:493-514 identifier token, optional local lookup, and nonlocal hash-chain selection",
+  "Compiler/CMain.HC:60-75 compilation-unit, JIT task, AOT enclosing-compilation, and assembler table order",
+  "Kernel/KHashB.HC:HashFind newest-first record and next-table lookup",
+  "Compiler/PrsExp.HC:936-954 identifier evidence test, Boolean selection, and IC_IMM_I64 insertion",
+  "Compiler/CompilerA.HH:30 IC_IMM_I64 identity",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/sema/top_level_expression_binding.ml",
+  "src/sema/top_level_expression_binding.mli",
+  "src/driver/top_level_expression_binding.ml",
+  "src/sema/top_level_outer_expression_binding.ml",
+  "src/sema/top_level_outer_expression_binding.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/top_level_expression_tree.ml",
+  "src/sema/top_level_expression_tree.ml",
+  "src/ir/expression_lowering.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_top_level_expression_binding.ml",
+  "test/test_top_level_outer_expression_binding.ml",
+  "test/test_top_level_expression_tree.ml",
+  "test/test_function_call_resolution.ml",
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 476
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "ordinary defined expressions in checked executable top-level statements when the caller supplies the exact top-level outer-expression batch"
+lookup_precedence = ["aggregate, function, and global publications visible before the owning statement", "complete mode-specific outer table chain"]
+known_values = ["a source-visible module publication is true", "a supported outer record is true", "a name absent from the complete outer chain is false", "a non-name operand is false"]
+outer_chains = ["current JIT task followed by parent tasks and assembler", "enclosing AOT compilations followed by assembler"]
+identity_rule = "each operand retains the exact specialized query owned by its statement and selected top-level outer-expression batch"
+validation = ["query indexes are contiguous and independent of ordinary occurrence indexes", "query role, spelling, and origin match the defined operand", "the exact query object belongs to the containing statement", "every statement query is represented by its semantic tree", "module publication evidence and outer bindings belong to the exact supplied batches"]
+ordinary_missing_identifier_behavior = "unchanged HCSEMA0054 error; only the specialized defined query records a false miss"
+diagnostics = ["HCSEMA0054 unresolved ordinary top-level identifier", "HCSEMA0055 foreign or mismatched top-level defined query"]
+instruction_shape = "known results reuse IC_IMM_I64 with zero operands, one internal I64 result, payload zero or one, and the complete defined-expression span"
+compilation_modes = ["jit", "aot"]
+result_owners = ["executable top level"]
+mutation = "none"
+top_level_expression_binding_group_tests = 6
+top_level_outer_expression_binding_group_tests = 5
+top_level_expression_tree_group_tests = 6
+expression_lowering_group_tests = 37
+expression_statement_lowering_group_tests = 9
+unrepresented_hash_records_interpretation_optimization_backend_and_execution = "not implemented"
+native_oracle_status = "not required for the immutable top-level lookup seam; execution and live task-table construction remain oracle work"
 
 [[feature]]
 id = "HC-IR-CURRENT-POSITION-LOWERING"
