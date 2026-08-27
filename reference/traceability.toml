@@ -7561,7 +7561,7 @@ payload_rule = "IC_IMM_F64 retains the semantic literal's exact 64-bit payload"
 evaluation_rule = "lowering performs no arithmetic or constant folding; a zero divisor remains an IC_DIV operand"
 source_map = "every emitted unary and binary instruction retains its operator span"
 identity = "floating leaves and operations share the module-owned consecutive instruction and value allocator"
-unsupported_result = "comparisons, logical binary operations, power, modulo, bitwise operations, result-to-integer conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed; mixed arithmetic is recorded separately"
+unsupported_result = "logical binary operations, power, modulo, bitwise operations, result-to-integer conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed; mixed arithmetic and floating comparisons are recorded separately"
 conversion_boundary = "HC-IR-MIXED-F64-CONVERSION-INTENT records the ICF_RES_TO_F64 edge without changing this feature's pure-F64 rule"
 compilation_modes = ["jit", "aot"]
 focused_tests = 6
@@ -7597,13 +7597,47 @@ immediate_rule = "canonical pre-optimizer IR retains IC_IMM_I64, the exact integ
 traversal = "validate iteratively, then emit each operand before its parent with source-left preceding source-right"
 source_map = "the flagged producer retains its own literal or operator span"
 identity = "conversion intent does not add an instruction or consume another instruction or value identity"
-unsupported_result = "floating comparisons, logical binary operations, power, modulo, bitwise operations, assignments, identifiers, calls, result-to-integer conversions, and other semantic shapes return Unsupported_expression before a sequence is exposed"
+unsupported_result = "logical binary operations, power, modulo, bitwise operations, assignments, identifiers, calls, result-to-integer conversions, and other semantic shapes return Unsupported_expression before a sequence is exposed; floating comparisons are recorded by HC-IR-F64-COMPARISON-LOWERING"
 compilation_modes = ["jit", "aot"]
 focused_tests = 5
 expression_lowering_group_tests = 23
 deep_tree = "2,000 integer leaves, 1,999 integer additions, one F64 literal, and one mixed addition produce 4,001 checked instructions with one conversion flag"
 x87_numerical_behavior_immediate_rewrite_optimization_interpretation_and_execution = "not implemented"
 native_oracle_status = "not required for structural conversion intent; optimizer and floating numerical compatibility remain separate oracle work"
+
+[[feature]]
+id = "HC-IR-F64-COMPARISON-LOWERING"
+description = "Pure and mixed F64 comparisons lower with source-backed floating execution and integer result metadata."
+sources = [
+  "Compiler/CInit.HC:305-311 comparison spellings and IC identities",
+  "Compiler/OptLib.HC:96-177 OptFixupBinaryOp1 common-class selection, producer conversion, and comparison-to-zero boundary",
+  "Compiler/OptPass012.HC:724-823 comparison folding, ICF_USE_F64 selection, and internal I64 result class",
+  "Kernel/KernelA.HH:1602 ICF_RES_TO_F64 value",
+  "Kernel/KernelA.HH:1608 ICF_USE_F64 value"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 478
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "IC_EQU_EQU, IC_NOT_EQU, IC_LESS, IC_GREATER_EQU, IC_GREATER, and IC_LESS_EQU with at least one checked F64 operand and an internal-I64 result"
+execution_rule = "the comparison instruction carries ICF_USE_F64 while retaining its checked internal I64 target type"
+conversion_rule = "each integer operand subtree root carries ICF_RES_TO_F64; a pure F64 producer remains unmodified"
+composition_rule = "when the integer comparison result feeds accepted F64 arithmetic, its instruction combines ICF_USE_F64 and ICF_RES_TO_F64"
+traversal = "validate iteratively, then emit source-left, source-right, and comparison instructions in checked postorder"
+source_map = "the comparison retains its exact operator span and each converted producer retains its own source span"
+identity = "floating execution and conversion flags allocate no extra instruction or value identity"
+verification = ["checked instruction sequence", "balanced x87 comparison operation"]
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 6
+expression_lowering_group_tests = 43
+deep_tree = "2,000 integer leaves, 1,999 integer additions, one F64 literal, and one comparison produce 4,001 checked instructions without recursive host-stack use"
+constant_folding_comparison_to_zero_rewrite_branch_comparisons_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for structural comparison metadata; numerical and machine compatibility remain separate oracle work"
 
 [[feature]]
 id = "HC-IR-POSTFIX-CAST-LOWERING"
