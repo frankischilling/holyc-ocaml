@@ -72,7 +72,6 @@ let function_item_index (function_ : resolved_function) =
 
 let function_occurrences (function_ : resolved_function) = function_.occurrences
 let function_queries (function_ : resolved_function) = function_.queries
-
 let occurrence_source (occurrence : occurrence) = occurrence.source
 
 let occurrence_index (occurrence : occurrence) =
@@ -268,7 +267,7 @@ let validate_occurrences table function_scope occurrences =
 let validate_queries table function_scope queries =
   let rec loop expected_index = function
     | [] -> Ok ()
-    | query :: rest ->
+    | query :: rest -> (
         if Function_expression_binding.query_index query <> expected_index then
           Error
             (invalid_input
@@ -280,7 +279,7 @@ let validate_queries table function_scope queries =
           | Function_expression_binding.Function_binding binding -> (
               match validate_local_binding table function_scope binding with
               | Error _ as error -> error
-              | Ok () -> loop (expected_index + 1) rest)
+              | Ok () -> loop (expected_index + 1) rest))
   in
   loop 0 queries
 
