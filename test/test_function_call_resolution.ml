@@ -1384,7 +1384,8 @@ let defined_values_follow_source_local_visibility () =
       let result = resolve prepared |> checked in
       let caller = function_named result "Caller" in
       let terms =
-        caller |> Semantic_function_call_resolution.function_expression_statements
+        caller
+        |> Semantic_function_call_resolution.function_expression_statements
         |> List.concat_map (fun statement ->
             statement
             |> Semantic_function_call_resolution.expression_statement_expression
@@ -1421,7 +1422,8 @@ let defined_values_follow_source_local_visibility () =
             | Semantic_function_call_resolution.Defined_function_query query ->
                 List.exists (( == ) query) expected_queries
             | Semantic_function_call_resolution.Defined_non_name_false -> true
-            | Semantic_function_call_resolution.Defined_top_level_name -> false)))
+            | Semantic_function_call_resolution.Defined_top_level_name -> false)
+        ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defined_generated_provenance_is_deterministic_and_pure () =
@@ -1513,9 +1515,8 @@ let defined_constructor_validates_source_evidence () =
       "I64 Caller(I64 local){sizeof(local);defined(local);return 0;}"
   in
   let queries =
-    prepared.module_expressions
-    |> Semantic_module_expression_binding.functions |> List.hd
-    |> Semantic_module_expression_binding.function_queries
+    prepared.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd |> Semantic_module_expression_binding.function_queries
   in
   let sizeof_query = List.nth queries 0 in
   let defined_query = List.nth queries 1 in
@@ -1562,7 +1563,9 @@ let defined_query_must_belong_to_its_function () =
     prepare ~path:"defined-query-owner.HC"
       "I64 Caller(I64 local){defined(local);return 0;}"
   in
-  let target = resolve prepared |> checked |> fun result -> function_named result "Caller" in
+  let target =
+    resolve prepared |> checked |> fun result -> function_named result "Caller"
+  in
   let foreign_source =
     Session.add_source prepared.session ~path:"defined-query-foreign.HC"
       ~contents:"I64 Foreign(I64 local){defined(local);return 0;}"
@@ -1574,9 +1577,8 @@ let defined_query_must_belong_to_its_function () =
   in
   let foreign = finish_prepare prepared.mode prepared.session foreign_ast in
   let foreign_query =
-    foreign.module_expressions
-    |> Semantic_module_expression_binding.functions |> List.hd
-    |> Semantic_module_expression_binding.function_queries |> List.hd
+    foreign.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd |> Semantic_module_expression_binding.function_queries |> List.hd
   in
   let operand_origin =
     Semantic_function_expression_binding.query_origin foreign_query

@@ -280,13 +280,14 @@ let current_position_statements_use_the_checked_terminator () =
 let defined_statements_use_the_checked_terminator () =
   let check label expected statement_span lowered =
     Alcotest.(check (list string))
-      label [ "IC_IMM_I64"; "IC_END_EXP" ] (opcode_names lowered);
+      label
+      [ "IC_IMM_I64"; "IC_END_EXP" ]
+      (opcode_names lowered);
     let producer = List.hd (descriptions lowered) in
     Alcotest.(check bool)
       (label ^ " payload") true
       (producer.payload = Some (Sequence.Integer expected));
-    Alcotest.(check int64)
-      (label ^ " producer flags") 0L producer.flags;
+    Alcotest.(check int64) (label ^ " producer flags") 0L producer.flags;
     check_terminator ~expected_span:statement_span lowered
   in
   List.iter

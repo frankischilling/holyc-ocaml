@@ -491,7 +491,10 @@ val argument_expression_origin : argument_expression -> Symbol.origin
 val defined_operand_kind : defined_expression -> defined_operand_kind
 val defined_operand_spelling : defined_expression -> string
 val defined_operand_origin : defined_expression -> Symbol.origin
-val defined_operand_resolution : defined_expression -> defined_operand_resolution
+
+val defined_operand_resolution :
+  defined_expression -> defined_operand_resolution
+
 val defined_known_value : defined_expression -> bool option
 val prefix_operator : prefix_expression -> prefix_operator
 val prefix_operator_origin : prefix_expression -> Symbol.origin
