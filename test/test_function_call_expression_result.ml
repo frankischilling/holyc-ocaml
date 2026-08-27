@@ -474,6 +474,25 @@ let result_for_source results source =
   |> List.find (fun result ->
       Semantic_function_call_expression_result.result_source result == source)
 
+let checked_cast_operand results root =
+  let source_operand =
+    match
+      root |> Semantic_function_call_expression_result.result_source
+      |> Semantic_function_call_resolution.argument_expression_kind
+    with
+    | Semantic_function_call_resolution.Postfix_cast_expression (operand, _) ->
+        operand
+    | _ -> Alcotest.fail "expected a retained postfix cast"
+  in
+  let expected = result_for_source results source_operand in
+  match Semantic_function_call_expression_result.result_operand root with
+  | None -> Alcotest.fail "postfix cast did not retain its checked operand"
+  | Some operand ->
+      Alcotest.(check bool)
+        "postfix cast points to the exact checked source result" true
+        (operand == expected);
+      operand
+
 let checked_source_operands results root =
   let left, right = binary_operands root in
   let binary = binary_source root in
@@ -1754,7 +1773,94 @@ let conversion_uses_the_exact_typed_roots () =
       "provided:f64-result:ICF_RES_TO_INT";
       "provided:integer-result:ICF_RES_TO_F64";
     ]
-    paths
+    paths;
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-postfix-cast-operands.HC"
+          "extern I64 Mix(F64 fixed=1,...);I64 Caller(I64 value){return \
+           Mix(,value(F64),value(F64)(I64),(value+1)(F64));}"
+      in
+      let _, expressions = analyze prepared in
+      let roots = variadic_results expressions "Caller" in
+      Alcotest.(check (list string))
+        "cast roots keep their checked target types" [ "F64"; "I64"; "F64" ]
+        (List.map type_name roots);
+      let operands = List.map (checked_cast_operand expressions) roots in
+      Alcotest.(check (list string))
+        "cast edges keep their immediate operand types" [ "I64"; "F64"; "I64" ]
+        (List.map type_name operands);
+      Alcotest.(check (list string))
+        "cast roots keep their target result classes"
+        [ "f64-result"; "integer-result"; "f64-result" ]
+        (class_names roots);
+      Alcotest.(check (list string))
+        "cast operands keep their source result classes"
+        [ "integer-result"; "f64-result"; "integer-result" ]
+        (class_names operands);
+      operands
+      |> List.iter (fun operand ->
+          match
+            Semantic_function_call_expression_result.result_origin operand
+          with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find
+                  (Session.sources prepared.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "cast operand keeps its source file"
+                "call-expression-postfix-cast-operands.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "expected source-backed postfix cast operand");
+      let inner = checked_cast_operand expressions (List.nth operands 1) in
+      Alcotest.(check string)
+        "nested cast points to its immediate cast child" "I64" (type_name inner);
+      let grouped = List.nth operands 2 in
+      let grouped_operand =
+        match
+          Semantic_function_call_expression_result.result_operand grouped
+        with
+        | Some operand -> operand
+        | None -> Alcotest.fail "grouped cast operand lost its binary child"
+      in
+      Alcotest.(check bool)
+        "grouped cast retains the parenthesized result" true
+        (match
+           grouped |> Semantic_function_call_expression_result.result_source
+           |> Semantic_function_call_resolution.argument_expression_kind
+         with
+        | Semantic_function_call_resolution.Parenthesized_expression _ -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "grouping still points to the checked binary root" true
+        (match
+           grouped_operand
+           |> Semantic_function_call_expression_result.result_source
+           |> Semantic_function_call_resolution.argument_expression_kind
+         with
+        | Semantic_function_call_resolution.Binary_expression _ -> true
+        | _ -> false);
+      let edge_ids results roots =
+        List.map
+          (fun root ->
+            ( root |> Semantic_function_call_expression_result.result_id
+              |> Semantic_function_call_expression_result.Id.to_int,
+              checked_cast_operand results root
+              |> Semantic_function_call_expression_result.result_id
+              |> Semantic_function_call_expression_result.Id.to_int ))
+          roots
+      in
+      let expected_edges = edge_ids expressions roots in
+      let _, repeated = analyze prepared in
+      let repeated_roots = variadic_results repeated "Caller" in
+      Alcotest.(check (list (pair int int)))
+        "postfix cast edges replay deterministically" expected_edges
+        (edge_ids repeated repeated_roots))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let members_retain_lookup_identity_and_access_kind () =
   List.iter

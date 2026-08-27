@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retained the exact checked operand beneath every postfix cast. Nested casts point to their immediate cast child, while grouping and binary operands keep their own semantic results in function bodies and executable top-level code. `IC_HOLYC_TYPECAST` emission, its `was_paren` payload, conversion, and optimizer folding remain separate work.
 - Carried mixed integer-to-`F64` arithmetic intent into checked IR. Each integer operand consumed by `IC_MUL`, `IC_DIV`, `IC_ADD`, or `IC_SUB` receives `ICF_RES_TO_F64` on its retained producer; grouping and unary plus forward that request without adding an instruction. Integer immediates retain their integer payload because the source rewrite to `IC_IMM_F64` belongs to optimization.
 - Lowered pure `F64` literal arithmetic trees through `IC_MUL`, `IC_DIV`, `IC_ADD`, and `IC_SUB`. Unary plus stays transparent, while unary minus and logical not compose at any depth with exact result types, operand links, source spans, literal bits, and module-owned identities. Comparisons, power, modulo, folding, numerical execution, and result-to-integer conversions remain separate work.
 - Composed checked dereference and address-of with the existing integer expression tree lowerer. Pointer-typed intermediates remain confined to those prefixes, each retained operation keeps its checked type and source span, and an address immediately outside a dereference removes that dereference before identity allocation. Pointer arithmetic, storage reads, folding, and execution remain outside this slice.

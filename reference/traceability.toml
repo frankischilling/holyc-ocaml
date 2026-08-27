@@ -7606,6 +7606,38 @@ x87_numerical_behavior_immediate_rewrite_optimization_interpretation_and_executi
 native_oracle_status = "not required for structural conversion intent; optimizer and floating numerical compatibility remain separate oracle work"
 
 [[feature]]
+id = "HC-SEMA-POSTFIX-CAST-OPERAND"
+description = "Each checked postfix-cast result retains the exact immediate operand produced by the same semantic traversal."
+sources = [
+  "Compiler/CompilerA.HH:53 IC_HOLYC_TYPECAST identity",
+  "Compiler/CInit.HC:48 one-argument, one-result metadata",
+  "Compiler/PrsExp.HC:1017-1055 cast construction after the existing expression",
+  "Compiler/OptPass012.HC:87-110 immediate operand consumption while folding or retaining a cast",
+  "Compiler/OptPass4.HC:571 retained cast classification",
+  "Compiler/OptPass789A.HC:445 machine-facing cast consumer"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 460
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked function-body and executable top-level postfix-cast results in JIT and AOT mode"
+operand_rule = "result_operand returns the exact checked result associated with the cast source's immediate operand"
+nested_rule = "a nested cast points to the immediately inner cast result rather than skipping to its operand"
+wrapper_rule = "a parenthesized or binary cast operand remains an explicit checked child"
+retained_facts = ["target type", "operand type", "result classes", "source provenance", "expression identities"]
+identity_rule = "retaining the edge allocates no expression, instruction, block, value, or symbol identity"
+replay = "the same source and compilation mode produce the same parent and child expression IDs"
+ir_lowering_was_paren_payload_conversion_folding_optimization_and_execution = "not implemented by this feature"
+native_oracle_status = "not required for a source-explicit semantic child edge; cast value and backend behavior remain oracle work"
+
+[[feature]]
 id = "HC-SEMA-BINARY-OPERANDS"
 description = "Completed binary semantic results retain their exact checked left and right children in source order."
 sources = [

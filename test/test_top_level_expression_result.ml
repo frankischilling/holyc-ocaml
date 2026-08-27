@@ -859,7 +859,72 @@ let indexes_casts_and_conversions () =
     |> List.map (fun root ->
         root |> assignment_right
         |> Semantic_function_call_expression_result.result_intrinsic_conversion
-        |> Semantic_function_call_expression_result.intrinsic_conversion_name))
+        |> Semantic_function_call_expression_result.intrinsic_conversion_name));
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-postfix-cast-operands.HC"
+          "I64 scalar;scalar(F64);"
+      in
+      let _, _, _, result = analyze source in
+      let cast = root_values result |> List.hd in
+      let source_operand =
+        match
+          cast |> Semantic_function_call_expression_result.result_source
+          |> Semantic_function_call_resolution.argument_expression_kind
+        with
+        | Semantic_function_call_resolution.Postfix_cast_expression (operand, _)
+          -> operand
+        | _ -> Alcotest.fail "expected a top-level postfix cast"
+      in
+      let expected =
+        result |> Semantic_function_call_expression_result.top_level_all_results
+        |> List.find (fun candidate ->
+            Semantic_function_call_expression_result.result_source candidate
+            == source_operand)
+      in
+      let cast_operand cast =
+        match Semantic_function_call_expression_result.result_operand cast with
+        | Some operand -> operand
+        | None ->
+            Alcotest.fail "top-level postfix cast lost its checked operand"
+      in
+      let operand = cast_operand cast in
+      Alcotest.(check bool)
+        "top-level cast points to the exact checked source result" true
+        (operand == expected);
+      Alcotest.(check string)
+        "top-level cast keeps its F64 target" "F64" (type_name cast);
+      Alcotest.(check string)
+        "top-level cast keeps its I64 operand" "I64" (type_name operand);
+      (match Semantic_function_call_expression_result.result_origin operand with
+      | Semantic_symbol.Source_location location ->
+          let operand_source =
+            Source_manager.find
+              (Session.sources source.session)
+              location.span.source
+            |> Option.get
+          in
+          Alcotest.(check string)
+            "top-level cast operand keeps its source file"
+            "top-level-postfix-cast-operands.HC"
+            (Source_file.path operand_source |> Filename.basename)
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected source-backed top-level cast operand");
+      let edge result =
+        let root = root_values result |> List.hd in
+        let operand = cast_operand root in
+        ( root |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int,
+          operand |> Semantic_function_call_expression_result.result_id
+          |> Semantic_function_call_expression_result.Id.to_int )
+      in
+      let expected_edge = edge result in
+      let _, _, _, repeated = analyze source in
+      Alcotest.(check (pair int int))
+        "top-level cast edge replays deterministically" expected_edge
+        (edge repeated))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let aggregate_member_paths () =
   List.iter

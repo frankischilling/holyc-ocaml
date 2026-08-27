@@ -450,8 +450,8 @@ val result_source :
 val result_origin : expression_result -> Symbol.origin
 
 val result_operand : expression_result -> expression_result option
-(** Return the checked operand for a parenthesized or prefix result. Other
-    expression forms currently return [None]. *)
+(** Return the exact checked operand for a parenthesized, prefix, or
+    postfix-cast result. Other expression forms currently return [None]. *)
 
 val result_binary_operands :
   expression_result -> (expression_result * expression_result) option
