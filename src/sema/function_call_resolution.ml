@@ -822,8 +822,7 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
               (String.equal operand_spelling
                  (Module_expression_binding.query_name query))
           then Error "defined operand spelling does not match its query"
-          else if
-            operand_origin <> Module_expression_binding.query_origin query
+          else if operand_origin <> Module_expression_binding.query_origin query
           then Error "defined operand origin does not match its query"
           else Ok ()
       | Defined_name, Defined_non_name_false ->

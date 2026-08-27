@@ -206,12 +206,12 @@ let defined_resolution_fact (_, defined) =
         | Semantic_module_expression_binding.Module_binding publication ->
             "module:"
             ^ (publication
-              |> Semantic_module_expression_binding.publication_kind
-              |> Semantic_module_expression_binding.publication_kind_name)
+             |> Semantic_module_expression_binding.publication_kind
+             |> Semantic_module_expression_binding.publication_kind_name)
             ^ ":"
             ^ (publication
-              |> Semantic_module_expression_binding.publication_source_symbol
-              |> Semantic_symbol.name))
+             |> Semantic_module_expression_binding.publication_source_symbol
+             |> Semantic_symbol.name))
   in
   let known =
     match defined_known_value defined with
@@ -1484,16 +1484,18 @@ let defined_values_follow_module_visibility () =
               Semantic_function_call_resolution.defined_operand_resolution
                 defined
             with
-            | Semantic_function_call_resolution.Defined_function_query query ->
-                (match
-                   Semantic_module_expression_binding.query_resolution query
-                 with
+            | Semantic_function_call_resolution.Defined_function_query query
+              -> (
+                match
+                  Semantic_module_expression_binding.query_resolution query
+                with
                 | Semantic_module_expression_binding.Module_binding publication
                   -> List.exists (( == ) publication) publications
                 | Semantic_module_expression_binding.Local_binding _
                 | Semantic_module_expression_binding.Outer_candidate -> true)
             | Semantic_function_call_resolution.Defined_non_name_false -> true
-            | Semantic_function_call_resolution.Defined_top_level_name -> false)))
+            | Semantic_function_call_resolution.Defined_top_level_name -> false)
+        ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defined_generated_provenance_is_deterministic_and_pure () =
@@ -1638,8 +1640,7 @@ let defined_query_must_belong_to_its_function () =
   in
   let foreign_source =
     Session.add_source prepared.session ~path:"defined-query-foreign.HC"
-      ~contents:
-        "I64 ForeignName;I64 Foreign(){defined(ForeignName);return 0;}"
+      ~contents:"I64 ForeignName;I64 Foreign(){defined(ForeignName);return 0;}"
   in
   let foreign_ast =
     Holyc_lib.parse_with_config prepared.session ~config:(config prepared.mode)

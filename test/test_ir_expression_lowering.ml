@@ -1310,11 +1310,11 @@ let deferred_defined_names_return_no_sequence () =
 
 let module_defined_names_lower_in_both_modes () =
   let source =
-    "extern class PriorType;I64 PriorGlobal;\
-     extern I64 Target(I64 type_name,I64 global_name,I64 recursive_name,I64 \
-     later_name);I64 Caller(){return \
-     Target(defined(PriorType),defined(PriorGlobal),defined(Caller),\
-     defined(Later));}I64 Later;"
+    "extern class PriorType;I64 PriorGlobal;extern I64 Target(I64 \
+     type_name,I64 global_name,I64 recursive_name,I64 later_name);I64 \
+     Caller(){return \
+     Target(defined(PriorType),defined(PriorGlobal),defined(Caller),defined(Later));}I64 \
+     Later;"
   in
   List.iter
     (fun mode ->

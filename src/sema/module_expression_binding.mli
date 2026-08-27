@@ -58,9 +58,7 @@ val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_occurrences : resolved_function -> occurrence list
-
 val function_queries : resolved_function -> query list
-
 val occurrence_source : occurrence -> Function_expression_binding.occurrence
 val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
