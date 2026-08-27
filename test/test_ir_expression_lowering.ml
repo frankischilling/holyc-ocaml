@@ -131,6 +131,22 @@ let top_level_roots ~mode ~path source =
   let _, _, _, results = Test_top_level_expression_result.analyze prepared in
   Test_top_level_expression_result.root_values results
 
+let top_level_roots_with_outer ~mode ~path ~names source =
+  let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
+  let entries =
+    names
+    |> List.mapi (fun entry_index name ->
+        Test_top_level_expression_result.make_outer_entry prepared ~entry_index
+          ~name ())
+  in
+  let environment =
+    Test_top_level_expression_result.outer_environment prepared entries
+  in
+  let _, _, _, results =
+    Test_top_level_expression_result.analyze ~environment prepared
+  in
+  Test_top_level_expression_result.root_values results
+
 let opcode_names lowered =
   descriptions lowered
   |> List.map (fun (description : Sequence.description) ->
@@ -1351,7 +1367,7 @@ let defined_constants_lower_in_both_modes () =
         ((List.hd (descriptions mixed)).payload = Some (Sequence.Integer 1L)))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let deferred_defined_names_return_no_sequence () =
+let unresolved_function_and_checked_top_level_defined_names () =
   List.iter
     (fun mode ->
       let function_roots =
@@ -1382,9 +1398,35 @@ let deferred_defined_names_return_no_sequence () =
         ((List.hd (descriptions false_lowered)).payload
        = Some (Sequence.Integer 0L));
       match List.nth roots 1 |> lower with
-      | Expression.Unsupported_expression -> ()
-      | Expression.Lowered _ ->
-          Alcotest.fail "top-level name lookup was guessed during lowering")
+      | Expression.Unsupported_expression ->
+          Alcotest.fail "checked top-level absence did not lower"
+      | Expression.Lowered lowered ->
+          Alcotest.(check bool)
+            "complete top-level miss lowers to false" true
+            ((List.hd (descriptions lowered)).payload
+            = Some (Sequence.Integer 0L));
+      let module_roots =
+        top_level_roots ~mode ~path:"ir-defined-top-level-module.HC"
+          "I64 ModuleValue;defined(ModuleValue);"
+      in
+      let module_lowered = List.hd module_roots |> lower |> require_lowered in
+      Alcotest.(check bool)
+        "top-level module hit lowers to true" true
+        ((List.hd (descriptions module_lowered)).payload
+        = Some (Sequence.Integer 1L));
+      let outer_roots =
+        top_level_roots_with_outer ~mode ~path:"ir-defined-top-level-outer.HC"
+          ~names:[ "OuterValue" ]
+          "defined(OuterValue);defined(Missing);"
+      in
+      List.iter2
+        (fun root expected ->
+          let lowered = lower root |> require_lowered in
+          Alcotest.(check bool)
+            "top-level outer query lowers its checked Boolean" true
+            ((List.hd (descriptions lowered)).payload
+            = Some (Sequence.Integer expected)))
+        outer_roots [ 1L; 0L ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let module_defined_names_lower_in_both_modes () =
@@ -1667,8 +1709,8 @@ let tests =
       deterministic_current_position_dump;
     Alcotest.test_case "defined constant lowering" `Quick
       defined_constants_lower_in_both_modes;
-    Alcotest.test_case "deferred defined lowering" `Quick
-      deferred_defined_names_return_no_sequence;
+    Alcotest.test_case "function deferral and checked top-level defined" `Quick
+      unresolved_function_and_checked_top_level_defined_names;
     Alcotest.test_case "module defined lowering" `Quick
       module_defined_names_lower_in_both_modes;
     Alcotest.test_case "outer defined lowering" `Quick

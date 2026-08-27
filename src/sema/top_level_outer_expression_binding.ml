@@ -2,14 +2,24 @@ type resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_binding of Outer_environment.binding
 
+type query_resolution =
+  | Query_binding of resolution
+  | Query_undefined
+
 type occurrence = {
   source : Top_level_expression_binding.occurrence;
   resolution : resolution;
 }
 
+type query = {
+  query_source_ : Top_level_expression_binding.query;
+  query_resolution_ : query_resolution;
+}
+
 type statement = {
   source : Top_level_expression_binding.statement;
   occurrences : occurrence list;
+  queries : query list;
 }
 
 type t = {
@@ -18,6 +28,7 @@ type t = {
   source_ : Top_level_expression_binding.t;
   statements_ : statement list;
   all_occurrences_ : occurrence list;
+  all_queries_ : query list;
 }
 
 type error_kind =
@@ -49,6 +60,7 @@ let environment result = result.environment_
 let source result = result.source_
 let statements result = result.statements_
 let all_occurrences result = result.all_occurrences_
+let all_queries result = result.all_queries_
 let statement_source (statement : statement) = statement.source
 
 let statement_index (statement : statement) =
@@ -61,6 +73,7 @@ let statement_origin (statement : statement) =
   Top_level_expression_binding.statement_origin statement.source
 
 let statement_occurrences (statement : statement) = statement.occurrences
+let statement_queries (statement : statement) = statement.queries
 let occurrence_source (occurrence : occurrence) = occurrence.source
 
 let occurrence_index (occurrence : occurrence) =
@@ -73,6 +86,21 @@ let occurrence_origin (occurrence : occurrence) =
   Top_level_expression_binding.occurrence_origin occurrence.source
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let query_source (query : query) = query.query_source_
+
+let query_index (query : query) =
+  Top_level_expression_binding.query_index query.query_source_
+
+let query_role (query : query) =
+  Top_level_expression_binding.query_role query.query_source_
+
+let query_name (query : query) =
+  Top_level_expression_binding.query_name query.query_source_
+
+let query_origin (query : query) =
+  Top_level_expression_binding.query_origin query.query_source_
+
+let query_resolution (query : query) = query.query_resolution_
 let error_code error = error.code
 let error_kind error = error.kind
 let error_origin error = error.origin
@@ -114,9 +142,31 @@ let resolve_occurrences environment occurrences =
   in
   loop [] occurrences
 
+let resolve_query environment source =
+  let query_resolution_ =
+    match Top_level_expression_binding.query_resolution source with
+    | Top_level_expression_binding.Module_binding publication ->
+        Query_binding (Module_binding publication)
+    | Top_level_expression_binding.Outer_candidate -> (
+        match
+          Outer_environment.find environment
+            (Top_level_expression_binding.query_name source)
+        with
+        | Some binding -> Query_binding (Outer_binding binding)
+        | None -> Query_undefined)
+  in
+  { query_source_ = source; query_resolution_ }
+
+let resolve_queries environment queries =
+  List.map (resolve_query environment) queries
+
 let resolve_statements environment statements =
-  let rec loop statements_rev occurrences_rev = function
-    | [] -> Ok (List.rev statements_rev, List.rev occurrences_rev)
+  let rec loop statements_rev occurrences_rev queries_rev = function
+    | [] ->
+        Ok
+          ( List.rev statements_rev,
+            List.rev occurrences_rev,
+            List.rev queries_rev )
     | source :: rest -> (
         match
           resolve_occurrences environment
@@ -124,12 +174,17 @@ let resolve_statements environment statements =
         with
         | Error _ as error -> error
         | Ok occurrences ->
+            let queries =
+              source |> Top_level_expression_binding.statement_queries
+              |> resolve_queries environment
+            in
             loop
-              ({ source; occurrences } :: statements_rev)
+              ({ source; occurrences; queries } :: statements_rev)
               (List.rev_append occurrences occurrences_rev)
+              (List.rev_append queries queries_rev)
               rest)
   in
-  loop [] [] statements
+  loop [] [] [] statements
 
 let resolve ~table ~environment ~expressions =
   if not (Top_level_expression_binding.owns_table expressions table) then
@@ -156,7 +211,7 @@ let resolve ~table ~environment ~expressions =
           (Top_level_expression_binding.statements expressions)
       with
       | Error _ as error -> error
-      | Ok (statements_, all_occurrences_) ->
+      | Ok (statements_, all_occurrences_, all_queries_) ->
           Ok
             {
               table;
@@ -164,4 +219,5 @@ let resolve ~table ~environment ~expressions =
               source_ = expressions;
               statements_;
               all_occurrences_;
+              all_queries_;
             }

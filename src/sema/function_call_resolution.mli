@@ -24,6 +24,7 @@ type defined_function_query =
 type defined_operand_resolution =
   | Defined_non_name_false
   | Defined_function_query of defined_function_query
+  | Defined_top_level_query of Top_level_outer_expression_binding.query
   | Defined_top_level_name
 
 type defined_expression

@@ -24,6 +24,7 @@ type defined_function_query =
 type defined_operand_resolution =
   | Defined_non_name_false
   | Defined_function_query of defined_function_query
+  | Defined_top_level_query of Top_level_outer_expression_binding.query
   | Defined_top_level_name
 
 type defined_expression = {
@@ -816,6 +817,21 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
       match (operand_kind, operand_resolution) with
       | Defined_non_name, Defined_non_name_false
       | Defined_name, Defined_top_level_name -> Ok ()
+      | Defined_name, Defined_top_level_query query ->
+          if
+            Top_level_outer_expression_binding.query_role query
+            <> Function_expression_binding.Defined_operand
+          then Error "defined operand query has the wrong semantic role"
+          else if
+            not
+              (String.equal operand_spelling
+                 (Top_level_outer_expression_binding.query_name query))
+          then Error "defined operand spelling does not match its query"
+          else if
+            operand_origin
+            <> Top_level_outer_expression_binding.query_origin query
+          then Error "defined operand origin does not match its query"
+          else Ok ()
       | Defined_name, Defined_function_query query ->
           let query_role, query_name, query_origin =
             match query with
@@ -837,8 +853,9 @@ let make_defined_argument_expression ~operand_kind ~operand_spelling
           else Ok ()
       | Defined_name, Defined_non_name_false ->
           Error "name-shaped defined operand cannot use a non-name result"
-      | Defined_non_name, Defined_function_query _ ->
-          Error "non-name defined operand cannot use a function query"
+      | Defined_non_name,
+        (Defined_function_query _ | Defined_top_level_query _) ->
+          Error "non-name defined operand cannot use a name query"
       | Defined_non_name, Defined_top_level_name ->
           Error "non-name defined operand cannot use a top-level name result"
     in
@@ -1001,6 +1018,10 @@ let defined_known_value expression =
       match Outer_expression_binding.query_resolution query with
       | Outer_expression_binding.Query_binding _ -> Some true
       | Outer_expression_binding.Query_undefined -> Some false)
+  | Defined_top_level_query query -> (
+      match Top_level_outer_expression_binding.query_resolution query with
+      | Top_level_outer_expression_binding.Query_binding _ -> Some true
+      | Top_level_outer_expression_binding.Query_undefined -> Some false)
   | Defined_top_level_name -> None
 
 let make_argument ~index ~kind ~expression ~origin =
@@ -1780,6 +1801,10 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
           Error
             (invalid_input
                "function call input contains a top-level defined query")
+      | Defined_top_level_query _ ->
+          Error
+            (invalid_input
+               "function call input contains a resolved top-level defined query")
       | Defined_function_query query -> (
           let index = defined_query_index query in
           match Int_map.find_opt index query_by_index with

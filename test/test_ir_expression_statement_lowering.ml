@@ -313,27 +313,23 @@ let defined_statements_use_the_checked_terminator () =
         statements [ 1L; 0L ];
       let top_level =
         top_level_roots ~mode ~path:"ir-defined-top-level-statement.HC"
-          "defined(+);defined(name);"
+          "I64 name;defined(+);defined(name);defined(missing);"
         |> expression_statement_roots
       in
-      let false_root = List.hd top_level in
-      let false_span =
-        false_root |> Semantic_result.top_level_root_source
-        |> Top_level_source.root_origin |> span_of_origin
-      in
-      let false_lowered =
-        lower_top_level false_root
-        |> require_ok show_sequence_errors
-        |> require_lowered
-      in
-      check "top-level defined statement" 0L false_span false_lowered;
-      match
-        List.nth top_level 1 |> lower_top_level
-        |> require_ok show_sequence_errors
-      with
-      | Statement.Unsupported_expression -> ()
-      | Statement.Lowered _ ->
-          Alcotest.fail "deferred top-level defined statement returned IR")
+      Alcotest.(check int)
+        "three top-level defined statements" 3 (List.length top_level);
+      List.iter2
+        (fun root expected ->
+          let span =
+            root |> Semantic_result.top_level_root_source
+            |> Top_level_source.root_origin |> span_of_origin
+          in
+          let lowered =
+            root |> lower_top_level |> require_ok show_sequence_errors
+            |> require_lowered
+          in
+          check "top-level defined statement" expected span lowered)
+        top_level [ 0L; 1L; 0L ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let unsupported_statement_values_return_no_sequence () =

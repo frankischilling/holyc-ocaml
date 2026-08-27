@@ -4,6 +4,12 @@ let checked = function
   | Ok value -> value
   | Error message -> Alcotest.fail message
 
+let checked_tree = function
+  | Ok value -> value
+  | Error error ->
+      error |> Semantic_top_level_expression_tree.error_to_string
+      |> Alcotest.fail
+
 let expect_ast = function
   | Ok ast -> ast
   | Error diagnostics ->
@@ -204,6 +210,18 @@ let defined_resolution_fact expression =
           Semantic_function_call_resolution.defined_operand_resolution defined
         with
         | Semantic_function_call_resolution.Defined_top_level_name -> "deferred"
+        | Semantic_function_call_resolution.Defined_top_level_query query -> (
+            match
+              Semantic_top_level_outer_expression_binding.query_resolution query
+            with
+            | Semantic_top_level_outer_expression_binding.Query_undefined ->
+                "false"
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Module_binding _) ->
+                "module"
+            | Semantic_top_level_outer_expression_binding.Query_binding
+                (Semantic_top_level_outer_expression_binding.Outer_binding _) ->
+                "outer")
         | Semantic_function_call_resolution.Defined_non_name_false -> "false"
         | Semantic_function_call_resolution.Defined_function_query _ ->
             "function-query"
@@ -502,16 +520,16 @@ let defined_operands_survive_top_level_trees () =
           ]
           facts;
         Alcotest.(check (list string))
-          "top-level names stay deferred while a non-name is false"
+          "a complete top-level lookup makes absent names false"
           [
-            "top:deferred";
+            "top:false";
             "+:false";
-            "left:deferred";
-            "right:deferred";
-            "cast:deferred";
-            "argument:deferred";
-            "condition:deferred";
-            "body:deferred";
+            "left:false";
+            "right:false";
+            "cast:false";
+            "argument:false";
+            "condition:false";
+            "body:false";
           ]
           (nodes
           |> List.filter_map (fun node ->
@@ -530,6 +548,117 @@ let defined_operands_survive_top_level_trees () =
         (middle, after))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let defined_queries_follow_module_and_outer_bindings () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"top-level-defined-resolution.HC"
+          "I64 ModuleValue;defined(ModuleValue);defined(OuterValue);defined(Missing);"
+      in
+      let result =
+        build prepared mode
+          [ ("OuterValue", Semantic_outer_environment.Global_variable) ]
+      in
+      let facts =
+        result |> Semantic_top_level_expression_tree.all_expression_nodes
+        |> List.filter_map (fun node ->
+            node |> Semantic_top_level_expression_tree.expression_node_source
+            |> defined_resolution_fact)
+      in
+      Alcotest.(check (list string))
+        "top-level defined keeps module, outer, and undefined evidence"
+        [ "ModuleValue:module"; "OuterValue:outer"; "Missing:false" ]
+        facts;
+      let values =
+        result |> Semantic_top_level_expression_tree.all_expression_nodes
+        |> List.filter_map (fun node ->
+            match
+              node |> Semantic_top_level_expression_tree.expression_node_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Defined_expression defined ->
+                Some
+                  (Semantic_function_call_resolution.defined_known_value defined)
+            | _ -> None)
+      in
+      Alcotest.(check (list (option bool)))
+        "complete top-level queries have checked Boolean values"
+        [ Some true; Some true; Some false ] values)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let defined_query_must_belong_to_its_statement () =
+  let prepared =
+    prepare ~path:"top-level-defined-owner.HC" "defined(Target);"
+  in
+  let foreign =
+    prepare ~path:"top-level-defined-foreign.HC" "defined(Target);"
+  in
+  let source_tree = build prepared Preprocessor.Jit [] in
+  let foreign_tree = build foreign Preprocessor.Jit [] in
+  let source_statement =
+    source_tree |> Semantic_top_level_expression_tree.statements |> List.hd
+  in
+  let source_root =
+    source_statement |> Semantic_top_level_expression_tree.statement_roots
+    |> List.hd
+  in
+  let foreign_expression =
+    foreign_tree |> Semantic_top_level_expression_tree.all_roots |> List.hd
+    |> Semantic_top_level_expression_tree.root_expression
+  in
+  let forged_root =
+    Semantic_top_level_expression_tree.make_root
+      ~index:(Semantic_top_level_expression_tree.root_index source_root)
+      ~role:(Semantic_top_level_expression_tree.root_role source_root)
+      ~expression:foreign_expression
+      ~origin:(Semantic_top_level_expression_tree.root_origin source_root)
+    |> checked_tree
+  in
+  let forged_statement =
+    Semantic_top_level_expression_tree.make_statement
+      ~source:(Semantic_top_level_expression_tree.statement_source source_statement)
+      ~roots:[ forged_root ] ~calls:[] ~switch_cases:[]
+    |> checked_tree
+  in
+  let () =
+    match
+      Semantic_top_level_expression_tree.create
+        ~table:(Session.semantic_symbols prepared.session)
+        ~source:(Semantic_top_level_expression_tree.source source_tree)
+        [ forged_statement ]
+    with
+    | Ok _ -> Alcotest.fail "a statement accepted another statement's query"
+    | Error error ->
+        Alcotest.(check string)
+          "foreign top-level query code" "HCSEMA0055"
+          (Semantic_top_level_expression_tree.error_code error);
+        Alcotest.(check string)
+          "foreign top-level query message"
+          "top-level defined operand uses a different statement query"
+          (Semantic_top_level_expression_tree.error_message error)
+  in
+  let empty_statement =
+    Semantic_top_level_expression_tree.make_statement
+      ~source:(Semantic_top_level_expression_tree.statement_source source_statement)
+      ~roots:[] ~calls:[] ~switch_cases:[]
+    |> checked_tree
+  in
+  match
+    Semantic_top_level_expression_tree.create
+      ~table:(Session.semantic_symbols prepared.session)
+      ~source:(Semantic_top_level_expression_tree.source source_tree)
+      [ empty_statement ]
+  with
+  | Ok _ -> Alcotest.fail "a statement omitted its defined query"
+  | Error error ->
+      Alcotest.(check string)
+        "missing top-level query code" "HCSEMA0055"
+        (Semantic_top_level_expression_tree.error_code error);
+      Alcotest.(check string)
+        "missing top-level query message"
+        "top-level defined query is missing from its statement tree"
+        (Semantic_top_level_expression_tree.error_message error)
+
 let tests =
   [
     Alcotest.test_case "complete shapes, roles, calls, and identities" `Quick
@@ -540,4 +669,8 @@ let tests =
       deterministic_pure_and_checked_inputs;
     Alcotest.test_case "defined operands across top-level trees" `Quick
       defined_operands_survive_top_level_trees;
+    Alcotest.test_case "defined queries follow module and outer bindings" `Quick
+      defined_queries_follow_module_and_outer_bindings;
+    Alcotest.test_case "defined query ownership" `Quick
+      defined_query_must_belong_to_its_statement;
   ]

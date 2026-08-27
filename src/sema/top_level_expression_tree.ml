@@ -342,6 +342,147 @@ let call_expressions rev (call : call) =
     rev
     (Function_call_resolution.call_arguments source)
 
+module Int_map = Map.Make (Int)
+module Int_set = Set.Make (Int)
+
+let statement_query_map (statement : statement) =
+  statement.source |> Top_level_outer_expression_binding.statement_queries
+  |> List.fold_left
+       (fun queries query ->
+         Int_map.add
+           (Top_level_outer_expression_binding.query_index query)
+           query queries)
+       Int_map.empty
+
+let rec validate_defined_query_evidence queries seen expression =
+  let continue seen expression =
+    validate_defined_query_evidence queries seen expression
+  in
+  match Function_call_resolution.argument_expression_kind expression with
+  | Function_call_resolution.Defined_expression defined -> (
+      match Function_call_resolution.defined_operand_resolution defined with
+      | Function_call_resolution.Defined_top_level_query query -> (
+          match
+            Int_map.find_opt
+              (Top_level_outer_expression_binding.query_index query)
+              queries
+          with
+          | Some expected when expected == query ->
+              Ok
+                (Int_set.add
+                   (Top_level_outer_expression_binding.query_index query)
+                   seen)
+          | Some _ ->
+              Error
+                (invalid_input
+                   "top-level defined operand uses a different statement query")
+          | None ->
+              Error
+                (invalid_input
+                   "top-level defined query does not belong to its statement"))
+      | Function_call_resolution.Defined_function_query _ ->
+          Error
+            (invalid_input
+               "top-level expression contains a function defined query")
+      | Function_call_resolution.Defined_non_name_false
+      | Function_call_resolution.Defined_top_level_name -> Ok seen)
+  | Function_call_resolution.Parenthesized_expression grouped ->
+      continue seen grouped
+  | Function_call_resolution.Prefix_expression prefix ->
+      continue seen (Function_call_resolution.prefix_operand prefix)
+  | Function_call_resolution.Postfix_expression postfix ->
+      continue seen (Function_call_resolution.postfix_operand postfix)
+  | Function_call_resolution.Postfix_cast_expression (operand, _) ->
+      continue seen operand
+  | Function_call_resolution.Binary_expression binary -> (
+      match continue seen (Function_call_resolution.binary_left binary) with
+      | Error _ as error -> error
+      | Ok seen ->
+          continue seen (Function_call_resolution.binary_right binary))
+  | Function_call_resolution.Index_expression index -> (
+      match continue seen (Function_call_resolution.index_base index) with
+      | Error _ as error -> error
+      | Ok seen -> continue seen (Function_call_resolution.index_value index))
+  | Function_call_resolution.Member_access_expression member ->
+      continue seen (Function_call_resolution.member_base member)
+  | Function_call_resolution.Integer_literal _
+  | Function_call_resolution.Float_literal _
+  | Function_call_resolution.Character_literal _
+  | Function_call_resolution.String_literal _
+  | Function_call_resolution.Bound_identifier_expression _
+  | Function_call_resolution.Top_level_bound_identifier_expression _
+  | Function_call_resolution.Unresolved_expression _ -> Ok seen
+
+let validate_call_defined_query_evidence queries seen (call : call) =
+  let source = call.source in
+  match
+    validate_defined_query_evidence queries seen call.callee_expression
+  with
+  | Error _ as error -> error
+  | Ok seen -> (
+      match
+        match Function_call_resolution.call_computed_callee source with
+        | Some expression ->
+            validate_defined_query_evidence queries seen expression
+        | None -> Ok seen
+      with
+      | Error _ as error -> error
+      | Ok seen ->
+          let rec arguments seen = function
+            | [] -> Ok seen
+            | argument :: rest -> (
+                match Function_call_resolution.argument_expression argument with
+                | None -> arguments seen rest
+                | Some expression -> (
+                    match
+                      validate_defined_query_evidence queries seen expression
+                    with
+                    | Error _ as error -> error
+                    | Ok seen -> arguments seen rest))
+          in
+          arguments seen (Function_call_resolution.call_arguments source))
+
+let validate_statement_defined_query_evidence (statement : statement) =
+  let queries = statement_query_map statement in
+  let rec roots seen = function
+    | [] -> Ok seen
+    | root :: rest -> (
+        match
+          validate_defined_query_evidence queries seen root.expression
+        with
+        | Error _ as error -> error
+        | Ok seen -> roots seen rest)
+  in
+  match roots Int_set.empty statement.roots with
+  | Error _ as error -> error
+  | Ok seen ->
+      let rec calls seen = function
+        | [] -> Ok seen
+        | call :: rest -> (
+            match validate_call_defined_query_evidence queries seen call with
+            | Error _ as error -> error
+            | Ok seen -> calls seen rest)
+      in
+      (match calls seen statement.calls with
+      | Error _ as error -> error
+      | Ok seen ->
+          if Int_map.for_all (fun index _ -> Int_set.mem index seen) queries then
+            Ok ()
+          else
+            Error
+              (invalid_input
+                 "top-level defined query is missing from its statement tree"))
+
+let validate_defined_query_evidence statements =
+  let rec loop = function
+    | [] -> Ok ()
+    | statement :: rest -> (
+        match validate_statement_defined_query_evidence statement with
+        | Error _ as error -> error
+        | Ok () -> loop rest)
+  in
+  loop statements
+
 let expression_nodes statements =
   let expressions =
     List.fold_left
@@ -397,16 +538,19 @@ let create ~table ~source statements =
     match validate_statement_sources source statements with
     | Error _ as error -> error
     | Ok () -> (
-        match validate_global_indexes statements with
+        match validate_defined_query_evidence statements with
         | Error _ as error -> error
-        | Ok (all_roots, all_calls, all_switch_cases) ->
-            Ok
-              {
-                table;
-                source_ = source;
-                statements_ = statements;
-                all_roots_ = all_roots;
-                all_calls_ = all_calls;
-                all_switch_cases_ = all_switch_cases;
-                all_expression_nodes_ = expression_nodes statements;
-              })
+        | Ok () -> (
+            match validate_global_indexes statements with
+            | Error _ as error -> error
+            | Ok (all_roots, all_calls, all_switch_cases) ->
+                Ok
+                  {
+                    table;
+                    source_ = source;
+                    statements_ = statements;
+                    all_roots_ = all_roots;
+                    all_calls_ = all_calls;
+                    all_switch_cases_ = all_switch_cases;
+                    all_expression_nodes_ = expression_nodes statements;
+                  }))

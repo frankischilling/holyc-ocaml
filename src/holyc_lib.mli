@@ -328,9 +328,9 @@ val resolve_top_level_expressions :
   module_expressions:Semantic_module_expression_binding.t ->
   Ast.module_ ->
   (Semantic_top_level_expression_binding.t, string) result
-(** Bind ordinary names under executable top-level statements through the
-    source-visible module publication prefix. Names absent from that prefix
-    remain explicit outer candidates. *)
+(** Bind ordinary names and retain specialized [defined] queries under
+    executable top-level statements through the source-visible module
+    publication prefix. Missing names remain explicit outer candidates. *)
 
 val resolve_top_level_outer_expressions :
   Session.t ->
@@ -338,7 +338,9 @@ val resolve_top_level_outer_expressions :
   expressions:Semantic_top_level_expression_binding.t ->
   (Semantic_top_level_outer_expression_binding.t, string) result
 (** Preserve source-visible top-level module bindings, then resolve every outer
-    candidate through the complete JIT or AOT table chain. *)
+    candidate through the complete JIT or AOT table chain. A missing ordinary
+    identifier remains an error, while a missing [defined] query becomes a
+    checked false result. *)
 
 val validate_top_level_statements :
   Ast.module_ -> (unit, Semantic_top_level_statement_validation.error) result
