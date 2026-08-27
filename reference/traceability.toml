@@ -7952,6 +7952,46 @@ constant_folding_string_storage_expression_graphs_and_execution = "not implement
 native_oracle_status = "not required for this source-stated instruction boundary; the parser selects IC_COM and OptPass012 assigns internal I64"
 
 [[feature]]
+id = "HC-IR-TYPED-LITERAL-DEREFERENCE"
+description = "Dereference around a typed semantic literal emits an unfused checked IC_DEREF chain with exact per-node result types."
+sources = [
+  "Compiler/PrsExp.HC:614-620 prefix dereference selects IC_DEREF and consumes the prefix token",
+  "Compiler/PrsExp.HC:133-162 inner-to-outer unary insertion and class forwarding",
+  "Compiler/PrsExp.HC:679-700 literal payload and opcode branches",
+  "Compiler/PrsExp.HC:728-759 transparent grouping and unary plus",
+  "Compiler/CInit.HC:53 one-argument, one-result IC_DEREF shape and dereference structural class",
+  "Compiler/OptPass012.HC:275-291 dereference result class and U0 warning boundary",
+  "Compiler/PrsLib.HC:79-97 instruction source provenance"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli",
+  "src/ir/literal_lowering.ml",
+  "src/ir/literal_lowering.mli"
+]
+tests = ["test/test_ir_literal_lowering.ml"]
+status = "implemented"
+issue = 444
+foundation_issue = 442
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one or more dereference operators interleaved with unary minus, logical not, bitwise complement, transparent grouping, and unary plus around integer, character, F64, and string leaves in function-body and executable top-level typed results"
+instruction_rule = "emit the literal first, then one IC_UNARY_MINUS, IC_NOT, IC_COM, or IC_DEREF per emitting prefix from innermost to outermost without folding"
+operand_rule = "each semantic wrapper retains its exact checked operand result; each emitted instruction consumes the preceding result"
+payload_rule = "copy the retained literal leaf payload without consulting a frontend AST node"
+type_rule = "assign the literal and every prefix instruction the checked type of that exact semantic node; dereference removes a pointer layer when present and complement assigns internal I64"
+source_rule = "attach the literal leaf span to the literal instruction and each operator span to its prefix instruction"
+identity_rule = "the caller supplies one distinct instruction and value identity per emitted prefix in execution order; parentheses and unary plus consume none"
+diagnostics = [
+  "HCIRL0001 missing or excess emitted instruction identities",
+  "HCIRL0003 missing checked types, unavailable source locations, inconsistent operand ownership, or an outer result-type mismatch"
+]
+nonliteral_rule = "a supported wrapper chain around a nonliteral returns Not_literal without constructing IR"
+compilation_modes = ["jit", "aot"]
+focused_typed_dereference_tests = 5
+address_of_updates_memory_execution_constant_folding_string_storage_expression_graphs_and_execution = "not implemented by this feature"
+native_oracle_status = "not required for this checked construction boundary; PrsExp, CInit, and OptPass012 directly state instruction order, result class, and structural shape"
+
+[[feature]]
 id = "HC-IR-TOP-LEVEL-STATEMENT-STREAM"
 description = "Executable top-level statements retain a checked IR stream without fabricated named-function metadata."
 sources = [

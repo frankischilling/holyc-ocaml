@@ -2117,6 +2117,193 @@ let test_typed_unary_complement_identity_count_is_checked () =
       Alcotest.fail "missing identities returned Not_literal"
   | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
 
+let rec typed_leaf result =
+  match Semantic_result.result_operand result with
+  | Some operand -> typed_leaf operand
+  | None -> result
+
+let check_typed_dereference ~index ~expected_payload ~expected_kind result =
+  let instruction = 870 + index in
+  let value = 1070 + index in
+  let leaf = typed_leaf result in
+  let lowered =
+    lower_typed
+      ~unary_identities:[ identity (instruction + 1) (value + 1) ]
+      ~instruction ~value result
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ (literal : Sequence.description); dereference ] ->
+      Alcotest.(check bool)
+        "literal payload" true
+        (literal.payload = Some expected_payload);
+      Alcotest.(check bool)
+        "literal type comes from its semantic leaf" true
+        (literal.target_type = Semantic_result.result_type leaf);
+      Alcotest.(check bool)
+        "dereference opcode" true
+        (Opcode.equal Opcode.Ic_deref dereference.opcode);
+      Alcotest.(check bool)
+        "dereference type comes from its semantic result" true
+        (dereference.target_type = Semantic_result.result_type result);
+      Alcotest.(check bool)
+        "dereference operand" true
+        (dereference.operands = [ value_id value ]);
+      Alcotest.(check bool)
+        "dereference result" true
+        (dereference.result = Some { value_id = value_id (value + 1) });
+      Alcotest.(check bool)
+        "final result type" true
+        (Some (Literal.result_type lowered) = dereference.target_type);
+      let kind_line =
+        Literal.human lowered |> String.split_on_char '\n' |> fun lines ->
+        List.nth lines 1
+      in
+      Alcotest.(check bool)
+        "semantic literal kind" true
+        (String.starts_with ~prefix:("kind=" ^ expected_kind ^ " ") kind_line)
+  | _ -> Alcotest.fail "expected a literal and one dereference instruction"
+
+let check_typed_dereference_roots ~index roots =
+  let expected =
+    [
+      (Sequence.Integer (-1L), "integer");
+      (Sequence.Integer 0x434241L, "character");
+      (Sequence.Float_bits (Int64.bits_of_float 0.1), "f64");
+      (Sequence.Bytes "a\nB$", "string");
+    ]
+  in
+  Alcotest.(check int) "typed literal dereferences" 4 (List.length roots);
+  List.iteri
+    (fun offset (result, (expected_payload, expected_kind)) ->
+      check_typed_dereference ~index:(index + offset) ~expected_payload
+        ~expected_kind result)
+    (List.combine roots expected)
+
+let test_function_typed_dereference_emits_instructions () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-function-dereference.HC"
+      "extern I64 Target(I64 integer,I64 character,F64 floating,U8 byte);\n\
+       I64 Caller(){return \
+       Target(*((+0xFFFFFFFFFFFFFFFF)),*((+'ABC')),*((+0.1)),*((+\"a\\n\\x42\\d\")));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  Test_function_call_expression_result.root_results results "Caller"
+  |> check_typed_dereference_roots ~index:0
+
+let test_top_level_typed_dereference_in_both_modes () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        Test_top_level_expression_result.prepared ~mode
+          ~path:"ir-typed-top-level-dereference.HC"
+          "*((+0xFFFFFFFFFFFFFFFF));*((+'ABC'));*((+0.1));*((+\"a\\n\\x42\\d\"));"
+      in
+      let _, _, _, results =
+        Test_top_level_expression_result.analyze prepared
+      in
+      Test_top_level_expression_result.root_values results
+      |> check_typed_dereference_roots ~index:10)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let test_typed_string_dereference_keeps_each_checked_type () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-string-dereference-types.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(){return Target(~(*((+\"a\"))));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  let lowered =
+    lower_typed
+      ~unary_identities:[ identity 891 1091; identity 892 1092 ]
+      ~instruction:890 ~value:1090 result
+    |> require_lowered
+  in
+  let descriptions =
+    Literal.sequence lowered |> Sequence.instructions
+    |> List.map Sequence.description
+  in
+  match descriptions with
+  | [ literal; dereference; complement ] ->
+      Alcotest.(check bool)
+        "string literal is U8 pointer" true
+        (match literal.target_type with
+        | Some type_ -> (
+            match (Type.base type_, Type.pointer_depth type_) with
+            | Type.Primitive (Type.Internal_storage, Primitive.U8), 1 -> true
+            | _ -> false)
+        | None -> false);
+      Alcotest.(check bool)
+        "dereference is U8 value" true
+        (match dereference.target_type with
+        | Some type_ -> (
+            match (Type.base type_, Type.pointer_depth type_) with
+            | Type.Primitive (Type.Internal_storage, Primitive.U8), 0 -> true
+            | _ -> false)
+        | None -> false);
+      Alcotest.(check bool)
+        "complement is internal I64" true
+        (is_internal_i64 complement.target_type);
+      Alcotest.(check bool)
+        "opcode order" true
+        (Opcode.equal Opcode.Ic_deref dereference.opcode
+        && Opcode.equal Opcode.Ic_com complement.opcode)
+  | _ ->
+      Alcotest.fail
+        "expected a string literal, dereference, and bitwise complement"
+
+let test_typed_dereference_nonliteral_is_explicit () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-dereference-nonliteral.HC"
+      "extern I64 Target(I64 value);\n\
+       I64 Caller(I64 value){return Target(*((+value)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match
+    lower_typed
+      ~unary_identities:[ identity 901 1101 ]
+      ~instruction:900 ~value:1100 result
+  with
+  | Literal.Not_literal -> ()
+  | Literal.Lowered _ ->
+      Alcotest.fail "typed dereference nonliteral produced IR"
+
+let test_typed_dereference_identity_count_is_checked () =
+  let prepared =
+    Test_function_call_expression_result.prepare
+      ~path:"ir-typed-dereference-identities.HC"
+      "extern I64 Target(I64 value);\nI64 Caller(){return Target(*((+1)));}"
+  in
+  let _, results = Test_function_call_expression_result.analyze prepared in
+  let result =
+    Test_function_call_expression_result.root_results results "Caller"
+    |> List.hd
+  in
+  match typed_lowering_result ~instruction:902 ~value:1102 result with
+  | Error [ error ] ->
+      Alcotest.(check string) "identity diagnostic" "HCIRL0001" error.code
+  | Error errors ->
+      Alcotest.failf "expected one identity diagnostic, got %d"
+        (List.length errors)
+  | Ok Literal.Not_literal ->
+      Alcotest.fail "missing identities returned Not_literal"
+  | Ok (Literal.Lowered _) -> Alcotest.fail "missing identities produced IR"
+
 let test_typed_literal_keeps_generated_source_location () =
   Test_function_call_expression_result.with_included_source
     "#define VALUE 0xFFFFFFFFFFFFFFFF\n\
@@ -2263,6 +2450,16 @@ let tests =
       test_typed_unary_complement_nonliteral_is_explicit;
     Alcotest.test_case "typed bitwise-complement identity count" `Quick
       test_typed_unary_complement_identity_count_is_checked;
+    Alcotest.test_case "typed function dereference" `Quick
+      test_function_typed_dereference_emits_instructions;
+    Alcotest.test_case "typed top-level dereference" `Quick
+      test_top_level_typed_dereference_in_both_modes;
+    Alcotest.test_case "typed string dereference types" `Quick
+      test_typed_string_dereference_keeps_each_checked_type;
+    Alcotest.test_case "typed dereference nonliteral is explicit" `Quick
+      test_typed_dereference_nonliteral_is_explicit;
+    Alcotest.test_case "typed dereference identity count" `Quick
+      test_typed_dereference_identity_count_is_checked;
     Alcotest.test_case "typed generated literal provenance" `Quick
       test_typed_literal_keeps_generated_source_location;
     Alcotest.test_case "typed nonliteral is explicit" `Quick
