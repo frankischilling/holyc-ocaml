@@ -349,8 +349,9 @@ let defined_queries_use_complete_lookup_without_errors () =
     (fun mode ->
       let prepared =
         prepare ~mode ~path:"outer-defined-query.HC"
-          "I64 ModuleValue;I64 Read(I64 LocalValue){defined(LocalValue);\
-           defined(ModuleValue);defined(OuterValue);defined(Missing);return 0;}"
+          "I64 ModuleValue;I64 Read(I64 \
+           LocalValue){defined(LocalValue);defined(ModuleValue);defined(OuterValue);defined(Missing);return \
+           0;}"
       in
       let table_kind =
         match mode with
@@ -397,9 +398,7 @@ let defined_queries_use_complete_lookup_without_errors () =
         in
         (name, resolution)
       in
-      let outer_kind =
-        Semantic_outer_environment.table_kind_name table_kind
-      in
+      let outer_kind = Semantic_outer_environment.table_kind_name table_kind in
       Alcotest.(check (list (pair string string)))
         "defined keeps inner precedence and a proven miss"
         [
@@ -417,10 +416,11 @@ let defined_queries_use_complete_lookup_without_errors () =
              |> fun source ->
              List.exists (( == ) source)
                (prepared.expressions
-               |> Semantic_module_expression_binding.functions
+              |> Semantic_module_expression_binding.functions
                |> List.find (fun function_ ->
-                      function_ |> Semantic_module_expression_binding.function_symbol
-                      |> Semantic_symbol.name |> String.equal "Read")
+                   function_
+                   |> Semantic_module_expression_binding.function_symbol
+                   |> Semantic_symbol.name |> String.equal "Read")
                |> Semantic_module_expression_binding.function_queries))
            queries))
     [ Preprocessor.Jit; Preprocessor.Aot ]

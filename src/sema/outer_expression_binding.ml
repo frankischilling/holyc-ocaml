@@ -100,10 +100,19 @@ let occurrence_origin (occurrence : occurrence) =
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let query_source (query : query) = query.query_source_
-let query_index (query : query) = Module_expression_binding.query_index query.query_source_
-let query_role (query : query) = Module_expression_binding.query_role query.query_source_
-let query_name (query : query) = Module_expression_binding.query_name query.query_source_
-let query_origin (query : query) = Module_expression_binding.query_origin query.query_source_
+
+let query_index (query : query) =
+  Module_expression_binding.query_index query.query_source_
+
+let query_role (query : query) =
+  Module_expression_binding.query_role query.query_source_
+
+let query_name (query : query) =
+  Module_expression_binding.query_name query.query_source_
+
+let query_origin (query : query) =
+  Module_expression_binding.query_origin query.query_source_
+
 let query_resolution (query : query) = query.query_resolution_
 
 let resolve_occurrence environment source =
