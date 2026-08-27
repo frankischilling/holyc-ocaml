@@ -7469,9 +7469,52 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_function_call_resolution_tests = 4
 focused_top_level_expression_tree_tests = 2
-target_kind_member_lookup_layout_byte_count_immediate_lowering_and_execution = "not implemented"
+aggregate_member_array_and_function_size_evaluation = "not implemented; primitive evaluation and immediate lowering continue in HC-SEMA-PRIMITIVE-SIZEOF"
 ic_sizeof_note = "The separately registered zero-argument IC_SIZEOF operation is a pointer-adjustment opcode; ordinary keyword evaluation in PrsSizeOf ends as IC_IMM_I64."
 native_oracle_status = "not required for this retention boundary; PrsSizeOf and the KW_SIZEOF branch directly state the consumed source and final lookup inputs"
+
+[[feature]]
+id = "HC-SEMA-PRIMITIVE-SIZEOF"
+description = "Unbound public primitive sizeof roots retain their checked byte value and lower to the immediate emitted by PrsSizeOf."
+sources = [
+  "Compiler/PrsExp.HC:303-351 PrsSizeOf primitive size, pointer override, and IC_IMM_I64 result",
+  "Compiler/PrsExp.HC:909-924 KW_SIZEOF entry and wrapper handling",
+  "Compiler/CInit.HC:1-13 internal primitive names and byte sizes",
+  "Kernel/KernelA.HH:1573 RT_PTR alias to RT_I64",
+  "Compiler/CInit.HC:33 IC_SIZEOF registration",
+  "Compiler/CInit.HC:27 IC_IMM_I64 registration"
+]
+implementation = [
+  "src/sema/primitive_type.ml",
+  "src/sema/primitive_type.mli",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_primitive_type.ml",
+  "test/test_function_call_resolution.ml",
+  "test/test_top_level_expression_tree.ml",
+  "test/test_ir_expression_lowering.ml"
+]
+status = "implemented"
+issue = 484
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "public primitive and primitive-pointer sizeof leaves in checked function-body and executable top-level expressions"
+primitive_values = ["I0=0", "I8=1", "I16=2", "I32=4", "I64=8", "U0=0", "U8=1", "U16=2", "U32=4", "U64=8", "F64=8", "Bool=1"]
+pointer_rule = "one or more pointer layers select the eight-byte RT_PTR storage derived from the pinned RT_I64 alias"
+lookup_rule = "a function-local, source-visible module, or supplied outer binding wins; only an unbound public primitive spelling uses the compiler registry"
+retained_evidence = ["primitive identity", "checked int64 byte value", "pointer-size selection", "complete source and query evidence"]
+result = "one internal-I64 IC_IMM_I64 with no operands, the checked byte payload, the complete expression span, and any parent-requested ICF_RES_TO_F64 flag"
+unsupported_without_partial_ir = ["source bindings with primitive spellings", "aggregate and union targets", "member paths", "array extents", "function debug ranges", "unknown roots"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_primitive_type_tests = 1
+focused_function_call_resolution_tests = 1
+focused_top_level_expression_tree_tests = 1
+focused_expression_lowering_tests = 4
+aggregate_member_array_function_interpretation_optimization_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated constant boundary; PrsSizeOf, the primitive table, and RT_PTR alias directly define every claimed payload"
 
 [[feature]]
 id = "HC-IR-INTEGER-BINARY-LOWERING"
