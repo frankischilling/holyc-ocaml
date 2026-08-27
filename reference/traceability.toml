@@ -7606,6 +7606,42 @@ x87_numerical_behavior_immediate_rewrite_optimization_interpretation_and_executi
 native_oracle_status = "not required for structural conversion intent; optimizer and floating numerical compatibility remain separate oracle work"
 
 [[feature]]
+id = "HC-IR-POSTFIX-CAST-LOWERING"
+description = "Checked primitive postfix casts lower after their exact operand with source-grounded target, span, and parenthesis metadata."
+sources = [
+  "Compiler/CompilerA.HH:53 IC_HOLYC_TYPECAST identity",
+  "Compiler/CInit.HC:48 one-argument, one-result metadata",
+  "Compiler/PrsExp.HC:1017-1055 target-class replacement and was_paren payload",
+  "Compiler/OptPass012.HC:87-110 immediate folding, retained-cast handling, and class transfer",
+  "Compiler/OptPass4.HC:571 retained cast classification",
+  "Compiler/OptPass789A.HC:445 machine-facing cast consumer"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 462
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "primitive zero-depth integer and F64 postfix casts inside accepted numeric function-body and executable top-level trees"
+traversal = "validate the exact semantic operand edge, visit that operand, then emit IC_HOLYC_TYPECAST before any containing parent"
+target_rule = "the cast result and instruction target use the checked public primitive target resolved from the source type reference"
+payload_rule = "the integer payload is one only when the immediate source operand is an ordinary parenthesized expression, and zero for every other accepted operand shape"
+nested_rule = "each source cast remains a separate instruction whose operand is the immediately inner cast result"
+source_map = "the instruction retains the full cast span from the operand start through the target close"
+conversion_rule = "a cast that supplies an integer operand to accepted mixed F64 arithmetic carries ICF_RES_TO_F64 on the cast producer"
+identity = "operand-first postorder uses the module-owned consecutive instruction and value allocator"
+diagnostics = ["HCIRL0004 missing or inconsistent cast type, operand, or source metadata", "HCIRL0005 instruction or value identity exhaustion"]
+unsupported_result = "a checked cast operand outside the accepted numeric tree shapes returns Unsupported_expression before a sequence is exposed"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 6
+expression_lowering_group_tests = 29
+cast_conversion_folding_optimizer_removal_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for structural cast lowering; optimizer, numerical conversion, and backend behavior remain separate oracle work"
+
+[[feature]]
 id = "HC-SEMA-POSTFIX-CAST-OPERAND"
 description = "Each checked postfix-cast result retains the exact immediate operand produced by the same semantic traversal."
 sources = [
