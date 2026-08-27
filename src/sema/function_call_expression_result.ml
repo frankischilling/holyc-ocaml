@@ -44,6 +44,7 @@ type expression_result = {
   source : Function_call_resolution.argument_expression;
   origin : Symbol.origin;
   operand_result : expression_result option;
+  binary_operands : (expression_result * expression_result) option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
@@ -654,6 +655,7 @@ let result_id (result : expression_result) = result.id
 let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
 let result_operand (result : expression_result) = result.operand_result
+let result_binary_operands (result : expression_result) = result.binary_operands
 let result_type (result : expression_result) = result.source_type
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
@@ -800,8 +802,8 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?operand_result ?(array_rank = 0) ?execution_class
-    ?member_lookup ?aggregate_offset_path ?outer_occurrence
+let make_result ?operand_result ?binary_operands ?(array_rank = 0)
+    ?execution_class ?member_lookup ?aggregate_offset_path ?outer_occurrence
     ?top_level_outer_occurrence ?outer_binding ?call_resolution
     ?function_declaration ?function_address_path
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
@@ -812,6 +814,7 @@ let make_result ?operand_result ?(array_rank = 0) ?execution_class
       source;
       origin = Function_call_resolution.argument_expression_origin source;
       operand_result;
+      binary_operands;
       source_type;
       category;
       result_class;
@@ -2013,10 +2016,11 @@ and type_assignment table members policies ~before_item_index
               in
               match set_intrinsic_conversion state right right_conversion with
               | Error _ as error -> error
-              | Ok (_, state) ->
+              | Ok (right, state) ->
                   Ok
-                    (make_result ~execution_class ~intrinsic_conversion state
-                       ~id ~source ~source_type:(Some destination_type)
+                    (make_result ~binary_operands:(left, right) ~execution_class
+                       ~intrinsic_conversion state ~id ~source
+                       ~source_type:(Some destination_type)
                        ~category:Object_value ~result_class:destination_class)))
       | Unavailable, _, _ ->
           invalid_destination "assignment destination is unavailable"
@@ -2107,8 +2111,9 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
                 | _ -> (Unresolved_actual_class, None)
               in
               Ok
-                (make_result ~intrinsic_conversion state ~id ~source
-                   ~source_type ~category:Object_value ~result_class)))
+                (make_result ~binary_operands:(left, right)
+                   ~intrinsic_conversion state ~id ~source ~source_type
+                   ~category:Object_value ~result_class)))
 
 and type_outer_callback_call table members policies ~before_item_index
     ~intrinsic_conversion state id source resolution call occurrence binding =
