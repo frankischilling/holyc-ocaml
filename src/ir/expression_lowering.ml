@@ -494,6 +494,100 @@ let accepted_prefix = function
   | Semantic_source.Pre_increment
   | Semantic_source.Pre_decrement -> None
 
+let same_offset_publication actual expected =
+  match (actual, expected) with
+  | None, None -> true
+  | Some actual, Some expected -> actual == expected
+  | None, Some _ | Some _, None -> false
+
+let same_offset_member_source actual expected =
+  Semantic_source.offset_member_dot_origin actual
+  = Semantic_source.offset_member_dot_origin expected
+  && String.equal
+       (Semantic_source.offset_member_name actual)
+       (Semantic_source.offset_member_name expected)
+  && Semantic_source.offset_member_name_origin actual
+     = Semantic_source.offset_member_name_origin expected
+  && Semantic_source.offset_member_origin actual
+     = Semantic_source.offset_member_origin expected
+  &&
+  match Semantic_source.offset_member_lookup expected with
+  | None -> Option.is_some (Semantic_source.offset_member_lookup actual)
+  | Some expected_lookup -> (
+      match Semantic_source.offset_member_lookup actual with
+      | Some actual_lookup -> actual_lookup == expected_lookup
+      | None -> false)
+
+let same_offset_source actual expected =
+  String.equal
+    (Semantic_source.offset_keyword_spelling actual)
+    (Semantic_source.offset_keyword_spelling expected)
+  && Semantic_source.offset_keyword_origin actual
+     = Semantic_source.offset_keyword_origin expected
+  && Semantic_source.offset_opening_origins actual
+     = Semantic_source.offset_opening_origins expected
+  && String.equal
+       (Semantic_source.offset_target_spelling actual)
+       (Semantic_source.offset_target_spelling expected)
+  && Semantic_source.offset_target_origin actual
+     = Semantic_source.offset_target_origin expected
+  && same_offset_publication
+       (Semantic_source.offset_publication actual)
+       (Semantic_source.offset_publication expected)
+  && List.compare_lengths
+       (Semantic_source.offset_members actual)
+       (Semantic_source.offset_members expected)
+     = 0
+  && List.for_all2 same_offset_member_source
+       (Semantic_source.offset_members actual)
+       (Semantic_source.offset_members expected)
+  && Semantic_source.offset_closing_origins actual
+     = Semantic_source.offset_closing_origins expected
+
+let same_source_expression actual expected =
+  actual == expected
+  || Semantic_source.argument_expression_origin actual
+     = Semantic_source.argument_expression_origin expected
+     &&
+     match
+       ( Semantic_source.argument_expression_kind actual,
+         Semantic_source.argument_expression_kind expected )
+     with
+     | ( Semantic_source.Standalone_offset_expression actual,
+         Semantic_source.Standalone_offset_expression expected ) ->
+         same_offset_source actual expected
+     | _ -> false
+
+let checked_standalone_offset result source =
+  let invalid () =
+    Error
+      (metadata_error ?span:(result_span result)
+         "aggregate offset expression does not retain checked standalone \
+          source evidence")
+  in
+  match Semantic_result.result_aggregate_offset_path result with
+  | None -> checked_aggregate_offset result
+  | Some path -> (
+      match Semantic_source.offset_publication source with
+      | Some publication
+        when publication == Semantic_result.aggregate_offset_base path ->
+          let members = Semantic_source.offset_members source in
+          let segments = Semantic_result.aggregate_offset_segments path in
+          if
+            List.compare_lengths members segments = 0
+            && List.for_all2
+                 (fun member segment ->
+                   match Semantic_source.offset_member_lookup member with
+                   | Some lookup ->
+                       lookup
+                       == Semantic_result.aggregate_offset_segment_lookup
+                            segment
+                   | None -> false)
+                 members segments
+          then checked_aggregate_offset result
+          else invalid ()
+      | None | Some _ -> invalid ())
+
 let checked_operand result expected_source description =
   match Semantic_result.result_operand result with
   | None ->
@@ -502,8 +596,11 @@ let checked_operand result expected_source description =
            (Printf.sprintf
               "typed semantic %s does not retain its checked operand"
               description))
-  | Some operand when Semantic_result.result_source operand != expected_source
-    ->
+  | Some operand
+    when not
+           (same_source_expression
+              (Semantic_result.result_source operand)
+              expected_source) ->
       Error
         (metadata_error ?span:(result_span result)
            (Printf.sprintf
@@ -519,10 +616,14 @@ let checked_binary_operands result binary =
            "typed semantic binary expression does not retain its checked \
             children")
   | Some (left, right)
-    when Semantic_result.result_source left
-         != Semantic_source.binary_left binary
-         || Semantic_result.result_source right
-            != Semantic_source.binary_right binary ->
+    when (not
+            (same_source_expression
+               (Semantic_result.result_source left)
+               (Semantic_source.binary_left binary)))
+         || not
+              (same_source_expression
+                 (Semantic_result.result_source right)
+                 (Semantic_source.binary_right binary)) ->
       Error
         (metadata_error ?span:(result_span result)
            "typed semantic binary children do not match their source \
@@ -916,6 +1017,15 @@ let plan root =
                       Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
+            | Semantic_source.Standalone_offset_expression source -> (
+                match checked_standalone_offset result source with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
+                      :: !reversed)
             | Semantic_source.Parenthesized_expression source -> (
                 match
                   checked_operand result source "parenthesized expression"
@@ -1112,7 +1222,6 @@ let plan root =
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
-            | Semantic_source.Standalone_offset_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Offset_expression
