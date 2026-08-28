@@ -1,0 +1,257 @@
+open Holyc_lib
+module Lowering = Ir_direct_call_lowering
+module Sequence = Ir_instruction_sequence
+module Span = Span
+module Target = Semantic_function_call_target_classification
+
+let checked = function
+  | Ok value -> value
+  | Error (error : Sequence.error) ->
+      Alcotest.fail (error.code ^ ": " ^ error.message)
+
+let instruction_id value = Sequence.Instruction_id.of_int value |> checked
+let value_id value = Sequence.Value_id.of_int value |> checked
+
+let prepared mode source =
+  Test_function_call_target_classification.prepare ~mode
+    ~path:"ir-direct-call.HC" source
+
+let analyze prepared = Test_function_call_target_classification.analyze prepared
+
+let function_named results name =
+  results |> Semantic_function_call_expression_result.functions
+  |> List.find (fun function_ ->
+      function_ |> Semantic_function_call_expression_result.function_symbol
+      |> Semantic_symbol.name |> String.equal name)
+
+let return_root results owner =
+  let return_ =
+    function_named results owner
+    |> Semantic_function_call_expression_result.function_returns |> List.hd
+  in
+  match Semantic_function_call_expression_result.return_value return_ with
+  | Some result -> result
+  | None -> Alcotest.fail "expected a valued return"
+
+let direct_call results owner =
+  Test_function_call_target_classification.direct_calls results owner |> List.hd
+
+let canonical_symbol call =
+  call |> Semantic_function_call_expression_result.direct_source
+  |> Semantic_function_call_conversion_policy.direct_source
+  |> Semantic_function_call_resolution.direct_target_symbol
+
+let target records call =
+  match Target.classify ~records call with
+  | Ok target -> target
+  | Error error -> error |> Target.error_to_string |> Alcotest.fail
+
+let lower ?(instruction = 0) ?(value = 0) records results owner =
+  let target = target records (direct_call results owner) in
+  Lowering.lower
+    ~instruction_id:(instruction_id instruction)
+    ~value_id:(value_id value) ~target
+    (return_root results owner)
+
+let lowered = function
+  | Ok (Lowering.Lowered lowered) -> lowered
+  | Ok Lowering.Unsupported_call -> Alcotest.fail "expected a lowered call"
+  | Error errors ->
+      errors
+      |> List.map (fun error -> error.Sequence.message)
+      |> String.concat ", " |> Alcotest.fail
+
+let descriptions lowered =
+  lowered |> Lowering.sequence |> Sequence.instructions
+  |> List.map Sequence.description
+
+let opcode_names descriptions =
+  descriptions
+  |> List.map (fun description ->
+      description.Sequence.opcode |> Ir_opcode.to_source_name)
+
+let direct_calls_emit_complete_sequences () =
+  List.iter
+    (fun (mode, return_type) ->
+      let source =
+        Printf.sprintf "%s Callee(){return 7;}%s Caller(){return Callee();}"
+          return_type return_type
+      in
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let expected_symbol_id =
+        direct_call results "Caller"
+        |> canonical_symbol |> Semantic_symbol.id |> Semantic_symbol.Id.to_int
+      in
+      let lowered =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "complete direct-call sequence"
+        [ "IC_CALL_START"; "IC_CALL"; "IC_ADD_RSP"; "IC_CALL_END" ]
+        (opcode_names items);
+      Alcotest.(check (list int))
+        "instruction identities are consecutive" [ 10; 11; 12; 13 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check int)
+        "the call result uses the caller identity" 20
+        (Lowering.result_value lowered |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "identity cursors advance by four and one" (14, 21)
+        ( Lowering.next_instruction_id lowered |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id lowered |> Sequence.Value_id.to_int );
+      Alcotest.(check string)
+        "the checked result type is retained" ("public:" ^ return_type)
+        (Lowering.result_type lowered |> Sequence.type_name);
+      let call_span =
+        return_root results "Caller"
+        |> Semantic_function_call_expression_result.result_origin
+        |> function
+        | Semantic_symbol.Source_location location -> location.span
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected a call span"
+      in
+      Alcotest.(check (list (option (pair int int))))
+        "every instruction keeps the complete call span"
+        (List.init 4 (fun _ -> Some (call_span.start, call_span.stop)))
+        (List.map
+           (fun item ->
+             Option.map
+               (fun (span : Span.t) -> (span.start, span.stop))
+               item.Sequence.span)
+           items);
+      let symbol_ids =
+        items
+        |> List.filter_map (fun item ->
+            match item.Sequence.payload with
+            | Some (Sequence.Symbol symbol) ->
+                Some (Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int)
+            | Some (Sequence.Integer _) -> None
+            | Some
+                ( Sequence.Float_bits _
+                | Sequence.Bytes _
+                | Sequence.Block _
+                | Sequence.Block_targets _ )
+            | None -> Alcotest.fail "unexpected call payload")
+      in
+      Alcotest.(check bool)
+        "start, call, and end carry the canonical symbol" true
+        (match symbol_ids with
+        | [ first; second; third ] ->
+            first = expected_symbol_id
+            && second = expected_symbol_id
+            && third = expected_symbol_id
+        | _ -> false);
+      Alcotest.(check (option int64))
+        "cleanup carries a zero-byte immediate" (Some 0L)
+        (match (List.nth items 2).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None))
+    [ (Preprocessor.Jit, "I64"); (Preprocessor.Aot, "F64") ]
+
+let cleanup_opcode_follows_checked_flags () =
+  [ ("argpop", "IC_ADD_RSP1"); ("argpop noargpop", "IC_ADD_RSP") ]
+  |> List.iter (fun (modifiers, expected) ->
+      let source =
+        Printf.sprintf
+          "%s I64 Callee(){return 1;}I64 Caller(){return Callee();}" modifiers
+      in
+      let prepared = prepared Preprocessor.Jit source in
+      let results, records = analyze prepared in
+      let items = lower records results "Caller" |> lowered |> descriptions in
+      Alcotest.(check string)
+        "cleanup uses the checked caller/callee predicate" expected
+        ((List.nth items 2).Sequence.opcode |> Ir_opcode.to_source_name))
+
+let deterministic_dump () =
+  let prepared =
+    prepared Preprocessor.Jit
+      "I64 Callee(){return 1;}I64 Caller(){return Callee();}"
+  in
+  let results, records = analyze prepared in
+  let first =
+    lower ~instruction:3 ~value:5 records results "Caller" |> lowered
+  in
+  let second =
+    lower ~instruction:3 ~value:5 records results "Caller" |> lowered
+  in
+  Alcotest.(check string)
+    "direct-call dumps replay exactly" (Lowering.human first)
+    (Lowering.human second)
+
+let unsupported_call_boundaries () =
+  let expect_unsupported mode source =
+    let prepared = prepared mode source in
+    let results, records = analyze prepared in
+    match lower records results "Caller" with
+    | Ok Lowering.Unsupported_call -> ()
+    | Ok (Lowering.Lowered _) -> Alcotest.fail "expected an unsupported call"
+    | Error errors ->
+        errors
+        |> List.map (fun error -> error.Sequence.message)
+        |> String.concat ", " |> Alcotest.fail
+  in
+  expect_unsupported Preprocessor.Jit
+    "extern I64 Callee();I64 Caller(){return Callee();}";
+  expect_unsupported Preprocessor.Aot
+    "extern I64 Callee();I64 Caller(){return Callee();}";
+  expect_unsupported Preprocessor.Aot
+    "import I64 Callee();I64 Caller(){return Callee();}";
+  expect_unsupported Preprocessor.Jit
+    "_intern 42 I64 Callee();I64 Caller(){return Callee();}";
+  expect_unsupported Preprocessor.Jit
+    "I64 Callee(I64 value){return value;}I64 Caller(){return Callee(1);}";
+  expect_unsupported Preprocessor.Jit
+    "I64 Callee(...){return 1;}I64 Caller(){return Callee();}"
+
+let inconsistent_and_exhausted_inputs_fail_without_ir () =
+  let prepared =
+    prepared Preprocessor.Jit
+      "I64 First(){return 1;}I64 Second(){return 2;}\n\
+       I64 Caller(){First();return Second();}"
+  in
+  let results, records = analyze prepared in
+  let calls =
+    Test_function_call_target_classification.direct_calls results "Caller"
+  in
+  let wrong_target = target records (List.hd calls) in
+  (match
+     Lowering.lower ~instruction_id:(instruction_id 0) ~value_id:(value_id 0)
+       ~target:wrong_target
+       (return_root results "Caller")
+   with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "inconsistent evidence code" "HCIRL0004" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one metadata error"
+  | Ok _ -> Alcotest.fail "expected inconsistent evidence to fail");
+  let right_target = target records (List.nth calls 1) in
+  match
+    Lowering.lower
+      ~instruction_id:(instruction_id Int.max_int)
+      ~value_id:(value_id 0) ~target:right_target
+      (return_root results "Caller")
+  with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "instruction exhaustion code" "HCIRL0005" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one exhaustion error"
+  | Ok _ -> Alcotest.fail "expected identity exhaustion to fail"
+
+let tests =
+  [
+    Alcotest.test_case "complete direct-call sequences" `Quick
+      direct_calls_emit_complete_sequences;
+    Alcotest.test_case "checked cleanup opcode" `Quick
+      cleanup_opcode_follows_checked_flags;
+    Alcotest.test_case "deterministic direct-call dump" `Quick
+      deterministic_dump;
+    Alcotest.test_case "unsupported direct-call boundaries" `Quick
+      unsupported_call_boundaries;
+    Alcotest.test_case "inconsistent and exhausted inputs" `Quick
+      inconsistent_and_exhausted_inputs_fail_without_ir;
+  ]

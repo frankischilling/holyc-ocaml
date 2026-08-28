@@ -30,6 +30,7 @@ module Ir_condition_lowering = Ir.Condition_lowering
 module Ir_return_lowering = Ir.Return_lowering
 module Ir_goto_label_lowering = Ir.Goto_label_lowering
 module Ir_break_lowering = Ir.Break_lowering
+module Ir_direct_call_lowering = Ir.Direct_call_lowering
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
