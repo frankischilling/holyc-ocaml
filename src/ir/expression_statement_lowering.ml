@@ -1,5 +1,6 @@
 module Sequence = Instruction_sequence
 module Expression = Expression_lowering
+module Direct_call = Direct_call_lowering
 module Semantic_result = Sema.Function_call_expression_result
 module Semantic_source = Sema.Function_call_resolution
 module Top_level_source = Sema.Top_level_expression_tree
@@ -42,12 +43,11 @@ let next_instruction_id ~span instruction_id =
 let descriptions sequence =
   sequence |> Sequence.instructions |> List.map Sequence.description
 
-let append_terminator ~span expression =
-  let terminator_id_ = Expression.next_instruction_id expression in
+let append_terminator ~span ~sequence ~expression_value_ ~expression_type_
+    ~terminator_id_ ~next_value_id_ =
   match next_instruction_id ~span terminator_id_ with
   | Error item -> Error [ item ]
   | Ok next_instruction_id_ -> (
-      let expression_value_ = Expression.result_value expression in
       let terminator : Sequence.description =
         {
           instruction_id = terminator_id_;
@@ -60,9 +60,7 @@ let append_terminator ~span expression =
           span = Some span;
         }
       in
-      let items =
-        descriptions (Expression.sequence expression) @ [ terminator ]
-      in
+      let items = descriptions sequence @ [ terminator ] in
       match Sequence.create items with
       | Error errors -> Error errors
       | Ok sequence_ ->
@@ -71,32 +69,25 @@ let append_terminator ~span expression =
                {
                  sequence_;
                  expression_value_;
-                 expression_type_ = Expression.result_type expression;
+                 expression_type_;
                  terminator_id_;
                  next_instruction_id_;
-                 next_value_id_ = Expression.next_value_id expression;
+                 next_value_id_;
                }))
 
 let lower ~instruction_id ~value_id ~span value =
   match Expression.lower_typed_result ~instruction_id ~value_id value with
   | Error errors -> Error errors
   | Ok Expression.Unsupported_expression -> Ok Unsupported_expression
-  | Ok (Expression.Lowered expression) -> append_terminator ~span expression
+  | Ok (Expression.Lowered expression) ->
+      append_terminator ~span
+        ~sequence:(Expression.sequence expression)
+        ~expression_value_:(Expression.result_value expression)
+        ~expression_type_:(Expression.result_type expression)
+        ~terminator_id_:(Expression.next_instruction_id expression)
+        ~next_value_id_:(Expression.next_value_id expression)
 
-let lower_function_statement ~instruction_id ~value_id statement =
-  let source = Semantic_result.expression_statement_source statement in
-  match
-    span_of_origin "function expression statement"
-      (Semantic_source.expression_statement_origin source)
-  with
-  | Error item -> Error [ item ]
-  | Ok span -> (
-      match Semantic_result.expression_statement_result_use statement with
-      | Semantic_result.Result_not_used ->
-          lower ~instruction_id ~value_id ~span
-            (Semantic_result.expression_statement_value statement))
-
-let lower_top_level_statement ~instruction_id ~value_id root =
+let top_level_expression_statement root =
   let source = Semantic_result.top_level_root_source root in
   let span =
     span_of_origin "top-level expression statement"
@@ -109,9 +100,7 @@ let lower_top_level_statement ~instruction_id ~value_id root =
   with
   | ( Top_level_source.Expression_statement _,
       Some Semantic_result.Result_not_used,
-      Ok span ) ->
-      lower ~instruction_id ~value_id ~span
-        (Semantic_result.top_level_root_value root)
+      Ok span ) -> Ok (span, Semantic_result.top_level_root_value root)
   | _, _, Error item -> Error [ item ]
   | Top_level_source.Expression_statement _, None, Ok span ->
       Error
@@ -134,6 +123,42 @@ let lower_top_level_statement ~instruction_id ~value_id root =
           metadata_error ~span
             "top-level root is not an unused expression statement";
         ]
+
+let lower_function_statement ~instruction_id ~value_id statement =
+  let source = Semantic_result.expression_statement_source statement in
+  match
+    span_of_origin "function expression statement"
+      (Semantic_source.expression_statement_origin source)
+  with
+  | Error item -> Error [ item ]
+  | Ok span -> (
+      match Semantic_result.expression_statement_result_use statement with
+      | Semantic_result.Result_not_used ->
+          lower ~instruction_id ~value_id ~span
+            (Semantic_result.expression_statement_value statement))
+
+let lower_top_level_statement ~instruction_id ~value_id root =
+  match top_level_expression_statement root with
+  | Error _ as error -> error
+  | Ok (span, value) -> lower ~instruction_id ~value_id ~span value
+
+let lower_top_level_direct_call_statement ~instruction_id ~value_id ~target root
+    =
+  match top_level_expression_statement root with
+  | Error _ as error -> error
+  | Ok (span, value) -> (
+      match
+        Direct_call.lower_top_level ~instruction_id ~value_id ~target value
+      with
+      | Error _ as error -> error
+      | Ok Direct_call.Unsupported_call -> Ok Unsupported_expression
+      | Ok (Direct_call.Lowered call) ->
+          append_terminator ~span
+            ~sequence:(Direct_call.sequence call)
+            ~expression_value_:(Direct_call.result_value call)
+            ~expression_type_:(Direct_call.result_type call)
+            ~terminator_id_:(Direct_call.next_instruction_id call)
+            ~next_value_id_:(Direct_call.next_value_id call))
 
 let sequence lowered = lowered.sequence_
 let expression_value lowered = lowered.expression_value_
