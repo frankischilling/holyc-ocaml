@@ -464,6 +464,8 @@ No semantic pass resolves named aggregate casts outside the documented function-
 
 `Compiler/PrsExp.HC:383-430` resolves a call through one `CHashFun`, and lines 544-586 read that same record while constructing the call sequence. `Sema.Function_call_resolution` now retains the exact resolved declaration already checked against the source-visible module publication, together with the active header and canonical identity. Replacement headers therefore remain distinguishable across source order in both JIT and AOT mode. `Sema.Function_call_expression_result` exposes the same declaration as the stable join key for `Sema.Function_record_classification`; no name-based linkage reconstruction or call emission occurs at this boundary.
 
+Issue #528 consumes the exact direct-call declaration retained at `Compiler/PrsExp.HC:383-430` and joins it to the declaration snapshot whose flags select the branches at lines 555-571. `Sema.Function_call_target_classification` retains the typed call, resolved and classified declarations, classified record, and total access policy. Replacement headers stay source ordered in JIT and AOT mode; a foreign resolution receives `HCSEMA0067` rather than a name-based fallback. Internal-opcode decoding, argument and cleanup policy, address selection, and IC construction remain later work.
+
 ## Compiler option state
 
 `Kernel/KernelA.HH` assigns 12 compiler-option bit indices. They are not pre-shifted masks. Bits 0 and 1 control echo and trace behavior, bits 16 through 19 control warnings, and bits 32 through 37 affect linkage, symbol retention, allocation, optimization, and code emission. The ranges 2 through 15 and 20 through 31 are unused in the pinned definitions.

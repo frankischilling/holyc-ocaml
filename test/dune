@@ -56,6 +56,7 @@
   test_externs_to_imports
   test_globals_on_data_heap
   test_function_record_classification
+  test_function_call_target_classification
   test_global_resolution
   test_global_record_classification
   test_diagnostic
