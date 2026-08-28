@@ -7558,6 +7558,41 @@ leave_block_placement_try_unwinding_warning_policy_epilogue_optimization_interpr
 native_oracle_status = "not required for structural return lowering; the pinned statement parser, optimizer conversion rule, and opcode table state the instruction order and shapes"
 
 [[feature]]
+id = "HC-IR-FUNCTION-GOTO-LABEL-FRAGMENTS"
+description = "Resolved function-local language labels and gotos lower to stable checked block fragments."
+sources = [
+  "Compiler/PrsStmt.HC:1121-1131 goto lookup, use count, and IC_JMP construction",
+  "Compiler/PrsStmt.HC:1182-1199 language label definition and IC_LABEL construction",
+  "Compiler/PrsLib.HC:79-97 source metadata and intermediate-code insertion order",
+  "Compiler/CInit.HC:98 IC_JMP zero-argument, no-result metadata",
+  "Compiler/CInit.HC:21 IC_LABEL zero-argument, no-result metadata"
+]
+implementation = [
+  "src/ir/goto_label_lowering.ml",
+  "src/ir/goto_label_lowering.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+semantic_input = [
+  "src/sema/label_resolution.ml",
+  "src/sema/label_resolution.mli"
+]
+tests = ["test/test_ir_goto_label_lowering.ml"]
+status = "implemented"
+issue = 514
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "uniquely defined function-local language labels and their resolved goto references"
+block_assignment = "labels receive consecutive caller-seeded block identities in first-occurrence order"
+instruction_shape = "definitions emit IC_LABEL and references emit IC_JMP with the exact assigned block payload, zero flags, and complete occurrence span"
+identity = "each occurrence consumes one instruction identity; each label consumes one block identity"
+diagnostics = ["HCIRL0004 incomplete source metadata", "HCIRL0005 instruction or block identity exhaustion", "HCIRL0006 unsupported assembly label form or inconsistent label assignment"]
+compilation_modes = ["jit", "aot"]
+focused_tests = 4
+assembly_forms_repeated_definitions_block_partitioning_break_binding_graph_construction_optimization_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for structural goto and label lowering; the pinned statement parser and opcode table state the instruction order and shapes"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-AGGREGATE-OFFSET-PATHS"
 description = "Source-visible aggregate records produce checked PrsOffsetOf-shaped integer paths in function-body expressions."
 sources = [
