@@ -1,8 +1,10 @@
 module Sequence = Instruction_sequence
 module Breaks = Sema.Break_resolution
 module Symbol = Sema.Symbol
+module Region_id = Breaks.Region_id
+module Block_id = Sequence.Block_id
 
-type region_block = Breaks.Region_id.t * Sequence.Block_id.t
+type region_block = Region_id.t * Block_id.t
 
 type t = {
   sequence_ : Sequence.t;
@@ -75,7 +77,8 @@ let block_for_target index target =
   | Some block -> Ok block
   | None ->
       let target = region_number target in
-      let message = Printf.sprintf "break region %d has no assigned block" target in
+      let name = string_of_int target in
+      let message = "break region " ^ name ^ " has no assigned block" in
       Error (unsupported_error message)
 
 let lower_break index instruction_id occurrence =

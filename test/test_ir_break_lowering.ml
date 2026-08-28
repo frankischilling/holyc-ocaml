@@ -7,6 +7,7 @@ module Symbol_table = Holyc_lib.Semantic_symbol_table
 module Preprocessor = Holyc_lib.Preprocessor
 module Session = Holyc_lib.Session
 module Driver = Holyc_lib
+module Block_id = Sequence.Block_id
 
 let rec remove_tree path =
   match (Unix.lstat path).st_kind with
@@ -34,9 +35,8 @@ let require_ok show = function
   | Ok value -> value
   | Error error -> Alcotest.fail (show error)
 
-let show_error (error : Sequence.error) =
-  let separator = ": " in
-  error.code ^ separator ^ error.message
+let format_error code message = code ^ ": " ^ message
+let show_error error = format_error error.Sequence.code error.message
 let show_errors errors = String.concat "; " (List.map show_error errors)
 
 let expect_ast = function
@@ -76,14 +76,12 @@ let resolve_function ?working_directory ~mode ~path source name =
     let symbol = Breaks.function_symbol function_ in
     String.equal (Symbol.name symbol) name
   in
-  Breaks.functions resolution
-  |> List.find has_name
+  List.find has_name (Breaks.functions resolution)
 
 let instruction_id value =
   Sequence.Instruction_id.of_int value |> require_ok show_error
 
-let block_id value =
-  Sequence.Block_id.of_int value |> require_ok show_error
+let block_id value = Block_id.of_int value |> require_ok show_error
 
 let lower ?(instruction = 40) ?(block = 30) function_ =
   let instruction_id = instruction_id instruction in
@@ -142,13 +140,14 @@ let nested_break_jumps () =
         "jumps keep exact break spans" true
         (List.map (fun item -> item.Sequence.span) items
         = List.map origin_span occurrences);
+      let clear_flags = List.init 8 (Fun.const 0L) in
+      let flags = List.map (fun item -> item.Sequence.flags) items in
       Alcotest.(check (list int64))
-        "break jump flags are clear" (List.init 8 (Fun.const 0L))
-        (List.map (fun item -> item.Sequence.flags) items);
+        "break jump flags are clear" clear_flags flags;
+      let next_instruction = Lowering.next_instruction_id lowered in
       Alcotest.(check int)
         "instruction identities advance through breaks" 48
-        (Lowering.next_instruction_id lowered
-        |> Sequence.Instruction_id.to_int);
+        (Sequence.Instruction_id.to_int next_instruction);
       Alcotest.(check int)
         "block identities advance through regions" 37
         (Lowering.next_block_id lowered |> block_number))
