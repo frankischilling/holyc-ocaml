@@ -20,6 +20,8 @@ type call_shape =
   | Provided_parameters of {
       arguments : Result.expression_result list;
       variadic_count_type : Sema.Type.t option;
+      variadic_count : int64;
+      variadic_arguments : Result.expression_result list;
     }
   | Unsupported_shape
   | Inconsistent_shape of string
@@ -109,12 +111,17 @@ let call_shape target =
     Inconsistent_shape "direct-call variadic count and typed results disagree"
   else if Option.is_none variadic_count_type && variadic_results <> [] then
     Inconsistent_shape "nonvariadic direct call retains typed variadic results"
-  else if variadic_results <> [] then Unsupported_shape
   else
     let rec provided rev fixed_arguments fixed_results parameters =
       match (fixed_arguments, fixed_results, parameters) with
       | [], [], [] ->
-          Provided_parameters { arguments = List.rev rev; variadic_count_type }
+          Provided_parameters
+            {
+              arguments = List.rev rev;
+              variadic_count_type;
+              variadic_count;
+              variadic_arguments = variadic_results;
+            }
       | source :: arguments, fixed :: results, _ :: parameters -> (
           let retained_source =
             fixed |> Result.fixed_source |> Policy.fixed_source
@@ -202,7 +209,7 @@ let lower_arguments ~span ~instruction_id ~value_id arguments =
   in
   loop [] instruction_id value_id arguments
 
-let lower_variadic_count ~span ~instruction_id ~value_id = function
+let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
   | None -> Ok ([], instruction_id, value_id)
   | Some target_type -> (
       match
@@ -214,14 +221,14 @@ let lower_variadic_count ~span ~instruction_id ~value_id = function
             ( [
                 description ~instruction_id ~opcode:Opcode.Ic_imm_i64
                   ~target_type:(Some target_type)
-                  ~payload:(Some (Sequence.Integer 0L)) ~span
+                  ~payload:(Some (Sequence.Integer count)) ~span
                   ~result:{ Sequence.value_id } ~flags:push_result_flag ();
               ],
               next_instruction_id,
               next_value_id ))
 
 let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
-    ~variadic_count_type result_type =
+    ~variadic_count_type ~variadic_count ~variadic_arguments result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
@@ -237,72 +244,86 @@ let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
              (argument_descriptions, count_instruction_id, count_value_id)) -> (
           match
             lower_variadic_count ~span ~instruction_id:count_instruction_id
-              ~value_id:count_value_id variadic_count_type
+              ~value_id:count_value_id ~count:variadic_count variadic_count_type
           with
           | Error error -> Error [ error ]
-          | Ok (count_descriptions, call_id, call_result_value) -> (
+          | Ok (count_descriptions, variadic_instruction_id, variadic_value_id)
+            -> (
               match
-                ( allocate_tail_instruction_ids ~span call_id,
-                  next_value_id ~span call_result_value )
+                lower_arguments ~span ~instruction_id:variadic_instruction_id
+                  ~value_id:variadic_value_id variadic_arguments
               with
-              | Error error, _ | _, Error error -> Error [ error ]
-              | ( Ok (call_id, cleanup_id, end_id, next_instruction_id_),
-                  Ok next_value_id_ ) -> (
-                  let direct = target_resolution target in
-                  let symbol = Resolution.direct_target_symbol direct in
-                  let record = Target.record target in
-                  let cleanup =
-                    if
-                      Sema.Function_flag.caller_expects_callee_pop
-                        ~stored_mask:(Records.stored_flag_mask record)
-                    then Opcode.Ic_add_rsp1
-                    else Opcode.Ic_add_rsp
-                  in
-                  let symbol_payload = Some (Sequence.Symbol symbol) in
-                  let cleanup_bytes =
-                    let argument_count = Int64.of_int (List.length arguments) in
-                    let slot_count =
-                      if Option.is_some variadic_count_type then
-                        Int64.succ argument_count
-                      else argument_count
-                    in
-                    Int64.mul slot_count 8L
-                  in
-                  let items =
-                    [
-                      description ~instruction_id:start_id
-                        ~opcode:Opcode.Ic_call_start ~target_type:None
-                        ~payload:symbol_payload ~span ();
-                    ]
-                    @ argument_descriptions @ count_descriptions
-                    @ [
-                        description ~instruction_id:call_id
-                          ~opcode:Opcode.Ic_call ~target_type:(Some result_type)
-                          ~payload:symbol_payload ~span ();
-                        description ~instruction_id:cleanup_id ~opcode:cleanup
-                          ~target_type:(Some result_type)
-                          ~payload:(Some (Sequence.Integer cleanup_bytes)) ~span
-                          ();
-                        description ~instruction_id:end_id
-                          ~opcode:Opcode.Ic_call_end
-                          ~target_type:(Some result_type)
-                          ~payload:symbol_payload ~span
-                          ~result:{ Sequence.value_id = call_result_value }
-                          ();
-                      ]
-                  in
-                  match Sequence.create items with
-                  | Error errors -> Error errors
-                  | Ok sequence_ ->
-                      Ok
-                        (Lowered
-                           {
-                             sequence_;
-                             result_value_ = call_result_value;
-                             result_type_ = result_type;
-                             next_instruction_id_;
-                             next_value_id_;
-                           })))))
+              | Error _ as error -> error
+              | Ok Unsupported_argument -> Ok Unsupported_call
+              | Ok
+                  (Argument_lowered
+                     (variadic_descriptions, call_id, call_result_value)) -> (
+                  match
+                    ( allocate_tail_instruction_ids ~span call_id,
+                      next_value_id ~span call_result_value )
+                  with
+                  | Error error, _ | _, Error error -> Error [ error ]
+                  | ( Ok (call_id, cleanup_id, end_id, next_instruction_id_),
+                      Ok next_value_id_ ) -> (
+                      let direct = target_resolution target in
+                      let symbol = Resolution.direct_target_symbol direct in
+                      let record = Target.record target in
+                      let cleanup =
+                        if
+                          Sema.Function_flag.caller_expects_callee_pop
+                            ~stored_mask:(Records.stored_flag_mask record)
+                        then Opcode.Ic_add_rsp1
+                        else Opcode.Ic_add_rsp
+                      in
+                      let symbol_payload = Some (Sequence.Symbol symbol) in
+                      let cleanup_bytes =
+                        let argument_count =
+                          Int64.of_int (List.length arguments)
+                        in
+                        let slot_count =
+                          if Option.is_some variadic_count_type then
+                            Int64.add (Int64.succ argument_count) variadic_count
+                          else argument_count
+                        in
+                        Int64.mul slot_count 8L
+                      in
+                      let items =
+                        [
+                          description ~instruction_id:start_id
+                            ~opcode:Opcode.Ic_call_start ~target_type:None
+                            ~payload:symbol_payload ~span ();
+                        ]
+                        @ argument_descriptions @ count_descriptions
+                        @ variadic_descriptions
+                        @ [
+                            description ~instruction_id:call_id
+                              ~opcode:Opcode.Ic_call
+                              ~target_type:(Some result_type)
+                              ~payload:symbol_payload ~span ();
+                            description ~instruction_id:cleanup_id
+                              ~opcode:cleanup ~target_type:(Some result_type)
+                              ~payload:(Some (Sequence.Integer cleanup_bytes))
+                              ~span ();
+                            description ~instruction_id:end_id
+                              ~opcode:Opcode.Ic_call_end
+                              ~target_type:(Some result_type)
+                              ~payload:symbol_payload ~span
+                              ~result:{ Sequence.value_id = call_result_value }
+                              ();
+                          ]
+                      in
+                      match Sequence.create items with
+                      | Error errors -> Error errors
+                      | Ok sequence_ ->
+                          Ok
+                            (Lowered
+                               {
+                                 sequence_;
+                                 result_value_ = call_result_value;
+                                 result_type_ = result_type;
+                                 next_instruction_id_;
+                                 next_value_id_;
+                               }))))))
 
 let lower ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
@@ -320,7 +341,13 @@ let lower ~instruction_id ~value_id ~target result =
         match call_shape target with
         | Unsupported_shape -> Ok Unsupported_call
         | Inconsistent_shape message -> Error [ metadata_error ~span message ]
-        | Provided_parameters { arguments; variadic_count_type } -> (
+        | Provided_parameters
+            {
+              arguments;
+              variadic_count_type;
+              variadic_count;
+              variadic_arguments;
+            } -> (
             match Result.result_type result with
             | None ->
                 Error
@@ -330,7 +357,8 @@ let lower ~instruction_id ~value_id ~target result =
                   ]
             | Some result_type ->
                 lower_supported ~span ~instruction_id ~value_id ~target
-                  ~arguments ~variadic_count_type result_type))
+                  ~arguments ~variadic_count_type ~variadic_count
+                  ~variadic_arguments result_type))
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_
