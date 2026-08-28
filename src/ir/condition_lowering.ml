@@ -2,6 +2,8 @@ module Sequence = Instruction_sequence
 module Expression = Expression_lowering
 module Semantic_result = Sema.Function_call_expression_result
 module Semantic_source = Sema.Function_call_resolution
+module Top_level_condition = Sema.Top_level_condition_result
+module Top_level_tree = Sema.Top_level_expression_tree
 
 type t = {
   sequence_ : Sequence.t;
@@ -48,7 +50,7 @@ let branch_opcode source =
   | Semantic_source.For_condition -> Opcode.Ic_br_zero
   | Semantic_source.Do_while_condition -> Opcode.Ic_br_not_zero
 
-let append_branch ~span ~target source expression =
+let append_branch ~span ~target ~opcode expression =
   let branch_id_ = Expression.next_instruction_id expression in
   match next_instruction_id ~span branch_id_ with
   | Error item -> Error [ item ]
@@ -57,7 +59,7 @@ let append_branch ~span ~target source expression =
       let branch : Sequence.description =
         {
           instruction_id = branch_id_;
-          opcode = branch_opcode source;
+          opcode;
           operands = [ condition_value_ ];
           result = None;
           target_type = None;
@@ -94,7 +96,31 @@ let lower_function_condition ~instruction_id ~value_id ~target condition =
       | Error errors -> Error errors
       | Ok Expression.Unsupported_expression -> Ok Unsupported_expression
       | Ok (Expression.Lowered expression) ->
-          append_branch ~span ~target source expression)
+          append_branch ~span ~target ~opcode:(branch_opcode source) expression)
+
+let top_level_branch_opcode condition =
+  match Top_level_condition.condition_branch_test condition with
+  | Top_level_condition.Branch_on_zero -> Opcode.Ic_br_zero
+  | Top_level_condition.Branch_on_nonzero -> Opcode.Ic_br_not_zero
+
+let lower_top_level_condition ~instruction_id ~value_id ~target condition =
+  let origin =
+    condition |> Top_level_condition.condition_root
+    |> Semantic_result.top_level_root_source |> Top_level_tree.root_origin
+  in
+  match span_of_origin origin with
+  | Error item -> Error [ item ]
+  | Ok span -> (
+      match
+        Expression.lower_typed_result ~instruction_id ~value_id
+          (Top_level_condition.condition_value condition)
+      with
+      | Error errors -> Error errors
+      | Ok Expression.Unsupported_expression -> Ok Unsupported_expression
+      | Ok (Expression.Lowered expression) ->
+          append_branch ~span ~target
+            ~opcode:(top_level_branch_opcode condition)
+            expression)
 
 let sequence lowered = lowered.sequence_
 let condition_value lowered = lowered.condition_value_

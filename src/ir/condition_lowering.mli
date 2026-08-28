@@ -15,6 +15,17 @@ val lower_function_condition :
     the caller-owned block target. Statement placement and graph construction
     remain outside this fragment. *)
 
+val lower_top_level_condition :
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  target:Instruction_sequence.Block_id.t ->
+  Sema.Top_level_condition_result.condition ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Lower an accepted checked executable top-level condition and append its
+    retained zero or nonzero branch test. The branch consumes the exact root
+    value and keeps the caller-owned block target. Stream placement and graph
+    construction remain outside this fragment. *)
+
 val sequence : t -> Instruction_sequence.t
 val condition_value : t -> Instruction_sequence.Value_id.t
 val condition_type : t -> Sema.Type.t
