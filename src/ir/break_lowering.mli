@@ -1,4 +1,5 @@
 type t
+
 module Region_id = Sema.Break_resolution.Region_id
 module Block_id = Instruction_sequence.Block_id
 
@@ -19,5 +20,5 @@ val region_blocks : t -> region_block list
 val next_instruction_id : t -> Instruction_sequence.Instruction_id.t
 val next_block_id : t -> Instruction_sequence.Block_id.t
 
-(** Render the versioned deterministic break-lowering form. *)
 val human : t -> string
+(** Render the versioned deterministic break-lowering form. *)
