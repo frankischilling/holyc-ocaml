@@ -73,6 +73,7 @@ type direct_function_address_path =
   | Reject_internal
 
 type bound_identifier
+type aggregate_offset_base
 type top_level_bound_identifier
 
 type argument_expression_kind =
@@ -91,6 +92,7 @@ type argument_expression_kind =
   | Index_expression of index_expression
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
+  | Aggregate_offset_base_expression of aggregate_offset_base
   | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Sizeof_expression of sizeof_expression
   | Defined_expression of defined_expression
@@ -227,6 +229,14 @@ val make_bound_identifier_argument_expression :
   ?function_address_path:direct_function_address_path ->
   unit ->
   (argument_expression_kind, string) result
+
+val make_aggregate_offset_base_argument_expression :
+  occurrence:Module_expression_binding.occurrence ->
+  publication:Module_expression_binding.publication ->
+  (argument_expression_kind, string) result
+(** Preserve the exact module aggregate selected for a function-body
+    [Class.member] offset path. The expression remains invalid until direct
+    member traversal consumes this base. *)
 
 val make_top_level_bound_identifier_argument_expression :
   occurrence:Top_level_outer_expression_binding.occurrence ->
@@ -590,6 +600,12 @@ val member_origin : member_expression -> Symbol.origin
 
 val bound_identifier_occurrence :
   bound_identifier -> Module_expression_binding.occurrence
+
+val aggregate_offset_base_occurrence :
+  aggregate_offset_base -> Module_expression_binding.occurrence
+
+val aggregate_offset_base_publication :
+  aggregate_offset_base -> Module_expression_binding.publication
 
 val bound_identifier_type : bound_identifier -> Type.t
 val bound_identifier_shape : bound_identifier -> identifier_value_shape

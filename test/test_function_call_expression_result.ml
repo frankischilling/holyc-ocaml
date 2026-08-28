@@ -1908,6 +1908,212 @@ let members_retain_lookup_identity_and_access_kind () =
         access_kinds)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let function_aggregate_offsets_retain_complete_paths () =
+  let source =
+    "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class Box : \
+     Base {I16 prefix;Inner inner;};extern I64 Target(I64 direct,I64 \
+     nested,I64 inherited,I64 composed);I64 Caller(){return \
+     Target(0+Box.prefix,((0+Box.inner.value)),0+Box.inherited,1+Box.prefix);}"
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-aggregate-offset.HC" source
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check int) "four checked call arguments" 4 (List.length roots);
+      let rec offset_result result =
+        match
+          Semantic_function_call_expression_result.result_aggregate_offset_path
+            result
+        with
+        | Some path
+          when Semantic_function_call_expression_result
+               .aggregate_offset_segments path
+               <> [] -> result
+        | Some _ | None -> (
+            match
+              Semantic_function_call_expression_result.result_binary_operands
+                result
+            with
+            | Some (left, right) -> (
+                match
+                  Semantic_function_call_expression_result
+                  .result_aggregate_offset_path left
+                with
+                | Some _ -> offset_result left
+                | None -> offset_result right)
+            | None -> (
+                match
+                  Semantic_function_call_expression_result.result_operand result
+                with
+                | Some operand -> offset_result operand
+                | None -> Alcotest.fail "numeric root lost its offset operand"))
+      in
+      let path_results = List.map offset_result roots in
+      let paths =
+        List.map
+          (fun result ->
+            match
+              Semantic_function_call_expression_result
+              .result_aggregate_offset_path result
+            with
+            | Some path -> path
+            | None -> Alcotest.fail "aggregate offset root lost its path")
+          path_results
+      in
+      let rec base_evidence expression =
+        match
+          Semantic_function_call_resolution.argument_expression_kind expression
+        with
+        | Semantic_function_call_resolution.Parenthesized_expression grouped ->
+            base_evidence grouped
+        | Semantic_function_call_resolution.Member_access_expression member ->
+            member |> Semantic_function_call_resolution.member_base
+            |> base_evidence
+        | Semantic_function_call_resolution.Aggregate_offset_base_expression
+            base -> base
+        | _ -> Alcotest.fail "aggregate offset path lost its checked base"
+      in
+      List.iter2
+        (fun result path ->
+          let base =
+            result |> Semantic_function_call_expression_result.result_source
+            |> base_evidence
+          in
+          Alcotest.(check bool)
+            "path and expression keep the same publication" true
+            (Semantic_function_call_resolution.aggregate_offset_base_publication
+               base
+            == Semantic_function_call_expression_result.aggregate_offset_base
+                 path);
+          let occurrence =
+            Semantic_function_call_resolution.aggregate_offset_base_occurrence
+              base
+          in
+          Alcotest.(check string)
+            "base occurrence keeps its spelling" "Box"
+            (Semantic_module_expression_binding.occurrence_name occurrence);
+          match
+            Semantic_module_expression_binding.occurrence_origin occurrence
+          with
+          | Semantic_symbol.Source_location location ->
+              let source =
+                Source_manager.find
+                  (Session.sources prepared.session)
+                  location.span.source
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "base occurrence keeps its source file"
+                "call-expression-aggregate-offset.HC"
+                (Source_file.path source |> Filename.basename)
+          | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+              Alcotest.fail "aggregate offset base lost its source location")
+        path_results paths;
+      Alcotest.(check (list int64))
+        "direct, nested, and inherited offsets" [ 1L; 4L; 0L; 1L ]
+        (List.map
+           Semantic_function_call_expression_result.aggregate_offset_value paths);
+      Alcotest.(check (list int))
+        "nested traversal retains every member segment" [ 1; 2; 1; 1 ]
+        (List.map
+           (fun path ->
+             path
+             |> Semantic_function_call_expression_result
+                .aggregate_offset_segments |> List.length)
+           paths);
+      Alcotest.(check (list string))
+        "each path keeps the source-visible aggregate publication"
+        [ "Box"; "Box"; "Box"; "Box" ]
+        (List.map
+           (fun path ->
+             path
+             |> Semantic_function_call_expression_result.aggregate_offset_base
+             |> Semantic_module_expression_binding.publication_canonical_symbol
+             |> Semantic_symbol.name)
+           paths);
+      Alcotest.(check (list string))
+        "the path keeps its final member type"
+        [ "I16"; "I64"; "I8"; "I16" ]
+        (List.map
+           (fun path ->
+             let type_ =
+               path
+               |> Semantic_function_call_expression_result
+                  .aggregate_offset_current_type
+             in
+             let base =
+               match Semantic_type.base type_ with
+               | Semantic_type.Primitive (_, primitive) ->
+                   Primitive_type.to_string primitive
+               | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+             in
+             base ^ String.make (Semantic_type.pointer_depth type_) '*')
+           paths);
+      Alcotest.(check (list string))
+        "offset roots use the internal I64 result category"
+        [ "offset-value"; "offset-value"; "offset-value"; "offset-value" ]
+        (category_names path_results);
+      Alcotest.(check (list string))
+        "offset roots remain integer results"
+        [
+          "integer-result"; "integer-result"; "integer-result"; "integer-result";
+        ]
+        (class_names path_results);
+      Alcotest.(check (list int))
+        "offset roots are scalar values" [ 0; 0; 0; 0 ]
+        (array_ranks path_results);
+      let composed = List.nth roots 3 in
+      Alcotest.(check string)
+        "numeric composition keeps the I64 result" "I64" (type_name composed);
+      Alcotest.(check bool)
+        "the composed expression keeps its offset path" true
+        (Option.is_some
+           (Semantic_function_call_expression_result
+            .result_aggregate_offset_path (offset_result composed))))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_function_aggregate_offsets_fail_without_results () =
+  let cases =
+    [
+      ("bare", "class Box {I64 value;};I64 Caller(){return 0+Box;}");
+      ( "pointer member",
+        "class Box {I64 value;};I64 Caller(){return 0+Box->value;}" );
+      ( "pointer intermediate",
+        "class Box {I64 *pointer;};I64 Caller(){return 0+Box.pointer.value;}" );
+      ( "missing member",
+        "class Box {I64 value;};I64 Caller(){return 0+Box.missing;}" );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, source) ->
+          let prepared =
+            prepare ~mode
+              ~path:("call-expression-invalid-aggregate-offset-" ^ name ^ ".HC")
+              source
+          in
+          let policies =
+            Test_function_call_conversion_policy.analyze prepared
+            |> Test_function_call_conversion_policy.checked_policy
+          in
+          match
+            Holyc_lib.type_function_call_expressions prepared.session
+              ~members:prepared.members ~policies
+          with
+          | Error error ->
+              Alcotest.(check string)
+                "stable semantic diagnostic" "HCSEMA0046"
+                (Semantic_function_call_expression_result.error_code error)
+          | Ok _ ->
+              Alcotest.failf
+                "invalid aggregate offset case %s produced checked results" name)
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let member_constructor_validates_names_and_origins () =
   let base =
     Semantic_function_call_resolution.make_argument_expression
@@ -6043,6 +6249,10 @@ let tests =
       conversion_uses_the_exact_typed_roots;
     Alcotest.test_case "member lookup identity and access kind" `Quick
       members_retain_lookup_identity_and_access_kind;
+    Alcotest.test_case "function aggregate offset paths" `Quick
+      function_aggregate_offsets_retain_complete_paths;
+    Alcotest.test_case "invalid function aggregate offsets" `Quick
+      invalid_function_aggregate_offsets_fail_without_results;
     Alcotest.test_case "member constructor validation" `Quick
       member_constructor_validates_names_and_origins;
     Alcotest.test_case "member arrays, callbacks, and lvalues" `Quick

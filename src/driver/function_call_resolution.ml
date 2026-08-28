@@ -851,18 +851,30 @@ let rec argument_expression member_index before_item_index visible locals
         match take_occurrence occurrences cursor identifier with
         | Error _ as error -> error
         | Ok occurrence -> (
-            match typed_value_for_occurrence locals globals occurrence with
-            | None ->
-                Ok
-                  (Sema.Function_call_resolution.Unresolved_expression
-                     Sema.Function_call_resolution.Identifier_expression)
-            | Some value ->
+            match
+              Sema.Module_expression_binding.occurrence_resolution occurrence
+            with
+            | Sema.Module_expression_binding.Module_binding publication
+              when Sema.Module_expression_binding.publication_kind publication
+                   = Sema.Module_expression_binding.Aggregate ->
                 Sema.Function_call_resolution
-                .make_bound_identifier_argument_expression ~occurrence
-                  ~resolved_type:value.resolved_type ~shape:value.shape
-                  ~array_rank:value.array_rank
-                  ?function_declaration:value.function_declaration
-                  ?function_address_path:value.function_address_path ()))
+                .make_aggregate_offset_base_argument_expression ~occurrence
+                  ~publication
+            | Sema.Module_expression_binding.Local_binding _
+            | Sema.Module_expression_binding.Module_binding _
+            | Sema.Module_expression_binding.Outer_candidate -> (
+                match typed_value_for_occurrence locals globals occurrence with
+                | None ->
+                    Ok
+                      (Sema.Function_call_resolution.Unresolved_expression
+                         Sema.Function_call_resolution.Identifier_expression)
+                | Some value ->
+                    Sema.Function_call_resolution
+                    .make_bound_identifier_argument_expression ~occurrence
+                      ~resolved_type:value.resolved_type ~shape:value.shape
+                      ~array_rank:value.array_rank
+                      ?function_declaration:value.function_declaration
+                      ?function_address_path:value.function_address_path ())))
     | Frontend.Ast.Current_position_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression

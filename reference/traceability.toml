@@ -7436,6 +7436,43 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-SEMA-FUNCTION-AGGREGATE-OFFSET-PATHS"
+description = "Source-visible aggregate records produce checked PrsOffsetOf-shaped integer paths in function-body expressions."
+sources = [
+  "Compiler/PrsExp.HC:353-381 PrsOffsetOf root selection, direct member loop, cumulative offset, and IC_IMM_I64 result",
+  "Compiler/PrsExp.HC:729-807 PrsTerm selection of local, aggregate, and global records",
+  "Compiler/LexLib.HC:67-85 MemberFind current aggregate before its base chain",
+  "Compiler/PrsLib.HC:79-97 ICAdd result type, data, source, flags, and insertion order",
+  "Compiler/CInit.HC:27 intrinsic I64 IC_IMM_I64 record"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_call_expression_result.mli"
+]
+tests = ["test/test_function_call_expression_result.ml"]
+status = "implemented"
+issue = 494
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "source-visible module aggregate publications used after expression parsing has begun inside a checked function body"
+result_type = "intrinsic I64"
+result_category = "offset value, distinct from object storage and lvalues"
+path_facts = ["exact source occurrence and aggregate publication", "ordered current-or-inherited member lookups", "intermediate aggregate type", "per-segment member offset", "per-segment cumulative offset", "final I64 value"]
+member_rule = "each direct segment reuses Aggregate_member_index lookup and advances through a by-value aggregate member when another segment follows"
+backing_rule = "a final F64-backed member does not change the PrsOffsetOf I64 result"
+composition = ["transparent grouping", "ordinary numeric expressions"]
+rejected = ["bare aggregate base", "pointer-member syntax", "missing member", "incomplete aggregate", "pointer continuation", "nonaggregate continuation", "foreign occurrence, publication, type, member index, or policy ownership"]
+diagnostics = ["HCSEMA0046 source-positioned invalid aggregate offset path or inconsistent semantic input"]
+parser_boundary = "a visible aggregate at statement start remains a declaration head, so focused call-argument fixtures enter expression parsing with a numeric operand before the aggregate name"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_expression_result_tests = 2
+standalone_offset_expression_runtime_address_calculation_ir_lowering_interpretation_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf, PrsTerm, MemberFind, ICAdd, and the intrinsic I64 record directly define the retained facts"
+
+[[feature]]
 id = "HC-SEMA-SIZEOF-SOURCE-INPUT"
 description = "Ordinary sizeof expressions retain their complete source input and exact source-ordered root query before semantic size evaluation."
 sources = [

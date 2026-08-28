@@ -177,6 +177,7 @@ let rec expression_kinds expression =
     | Character_literal _
     | String_literal _
     | Bound_identifier_expression _
+    | Aggregate_offset_base_expression _
     | Top_level_bound_identifier_expression _
     | Sizeof_expression _
     | Defined_expression _
