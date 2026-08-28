@@ -464,6 +464,12 @@ The executable top-level IR group checks stable stream identities, source-item p
 dune exec test/test_main.exe -- test "IR top-level body"
 ```
 
+The top-level statement-lowering group constructs one checked body from a standalone direct call. It covers JIT direct and extern-slot access, AOT direct and import access, fixed and variadic arguments, the exact `IC_END_EXP` and `IC_END` boundary, caller-owned stream, block, instruction, and value identities, retained statement metadata, explicit compiler options, deterministic dumps, mismatched ownership, unsupported defaults and internal operations, option validation, and identity exhaustion. Every failure path is checked before a body can escape. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test "IR top-level statement lowering"
+```
+
 Terminal-global-comma cases cover the exact `Demo/Graphics/Life.HC:4` spelling, initialized and bound globals, recursive function pointers, aggregate-attached globals, JIT and AOT modes, definition and include provenance, deterministic dumps, and semantic termination without a phantom symbol. In the earlier negative-case inventory, “trailing declaration commas” means a comma followed by something other than the required semicolon; `name,;` is accepted.
 
 Corpus, differential, fuzz, loader, and bootstrap suites will be added with the stages they exercise. A suite is not marked passing until its command runs in CI and publishes its exact reference commit.
