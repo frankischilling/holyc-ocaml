@@ -152,6 +152,12 @@ The terminator carries `ICF_RES_NOT_USED` (`0x200`) in canonical pre-optimizer I
 
 The module returns `Unsupported_expression` without a partial sequence when the condition value is outside the implemented expression subset. `HCIRL0004` rejects incomplete source metadata, and `HCIRL0005` rejects branch identity exhaustion. `holyc-ir-condition-v1` records the condition value and type, branch and target identities, next unused identities, checked sequence, and pinned reference commit. The fragment does not assign blocks, construct fallthrough edges, lower statement bodies, close loops, interpret truth, optimize branches, or emit machine code.
 
+## Checked function return fragments
+
+`Holyc_lib.Ir_return_lowering` accepts one checked function return, starting instruction and value IDs, and a caller-owned leave block. A present value first uses the canonical expression planner. The module then appends one `IC_RETURN_VAL` that consumes the exact final value, produces no result, and keeps the declared function return type as its independent target type. Every valued or valueless return ends with a zero-operand `IC_JMP` to the leave block. Both instructions carry zero flags and the complete return-statement span.
+
+The value root retains the semantic `ICF_RES_TO_F64` or `ICF_RES_TO_INT` intent selected from the declared class. `HCIRL0004` rejects incomplete source metadata, `HCIRL0005` rejects exhaustion at either appended instruction boundary, and an unsupported value exposes no partial sequence. `holyc-ir-return-v1` records the optional value and return instruction, declared type, jump and leave identities, next unused identities, checked sequence, and pinned reference commit. The fragment does not place the leave block, unwind active try regions, emit `IC_LEAVE` or `IC_RET`, apply warning policy, optimize, interpret, or emit machine code.
+
 ## Generated source
 
 `tools/intermediate_code_gen.exe` verifies `Compiler/CompilerA.HH` and `Compiler/CInit.HC` against `reference/manifest.json`, parses them, and writes `src/generated/intermediate_codes.ml` and its interface. The generated `Ic_*` constructor is a mechanical lowercase form of the source constant, so `IC__PP` remains `Ic__pp` and `IC_PP_` remains `Ic_pp_`.

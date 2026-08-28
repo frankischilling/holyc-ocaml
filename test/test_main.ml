@@ -103,6 +103,7 @@ let () =
       ( "IR expression statement lowering",
         Test_ir_expression_statement_lowering.tests );
       ("IR condition lowering", Test_ir_condition_lowering.tests);
+      ("IR return lowering", Test_ir_return_lowering.tests);
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);
       ("global record flag source", Test_global_record_flag_source.tests);

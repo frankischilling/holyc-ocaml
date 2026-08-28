@@ -27,6 +27,7 @@ module Ir_literal_lowering = Ir.Literal_lowering
 module Ir_expression_lowering = Ir.Expression_lowering
 module Ir_expression_statement_lowering = Ir.Expression_statement_lowering
 module Ir_condition_lowering = Ir.Condition_lowering
+module Ir_return_lowering = Ir.Return_lowering
 module Templeos_bin_spec = Backend.Bin_spec
 module Asm_directive = Asm.Directive
 module Asm_opcode = Asm.Opcode
