@@ -734,6 +734,86 @@ let standalone_offsets_lower_from_retained_paths () =
     "standalone offset dump replays deterministically" dump
     (lower_once () |> require_lowered |> Expression.human)
 
+let object_root_standalone_offsets_lower_from_checked_types () =
+  let source =
+    "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+     global;extern I64 Target(I64 parameter,I64 automatic,I64 static_,I64 \
+     global_);I64 Caller(Box parameter){Box automatic;static Box saved;return \
+     Target(offset(parameter.prefix),offset(automatic.inherited),offset(saved.prefix),offset(global.inherited));}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-object-root-standalone-offsets.HC" source
+      in
+      Alcotest.(check int)
+        "four object-root offset constants" 4 (List.length roots);
+      List.iter2
+        (fun root expected ->
+          let lowered =
+            lower ~instruction:40 ~value:60 root |> require_lowered
+          in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "object-root offset emits one immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "object-root offset keeps its checked byte value" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "object-root offset keeps internal I64" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check (list int))
+            "object-root offset has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int64)
+            "object-root offset keeps zero flags" 0L item.flags;
+          Alcotest.(check int)
+            "object-root next instruction" 41
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "object-root next value" 61
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots [ 1L; 0L; 1L; 0L ];
+      let top_level =
+        top_level_roots ~mode
+          ~path:"ir-top-level-object-root-standalone-offsets.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+           global;offset(global.prefix);offset(global.inherited);"
+      in
+      Alcotest.(check int)
+        "two top-level object-root constants" 2 (List.length top_level);
+      List.iter2
+        (fun root expected ->
+          let lowered =
+            lower ~instruction:70 ~value:90 root |> require_lowered
+          in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "top-level object root emits one immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "top-level object root keeps its checked byte value" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "top-level object root keeps internal I64" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check (list int))
+            "top-level object root has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int64)
+            "top-level object root keeps zero flags" 0L item.flags;
+          Alcotest.(check int)
+            "top-level object root next instruction" 71
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "top-level object root next value" 91
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        top_level [ 1L; 0L ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let accepted_operators_lower_in_both_modes () =
   let expressions =
     [
@@ -3204,6 +3284,8 @@ let tests =
       aggregate_offset_dump_and_unsupported_members_are_deterministic;
     Alcotest.test_case "standalone aggregate offset constants" `Quick
       standalone_offsets_lower_from_retained_paths;
+    Alcotest.test_case "object-root standalone offset constants" `Quick
+      object_root_standalone_offsets_lower_from_checked_types;
     Alcotest.test_case "typed string literals" `Quick
       string_literals_lower_in_both_modes;
     Alcotest.test_case "deterministic string dump" `Quick

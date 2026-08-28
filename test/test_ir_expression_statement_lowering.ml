@@ -391,8 +391,8 @@ let standalone_offset_statements_use_the_checked_terminator () =
     (fun mode ->
       let top_level =
         top_level_roots ~mode ~path:"ir-top-level-standalone-offset-end.HC"
-          "class Base {I8 inherited;};class Box : Base {I16 \
-           prefix;};offset(Box.prefix);"
+          "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+           global;offset(global.prefix);"
         |> expression_statement_roots |> List.hd
       in
       let lowered =
@@ -415,7 +415,7 @@ let standalone_offset_statements_use_the_checked_terminator () =
       let function_statement =
         function_statements ~mode ~path:"ir-function-standalone-offset-end.HC"
           "class Base {I8 inherited;};class Box : Base {I16 prefix;};I64 \
-           Caller(){offset(Box.prefix);return 0;}"
+           Caller(){Box automatic;offset(automatic.prefix);return 0;}"
         |> List.hd
       in
       let function_lowered =

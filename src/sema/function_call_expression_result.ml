@@ -1321,15 +1321,159 @@ let standalone_published_offset_path members ~before_item_index offset
         (Function_call_resolution.offset_members offset)
 
 let standalone_offset_path members ~before_item_index offset =
-  match Function_call_resolution.offset_publication offset with
-  | None ->
+  let valid_bound_target publication target =
+    Function_call_resolution.identifier_value_shape target
+    = Function_call_resolution.Object_value
+    && Function_call_resolution.identifier_value_array_rank target = 0
+    &&
+    let target_type = Function_call_resolution.identifier_value_type target in
+    Type.pointer_depth target_type = 0
+    &&
+    match Type.base target_type with
+    | Type.Aggregate symbol ->
+        symbol
+        == Module_expression_binding.publication_canonical_symbol publication
+    | Type.Primitive _ -> false
+  in
+  match
+    ( Function_call_resolution.offset_publication offset,
+      Function_call_resolution.offset_bound_target offset )
+  with
+  | None, _ ->
       Error
         (invalid_input
            ~origin:(Function_call_resolution.offset_target_origin offset)
            "offset target is not a source-visible aggregate")
-  | Some publication ->
+  | Some publication, Some target
+    when not (valid_bound_target publication target) ->
+      Error
+        (invalid_input
+           ~origin:(Function_call_resolution.offset_target_origin offset)
+           "offset target is not a zero-rank by-value aggregate object")
+  | Some publication, (None | Some _) ->
       standalone_published_offset_path members ~before_item_index offset
         publication
+
+let visible_aggregate_publication identifiers ~before_item_index symbol =
+  identifiers |> Top_level_identifier_resolution.source
+  |> Top_level_expression_tree.source
+  |> Top_level_outer_expression_binding.source
+  |> Top_level_expression_binding.module_expressions
+  |> Module_expression_binding.publications
+  |> List.fold_left
+       (fun found publication ->
+         if
+           Module_expression_binding.publication_item_index publication
+           < before_item_index
+           && Module_expression_binding.publication_kind publication
+              = Module_expression_binding.Aggregate
+           && Module_expression_binding.publication_canonical_symbol publication
+              == symbol
+         then Some publication
+         else found)
+       None
+
+let bind_top_level_offset state ~before_item_index offset =
+  match Function_call_resolution.offset_top_level_query offset with
+  | None -> Ok offset
+  | Some query -> (
+      let origin = Function_call_resolution.offset_target_origin offset in
+      let invalid message = Error (invalid_input ~origin message) in
+      match state.top_level_identifier_batch with
+      | None ->
+          invalid "top-level offset target has no checked identifier batch"
+      | Some identifiers -> (
+          match Top_level_outer_expression_binding.query_resolution query with
+          | Top_level_outer_expression_binding.Query_undefined ->
+              invalid "top-level offset target is not source-visible"
+          | Top_level_outer_expression_binding.Query_binding
+              (Top_level_outer_expression_binding.Outer_binding _) ->
+              invalid "top-level offset target is not a module global"
+          | Top_level_outer_expression_binding.Query_binding
+              (Top_level_outer_expression_binding.Module_binding publication)
+            when Module_expression_binding.publication_kind publication
+                 = Module_expression_binding.Aggregate -> (
+              match Function_call_resolution.offset_publication offset with
+              | Some selected when selected == publication -> Ok offset
+              | None | Some _ ->
+                  invalid
+                    "top-level offset aggregate does not match its target query"
+              )
+          | Top_level_outer_expression_binding.Query_binding
+              (Top_level_outer_expression_binding.Module_binding publication)
+            -> (
+              match
+                Top_level_identifier_resolution.find_module_value identifiers
+                  publication
+              with
+              | Some (Top_level_identifier_resolution.Global_value { value; _ })
+                -> (
+                  let target_type =
+                    Function_call_resolution.identifier_value_type value
+                  in
+                  match
+                    ( Function_call_resolution.identifier_value_shape value,
+                      Function_call_resolution.identifier_value_array_rank value,
+                      Type.pointer_depth target_type,
+                      Type.base target_type )
+                  with
+                  | ( Function_call_resolution.Object_value,
+                      0,
+                      0,
+                      Type.Aggregate symbol ) -> (
+                      match
+                        visible_aggregate_publication identifiers
+                          ~before_item_index symbol
+                      with
+                      | None ->
+                          invalid
+                            "top-level offset object type is not source-visible"
+                      | Some aggregate_publication -> (
+                          match
+                            Function_call_resolution
+                            .make_offset_argument_expression
+                              ~keyword_spelling:
+                                (Function_call_resolution
+                                 .offset_keyword_spelling offset)
+                              ~keyword_origin:
+                                (Function_call_resolution.offset_keyword_origin
+                                   offset)
+                              ~opening_origins:
+                                (Function_call_resolution.offset_opening_origins
+                                   offset)
+                              ~target_spelling:
+                                (Function_call_resolution.offset_target_spelling
+                                   offset)
+                              ~target_origin:origin
+                              ~publication:(Some aggregate_publication)
+                              ~root_query:None ~top_level_query:(Some query)
+                              ~bound_target:(Some value)
+                              ~members:
+                                (Function_call_resolution.offset_members offset)
+                              ~closing_origins:
+                                (Function_call_resolution.offset_closing_origins
+                                   offset)
+                          with
+                          | Ok
+                              (Function_call_resolution
+                               .Standalone_offset_expression
+                                 checked) -> Ok checked
+                          | Ok _ ->
+                              invalid
+                                "top-level offset rebuilt as another expression"
+                          | Error message -> invalid message))
+                  | _ ->
+                      invalid
+                        "top-level offset target is not a zero-rank by-value \
+                         aggregate object")
+              | Some
+                  ( Top_level_identifier_resolution.Direct_function_value _
+                  | Top_level_identifier_resolution.Aggregate_offset_base _ ) ->
+                  invalid "top-level offset target is not a module global"
+              | None ->
+                  invalid
+                    "top-level offset target has no checked publication value"))
+      )
 
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
@@ -1466,45 +1610,58 @@ let rec type_expression table members policies ~before_item_index ~context
                       finish ~source_type:integer_type ~aggregate_offset_path
                         Offset_value Integer_result state))
       | Function_call_resolution.Standalone_offset_expression offset -> (
-          match standalone_offset_path members ~before_item_index offset with
+          match bind_top_level_offset state ~before_item_index offset with
           | Error _ as error -> error
-          | Ok (aggregate_offset_path, member_lookup, checked_members) -> (
+          | Ok offset -> (
               match
-                Function_call_resolution.make_offset_argument_expression
-                  ~keyword_spelling:
-                    (Function_call_resolution.offset_keyword_spelling offset)
-                  ~keyword_origin:
-                    (Function_call_resolution.offset_keyword_origin offset)
-                  ~opening_origins:
-                    (Function_call_resolution.offset_opening_origins offset)
-                  ~target_spelling:
-                    (Function_call_resolution.offset_target_spelling offset)
-                  ~target_origin:
-                    (Function_call_resolution.offset_target_origin offset)
-                  ~publication:
-                    (Function_call_resolution.offset_publication offset)
-                  ~members:checked_members
-                  ~closing_origins:
-                    (Function_call_resolution.offset_closing_origins offset)
+                standalone_offset_path members ~before_item_index offset
               with
-              | Error message ->
-                  Error
-                    (invalid_input
-                       ~origin:
-                         (Function_call_resolution.offset_target_origin offset)
-                       message)
-              | Ok kind ->
-                  let source =
-                    Function_call_resolution.make_argument_expression ~kind
-                      ~origin:
-                        (Function_call_resolution.argument_expression_origin
-                           source)
-                  in
-                  Ok
-                    (make_result ~member_lookup ~aggregate_offset_path
-                       ~intrinsic_conversion state ~id ~source
-                       ~source_type:integer_type ~array_rank:0
-                       ~category:Offset_value ~result_class:Integer_result)))
+              | Error _ as error -> error
+              | Ok (aggregate_offset_path, member_lookup, checked_members) -> (
+                  match
+                    Function_call_resolution.make_offset_argument_expression
+                      ~keyword_spelling:
+                        (Function_call_resolution.offset_keyword_spelling offset)
+                      ~keyword_origin:
+                        (Function_call_resolution.offset_keyword_origin offset)
+                      ~opening_origins:
+                        (Function_call_resolution.offset_opening_origins offset)
+                      ~target_spelling:
+                        (Function_call_resolution.offset_target_spelling offset)
+                      ~target_origin:
+                        (Function_call_resolution.offset_target_origin offset)
+                      ~publication:
+                        (Function_call_resolution.offset_publication offset)
+                      ~root_query:
+                        (Function_call_resolution.offset_root_query offset)
+                      ~top_level_query:
+                        (Function_call_resolution.offset_top_level_query offset)
+                      ~bound_target:
+                        (Function_call_resolution.offset_bound_target offset)
+                      ~members:checked_members
+                      ~closing_origins:
+                        (Function_call_resolution.offset_closing_origins offset)
+                  with
+                  | Error message ->
+                      Error
+                        (invalid_input
+                           ~origin:
+                             (Function_call_resolution.offset_target_origin
+                                offset)
+                           message)
+                  | Ok kind ->
+                      let source =
+                        Function_call_resolution.make_argument_expression ~kind
+                          ~origin:
+                            (Function_call_resolution.argument_expression_origin
+                               source)
+                      in
+                      Ok
+                        (make_result ~member_lookup ~aggregate_offset_path
+                           ~intrinsic_conversion state ~id ~source
+                           ~source_type:integer_type ~array_rank:0
+                           ~category:Offset_value ~result_class:Integer_result))
+              ))
       | Function_call_resolution.Bound_identifier_expression identifier -> (
           match
             known_type table

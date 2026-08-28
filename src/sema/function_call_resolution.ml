@@ -95,6 +95,9 @@ type offset_expression = {
   offset_target_spelling_ : string;
   offset_target_origin_ : Symbol.origin;
   offset_publication_ : Module_expression_binding.publication option;
+  offset_root_query_ : function_query option;
+  offset_top_level_query_ : Top_level_outer_expression_binding.query option;
+  offset_bound_target_ : identifier_value option;
   offset_members_ : offset_member list;
   offset_closing_origins_ : Symbol.origin list;
 }
@@ -1196,8 +1199,8 @@ let offset_lookups_are_complete members =
   retained = 0 || retained = List.length members
 
 let make_offset_argument_expression ~keyword_spelling ~keyword_origin
-    ~opening_origins ~target_spelling ~target_origin ~publication ~members
-    ~closing_origins =
+    ~opening_origins ~target_spelling ~target_origin ~publication ~root_query
+    ~top_level_query ~bound_target ~members ~closing_origins =
   let all_valid = List.for_all valid_origin in
   if String.equal keyword_spelling "" then
     Error "offset keyword spelling cannot be empty"
@@ -1211,6 +1214,34 @@ let make_offset_argument_expression ~keyword_spelling ~keyword_origin
     Error "offset target spelling cannot be empty"
   else if not (valid_origin target_origin) then
     Error "offset target has an invalid source origin"
+  else if Option.is_some root_query && Option.is_some top_level_query then
+    Error "offset target cannot retain both function and top-level queries"
+  else if
+    Option.is_some bound_target
+    && Option.is_none root_query
+    && Option.is_none top_level_query
+  then Error "offset bound target requires its exact root query"
+  else if
+    match root_query with
+    | None -> false
+    | Some query ->
+        let role, name, origin = function_query_facts query in
+        role <> Function_expression_binding.Offset_root
+        || (not (String.equal target_spelling name))
+        || target_origin <> origin
+  then Error "offset root query does not match its source target"
+  else if
+    match top_level_query with
+    | None -> false
+    | Some query ->
+        Top_level_outer_expression_binding.query_role query
+        <> Function_expression_binding.Offset_root
+        || (not
+              (String.equal target_spelling
+                 (Top_level_outer_expression_binding.query_name query)))
+        || target_origin
+           <> Top_level_outer_expression_binding.query_origin query
+  then Error "offset top-level query does not match its source target"
   else if
     match publication with
     | None -> false
@@ -1221,11 +1252,12 @@ let make_offset_argument_expression ~keyword_spelling ~keyword_origin
   else if
     match publication with
     | None -> false
-    | Some publication ->
+    | Some publication when Option.is_none bound_target ->
         let source_symbol =
           Module_expression_binding.publication_source_symbol publication
         in
         not (String.equal target_spelling (Symbol.name source_symbol))
+    | Some _ -> false
   then Error "offset target spelling does not match its aggregate publication"
   else if members = [] then Error "offset expression requires a member path"
   else if not (offset_lookups_are_complete members) then
@@ -1248,6 +1280,9 @@ let make_offset_argument_expression ~keyword_spelling ~keyword_origin
            offset_target_spelling_ = target_spelling;
            offset_target_origin_ = target_origin;
            offset_publication_ = publication;
+           offset_root_query_ = root_query;
+           offset_top_level_query_ = top_level_query;
+           offset_bound_target_ = bound_target;
            offset_members_ = members;
            offset_closing_origins_ = closing_origins;
          })
@@ -1495,6 +1530,9 @@ let offset_opening_origins expression = expression.offset_opening_origins_
 let offset_target_spelling expression = expression.offset_target_spelling_
 let offset_target_origin expression = expression.offset_target_origin_
 let offset_publication expression = expression.offset_publication_
+let offset_root_query expression = expression.offset_root_query_
+let offset_top_level_query expression = expression.offset_top_level_query_
+let offset_bound_target expression = expression.offset_bound_target_
 let offset_members expression = expression.offset_members_
 let offset_closing_origins expression = expression.offset_closing_origins_
 let offset_member_dot_origin member = member.offset_member_dot_origin_
@@ -1954,6 +1992,16 @@ let rec validate_argument_expression table parent visible declarations
             || not
                  (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
           then Error (invalid_input "offset target has an invalid aggregate")
+          else if Option.is_some offset.offset_bound_target_ then
+            if
+              String_map.exists
+                (fun _ expected -> same_symbol expected symbol)
+                visible
+            then Ok ()
+            else
+              Error
+                (invalid_input
+                   "offset object type is not source-visible at the function")
           else
             match
               String_map.find_opt offset.offset_target_spelling_ visible
@@ -2415,7 +2463,20 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
               Error
                 (invalid_input
                    "sizeof target query does not belong to its function")))
-  | Standalone_offset_expression _ -> Ok ()
+  | Standalone_offset_expression offset -> (
+      match offset.offset_root_query_ with
+      | None -> Ok ()
+      | Some query -> (
+          let index = function_query_index query in
+          match Int_map.find_opt index query_by_index with
+          | Some expected when same_function_query expected query -> Ok ()
+          | Some _ ->
+              Error
+                (invalid_input "offset target uses a different function query")
+          | None ->
+              Error
+                (invalid_input
+                   "offset target query does not belong to its function")))
   | Defined_expression defined -> (
       match defined_operand_resolution defined with
       | Defined_non_name_false -> Ok ()

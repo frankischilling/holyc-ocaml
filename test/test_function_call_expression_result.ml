@@ -2196,6 +2196,104 @@ let standalone_function_offsets_retain_source_and_checked_paths () =
         [ 1L; 4L; 0L; 1L ] replayed_values)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let object_root_standalone_offsets_retain_checked_bindings () =
+  let source =
+    "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+     global;extern I64 Target(I64 parameter,I64 automatic,I64 static_,I64 \
+     global_);I64 Caller(Box parameter){Box automatic;static Box saved;return \
+     Target(offset(parameter.prefix),offset(automatic.inherited),offset(saved.prefix),offset(global.inherited));}"
+  in
+  let rec standalone result =
+    match
+      result |> Semantic_function_call_expression_result.result_source
+      |> Semantic_function_call_resolution.argument_expression_kind
+    with
+    | Semantic_function_call_resolution.Standalone_offset_expression offset ->
+        (result, offset)
+    | _ -> (
+        match
+          Semantic_function_call_expression_result.result_operand result
+        with
+        | Some operand -> standalone operand
+        | None -> Alcotest.fail "expected an object-root offset result")
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-object-root-offset.HC" source
+      in
+      let _, results = analyze prepared in
+      let checked = root_results results "Caller" |> List.map standalone in
+      Alcotest.(check int) "four object-root offsets" 4 (List.length checked);
+      Alcotest.(check (list int64))
+        "object roots use parameter, automatic, static, and global types"
+        [ 1L; 0L; 1L; 0L ]
+        (List.map
+           (fun (result, _) ->
+             result
+             |> Semantic_function_call_expression_result
+                .result_aggregate_offset_path |> Option.get
+             |> Semantic_function_call_expression_result.aggregate_offset_value)
+           checked);
+      List.iter
+        (fun (result, offset) ->
+          let publication =
+            Semantic_function_call_resolution.offset_publication offset
+            |> Option.get
+          in
+          let target =
+            Semantic_function_call_resolution.offset_bound_target offset
+            |> Option.get
+          in
+          let query =
+            Semantic_function_call_resolution.offset_root_query offset
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "object root retains its Offset_root query" true
+            (match query with
+            | Semantic_function_call_resolution.Module_query query ->
+                Semantic_module_expression_binding.query_role query
+                = Semantic_function_expression_binding.Offset_root
+            | Semantic_function_call_resolution.Outer_query query ->
+                Holyc_lib.Semantic_outer_expression_binding.query_role query
+                = Semantic_function_expression_binding.Offset_root);
+          Alcotest.(check bool)
+            "object root remains a scalar object" true
+            (Semantic_function_call_resolution.identifier_value_shape target
+             = Semantic_function_call_resolution.Object_value
+            && Semantic_function_call_resolution.identifier_value_array_rank
+                 target
+               = 0);
+          let path =
+            Semantic_function_call_expression_result
+            .result_aggregate_offset_path result
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "object type publication owns the checked path" true
+            (publication
+            == Semantic_function_call_expression_result.aggregate_offset_base
+                 path);
+          match
+            ( Semantic_type.base
+                (Semantic_function_call_resolution.identifier_value_type target),
+              Semantic_type.pointer_depth
+                (Semantic_function_call_resolution.identifier_value_type target)
+            )
+          with
+          | Semantic_type.Aggregate symbol, 0 ->
+              Alcotest.(check bool)
+                "object root type matches its aggregate publication" true
+                (symbol
+                == Semantic_module_expression_binding
+                   .publication_canonical_symbol publication)
+          | Semantic_type.Primitive _, _ | Semantic_type.Aggregate _, _ ->
+              Alcotest.fail
+                "object-root offset lost its by-value aggregate type")
+        checked)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let invalid_standalone_function_offsets_fail_without_results () =
   [
     ("unknown root", "I64 Caller(){return offset(Missing.value);}");
@@ -2207,6 +2305,19 @@ let invalid_standalone_function_offsets_fail_without_results () =
     ( "pointer continuation",
       "class Box {I64 *pointer;};I64 Caller(){return \
        offset(Box.pointer.value);}" );
+    ( "pointer object root",
+      "class Box {I64 value;};I64 Caller(Box *box){return offset(box.value);}"
+    );
+    ( "array object root",
+      "class Box {I64 value;};I64 Caller(){Box boxes[1];return \
+       offset(boxes.value);}" );
+    ( "global array object root",
+      "class Box {I64 value;};Box boxes[1];I64 Caller(){return \
+       offset(boxes.value);}" );
+    ( "primitive object root",
+      "I64 Caller(I64 value){return offset(value.member);}" );
+    ( "callback object root",
+      "I64 Caller(I64 (*callback)(I64)){return offset(callback.member);}" );
   ]
   |> List.iter (fun (name, source) ->
       List.iter
@@ -6412,6 +6523,8 @@ let tests =
       function_aggregate_offsets_retain_complete_paths;
     Alcotest.test_case "standalone function offset paths" `Quick
       standalone_function_offsets_retain_source_and_checked_paths;
+    Alcotest.test_case "object-root standalone function offsets" `Quick
+      object_root_standalone_offsets_retain_checked_bindings;
     Alcotest.test_case "invalid standalone function offsets" `Quick
       invalid_standalone_function_offsets_fail_without_results;
     Alcotest.test_case "invalid function aggregate offsets" `Quick

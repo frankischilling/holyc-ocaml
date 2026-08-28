@@ -362,6 +362,31 @@ let rec validate_expression_query_evidence queries seen expression =
     validate_expression_query_evidence queries seen expression
   in
   match Function_call_resolution.argument_expression_kind expression with
+  | Function_call_resolution.Standalone_offset_expression offset -> (
+      match Function_call_resolution.offset_top_level_query offset with
+      | Some query -> (
+          match
+            Int_map.find_opt
+              (Top_level_outer_expression_binding.query_index query)
+              queries
+          with
+          | Some expected when expected == query ->
+              Ok
+                (Int_set.add
+                   (Top_level_outer_expression_binding.query_index query)
+                   seen)
+          | Some _ ->
+              Error
+                (invalid_input
+                   "top-level offset target uses a different statement query")
+          | None ->
+              Error
+                (invalid_input
+                   "top-level offset query does not belong to its statement"))
+      | None ->
+          Error
+            (invalid_input
+               "top-level offset expression has no retained target query"))
   | Function_call_resolution.Sizeof_expression sizeof -> (
       match Function_call_resolution.sizeof_root_resolution sizeof with
       | Function_call_resolution.Sizeof_top_level_query query -> (
@@ -439,7 +464,6 @@ let rec validate_expression_query_evidence queries seen expression =
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Aggregate_offset_base_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
-  | Function_call_resolution.Standalone_offset_expression _
   | Function_call_resolution.Unresolved_expression _ -> Ok seen
 
 let validate_call_query_evidence queries seen (call : call) =
