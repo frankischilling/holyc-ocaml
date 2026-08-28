@@ -97,7 +97,7 @@ Both call lowering in `PrsExp.HC` and the function epilogue in `OptPass789A.HC` 
 (RET1 or ARGPOP) and not NOARGPOP
 ```
 
-When the choice is true, the callee emits `RET imm16` and the caller uses the matching stack-adjustment form. Otherwise the callee emits an ordinary return and the caller removes the argument block. `Ir.Direct_call_lowering` applies this predicate to the exact classified record for its zero-parameter executable subset, selecting `IC_ADD_RSP1` or `IC_ADD_RSP` while retaining a zero-byte cleanup payload. Argument placement, nonzero cleanup, callee epilogues, and machine emission remain unavailable. [Issue #530](https://github.com/frankischilling/holyc-ocaml/issues/530) records this first call-IR boundary.
+When the choice is true, the callee emits `RET imm16` and the caller uses the matching stack-adjustment form. Otherwise the callee emits an ordinary return and the caller removes the argument block. `Ir.Direct_call_lowering` applies this predicate to the exact classified record for its zero-parameter executable subset, selecting `IC_ADD_RSP1` or `IC_ADD_RSP` while retaining a zero-byte cleanup payload. Its one-provided-argument subset carries eight cleanup bytes and adds `ICF_PUSH_RES` only to the checked argument root. General argument placement, defaults, multiple and variadic arguments, callee epilogues, and machine emission remain unavailable. [Issue #530](https://github.com/frankischilling/holyc-ocaml/issues/530) records the first call-IR boundary, and [issue #532](https://github.com/frankischilling/holyc-ocaml/issues/532) records the first argument composition.
 
 ## Interrupt functions
 

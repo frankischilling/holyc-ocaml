@@ -1,5 +1,6 @@
 open Holyc_lib
 module Lowering = Ir_direct_call_lowering
+module Expression = Ir_expression_lowering
 module Sequence = Ir_instruction_sequence
 module Span = Span
 module Target = Semantic_function_call_target_classification
@@ -40,6 +41,21 @@ let canonical_symbol call =
   call |> Semantic_function_call_expression_result.direct_source
   |> Semantic_function_call_conversion_policy.direct_source
   |> Semantic_function_call_resolution.direct_target_symbol
+
+let source_span result =
+  match Semantic_function_call_expression_result.result_origin result with
+  | Semantic_symbol.Source_location location -> location.span
+  | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected a complete source span"
+
+let provided_argument call =
+  match
+    call |> Semantic_function_call_expression_result.direct_fixed_results
+    |> List.hd |> Semantic_function_call_expression_result.fixed_path
+  with
+  | Semantic_function_call_expression_result.Provided_result result -> result
+  | Semantic_function_call_expression_result.Declared_default_result _ ->
+      Alcotest.fail "expected a provided argument"
 
 let target records call =
   match Target.classify ~records call with
@@ -167,6 +183,139 @@ let cleanup_opcode_follows_checked_flags () =
         "cleanup uses the checked caller/callee predicate" expected
         ((List.nth items 2).Sequence.opcode |> Ir_opcode.to_source_name))
 
+let one_argument_sequences_preserve_expression_ir () =
+  [
+    ( Preprocessor.Jit,
+      "I64 Callee(I64 value){return value;}I64 Caller(){return Callee(1+2);}",
+      0x000002000L,
+      "public:I64" );
+    ( Preprocessor.Aot,
+      "F64 Callee(F64 value){return value;}F64 Caller(){return Callee(1+2);}",
+      0x000002001L,
+      "public:F64" );
+  ]
+  |> List.iter (fun (mode, source, root_flags, result_type) ->
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let call = direct_call results "Caller" in
+      let argument = provided_argument call in
+      let call_span = return_root results "Caller" |> source_span in
+      let expected_argument_descriptions =
+        match
+          Expression.lower_typed_result ~instruction_id:(instruction_id 11)
+            ~value_id:(value_id 20) argument
+        with
+        | Ok (Expression.Lowered lowered) ->
+            lowered |> Expression.sequence |> Sequence.instructions
+            |> List.map Sequence.description
+        | Ok Expression.Unsupported_expression ->
+            Alcotest.fail "expected a supported argument expression"
+        | Error errors ->
+            errors
+            |> List.map (fun error -> error.Sequence.message)
+            |> String.concat ", " |> Alcotest.fail
+      in
+      let lowered =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "the argument is appended between start and call"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_ADD";
+          "IC_CALL";
+          "IC_ADD_RSP1";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int))
+        "instruction identities include the argument tree"
+        [ 10; 11; 12; 13; 14; 15; 16 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check (list int64))
+        "only the argument root gains push-result intent"
+        [ 0L; 0L; 0L; root_flags; 0L; 0L; 0L ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      let span_pair span =
+        Option.map (fun (span : Span.t) -> (span.start, span.stop)) span
+      in
+      Alcotest.(check (list (option (pair int int))))
+        "the argument tree keeps the canonical expression spans"
+        (List.map
+           (fun item -> span_pair item.Sequence.span)
+           expected_argument_descriptions)
+        ([ 1; 2; 3 ]
+        |> List.map (fun index ->
+            span_pair (List.nth items index).Sequence.span));
+      Alcotest.(check (list (option (pair int int))))
+        "the call records keep the complete call span"
+        (List.init 4 (fun _ -> Some (call_span.start, call_span.stop)))
+        ([ 0; 4; 5; 6 ]
+        |> List.map (fun index ->
+            span_pair (List.nth items index).Sequence.span));
+      Alcotest.(check int)
+        "the call result follows all argument values" 23
+        (Lowering.result_value lowered |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "both identity cursors include the argument tree" (17, 24)
+        ( Lowering.next_instruction_id lowered |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id lowered |> Sequence.Value_id.to_int );
+      Alcotest.(check string)
+        "the call result keeps its checked type" result_type
+        (Lowering.result_type lowered |> Sequence.type_name);
+      Alcotest.(check (option int64))
+        "one fixed argument cleans eight bytes" (Some 8L)
+        (match (List.nth items 5).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None))
+
+let one_argument_cleanup_and_dump () =
+  let source =
+    "noargpop I64 Callee(I64 value){return value;}I64 Caller(){return \
+     Callee(1);}"
+  in
+  let prepared = prepared Preprocessor.Jit source in
+  let results, records = analyze prepared in
+  let first =
+    lower ~instruction:3 ~value:5 records results "Caller" |> lowered
+  in
+  let second =
+    lower ~instruction:3 ~value:5 records results "Caller" |> lowered
+  in
+  let items = descriptions first in
+  Alcotest.(check string)
+    "noargpop selects caller cleanup" "IC_ADD_RSP"
+    ((List.nth items 3).Sequence.opcode |> Ir_opcode.to_source_name);
+  Alcotest.(check (option int64))
+    "caller cleanup retains eight bytes" (Some 8L)
+    (match (List.nth items 3).Sequence.payload with
+    | Some (Sequence.Integer value) -> Some value
+    | _ -> None);
+  Alcotest.(check string)
+    "one-argument dumps replay exactly" (Lowering.human first)
+    (Lowering.human second)
+
+let unsupported_argument_expression_returns_no_ir () =
+  let prepared =
+    prepared Preprocessor.Jit
+      "I64 Callee(I64 value){return value;}I64 Caller(){I64 local=1;return \
+       Callee(local);}"
+  in
+  let results, records = analyze prepared in
+  match lower records results "Caller" with
+  | Ok Lowering.Unsupported_call -> ()
+  | Ok (Lowering.Lowered _) -> Alcotest.fail "expected an unsupported argument"
+  | Error errors ->
+      errors
+      |> List.map (fun error -> error.Sequence.message)
+      |> String.concat ", " |> Alcotest.fail
+
 let deterministic_dump () =
   let prepared =
     prepared Preprocessor.Jit
@@ -204,7 +353,10 @@ let unsupported_call_boundaries () =
   expect_unsupported Preprocessor.Jit
     "_intern 42 I64 Callee();I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
-    "I64 Callee(I64 value){return value;}I64 Caller(){return Callee(1);}";
+    "I64 Callee(I64 first,I64 second){return first;}I64 Caller(){return \
+     Callee(1,2);}";
+  expect_unsupported Preprocessor.Jit
+    "I64 Callee(I64 value=1){return value;}I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
     "I64 Callee(...){return 1;}I64 Caller(){return Callee();}"
 
@@ -248,6 +400,12 @@ let tests =
       direct_calls_emit_complete_sequences;
     Alcotest.test_case "checked cleanup opcode" `Quick
       cleanup_opcode_follows_checked_flags;
+    Alcotest.test_case "one provided argument sequence" `Quick
+      one_argument_sequences_preserve_expression_ir;
+    Alcotest.test_case "one argument cleanup and dump" `Quick
+      one_argument_cleanup_and_dump;
+    Alcotest.test_case "unsupported argument expression" `Quick
+      unsupported_argument_expression_returns_no_ir;
     Alcotest.test_case "deterministic direct-call dump" `Quick
       deterministic_dump;
     Alcotest.test_case "unsupported direct-call boundaries" `Quick
