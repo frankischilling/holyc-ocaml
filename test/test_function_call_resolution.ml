@@ -98,12 +98,44 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
   in
   finish_prepare mode session ast
 
-let resolve ?outer prepared =
+let resolve ?members ?outer prepared =
   Holyc_lib.resolve_function_calls prepared.session
     ~declarations:prepared.declarations ~function_types:prepared.function_types
     ~local_types:prepared.local_types ~global_types:prepared.global_types
     ~functions:prepared.functions ~expressions:prepared.module_expressions
-    ?outer prepared.ast
+    ?members ?outer prepared.ast
+
+let aggregate_member_index prepared =
+  let aggregates =
+    checked
+      (Holyc_lib.resolve_aggregates prepared.session
+         ~declarations:prepared.declarations prepared.ast)
+  in
+  let headers =
+    checked
+      (Holyc_lib.resolve_aggregate_headers prepared.session
+         ~declarations:prepared.declarations ~aggregates prepared.ast)
+  in
+  let collected =
+    checked
+      (Holyc_lib.collect_members prepared.session
+         ~declarations:prepared.declarations prepared.ast)
+  in
+  let typed =
+    checked
+      (Holyc_lib.resolve_member_types prepared.session
+         ~declarations:prepared.declarations ~aggregates ~headers
+         ~members:collected prepared.ast)
+  in
+  let layouts =
+    checked
+      (Holyc_lib.layout_aggregates prepared.session
+         ~declarations:prepared.declarations ~aggregates ~headers ~members:typed
+         prepared.ast)
+  in
+  checked
+    (Holyc_lib.index_aggregate_members prepared.session
+       ~declarations:prepared.declarations ~headers ~members:typed ~layouts)
 
 let outer_environment_from_entries prepared entries =
   let table_kind =
@@ -1907,6 +1939,226 @@ let bound_scalar_sizeof_values_follow_checked_types () =
         value_facts)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let aggregate_sizeof_values_follow_completed_layouts () =
+  let source =
+    "class Base{U8 inherited;};class Nested{U16 leaf;};class Box:Base{U8 \
+     head;Nested nested;U32 values[3];I64 *pointer;I64 \
+     (*callback)(I64);};union Choice{U8 byte;I64 wide;};Box module_box;I64 \
+     Caller(Box parameter){Box automatic;static Choice stored;Box \
+     *box_pointer;Box \
+     boxes[2];sizeof(Box);sizeof(Choice);sizeof(parameter);sizeof(automatic);sizeof(stored);sizeof(module_box);sizeof(automatic.inherited);sizeof(automatic.nested.leaf);sizeof(automatic.values);sizeof(automatic.pointer);sizeof(automatic.callback);sizeof(automatic.nested*);sizeof(automatic.missing);sizeof(box_pointer.head);sizeof(boxes);return \
+     0;}"
+  in
+  let expected =
+    [
+      Some 32L;
+      Some 8L;
+      Some 32L;
+      Some 32L;
+      Some 8L;
+      Some 32L;
+      Some 1L;
+      Some 2L;
+      Some 12L;
+      Some 8L;
+      Some 8L;
+      Some 8L;
+      None;
+      None;
+      None;
+    ]
+  in
+  let lookup_fact member =
+    member |> Semantic_function_call_resolution.sizeof_member_lookup
+    |> Option.map (fun lookup ->
+        let indexed = Semantic_aggregate_member_index.lookup_member lookup in
+        let layout = Semantic_aggregate_member_index.member_layout indexed in
+        Printf.sprintf "%s:%s:%d:%s:%Ld"
+          (lookup |> Semantic_aggregate_member_index.lookup_queried_aggregate
+         |> Semantic_symbol.name)
+          (lookup |> Semantic_aggregate_member_index.lookup_declaring_aggregate
+         |> Semantic_symbol.name)
+          (Semantic_aggregate_member_index.lookup_inheritance_depth lookup)
+          (indexed |> Semantic_aggregate_member_index.member_symbol
+         |> Semantic_symbol.name)
+          layout.size)
+  in
+  let member_lookup_facts sizeof =
+    sizeof |> Semantic_function_call_resolution.sizeof_members
+    |> List.map lookup_fact
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-aggregate-sizeof.HC" source
+      in
+      let members = aggregate_member_index prepared in
+      let terms =
+        resolve ~members prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> sizeof_expressions)
+      in
+      Alcotest.(check (list (option int64)))
+        "aggregate and member sizes follow completed layouts" expected
+        (List.map
+           (fun (_, sizeof) ->
+             Semantic_function_call_resolution.sizeof_known_value sizeof)
+           terms);
+      let sizeof index = List.nth terms index |> snd in
+      Alcotest.(check (option int64))
+        "direct aggregate retains its completed size" (Some 32L)
+        (sizeof 0
+       |> Semantic_function_call_resolution.sizeof_target_aggregate_size);
+      Alcotest.(check (list (option string)))
+        "inherited lookup retains its queried and declaring aggregate"
+        [ Some "Box:Base:1:inherited:1" ]
+        (sizeof 6 |> member_lookup_facts);
+      Alcotest.(check (list (option string)))
+        "nested lookup retains every checked segment"
+        [ Some "Box:Box:0:nested:2"; Some "Nested:Nested:0:leaf:2" ]
+        (sizeof 7 |> member_lookup_facts);
+      Alcotest.(check (list (option string)))
+        "array lookup retains its total member extent"
+        [ Some "Box:Box:0:values:12" ]
+        (sizeof 8 |> member_lookup_facts);
+      Alcotest.(check (list (option string)))
+        "missing and pointer-traversed members remain unresolved" [ None; None ]
+        [
+          sizeof 12 |> member_lookup_facts |> List.hd;
+          sizeof 13 |> member_lookup_facts |> List.hd;
+        ];
+      Alcotest.(check (option int64))
+        "root arrays do not claim an evaluated aggregate extent" None
+        (sizeof 14
+       |> Semantic_function_call_resolution.sizeof_target_aggregate_size);
+      let root = sizeof 3 in
+      let bound_target =
+        Semantic_function_call_resolution.make_identifier_value
+          ~resolved_type:
+            (root |> Semantic_function_call_resolution.sizeof_target_type
+           |> Option.get)
+          ~shape:Semantic_function_call_resolution.Object_value ~array_rank:0 ()
+        |> checked
+      in
+      let make_checked_member ~name lookup =
+        Semantic_function_call_resolution.make_sizeof_member
+          ~lookup:(Some lookup)
+          ~dot_origin:(Semantic_symbol.Synthesized "sizeof member dot") ~name
+          ~name_origin:(Semantic_symbol.Synthesized "sizeof member name")
+          ~origin:(Semantic_symbol.Synthesized "sizeof member")
+        |> checked
+      in
+      let make_with_member member =
+        Semantic_function_call_resolution.make_sizeof_argument_expression
+          ~keyword_spelling:"sizeof"
+          ~keyword_origin:(Semantic_symbol.Synthesized "sizeof keyword")
+          ~opening_origins:[]
+          ~target_spelling:
+            (Semantic_function_call_resolution.sizeof_target_spelling root)
+          ~target_origin:
+            (Semantic_function_call_resolution.sizeof_target_origin root)
+          ~members:[ member ] ~pointer_layers:[] ~closing_origins:[]
+          ~root_resolution:
+            (Semantic_function_call_resolution.sizeof_root_resolution root)
+          ~bound_aggregate_size:
+            (Semantic_function_call_resolution.sizeof_target_aggregate_size root)
+          ~bound_target:(Some bound_target)
+      in
+      let expect_chain_rejection label = function
+        | Ok _ -> Alcotest.failf "%s: expected rejection" label
+        | Error actual ->
+            Alcotest.(check string)
+              label "sizeof member lookup chain does not match its bound target"
+              actual
+      in
+      let inherited_lookup =
+        sizeof 6 |> Semantic_function_call_resolution.sizeof_members |> List.hd
+        |> Semantic_function_call_resolution.sizeof_member_lookup |> Option.get
+      in
+      expect_chain_rejection "member spelling mismatch"
+        (make_with_member (make_checked_member ~name:"other" inherited_lookup));
+      let nested_leaf_lookup =
+        sizeof 7 |> Semantic_function_call_resolution.sizeof_members
+        |> fun members ->
+        List.nth_opt members 1 |> Option.get
+        |> Semantic_function_call_resolution.sizeof_member_lookup |> Option.get
+      in
+      expect_chain_rejection "queried aggregate mismatch"
+        (make_with_member (make_checked_member ~name:"leaf" nested_leaf_lookup));
+      let foreign =
+        prepare ~mode ~path:"function-foreign-aggregate-sizeof.HC" source
+      in
+      let foreign_lookup =
+        resolve ~members:(aggregate_member_index foreign) foreign |> checked
+        |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> sizeof_expressions)
+        |> fun terms ->
+        List.nth terms 6 |> snd
+        |> Semantic_function_call_resolution.sizeof_members |> List.hd
+        |> Semantic_function_call_resolution.sizeof_member_lookup |> Option.get
+      in
+      expect_chain_rejection "foreign aggregate lookup"
+        (make_with_member
+           (make_checked_member ~name:"inherited" foreign_lookup));
+      let without_members =
+        resolve prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> sizeof_expressions)
+      in
+      Alcotest.(check (list (option int64)))
+        "aggregate values require completed member-index evidence"
+        (List.init (List.length expected) (Fun.const None))
+        (List.map
+           (fun (_, sizeof) ->
+             Semantic_function_call_resolution.sizeof_known_value sizeof)
+           without_members);
+      Alcotest.(check bool)
+        "missing member indexes publish no aggregate or member evidence" true
+        (List.for_all
+           (fun (_, sizeof) ->
+             Option.is_none
+               (Semantic_function_call_resolution.sizeof_target_aggregate_size
+                  sizeof)
+             && List.for_all Option.is_none (member_lookup_facts sizeof))
+           without_members);
+      let later =
+        prepare ~mode ~path:"function-later-aggregate-sizeof.HC"
+          "extern class Later;I64 Caller(){sizeof(Later);return 0;}class \
+           Later{I64 value;};"
+      in
+      let later_sizeof =
+        resolve ~members:(aggregate_member_index later) later |> checked
+        |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> sizeof_expressions)
+        |> List.hd |> snd
+      in
+      Alcotest.(check (option int64))
+        "a later aggregate completion is not visible to sizeof" None
+        (Semantic_function_call_resolution.sizeof_known_value later_sizeof);
+      Alcotest.(check (option int64))
+        "a later aggregate completion publishes no early size evidence" None
+        (Semantic_function_call_resolution.sizeof_target_aggregate_size
+           later_sizeof))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let typed_outer_global_sizeof_uses_retained_metadata () =
   List.iter
     (fun mode ->
@@ -2023,7 +2275,7 @@ let sizeof_constructors_validate_source_and_query_evidence () =
   in
   let source_origin = Semantic_symbol.Synthesized "sizeof source token" in
   let member =
-    make_sizeof_member ~dot_origin:source_origin ~name:"field"
+    make_sizeof_member ~lookup:None ~dot_origin:source_origin ~name:"field"
       ~name_origin:source_origin ~origin:source_origin
     |> checked
   in
@@ -2035,12 +2287,13 @@ let sizeof_constructors_validate_source_and_query_evidence () =
       ?(closing_origins = [ source_origin ]) ?(members = [ member ])
       ?(pointer_layers = [ pointer ]) ?(target_spelling = "local")
       ?(target_origin = target_origin) ?(bound_target = None)
+      ?(bound_aggregate_size = None)
       ?(root_resolution = Sizeof_function_query (Module_query sizeof_query)) ()
       =
     make_sizeof_argument_expression ~keyword_spelling:"sizeof"
       ~keyword_origin:source_origin ~opening_origins ~target_spelling
       ~target_origin ~members ~pointer_layers ~closing_origins ~root_resolution
-      ~bound_target
+      ~bound_aggregate_size ~bound_target
   in
   (match make () |> checked with
   | Sizeof_expression sizeof ->
@@ -2113,9 +2366,9 @@ let sizeof_constructors_validate_source_and_query_evidence () =
          (Semantic_module_expression_binding.query_origin unbound_query)
        ~members:[] ~pointer_layers:[] ~closing_origins:[]
        ~root_resolution:(Sizeof_function_query (Module_query unbound_query))
-       ~bound_target:(Some bound_target));
+       ~bound_aggregate_size:None ~bound_target:(Some bound_target));
   expect_error "empty member name" "sizeof member name cannot be empty"
-    (make_sizeof_member ~dot_origin:source_origin ~name:""
+    (make_sizeof_member ~lookup:None ~dot_origin:source_origin ~name:""
        ~name_origin:source_origin ~origin:source_origin);
   expect_error "zero pointer depth" "sizeof pointer depth must be positive"
     (make_sizeof_pointer_layer ~depth:0 ~spelling:"*" ~origin:source_origin)
@@ -2157,7 +2410,7 @@ let sizeof_query_must_belong_to_its_function () =
       ~root_resolution:
         (Semantic_function_call_resolution.Sizeof_function_query
            (Semantic_function_call_resolution.Module_query foreign_query))
-      ~bound_target:None
+      ~bound_aggregate_size:None ~bound_target:None
     |> checked
   in
   let expression =
@@ -3013,6 +3266,8 @@ let tests =
       primitive_sizeof_values_follow_checked_queries;
     Alcotest.test_case "bound scalar sizeof values" `Quick
       bound_scalar_sizeof_values_follow_checked_types;
+    Alcotest.test_case "aggregate sizeof values" `Quick
+      aggregate_sizeof_values_follow_completed_layouts;
     Alcotest.test_case "typed outer global sizeof" `Quick
       typed_outer_global_sizeof_uses_retained_metadata;
     Alcotest.test_case "sizeof generated provenance and purity" `Quick

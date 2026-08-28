@@ -54,6 +54,7 @@ type sizeof_member = {
   sizeof_member_name_ : string;
   sizeof_member_name_origin_ : Symbol.origin;
   sizeof_member_origin_ : Symbol.origin;
+  sizeof_member_lookup_ : Aggregate_member_index.lookup option;
 }
 
 type sizeof_pointer_layer = {
@@ -73,6 +74,7 @@ type sizeof_expression = {
   sizeof_closing_origins_ : Symbol.origin list;
   sizeof_root_resolution_ : sizeof_root_resolution;
   sizeof_bound_target_ : identifier_value option;
+  sizeof_bound_aggregate_size_ : int64 option;
   sizeof_primitive_ : Primitive_type.t option;
   sizeof_known_value_ : int64 option;
   sizeof_uses_pointer_size_ : bool;
@@ -841,7 +843,7 @@ let make_member_argument_expression ~base ~access_kind ~operator_origin
            member_origin;
          })
 
-let make_sizeof_member ~dot_origin ~name ~name_origin ~origin =
+let make_sizeof_member ~lookup ~dot_origin ~name ~name_origin ~origin =
   if not (valid_origin dot_origin) then
     Error "sizeof member has an invalid dot origin"
   else if String.equal name "" then Error "sizeof member name cannot be empty"
@@ -856,6 +858,7 @@ let make_sizeof_member ~dot_origin ~name ~name_origin ~origin =
         sizeof_member_name_ = name;
         sizeof_member_name_origin_ = name_origin;
         sizeof_member_origin_ = origin;
+        sizeof_member_lookup_ = lookup;
       }
 
 let make_sizeof_pointer_layer ~depth ~spelling ~origin =
@@ -897,30 +900,83 @@ let sizeof_root_is_unbound = function
       | Top_level_outer_expression_binding.Query_undefined -> true
       | Top_level_outer_expression_binding.Query_binding _ -> false)
 
-let sizeof_bound_value target ~members ~pointer_layers =
-  if members <> [] || target.identifier_value_array_rank_ <> 0 then
-    (None, None, false)
+let same_sizeof_symbol left right =
+  left == right && Symbol.Id.equal (Symbol.id left) (Symbol.id right)
+
+let sizeof_member_chain_matches target members =
+  let rec loop current_type unresolved = function
+    | [] -> true
+    | member :: rest -> (
+        match member.sizeof_member_lookup_ with
+        | None -> loop None true rest
+        | Some _ when unresolved -> false
+        | Some lookup -> (
+            match current_type with
+            | None -> false
+            | Some current_type -> (
+                let indexed = Aggregate_member_index.lookup_member lookup in
+                let expected_name =
+                  indexed |> Aggregate_member_index.member_symbol |> Symbol.name
+                in
+                Type.pointer_depth current_type = 0
+                && String.equal member.sizeof_member_name_ expected_name
+                &&
+                match Type.base current_type with
+                | Type.Primitive _ -> false
+                | Type.Aggregate aggregate ->
+                    same_sizeof_symbol aggregate
+                      (Aggregate_member_index.lookup_queried_aggregate lookup)
+                    && loop
+                         (Some (Aggregate_member_index.member_type indexed))
+                         false rest)))
+  in
+  loop (Option.map identifier_value_type target) false members
+
+let sizeof_final_member_size members =
+  match List.rev members with
+  | [] -> None
+  | member :: _ ->
+      Option.map
+        (fun lookup ->
+          lookup |> Aggregate_member_index.lookup_member
+          |> Aggregate_member_index.member_layout
+          |> fun layout -> layout.size)
+        member.sizeof_member_lookup_
+
+let sizeof_bound_root_value target bound_aggregate_size =
+  if target.identifier_value_array_rank_ <> 0 then (None, false)
   else
     match target.identifier_value_shape_ with
-    | Array_value | Direct_function_value -> (None, None, false)
+    | Array_value | Direct_function_value -> (None, false)
     | Function_pointer_value ->
-        (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
+        (Some (Int64.of_int Primitive_type.pointer_byte_size), true)
     | Object_value -> (
         let type_ = target.identifier_value_type_ in
-        if pointer_layers <> [] || Type.pointer_depth type_ > 0 then
-          (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
+        if Type.pointer_depth type_ > 0 then
+          (Some (Int64.of_int Primitive_type.pointer_byte_size), true)
         else
           match Type.base type_ with
           | Type.Primitive (_, primitive) ->
-              ( None,
-                Some (Int64.of_int (Primitive_type.info primitive).byte_size),
+              ( Some (Int64.of_int (Primitive_type.info primitive).byte_size),
                 false )
-          | Type.Aggregate _ -> (None, None, false))
+          | Type.Aggregate _ -> (bound_aggregate_size, false))
+
+let sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers =
+  let value, uses_pointer_size =
+    match members with
+    | [] -> sizeof_bound_root_value target bound_aggregate_size
+    | _ -> (sizeof_final_member_size members, false)
+  in
+  match value with
+  | Some _ when pointer_layers <> [] ->
+      (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
+  | _ -> (None, value, uses_pointer_size)
 
 let sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
-    ~bound_target =
+    ~bound_target ~bound_aggregate_size =
   match bound_target with
-  | Some target -> sizeof_bound_value target ~members ~pointer_layers
+  | Some target ->
+      sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers
   | None when members <> [] || not (sizeof_root_is_unbound root_resolution) ->
       (None, None, false)
   | None -> (
@@ -936,7 +992,7 @@ let sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
 
 let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
-    ~closing_origins ~root_resolution ~bound_target =
+    ~closing_origins ~root_resolution ~bound_aggregate_size ~bound_target =
   let all_valid = List.for_all valid_origin in
   if String.equal keyword_spelling "" then
     Error "sizeof keyword spelling cannot be empty"
@@ -970,6 +1026,27 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
          pointer_layers
       |> List.for_all Fun.id)
   then Error "sizeof pointer layers are not contiguous"
+  else if
+    match bound_aggregate_size with
+    | Some size -> Int64.compare size 0L < 0
+    | None -> false
+  then Error "sizeof aggregate size cannot be negative"
+  else if
+    Option.is_some bound_aggregate_size
+    &&
+    match bound_target with
+    | None -> true
+    | Some target -> (
+        target.identifier_value_array_rank_ <> 0
+        || target.identifier_value_shape_ <> Object_value
+        || Type.pointer_depth target.identifier_value_type_ <> 0
+        ||
+        match Type.base target.identifier_value_type_ with
+        | Type.Primitive _ -> true
+        | Type.Aggregate _ -> false)
+  then Error "sizeof aggregate size does not match its bound target"
+  else if not (sizeof_member_chain_matches bound_target members) then
+    Error "sizeof member lookup chain does not match its bound target"
   else
     let role, name, origin =
       match root_resolution with
@@ -991,7 +1068,7 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     else
       let sizeof_primitive_, sizeof_known_value_, sizeof_uses_pointer_size_ =
         sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
-          ~bound_target
+          ~bound_target ~bound_aggregate_size
       in
       Ok
         (Sizeof_expression
@@ -1006,6 +1083,7 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
              sizeof_closing_origins_ = closing_origins;
              sizeof_root_resolution_ = root_resolution;
              sizeof_bound_target_ = bound_target;
+             sizeof_bound_aggregate_size_ = bound_aggregate_size;
              sizeof_primitive_;
              sizeof_known_value_;
              sizeof_uses_pointer_size_;
@@ -1222,6 +1300,9 @@ let sizeof_target_shape expression =
 let sizeof_target_array_rank expression =
   Option.map identifier_value_array_rank expression.sizeof_bound_target_
 
+let sizeof_target_aggregate_size expression =
+  expression.sizeof_bound_aggregate_size_
+
 let sizeof_primitive expression = expression.sizeof_primitive_
 let sizeof_known_value expression = expression.sizeof_known_value_
 let sizeof_uses_pointer_size expression = expression.sizeof_uses_pointer_size_
@@ -1229,6 +1310,7 @@ let sizeof_member_dot_origin member = member.sizeof_member_dot_origin_
 let sizeof_member_name member = member.sizeof_member_name_
 let sizeof_member_name_origin member = member.sizeof_member_name_origin_
 let sizeof_member_origin member = member.sizeof_member_origin_
+let sizeof_member_lookup member = member.sizeof_member_lookup_
 let sizeof_pointer_depth layer = layer.sizeof_pointer_depth_
 let sizeof_pointer_spelling layer = layer.sizeof_pointer_spelling_
 let sizeof_pointer_origin layer = layer.sizeof_pointer_origin_

@@ -177,6 +177,7 @@ val make_member_argument_expression :
   (argument_expression_kind, string) result
 
 val make_sizeof_member :
+  lookup:Aggregate_member_index.lookup option ->
   dot_origin:Symbol.origin ->
   name:string ->
   name_origin:Symbol.origin ->
@@ -199,12 +200,13 @@ val make_sizeof_argument_expression :
   pointer_layers:sizeof_pointer_layer list ->
   closing_origins:Symbol.origin list ->
   root_resolution:sizeof_root_resolution ->
+  bound_aggregate_size:int64 option ->
   bound_target:identifier_value option ->
   (argument_expression_kind, string) result
 (** Retain the complete source-owned input to ordinary HolyC [sizeof]. After
     checking root-query identity, the constructor records an unbound public
-    primitive or a checked scalar binding. Aggregate members, arrays, by-value
-    aggregates, and direct function extents remain unresolved. *)
+    primitive, a checked scalar binding, or completed aggregate layout evidence.
+    Root arrays and direct function extents remain unresolved. *)
 
 val make_defined_argument_expression :
   operand_kind:defined_operand_kind ->
@@ -546,6 +548,7 @@ val sizeof_root_resolution : sizeof_expression -> sizeof_root_resolution
 val sizeof_target_type : sizeof_expression -> Type.t option
 val sizeof_target_shape : sizeof_expression -> identifier_value_shape option
 val sizeof_target_array_rank : sizeof_expression -> int option
+val sizeof_target_aggregate_size : sizeof_expression -> int64 option
 val sizeof_primitive : sizeof_expression -> Primitive_type.t option
 val sizeof_known_value : sizeof_expression -> int64 option
 val sizeof_uses_pointer_size : sizeof_expression -> bool
@@ -553,6 +556,7 @@ val sizeof_member_dot_origin : sizeof_member -> Symbol.origin
 val sizeof_member_name : sizeof_member -> string
 val sizeof_member_name_origin : sizeof_member -> Symbol.origin
 val sizeof_member_origin : sizeof_member -> Symbol.origin
+val sizeof_member_lookup : sizeof_member -> Aggregate_member_index.lookup option
 val sizeof_pointer_depth : sizeof_pointer_layer -> int
 val sizeof_pointer_spelling : sizeof_pointer_layer -> string
 val sizeof_pointer_origin : sizeof_pointer_layer -> Symbol.origin
