@@ -144,6 +144,19 @@ let has_completed_offset_path result =
   | Some path -> Semantic_result.aggregate_offset_segments path <> []
   | None -> false
 
+let rec completed_offset_result result =
+  if has_completed_offset_path result then Some result
+  else
+    match Semantic_result.result_operand result with
+    | Some operand -> completed_offset_result operand
+    | None -> (
+        match Semantic_result.result_binary_operands result with
+        | Some (left, right) -> (
+            match completed_offset_result left with
+            | Some _ as found -> found
+            | None -> completed_offset_result right)
+        | None -> None)
+
 let top_level_offset_results ~mode ~path source =
   let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
   let _, _, _, results = Test_top_level_expression_result.analyze prepared in
@@ -441,7 +454,62 @@ let aggregate_offsets_lower_in_both_modes () =
        = Some (Sequence.Integer 3L));
       Alcotest.(check int)
         "top-level grouping leaves only the binary result" 62
-        (Expression.result_value top_level |> Sequence.Value_id.to_int))
+        (Expression.result_value top_level |> Sequence.Value_id.to_int);
+      let function_offsets =
+        function_roots ~mode ~path:"ir-function-aggregate-offsets.HC"
+          "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class \
+           Box : Base {I16 prefix;Inner inner;};extern I64 Target(I64 \
+           direct,I64 nested,I64 inherited,I64 composed);I64 Caller(){return \
+           Target(0+Box.prefix,((0+Box.inner.value)),0+Box.inherited,1+Box.prefix);}"
+        |> List.map (fun root ->
+            completed_offset_result root |> Option.value ~default:root)
+      in
+      Alcotest.(check int)
+        "four function-body offset paths" 4
+        (List.length function_offsets);
+      Alcotest.(check (list int64))
+        "function-body offsets retain direct, nested, and inherited values"
+        [ 1L; 4L; 0L; 1L ]
+        (List.map
+           (fun result ->
+             result |> Semantic_result.result_aggregate_offset_path
+             |> Option.get |> Semantic_result.aggregate_offset_value)
+           function_offsets);
+      List.iter
+        (fun result ->
+          let expected =
+            result |> Semantic_result.result_aggregate_offset_path |> Option.get
+            |> Semantic_result.aggregate_offset_value
+          in
+          let lowered = lower result |> require_lowered in
+          let item = descriptions lowered |> List.hd in
+          Alcotest.(check (list string))
+            "function offset lowers to one immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "function offset keeps its final byte value" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "function offset target is internal I64" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check (list int))
+            "function offset has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int64) "function offset flags" 0L item.flags;
+          Alcotest.(check bool)
+            "function offset keeps its exact span" true
+            (item.span = Some (source_span result));
+          Alcotest.(check int)
+            "function offset result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "function offset consumes one instruction" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "function offset consumes one value" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        function_offsets)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let aggregate_offsets_compose_with_mixed_f64 () =
@@ -464,7 +532,26 @@ let aggregate_offsets_compose_with_mixed_f64 () =
       Alcotest.(check (list int64))
         "mixed arithmetic marks only the offset producer"
         [ 0L; result_to_f64; 0L ]
-        (instruction_flags lowered))
+        (instruction_flags lowered);
+      let function_root =
+        function_roots ~mode ~path:"ir-function-aggregate-offset-f64.HC"
+          "class Box {I8 head;I16 prefix;};extern I64 Target(F64 value);I64 \
+           Caller(){return Target(2.0+Box.prefix);}"
+        |> List.hd
+      in
+      let function_lowered = lower function_root |> require_lowered in
+      Alcotest.(check (list string))
+        "function offset composes with F64 in source order"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_ADD" ]
+        (opcode_names function_lowered);
+      Alcotest.(check bool)
+        "function offset retains its byte value" true
+        ((List.nth (descriptions function_lowered) 1).payload
+       = Some (Sequence.Integer 1L));
+      Alcotest.(check (list int64))
+        "function mixed arithmetic marks only the offset producer"
+        [ 0L; result_to_f64; 0L ]
+        (instruction_flags function_lowered))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let aggregate_offset_dump_and_unsupported_members_are_deterministic () =
@@ -493,10 +580,21 @@ let aggregate_offset_dump_and_unsupported_members_are_deterministic () =
           "class Box {I64 value;};Box object;object.value;"
         |> List.hd
       in
-      match lower ordinary_member with
+      (match lower ordinary_member with
       | Expression.Unsupported_expression -> ()
       | Expression.Lowered _ ->
-          Alcotest.fail "ordinary object member returned partial offset IR")
+          Alcotest.fail "ordinary object member returned partial offset IR");
+      let function_member =
+        function_roots ~mode ~path:"ir-unsupported-function-object-member.HC"
+          "class Box {I64 value;};extern I64 Target(I64 value);I64 \
+           Caller(){Box object;return Target(object.value);}"
+        |> List.hd
+      in
+      match lower function_member with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail
+            "ordinary function object member returned partial offset IR")
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let accepted_operators_lower_in_both_modes () =

@@ -9,17 +9,17 @@ val lower_typed_result :
   Sema.Function_call_expression_result.expression_result ->
   (lowering_result, Instruction_sequence.error list) result
 (** Lower an integer, character, [F64], ordinary current-position, completed
-    executable top-level aggregate offset, or source-local [defined] semantic
-    expression tree. A known [defined] result emits an internal [I64]
-    [IC_IMM_I64] with the complete expression span; unresolved nonlocal names
-    remain unsupported. [$$] emits a checked zero-operand [IC_RIP] address
-    producer, while concrete address selection remains backend work. Integer
-    trees accept the checked integer binary operations; pure [F64] trees and
-    mixed integer/[F64] trees accept multiplication, division, addition,
-    subtraction, and the six comparisons. A mixed edge marks the retained
-    integer producer with [ICF_RES_TO_F64] without folding its payload. Floating
-    comparisons also carry [ICF_USE_F64] while retaining the checked internal
-    [I64] result. A completed aggregate offset emits an internal [I64]
+    function-body or executable top-level aggregate offset, or source-local
+    [defined] semantic expression tree. A known [defined] result emits an
+    internal [I64] [IC_IMM_I64] with the complete expression span; unresolved
+    nonlocal names remain unsupported. [$$] emits a checked zero-operand
+    [IC_RIP] address producer, while concrete address selection remains backend
+    work. Integer trees accept the checked integer binary operations; pure [F64]
+    trees and mixed integer/[F64] trees accept multiplication, division,
+    addition, subtraction, and the six comparisons. A mixed edge marks the
+    retained integer producer with [ICF_RES_TO_F64] without folding its payload.
+    Floating comparisons also carry [ICF_USE_F64] while retaining the checked
+    internal [I64] result. A completed aggregate offset emits an internal [I64]
     [IC_IMM_I64] from its retained final cumulative byte offset without
     repeating member lookup or layout. HolyC power accepts every checked
     integer/[F64] operand pair, marks each integer producer with
