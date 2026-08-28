@@ -7739,8 +7739,45 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_function_expression_result_tests = 2
 focused_top_level_expression_result_tests = 2
-local_and_global_object_roots_ir_lowering_runtime_addresses_interpretation_and_execution = "not implemented"
+local_and_global_object_roots_runtime_addresses_interpretation_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf, KW_OFFSET, and MemberFind directly define the retained form and lookup arithmetic"
+
+[[feature]]
+id = "HC-IR-STANDALONE-OFFSET-LOWERING"
+description = "Checked standalone offset expressions lower through the canonical expression planner to one internal-I64 immediate."
+sources = [
+  "Compiler/PrsExp.HC:353-381 PrsOffsetOf path accumulation and IC_IMM_I64 result",
+  "Compiler/PrsExp.HC:923-935 KW_OFFSET wrappers and term dispatch",
+  "Compiler/PrsLib.HC:79-97 ICAdd data, type, source, flags, and insertion order",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/ir/expression_statement_lowering.ml"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 522
+ir_epic = 396
+semantic_dependency = 520
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked standalone offset expressions rooted at completed source-visible aggregate publications in function bodies and executable top-level statements"
+semantic_requirements = ["exact source refinement", "zero-depth internal I64 type", "integer result class", "offset value category", "array rank zero", "nonempty resolved member path"]
+consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
+instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact standalone expression span, zero flags, and consecutive identities"
+composition = ["transparent wrappers", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata"]
+excluded_behavior = ["member lookup", "layout arithmetic", "local or global object-root offset resolution", "runtime object address calculation", "interpretation", "optimization", "execution"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_expression_lowering_cases = 1
+focused_expression_statement_cases = 1
+native_oracle_status = "not required for this source-stated IR boundary; PrsOffsetOf, KW_OFFSET, ICAdd, and the IC_IMM_I64 registry directly define the claimed source, value, type, and instruction shape"
 
 [[feature]]
 id = "HC-IR-FUNCTION-AGGREGATE-OFFSET-LOWERING"
@@ -7770,7 +7807,7 @@ semantic_requirements = ["exact source location", "zero-depth internal I64 type"
 consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
 instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact expression span, zero flags, and consecutive identities"
 composition = ["transparent grouping", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
-unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "standalone offset parser expression"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata"]
 excluded_behavior = ["member lookup", "layout arithmetic", "runtime object address calculation", "interpretation", "optimization", "execution"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
@@ -7928,7 +7965,7 @@ semantic_requirements = ["exact source location", "zero-depth internal I64 type"
 consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
 instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact expression span, zero flags, and consecutive identities"
 composition = ["transparent grouping", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
-unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "standalone offset parser expression"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata"]
 excluded_behavior = ["member lookup", "layout arithmetic", "runtime object address calculation", "interpretation", "optimization", "execution"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]

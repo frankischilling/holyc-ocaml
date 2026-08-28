@@ -7,6 +7,7 @@ module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Preprocessor = Holyc_lib.Preprocessor
 module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
+module Semantic_source = Holyc_lib.Semantic_function_call_resolution
 module Semantic_symbol = Holyc_lib.Semantic_symbol
 
 let require_ok show = function
@@ -164,6 +165,23 @@ let rec completed_offset_result result =
             | Some _ as found -> found
             | None -> completed_offset_result right)
         | None -> None)
+
+let rec standalone_offset_result result =
+  match
+    result |> Semantic_result.result_source
+    |> Semantic_source.argument_expression_kind
+  with
+  | Semantic_source.Standalone_offset_expression _ -> Some result
+  | _ -> (
+      match Semantic_result.result_operand result with
+      | Some operand -> standalone_offset_result operand
+      | None -> (
+          match Semantic_result.result_binary_operands result with
+          | Some (left, right) -> (
+              match standalone_offset_result left with
+              | Some _ as found -> found
+              | None -> standalone_offset_result right)
+          | None -> None))
 
 let top_level_offset_results ~mode ~path source =
   let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
@@ -605,6 +623,116 @@ let aggregate_offset_dump_and_unsupported_members_are_deterministic () =
           Alcotest.fail
             "ordinary function object member returned partial offset IR")
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let standalone_offsets_lower_from_retained_paths () =
+  let check_owner owner roots =
+    Alcotest.(check int) (owner ^ " root count") 4 (List.length roots);
+    List.iter2
+      (fun root (expected_value, expected_opcodes, offset_index) ->
+        let offset =
+          standalone_offset_result root |> Option.value ~default:root
+        in
+        let lowered = lower ~instruction:30 ~value:50 root |> require_lowered in
+        let item = List.nth (descriptions lowered) offset_index in
+        Alcotest.(check (list string))
+          (owner ^ " standalone offset instruction order")
+          expected_opcodes (opcode_names lowered);
+        Alcotest.(check bool)
+          (owner ^ " standalone offset payload")
+          true
+          (item.payload = Some (Sequence.Integer expected_value));
+        Alcotest.(check bool)
+          (owner ^ " standalone offset internal I64")
+          true
+          (internal_i64_type item.target_type);
+        Alcotest.(check (list int))
+          (owner ^ " standalone offset operands")
+          []
+          (List.map Sequence.Value_id.to_int item.operands);
+        Alcotest.(check int64)
+          (owner ^ " standalone offset flags")
+          0L item.flags;
+        Alcotest.(check bool)
+          (owner ^ " standalone offset span")
+          true
+          (item.span = Some (source_span offset));
+        Alcotest.(check int)
+          (owner ^ " next instruction identity")
+          (30 + List.length expected_opcodes)
+          (Expression.next_instruction_id lowered
+          |> Sequence.Instruction_id.to_int);
+        Alcotest.(check int)
+          (owner ^ " next value identity")
+          (50 + List.length expected_opcodes)
+          (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+      roots
+      [
+        (1L, [ "IC_IMM_I64" ], 0);
+        (4L, [ "IC_IMM_I64" ], 0);
+        (0L, [ "IC_IMM_I64" ], 0);
+        (1L, [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD" ], 1);
+      ]
+  in
+  List.iter
+    (fun mode ->
+      let declarations =
+        "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class Box \
+         : Base {I16 prefix;Inner inner;};"
+      in
+      let top_level =
+        top_level_roots ~mode ~path:"ir-standalone-offsets.HC"
+          (declarations
+         ^ "offset(Box.prefix);((offset(((Box.inner.value)))));offset(Box.inherited);1+offset(Box.prefix);"
+          )
+      in
+      check_owner "top-level" top_level;
+      let function_ =
+        function_roots ~mode ~path:"ir-function-standalone-offsets.HC"
+          (declarations
+         ^ "extern I64 Target(I64 direct,I64 nested,I64 inherited,I64 \
+            composed);I64 Caller(){return \
+            Target(offset(Box.prefix),((offset(((Box.inner.value))))),offset(Box.inherited),1+offset(Box.prefix));}"
+          )
+      in
+      check_owner "function" function_;
+      let mixed =
+        top_level_roots ~mode ~path:"ir-standalone-offset-f64.HC"
+          (declarations ^ "2.0+offset(Box.prefix);")
+        |> List.hd |> lower |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "standalone offset composes with F64"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_ADD" ]
+        (opcode_names mixed);
+      Alcotest.(check (list int64))
+        "mixed standalone offset marks only its integer producer"
+        [ 0L; result_to_f64; 0L ] (instruction_flags mixed);
+      let function_mixed =
+        function_roots ~mode ~path:"ir-function-standalone-offset-f64.HC"
+          (declarations
+         ^ "extern F64 Target(F64 value);F64 Caller(){return \
+            Target(2.0+offset(Box.prefix));}")
+        |> List.hd |> lower |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "function standalone offset composes with F64"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_ADD" ]
+        (opcode_names function_mixed);
+      Alcotest.(check (list int64))
+        "function mixed standalone offset marks only its integer producer"
+        [ 0L; result_to_f64; 0L ]
+        (instruction_flags function_mixed))
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let replay_root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-standalone-offset-dump.HC"
+      "class Box {I8 head;I16 prefix;};offset(Box.prefix);"
+    |> List.hd
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 replay_root in
+  let dump = lower_once () |> require_lowered |> Expression.human in
+  Alcotest.(check string)
+    "standalone offset dump replays deterministically" dump
+    (lower_once () |> require_lowered |> Expression.human)
 
 let accepted_operators_lower_in_both_modes () =
   let expressions =
@@ -2982,6 +3110,12 @@ let exhausted_starting_ids_are_rejected () =
       "extern I64 Target(I64 value);I64 Caller(){return Target(1+2);}"
     |> List.hd
   in
+  let standalone_root =
+    top_level_roots ~mode:Preprocessor.Jit
+      ~path:"ir-standalone-offset-id-exhaustion.HC"
+      "class Box {I8 head;I16 value;};offset(Box.value);"
+    |> List.hd
+  in
   let check result =
     match result with
     | Error [ (error : Sequence.error) ] ->
@@ -2997,7 +3131,9 @@ let exhausted_starting_ids_are_rejected () =
     | Ok _ -> Alcotest.fail "expected identity exhaustion"
   in
   check (lower_result ~instruction:Int.max_int root);
-  check (lower_result ~value:Int.max_int root)
+  check (lower_result ~value:Int.max_int root);
+  check (lower_result ~instruction:Int.max_int standalone_root);
+  check (lower_result ~value:Int.max_int standalone_root)
 
 let excessive_address_depth_reports_checked_metadata () =
   let root =
@@ -3066,6 +3202,8 @@ let tests =
       aggregate_offsets_compose_with_mixed_f64;
     Alcotest.test_case "aggregate offset dump and unsupported members" `Quick
       aggregate_offset_dump_and_unsupported_members_are_deterministic;
+    Alcotest.test_case "standalone aggregate offset constants" `Quick
+      standalone_offsets_lower_from_retained_paths;
     Alcotest.test_case "typed string literals" `Quick
       string_literals_lower_in_both_modes;
     Alcotest.test_case "deterministic string dump" `Quick

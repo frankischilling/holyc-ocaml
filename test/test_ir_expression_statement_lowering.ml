@@ -386,6 +386,58 @@ let aggregate_offset_statements_use_the_checked_terminator () =
       check_terminator ~expected_span:function_span function_lowered)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let standalone_offset_statements_use_the_checked_terminator () =
+  List.iter
+    (fun mode ->
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-standalone-offset-end.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 \
+           prefix;};offset(Box.prefix);"
+        |> expression_statement_roots |> List.hd
+      in
+      let lowered =
+        lower_top_level top_level
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "top-level standalone offset uses one immediate and one terminator"
+        [ "IC_IMM_I64"; "IC_END_EXP" ]
+        (opcode_names lowered);
+      Alcotest.(check bool)
+        "top-level standalone statement keeps offset one" true
+        ((List.hd (descriptions lowered)).payload = Some (Sequence.Integer 1L));
+      let expected_span =
+        top_level |> Semantic_result.top_level_root_source
+        |> Top_level_source.root_origin |> span_of_origin
+      in
+      check_terminator ~expected_span lowered;
+      let function_statement =
+        function_statements ~mode ~path:"ir-function-standalone-offset-end.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 prefix;};I64 \
+           Caller(){offset(Box.prefix);return 0;}"
+        |> List.hd
+      in
+      let function_lowered =
+        lower_function function_statement
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "function standalone offset uses one immediate and one terminator"
+        [ "IC_IMM_I64"; "IC_END_EXP" ]
+        (opcode_names function_lowered);
+      Alcotest.(check bool)
+        "function standalone statement keeps offset one" true
+        ((List.hd (descriptions function_lowered)).payload
+       = Some (Sequence.Integer 1L));
+      let function_span =
+        function_statement |> Semantic_result.expression_statement_source
+        |> Semantic_source.expression_statement_origin |> span_of_origin
+      in
+      check_terminator ~expected_span:function_span function_lowered)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_statement_values_return_no_sequence () =
   List.iter
     (fun mode ->
@@ -470,6 +522,8 @@ let tests =
   [
     Alcotest.test_case "aggregate offset statement terminators" `Quick
       aggregate_offset_statements_use_the_checked_terminator;
+    Alcotest.test_case "standalone offset statement terminators" `Quick
+      standalone_offset_statements_use_the_checked_terminator;
     Alcotest.test_case "function expression terminators" `Quick
       function_statements_end_in_both_modes;
     Alcotest.test_case "top-level expression terminators" `Quick
