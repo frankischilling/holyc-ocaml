@@ -4829,6 +4829,41 @@ top_level_unrelated_computed_and_outer_calls_default_evaluation_payload_copying_
 native_oracle_status = "not required for this representation boundary; PrsFunCall and the checked parenthesis-free fixture already establish the shared slot semantics"
 
 [[feature]]
+id = "HC-SEMA-TOP-LEVEL-DIRECT-CALL-TARGETS"
+description = "Executable top-level direct calls join their exact source-visible declaration to its declaration-order call-access record."
+sources = [
+  "Compiler/PrsExp.HC:383-430 direct function selection and call setup",
+  "Compiler/PrsExp.HC:544-571 call-access branches",
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin executable top-level route",
+  "Compiler/PrsStmt.HC:PrsFunJoin function-record flag transitions",
+  "Doc/ScopingLinkage.DD source-visible publication and linkage rules"
+]
+implementation = [
+  "src/sema/top_level_function_call_target_classification.ml",
+  "src/sema/top_level_function_call_target_classification.mli",
+  "src/sema/function_call_expression_result.ml",
+  "src/sema/function_record_classification.ml"
+]
+tests = [
+  "test/test_top_level_function_call_target_classification.ml"
+]
+status = "implemented"
+issue = 542
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "typed direct calls in accepted executable top-level statements"
+join_rule = "match only the exact retained Function_resolution.resolved_declaration object in the supplied Function_record_classification"
+retained_facts = ["typed top-level call", "resolved declaration", "classified declaration", "classified record", "total call-access policy"]
+call_access = ["internal operation", "direct executable call", "JIT extern address-slot call", "AOT import call", "AOT extern call"]
+replacement_rule = "calls before and after a replacement header retain and select distinct declaration snapshots"
+diagnostics = ["HCSEMA0068 foreign or separately resolved top-level direct-call declaration"]
+validation = ["exact declaration ownership", "compilation-mode separation through resolution identity", "call-origin provenance"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+default_evaluation_callback_lowering_top_level_ir_iet_main_and_execution = "not implemented"
+native_oracle_status = "not required for this identity join; PrsFunCall reads linkage flags from the same selected function record"
+
+[[feature]]
 id = "HC-SEMA-TOP-LEVEL-GLOBAL-CALLBACKS"
 description = "Executable top-level calls through scalar global callbacks retain their stored signature and checked argument results."
 sources = [

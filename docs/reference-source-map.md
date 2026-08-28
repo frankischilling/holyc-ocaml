@@ -466,6 +466,8 @@ No semantic pass resolves named aggregate casts outside the documented function-
 
 Issue #528 consumes the exact direct-call declaration retained at `Compiler/PrsExp.HC:383-430` and joins it to the declaration snapshot whose flags select the branches at lines 555-571. `Sema.Function_call_target_classification` retains the typed call, resolved and classified declarations, classified record, and total access policy. Replacement headers stay source ordered in JIT and AOT mode; a foreign resolution receives `HCSEMA0067` rather than a name-based fallback. Internal-opcode decoding, argument and cleanup policy, address selection, and IC construction remain later work.
 
+Issue #542 applies that join to executable top-level direct calls. `Compiler/CMain.HC:CmpJoin` returns executable input to the same expression parser, so `Sema.Top_level_function_call_target_classification` consumes the exact declaration retained for each source-positioned module call and exposes the same five-way call-access policy. Replacement declarations remain distinct in JIT and AOT mode, while `HCSEMA0068` rejects evidence from a separate resolution. This boundary does not construct top-level ICs or `IET_MAIN`.
+
 ## Compiler option state
 
 `Kernel/KernelA.HH` assigns 12 compiler-option bit indices. They are not pre-shifted masks. Bits 0 and 1 control echo and trace behavior, bits 16 through 19 control warnings, and bits 32 through 37 affect linkage, symbol retention, allocation, optimization, and code emission. The ranges 2 through 15 and 20 through 31 are unused in the pinned definitions.
