@@ -85,6 +85,8 @@ These are checked semantic signature facts, not a calling-convention implementat
 
 `Sema.Function_record_classification` retains those raw domains separately and reports which source consumer would select an internal operation, direct call, JIT extern address slot, AOT import, or AOT extern. It also reports the cleanup predicate through the checked function-flag API. This is ABI input, not ABI implementation: no call sequence, stack layout, prologue, epilogue, register save, interrupt entry, or machine instruction is emitted.
 
+`Sema.Function_call_target_classification` joins a typed function-scope direct call to that exact declaration snapshot. Its immutable result carries the typed call, resolved and classified declarations, classified record, and total call-access policy. Exact object ownership prevents a separately resolved same-name function or different-mode batch from supplying linkage state. `HCSEMA0067` reports a mismatch at the call. The join remains ABI input only; it emits no argument, call, cleanup, or end instruction.
+
 ## Argument cleanup
 
 `PrsFunJoin` derives `Ff_RET1` when a function has at least one fixed argument, is not variadic, and its argument byte count fits the signed 16-bit immediate used by `RET`. With eight-byte argument slots, the accepted count is 1 through 4,095.

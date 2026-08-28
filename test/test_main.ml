@@ -77,6 +77,8 @@ let () =
       ("semantic global data-heap policy", Test_globals_on_data_heap.tests);
       ( "semantic function record classification",
         Test_function_record_classification.tests );
+      ( "semantic function call target classification",
+        Test_function_call_target_classification.tests );
       ("semantic global record resolution", Test_global_resolution.tests);
       ( "semantic global record classification",
         Test_global_record_classification.tests );
