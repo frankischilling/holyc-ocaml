@@ -7493,6 +7493,36 @@ block_placement_statement_body_lowering_fallthrough_loop_closure_optimization_in
 native_oracle_status = "not required for structural branch selection; the pinned statement parser and opcode table state the role mapping and instruction shape"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-CONDITION-BRANCH-FRAGMENTS"
+description = "Checked executable top-level conditions lower to canonical zero or nonzero branch fragments."
+sources = [
+  "Compiler/PrsStmt.HC:459-564 executable condition parsing and branch selection",
+  "Compiler/CInit.HC:153-154 one-argument, no-result branch metadata"
+]
+implementation = [
+  "src/ir/condition_lowering.ml",
+  "src/ir/condition_lowering.mli"
+]
+semantic_input = [
+  "src/sema/top_level_condition_result.ml",
+  "src/sema/top_level_condition_result.mli"
+]
+tests = ["test/test_ir_condition_lowering.ml"]
+status = "implemented"
+issue = 510
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "executable top-level if, while, do-while, and for conditions accepted by canonical expression lowering"
+branch_rule = "the retained Branch_on_zero sense selects IC_BR_ZERO; Branch_on_nonzero selects IC_BR_NOT_ZERO"
+instruction_shape = "append one one-operand, no-result branch with the final condition value, caller-owned block target, zero flags, and exact expression-root span"
+identity = "expression lowering owns its consecutive identities; the branch consumes the next instruction identity and no value identity"
+shared_boundary = "function-body and executable top-level conditions use the same checked branch constructor"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+block_placement_statement_body_lowering_fallthrough_loop_closure_top_level_entry_records_optimization_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for structural branch selection; the pinned statement parser, opcode table, and checked top-level view state the branch sense and instruction shape"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-AGGREGATE-OFFSET-PATHS"
 description = "Source-visible aggregate records produce checked PrsOffsetOf-shaped integer paths in function-body expressions."
 sources = [
