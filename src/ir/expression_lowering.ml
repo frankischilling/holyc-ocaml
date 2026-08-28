@@ -16,7 +16,7 @@ type t = {
 
 type lowering_result = Lowered of t | Unsupported_expression
 type checked_type = Checked_type of Type.t | Unsupported_type
-type result_conversion = Keep_result | Result_to_f64
+type result_conversion = Keep_result | Result_to_f64 | Result_to_int
 
 type checked_constant =
   | Deferred_constant
@@ -124,11 +124,13 @@ type allocator = { mutable instruction : int; mutable value : int }
 
 let reference_commit = Opcode.reference_commit
 let result_to_f64_flag = 0x000000001L
+let result_to_int_flag = 0x000000002L
 let use_f64_flag = 0x000000040L
 
 let conversion_flags = function
   | Keep_result -> 0L
   | Result_to_f64 -> result_to_f64_flag
+  | Result_to_int -> result_to_int_flag
 
 let result_span result =
   match Semantic_result.result_origin result with
@@ -238,6 +240,25 @@ let checked_numeric_type result =
   | Error _ as error -> error
   | Ok (Checked_type _) as checked -> checked
   | Ok Unsupported_type -> checked_f64_type result
+
+let requested_conversion result =
+  match Semantic_result.result_intrinsic_conversion result with
+  | Semantic_result.No_intrinsic_conversion -> Keep_result
+  | Semantic_result.Result_to_f64 -> Result_to_f64
+  | Semantic_result.Result_to_int -> Result_to_int
+
+let validate_conversion result = function
+  | Keep_result -> Ok true
+  | Result_to_f64 -> (
+      match checked_integer_type result with
+      | Error _ as error -> error
+      | Ok (Checked_type _) -> Ok true
+      | Ok Unsupported_type -> Ok false)
+  | Result_to_int -> (
+      match checked_f64_type result with
+      | Error _ as error -> error
+      | Ok (Checked_type _) -> Ok true
+      | Ok Unsupported_type -> Ok false)
 
 let checked_current_position result =
   let invalid ?span () =
@@ -814,10 +835,16 @@ let validate_binary result opcode left right =
   | Ok false -> Ok Unsupported_binary
 
 let plan root =
-  let pending = ref [ Visit { result = root; conversion = Keep_result } ] in
+  let root_conversion = requested_conversion root in
+  let pending = ref [] in
   let reversed = ref [] in
   let unsupported = ref false in
   let error = ref None in
+  (match validate_conversion root root_conversion with
+  | Error item -> error := Some item
+  | Ok false -> unsupported := true
+  | Ok true ->
+      pending := [ Visit { result = root; conversion = root_conversion } ]);
   while !pending <> [] && (not !unsupported) && Option.is_none !error do
     match !pending with
     | [] -> ()
@@ -841,7 +868,7 @@ let plan root =
                 | Error item -> error := Some item
                 | Ok Unsupported_type -> unsupported := true
                 | Ok (Checked_type _) ->
-                    if conversion = Keep_result then
+                    if conversion <> Result_to_f64 then
                       reversed := Literal { result; conversion } :: !reversed
                     else unsupported := true)
             | Semantic_source.String_literal _ -> (

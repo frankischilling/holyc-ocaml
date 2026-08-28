@@ -1786,7 +1786,7 @@ let top_level_indexed_outer_callback_arrays () =
             = Semantic_function_call_expression_result.Result_to_int)
       in
       Alcotest.(check int)
-        "every outer callback-array index converts to target integer" 9
+        "nine outer callback-array indexes and the fixed root convert" 10
         (List.length index_conversions);
       let all =
         Semantic_function_call_expression_result.top_level_all_results result
@@ -2048,7 +2048,7 @@ let top_level_indexed_global_callback_calls () =
             = Semantic_function_call_expression_result.Result_to_int)
       in
       Alcotest.(check int)
-        "every retained callback-array index converts to target integer" 9
+        "nine retained callback-array indexes and the fixed root convert" 10
         (List.length index_conversions);
       let all =
         Semantic_function_call_expression_result.top_level_all_results result

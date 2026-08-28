@@ -1037,6 +1037,15 @@ let result_class_of_target = function
   | Function_call_conversion_policy.Integer_result -> Integer_result
   | Function_call_conversion_policy.F64_result -> F64_result
 
+let conversion_to_target target_class result_class =
+  match (target_class, result_class) with
+  | Function_call_conversion_policy.F64_result, Integer_result -> Result_to_f64
+  | Function_call_conversion_policy.Integer_result, F64_result -> Result_to_int
+  | ( Function_call_conversion_policy.F64_result,
+      (F64_result | Unresolved_actual_class) )
+  | ( Function_call_conversion_policy.Integer_result,
+      (Integer_result | Unresolved_actual_class) ) -> No_intrinsic_conversion
+
 let resolve_member_lookup members ~before_item_index ~aggregate_symbol
     ~member_name ~member_origin =
   match Aggregate_member_index.find_aggregate members aggregate_symbol with
@@ -3029,16 +3038,25 @@ and type_top_level_bound_arguments table members policies ~before_item_index
                     ~context:Value_context state expression
                 with
                 | Error _ as error -> error
-                | Ok (value, state) ->
-                    let result =
-                      {
-                        top_level_fixed_source = fixed;
-                        top_level_fixed_target_class = target_class;
-                        top_level_fixed_path = Provided_result value;
-                        top_level_fixed_lastclass_substitution = None;
-                      }
+                | Ok (value, state) -> (
+                    let conversion =
+                      conversion_to_target
+                        (Function_call_conversion_policy.parameter_target_class
+                           policies ~before_item_index parameter)
+                        value.result_class
                     in
-                    type_fixed (Some value) state (result :: rev) rest)))
+                    match set_intrinsic_conversion state value conversion with
+                    | Error _ as error -> error
+                    | Ok (value, state) ->
+                        let result =
+                          {
+                            top_level_fixed_source = fixed;
+                            top_level_fixed_target_class = target_class;
+                            top_level_fixed_path = Provided_result value;
+                            top_level_fixed_lastclass_substitution = None;
+                          }
+                        in
+                        type_fixed (Some value) state (result :: rev) rest))))
   in
   let rec type_variadic state rev = function
     | [] -> Ok (List.rev rev, state)
@@ -3093,7 +3111,7 @@ let type_fixed table members policies ~before_item_index previous state source =
           },
           previous,
           state )
-  | ( Function_call_conversion_policy.Provided_expression _,
+  | ( Function_call_conversion_policy.Provided_expression target_class,
       Function_call_resolution.Provided_argument argument ) -> (
       match Function_call_resolution.argument_expression argument with
       | None ->
@@ -3104,15 +3122,21 @@ let type_fixed table members policies ~before_item_index previous state source =
               ~context:Value_context state expression
           with
           | Error _ as error -> error
-          | Ok (result, state) ->
-              Ok
-                ( {
-                    source;
-                    path = Provided_result result;
-                    lastclass_substitution = None;
-                  },
-                  Some result,
-                  state )))
+          | Ok (result, state) -> (
+              let conversion =
+                conversion_to_target target_class result.result_class
+              in
+              match set_intrinsic_conversion state result conversion with
+              | Error _ as error -> error
+              | Ok (result, state) ->
+                  Ok
+                    ( {
+                        source;
+                        path = Provided_result result;
+                        lastclass_substitution = None;
+                      },
+                      Some result,
+                      state ))))
   | ( Function_call_conversion_policy.Declared_default,
       Function_call_resolution.Provided_argument _ )
   | ( Function_call_conversion_policy.Provided_expression _,

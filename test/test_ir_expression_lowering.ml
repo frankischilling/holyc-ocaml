@@ -139,6 +139,14 @@ let top_level_roots ~mode ~path source =
   let _, _, _, results = Test_top_level_expression_result.analyze prepared in
   Test_top_level_expression_result.root_values results
 
+let top_level_converted_results ~mode ~path source =
+  let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  results |> Semantic_result.top_level_all_results
+  |> List.filter (fun result ->
+      Semantic_result.result_intrinsic_conversion result
+      <> Semantic_result.No_intrinsic_conversion)
+
 let has_completed_offset_path result =
   match Semantic_result.result_aggregate_offset_path result with
   | Some path -> Semantic_result.aggregate_offset_segments path <> []
@@ -189,6 +197,7 @@ let instruction_flags lowered =
   |> List.map (fun (description : Sequence.description) -> description.flags)
 
 let result_to_f64 = 0x000000001L
+let result_to_int = 0x000000002L
 let use_f64 = 0x000000040L
 
 let verify_x87 lowered =
@@ -1721,6 +1730,97 @@ let deep_f64_tree_uses_the_explicit_worklist () =
     (1_000 + instruction_count)
     (Expression.next_value_id lowered |> Sequence.Value_id.to_int)
 
+let fixed_parameter_conversions_mark_only_argument_roots () =
+  let source =
+    "extern I64 Target(F64 integer_value,I64 floating_value,F64 \
+     integer_tree,I64 floating_tree);I64 Caller(){return \
+     Target(1,2.0,+((3+4)),+((5.0+6.0)));}"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-fixed-parameter-conversions.HC" source
+      in
+      Alcotest.(check int) "four converted call arguments" 4 (List.length roots);
+      let lowered =
+        List.map (fun root -> lower root |> require_lowered) roots
+      in
+      Alcotest.(check (list (list string)))
+        "argument roots keep their checked producer shapes"
+        [
+          [ "IC_IMM_I64" ];
+          [ "IC_IMM_F64" ];
+          [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD" ];
+          [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_ADD" ];
+        ]
+        (List.map opcode_names lowered);
+      Alcotest.(check (list (list int64)))
+        "each fixed conversion marks only the final producer"
+        [
+          [ result_to_f64 ];
+          [ result_to_int ];
+          [ 0L; 0L; result_to_f64 ];
+          [ 0L; 0L; result_to_int ];
+        ]
+        (List.map instruction_flags lowered);
+      Alcotest.(check (list bool))
+        "root conversions retain their checked storage types"
+        [ true; true; true; true ]
+        [
+          internal_i64_type
+            (List.hd (descriptions (List.nth lowered 0))).target_type;
+          internal_f64_type
+            (List.hd (descriptions (List.nth lowered 1))).target_type;
+          internal_i64_type
+            (List.nth (descriptions (List.nth lowered 2)) 2).target_type;
+          internal_f64_type
+            (List.nth (descriptions (List.nth lowered 3)) 2).target_type;
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let incompatible =
+    function_roots ~mode:Preprocessor.Jit
+      ~path:"ir-incompatible-fixed-parameter-conversion.HC"
+      "extern I64 Target(F64 value);I64 Caller(){return Target(\"text\");}"
+    |> List.hd
+  in
+  match lower incompatible with
+  | Expression.Unsupported_expression -> ()
+  | Expression.Lowered _ ->
+      Alcotest.fail "incompatible root conversion returned partial IR"
+
+let top_level_fixed_parameter_conversions_are_deterministic () =
+  let source =
+    "extern I64 Target(F64 integer_value,I64 floating_value);Target(7,8.0);"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        top_level_converted_results ~mode
+          ~path:"ir-top-level-fixed-parameter-conversions.HC" source
+      in
+      Alcotest.(check int)
+        "two converted top-level arguments" 2 (List.length roots);
+      let integer =
+        List.nth roots 0 |> lower ~instruction:70 ~value:90 |> require_lowered
+      in
+      let floating =
+        List.nth roots 1 |> lower ~instruction:71 ~value:91 |> require_lowered
+      in
+      Alcotest.(check (list int64))
+        "top-level argument flags"
+        [ result_to_f64; result_to_int ]
+        [
+          List.hd (instruction_flags integer);
+          List.hd (instruction_flags floating);
+        ];
+      Alcotest.(check bool)
+        "integer dump records ICF_RES_TO_F64" true
+        (contains_substring (Expression.human integer) "flags=0x000000001");
+      Alcotest.(check bool)
+        "floating dump records ICF_RES_TO_INT" true
+        (contains_substring (Expression.human floating) "flags=0x000000002"))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let mixed_f64_arithmetic_marks_each_integer_operand () =
   let cases =
     [
@@ -3028,6 +3128,10 @@ let tests =
       deterministic_f64_dump_records_result_and_next_ids;
     Alcotest.test_case "deep F64 explicit worklist" `Slow
       deep_f64_tree_uses_the_explicit_worklist;
+    Alcotest.test_case "fixed parameter root conversions" `Quick
+      fixed_parameter_conversions_mark_only_argument_roots;
+    Alcotest.test_case "top-level fixed parameter root conversions" `Quick
+      top_level_fixed_parameter_conversions_are_deterministic;
     Alcotest.test_case "mixed F64 arithmetic conversion flags" `Quick
       mixed_f64_arithmetic_marks_each_integer_operand;
     Alcotest.test_case "mixed integer subtree conversion" `Quick
