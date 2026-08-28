@@ -8509,6 +8509,39 @@ calls_storage_side_effect_execution_optimization_interpretation_and_backend = "n
 native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-DIRECT-CALL-STATEMENT-END"
+description = "A standalone checked executable top-level direct call ends with the ordinary unused-result expression terminator."
+sources = [
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin executable top-level route",
+  "Compiler/PrsStmt.HC:1204-1210 ordinary expression statement dispatch",
+  "Compiler/PrsExp.HC:264-295 end-expression construction",
+  "Compiler/PrsExp.HC:438-586 direct-call construction",
+  "Kernel/KernelA.HH:1611 ICF_RES_NOT_USED definition"
+]
+implementation = [
+  "src/ir/expression_statement_lowering.ml",
+  "src/ir/expression_statement_lowering.mli",
+  "src/ir/direct_call_lowering.ml"
+]
+tests = ["test/test_ir_expression_statement_lowering.ml"]
+status = "implemented"
+issue = 546
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "standalone typed direct calls whose top-level root has expression-statement role and unused-result intent"
+ownership = "the exact classified top-level target must own the call result retained by the root"
+instruction_shape = "the complete direct-call sequence is followed by one IC_END_EXP consuming the IC_CALL_END result"
+flag_rule = "IC_END_EXP carries ICF_RES_NOT_USED; the call and argument flags remain unchanged"
+source_map = "the terminator retains the complete top-level statement span"
+identity = "the terminator consumes the call fragment's next instruction identity and no value identity"
+diagnostics = ["HCIRL0004 mismatched target ownership or invalid top-level role", "HCIRL0005 terminator instruction identity exhaustion"]
+unsupported = ["declared defaults", "internal operations", "unsupported argument expressions"]
+failure_behavior = "unsupported and invalid inputs expose no partial instruction sequence"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+nested_calls_complete_statement_graphs_optimizer_transfer_interpretation_and_execution = "not implemented"
+native_oracle_status = "not required for structural composition; PrsExpression appends the same IC_END_EXP after PrsFunCall returns its result"
+
+[[feature]]
 id = "HC-SEMA-DEFINED-OPERAND-RETENTION"
 description = "Ordinary language defined expressions retain the exact source token needed by later source-ordered evaluation."
 sources = [

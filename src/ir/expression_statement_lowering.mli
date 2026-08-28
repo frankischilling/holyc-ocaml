@@ -20,6 +20,15 @@ val lower_top_level_statement :
 (** Lower an executable top-level expression-statement root through the same
     checked terminator path. A root with any other semantic role is rejected. *)
 
+val lower_top_level_direct_call_statement :
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  target:Sema.Top_level_function_call_target_classification.t ->
+  Sema.Function_call_expression_result.top_level_root_result ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Lower a checked standalone top-level direct call and append the shared
+    unused-result expression terminator. *)
+
 val sequence : t -> Instruction_sequence.t
 val expression_value : t -> Instruction_sequence.Value_id.t
 val expression_type : t -> Sema.Type.t

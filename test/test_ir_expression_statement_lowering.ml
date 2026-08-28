@@ -4,6 +4,10 @@ module Opcode = Holyc_lib.Ir_opcode
 module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
 module Semantic_source = Holyc_lib.Semantic_function_call_resolution
 module Semantic_symbol = Holyc_lib.Semantic_symbol
+
+module Top_level_target =
+  Holyc_lib.Semantic_top_level_function_call_target_classification
+
 module Top_level_source = Holyc_lib.Semantic_top_level_expression_tree
 module Preprocessor = Holyc_lib.Preprocessor
 
@@ -37,6 +41,45 @@ let lower_top_level ?(instruction = 10) ?(value = 20) root =
   Statement.lower_top_level_statement
     ~instruction_id:(instruction_id instruction)
     ~value_id:(value_id value) root
+
+let top_level_call_inputs ~mode ~path source =
+  let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  let records =
+    Holyc_lib.classify_function_records prepared.session
+      ~resolution:prepared.functions prepared.ast
+    |> require_ok Fun.id
+  in
+  let calls = Semantic_result.top_level_direct_calls results in
+  let roots =
+    Test_top_level_expression_result.roots results
+    |> List.filter (fun root ->
+        match
+          root |> Semantic_result.top_level_root_source
+          |> Top_level_source.root_role
+        with
+        | Top_level_source.Expression_statement _ -> true
+        | Top_level_source.Implicit_output_fixed _
+        | Top_level_source.Implicit_output_argument _
+        | Top_level_source.Condition _
+        | Top_level_source.Switch_selector _
+        | Top_level_source.Switch_case_value _
+        | Top_level_source.Local_array_dimension _
+        | Top_level_source.Local_initializer _
+        | Top_level_source.Return_value _ -> false)
+  in
+  (records, calls, roots)
+
+let top_level_call_target records call =
+  Top_level_target.classify ~records call
+  |> require_ok Top_level_target.error_to_string
+
+let lower_top_level_call ?(instruction = 10) ?(value = 20) records call root =
+  Statement.lower_top_level_direct_call_statement
+    ~instruction_id:(instruction_id instruction)
+    ~value_id:(value_id value)
+    ~target:(top_level_call_target records call)
+    root
 
 let descriptions lowered =
   lowered |> Statement.sequence |> Sequence.instructions
@@ -518,6 +561,144 @@ let terminator_identity_exhaustion_is_diagnostic () =
         (List.length errors)
   | Ok _ -> Alcotest.fail "exhausted terminator identity was accepted"
 
+let top_level_direct_calls_end_at_statement_boundaries () =
+  let run mode source expected_calls =
+    let records, calls, roots =
+      top_level_call_inputs ~mode ~path:"ir-top-level-call-statement.HC" source
+    in
+    Alcotest.(check int)
+      "call roots and targets remain paired"
+      (List.length expected_calls)
+      (List.length calls);
+    List.iter2
+      (fun (expected_opcode, call) root ->
+        let lowered =
+          lower_top_level_call records call root
+          |> require_ok show_sequence_errors
+          |> require_lowered
+        in
+        Alcotest.(check (list string))
+          "the complete call precedes one unused-result terminator"
+          [
+            "IC_CALL_START";
+            "IC_IMM_I64";
+            "IC_IMM_I64";
+            "IC_IMM_I64";
+            expected_opcode;
+            "IC_ADD_RSP";
+            "IC_CALL_END";
+            "IC_END_EXP";
+          ]
+          (opcode_names lowered);
+        let expected_span =
+          root |> Semantic_result.top_level_root_source
+          |> Top_level_source.root_origin |> span_of_origin
+        in
+        check_terminator ~expected_span lowered;
+        Alcotest.(check (pair int int))
+          "the terminator advances only the instruction cursor" (18, 24)
+          ( Statement.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int,
+            Statement.next_value_id lowered |> Sequence.Value_id.to_int ))
+      (List.combine expected_calls calls)
+      roots
+  in
+  run Preprocessor.Jit
+    "_extern _BOUND I64 Direct(I64 first,...);\n\
+     extern I64 External(I64 first,...);\n\
+     Direct(1,2);External(3,4);"
+    [ "IC_CALL"; "IC_CALL_INDIRECT2" ];
+  run Preprocessor.Aot
+    "_extern _BOUND I64 Direct(I64 first,...);\n\
+     import I64 Imported(I64 first,...);\n\
+     Direct(1,2);Imported(3,4);"
+    [ "IC_CALL"; "IC_CALL_IMPORT" ]
+
+let top_level_direct_call_statement_ownership_is_checked () =
+  let records, calls, roots =
+    top_level_call_inputs ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-call-statement-owner.HC"
+      "I64 First(){return 1;}I64 Second(){return 2;}First();Second();"
+  in
+  (match lower_top_level_call records (List.hd calls) (List.nth roots 1) with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "mismatched statement ownership code" "HCIRL0004" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one statement ownership error"
+  | Ok _ -> Alcotest.fail "a mismatched call statement was accepted");
+  let condition_prepared =
+    Test_top_level_expression_result.prepared ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-call-statement-role.HC"
+      "I64 Callee(){return 1;}if(Callee()) 1;"
+  in
+  let _, _, _, condition_results =
+    Test_top_level_expression_result.analyze condition_prepared
+  in
+  let condition_records =
+    Holyc_lib.classify_function_records condition_prepared.session
+      ~resolution:condition_prepared.functions condition_prepared.ast
+    |> require_ok Fun.id
+  in
+  let condition_call =
+    Semantic_result.top_level_direct_calls condition_results |> List.hd
+  in
+  let condition_root =
+    Test_top_level_expression_result.roots condition_results
+    |> List.find (fun root ->
+        match
+          root |> Semantic_result.top_level_root_source
+          |> Top_level_source.root_role
+        with
+        | Top_level_source.Condition _ -> true
+        | Top_level_source.Expression_statement _
+        | Top_level_source.Implicit_output_fixed _
+        | Top_level_source.Implicit_output_argument _
+        | Top_level_source.Switch_selector _
+        | Top_level_source.Switch_case_value _
+        | Top_level_source.Local_array_dimension _
+        | Top_level_source.Local_initializer _
+        | Top_level_source.Return_value _ -> false)
+  in
+  (match
+     lower_top_level_call condition_records condition_call condition_root
+   with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "nonstatement call root code" "HCIRL0004" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one call-root role error"
+  | Ok _ -> Alcotest.fail "a condition call was accepted as a statement");
+  let exhausted_records, exhausted_calls, exhausted_roots =
+    top_level_call_inputs ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-call-statement-identity.HC"
+      "I64 Callee(){return 1;}Callee();"
+  in
+  match
+    lower_top_level_call ~instruction:(Int.max_int - 4) exhausted_records
+      (List.hd exhausted_calls) (List.hd exhausted_roots)
+  with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "call terminator exhaustion code" "HCIRL0005" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one call terminator exhaustion error"
+  | Ok _ -> Alcotest.fail "an exhausted call terminator was accepted"
+
+let unsupported_top_level_direct_call_statements_return_no_sequence () =
+  let check source =
+    let records, calls, roots =
+      top_level_call_inputs ~mode:Preprocessor.Jit
+        ~path:"ir-top-level-call-statement-unsupported.HC" source
+    in
+    match
+      lower_top_level_call records (List.hd calls) (List.hd roots)
+      |> require_ok show_sequence_errors
+    with
+    | Statement.Unsupported_expression -> ()
+    | Statement.Lowered _ ->
+        Alcotest.fail "an unsupported call statement returned a sequence"
+  in
+  check "_intern 42 I64 Internal();Internal();";
+  check "I64 Defaulted(I64 value=1);Defaulted();"
+
 let tests =
   [
     Alcotest.test_case "aggregate offset statement terminators" `Quick
@@ -542,4 +723,10 @@ let tests =
       nonstatement_top_level_roots_are_rejected;
     Alcotest.test_case "terminator identity exhaustion" `Quick
       terminator_identity_exhaustion_is_diagnostic;
+    Alcotest.test_case "top-level direct-call statement terminators" `Quick
+      top_level_direct_calls_end_at_statement_boundaries;
+    Alcotest.test_case "top-level direct-call statement ownership" `Quick
+      top_level_direct_call_statement_ownership_is_checked;
+    Alcotest.test_case "unsupported top-level direct-call statements" `Quick
+      unsupported_top_level_direct_call_statements_return_no_sequence;
   ]
