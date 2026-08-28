@@ -301,11 +301,82 @@ let one_argument_cleanup_and_dump () =
     "one-argument dumps replay exactly" (Lowering.human first)
     (Lowering.human second)
 
+let multiple_arguments_preserve_order () =
+  let source =
+    "I64 Callee(I64 first,F64 second,I64 third){return first;}I64 \
+     Caller(){return Callee(1+2,3,4*5);}"
+  in
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let first =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let second =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions first in
+      Alcotest.(check (list string))
+        "fixed argument trees retain parameter order"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_ADD";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_MUL";
+          "IC_CALL";
+          "IC_ADD_RSP1";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int64))
+        "every fixed root gains one push-result bit"
+        [
+          0L;
+          0L;
+          0L;
+          0x000002000L;
+          0x000002001L;
+          0L;
+          0L;
+          0x000002000L;
+          0L;
+          0L;
+          0L;
+        ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      Alcotest.(check (list int))
+        "instruction identities span every argument"
+        [ 10; 11; 12; 13; 14; 15; 16; 17; 18; 19; 20 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check int)
+        "the call result follows every argument value" 27
+        (Lowering.result_value first |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "identity cursors include all fixed arguments" (21, 28)
+        ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id first |> Sequence.Value_id.to_int );
+      Alcotest.(check (option int64))
+        "three fixed arguments clean 24 bytes" (Some 24L)
+        (match (List.nth items 9).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check string)
+        "multiple-argument dumps replay exactly" (Lowering.human first)
+        (Lowering.human second))
+
 let unsupported_argument_expression_returns_no_ir () =
   let prepared =
     prepared Preprocessor.Jit
-      "I64 Callee(I64 value){return value;}I64 Caller(){I64 local=1;return \
-       Callee(local);}"
+      "I64 Callee(I64 first,I64 second,I64 third){return first;}I64 \
+       Caller(){I64 local=1;return Callee(1,local,3);}"
   in
   let results, records = analyze prepared in
   match lower records results "Caller" with
@@ -352,9 +423,6 @@ let unsupported_call_boundaries () =
     "import I64 Callee();I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
     "_intern 42 I64 Callee();I64 Caller(){return Callee();}";
-  expect_unsupported Preprocessor.Jit
-    "I64 Callee(I64 first,I64 second){return first;}I64 Caller(){return \
-     Callee(1,2);}";
   expect_unsupported Preprocessor.Jit
     "I64 Callee(I64 value=1){return value;}I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
@@ -404,6 +472,8 @@ let tests =
       one_argument_sequences_preserve_expression_ir;
     Alcotest.test_case "one argument cleanup and dump" `Quick
       one_argument_cleanup_and_dump;
+    Alcotest.test_case "multiple provided argument order" `Quick
+      multiple_arguments_preserve_order;
     Alcotest.test_case "unsupported argument expression" `Quick
       unsupported_argument_expression_returns_no_ir;
     Alcotest.test_case "deterministic direct-call dump" `Quick

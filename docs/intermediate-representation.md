@@ -166,7 +166,7 @@ Each resolved break then emits one zero-operand `IC_JMP` in occurrence order. It
 
 Allocation and instruction construction finish before the checked sequence is exposed. `HCIRL0004` rejects incomplete region or occurrence source metadata, `HCIRL0005` rejects instruction or block exhaustion, and `HCIRL0006` rejects a target with no assigned region. `holyc-ir-break-v1` records every region-to-block assignment, next unused identities, checked sequence, and pinned reference commit. The fragment does not place blocks, emit loop back edges or switch dispatch, construct a complete graph, optimize, interpret, or emit machine code.
 
-## Checked zero- and one-parameter direct calls
+## Checked provided-argument direct calls
 
 `Holyc_lib.Ir_direct_call_lowering` consumes one checked function-scope result and its exact `Sema.Function_call_target_classification` record. The declaration evidence must be the same immutable direct-call resolution object, and the selected record must use the ordinary direct-executable access path. The first supported header shape has zero fixed parameters and no variadic binding; its typed call has no fixed or variadic actual results and retains one checked scalar call result.
 
@@ -174,7 +174,7 @@ The lowerer reproduces `Compiler/PrsExp.HC:544-586` as four source-ordered instr
 
 The zero-parameter fragment advances four instruction identities and one value identity. `HCIRL0004` rejects incomplete or inconsistent semantic evidence, and `HCIRL0005` rejects identity exhaustion. Unsupported access classes and parameter shapes return `Unsupported_call` without exposing a partial sequence.
 
-The next accepted shape has exactly one fixed parameter, one provided typed argument, no default use, and no variadic binding or actuals. `Compiler/PrsExp.HC:438-490` builds that argument independently; lines 544-554 append it after `IC_CALL_START` and add `ICF_PUSH_RES` only to its final producer. The hosted lowerer delegates the argument tree to `Ir.Expression_lowering`, preserves its checked conversion flags and source spans, adds the push bit to the unique result producer, and resumes identity allocation at `IC_CALL`. The call-end result uses the next value after the argument tree, and cleanup carries eight bytes. Defaults, multiple fixed arguments, variadics, unsupported argument expressions, internal-operation decoding, extern and import addressing, indirect calls, optimization, interpretation, and machine emission remain later work.
+Provided fixed parameters use the same path for one or more arguments, with no default use, variadic binding, or variadic actuals. `Compiler/PrsExp.HC:438-490` builds each argument independently; lines 544-554 append them after `IC_CALL_START` in parameter order and add `ICF_PUSH_RES` only to each final producer. The hosted lowerer requires exact agreement among resolved slots, typed fixed results, and active signature parameters. It delegates every tree to `Ir.Expression_lowering`, threads identities across the list, preserves checked conversion flags and source spans, and adds the push bit to each unique result producer. The call-end result uses the next value after every argument tree, and cleanup carries eight bytes per fixed slot. Defaults, variadics, unsupported argument expressions, internal-operation decoding, extern and import addressing, indirect calls, optimization, interpretation, and machine emission remain later work.
 
 ## Generated source
 
