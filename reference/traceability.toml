@@ -3747,7 +3747,7 @@ array_extent_evaluation = "not implemented in this type-reference pass; closed e
 member_metadata_evaluation = "not implemented"
 duplicate_validation = "implemented for aggregate members by HC-SEMA-AGGREGATE-MEMBER-INDEX"
 layout_storage_and_inherited_lookup = "closed byte layout and inherited name lookup are implemented by HC-SEMA-AGGREGATE-LAYOUT-CLOSED and HC-SEMA-AGGREGATE-MEMBER-INDEX; runtime storage is not implemented"
-other_type_use_sites = "top-level function signatures, globals, locals, and direct-call postfix-cast targets are implemented by dedicated semantic type features; sizeof, offset, general cast typing, and other sites remain unresolved"
+other_type_use_sites = "top-level function signatures, globals, locals, direct-call postfix-cast targets, and documented function-body sizeof targets are implemented by dedicated semantic features; offset, general cast typing, and other sites remain unresolved"
 native_oracle_status = "not required for this type-reference boundary; PrsVarLst, PrsType, PrsClass, and the checked hash routines state selection and publication order directly"
 
 [[feature]]
@@ -4118,7 +4118,7 @@ call_checking = "not implemented"
 function_flags_register_requests_storage_and_abi = "record flags are implemented separately by HC-SEMA-FUNCTION-RECORD-FLAGS and register requests by HC-SEMA-PARAMETER-REGISTER-REQUESTS; allocation, storage, and ABI behavior are not implemented"
 member_callback_signatures = "not implemented by this pass"
 global_and_local_types = "implemented separately by HC-SEMA-GLOBAL-TYPE-REFERENCES and HC-SEMA-LOCAL-TYPES"
-cast_sizeof_and_offset_types = "not implemented"
+cast_sizeof_and_offset_types = "not implemented by this function-signature feature; documented sizeof typing is implemented separately through HC-SEMA-PRIMITIVE-SIZEOF and HC-SEMA-AGGREGATE-SIZEOF"
 linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsFunJoin, PrsType, PrsVarLst, PrsDotDotDot, MemberLstCmp, and PrsFunCall state the retained signature facts directly"
 
@@ -6170,7 +6170,7 @@ member_behavior = "member-path spellings create no query, matching the pinned de
 defined_non_name_behavior = "a non-name operand creates no query"
 initializer_reset = "the declared binding loses both ordinary and query uses recorded in its initializer; earlier bindings keep their uses"
 warning_accounting = "a locally resolved query contributes one to source_use_count and therefore participates in unused and unneeded-no_warn thresholds"
-value_semantics = "not implemented; the query does not calculate sizeof or offset, resolve a member, or choose the Boolean value of defined"
+value_semantics = "not implemented by this query feature; sizeof and defined evaluation are implemented by later dedicated features, while offset remains unresolved"
 provenance = ["source span", "include source", "generated invocation origin", "definition origin"]
 native_oracle_status = "not required for this boundary; the root increments, member decrements, defined test, reset, and warning thresholds are direct pinned-source statements"
 
@@ -7469,7 +7469,7 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_function_call_resolution_tests = 4
 focused_top_level_expression_tree_tests = 2
-aggregate_member_array_and_function_size_evaluation = "not implemented; primitive evaluation and immediate lowering continue in HC-SEMA-PRIMITIVE-SIZEOF"
+aggregate_member_array_and_function_size_evaluation = "completed aggregate and member evaluation continues in HC-SEMA-AGGREGATE-SIZEOF; root arrays and function debug ranges remain unsupported"
 ic_sizeof_note = "The separately registered zero-argument IC_SIZEOF operation is a pointer-adjustment opcode; ordinary keyword evaluation in PrsSizeOf ends as IC_IMM_I64."
 native_oracle_status = "not required for this retention boundary; PrsSizeOf and the KW_SIZEOF branch directly state the consumed source and final lookup inputs"
 
@@ -7513,8 +7513,50 @@ focused_primitive_type_tests = 1
 focused_function_call_resolution_tests = 1
 focused_top_level_expression_tree_tests = 1
 focused_expression_lowering_tests = 4
-aggregate_member_array_function_interpretation_optimization_and_execution = "not implemented"
+aggregate_member_array_function_interpretation_optimization_and_execution = "completed aggregate and member evaluation is implemented separately in HC-SEMA-AGGREGATE-SIZEOF; root arrays, function ranges, interpretation, optimization, and execution remain unsupported"
 native_oracle_status = "not required for this source-stated constant boundary; PrsSizeOf, the primitive table, and RT_PTR alias directly define every claimed payload"
+
+[[feature]]
+id = "HC-SEMA-AGGREGATE-SIZEOF"
+description = "Completed aggregate sizeof roots and member paths retain their checked storage size and lower through the existing integer-immediate path."
+sources = [
+  "Compiler/PrsExp.HC:303-350 PrsSizeOf local precedence, class and global roots, member traversal, pointer override, and IC_IMM_I64 result",
+  "Compiler/LexLib.HC:67-85 MemberFind current aggregate then base-chain lookup",
+  "Compiler/PrsVar.HC aggregate, member, and dimension metadata consumed by PrsSizeOf",
+  "Kernel/KernelA.HH:786-811 CArrayDim totals and CMemberLst storage",
+  "Kernel/KernelA.HH:831-848 completed CHashClass size and base metadata",
+  "Kernel/KernelA.HH:1573 RT_PTR alias to RT_I64",
+  "Compiler/CInit.HC:27 IC_IMM_I64 registration"
+]
+implementation = [
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/driver/function_call_resolution.ml",
+  "src/driver/top_level_expression_tree.ml",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_function_call_resolution.ml",
+  "test/test_ir_expression_lowering.ml"
+]
+status = "implemented"
+issue = 488
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "completed aggregate and union type names plus zero-rank by-value aggregate parameters, automatic locals, static locals, and module globals in checked function-body sizeof expressions"
+root_rule = "the exact retained function query selects a checked aggregate identity; its completed member-index layout must precede the containing function"
+member_rule = "each source segment retains the exact Aggregate_member_index lookup and advances only through the selected member's completed by-value aggregate type; the final member layout supplies its full size"
+member_array_rule = "the final member layout includes its checked dimension product even though root-array multiplication remains outside this feature"
+lookup_order = "current aggregate before its single base chain, with queried aggregate, declaring aggregate, inheritance depth, and member identity retained"
+pointer_rule = "one or more trailing source pointer layers override a valid root or member result with the eight-byte RT_PTR size"
+retained_evidence = ["checked root type, object shape, and rank", "completed aggregate size", "source-ordered member lookup chain", "checked int64 byte value", "complete source and query origins"]
+validation = ["aggregate identity and source order", "rank-zero by-value root", "nonnegative completed layout size", "member spelling", "queried aggregate identity", "previous segment checked type", "no resolved segment after an unresolved segment"]
+unsupported_without_partial_ir = ["missing member index", "incomplete or later aggregate definition", "missing member", "pointer traversal", "root array", "executable top-level aggregate", "outer aggregate without a completed module identity", "function or export-system-symbol debug range"]
+result = "one zero-operand internal-I64 IC_IMM_I64 with the retained byte payload, complete expression span, and exactly one instruction and value identity consumed"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_call_resolution_tests = 1
+focused_expression_lowering_tests = 2
+native_oracle_status = "not required for this source-stated layout boundary; PrsSizeOf, MemberFind, CArrayDim, CMemberLst, and CHashClass directly define the claimed size and lookup rules"
 
 [[feature]]
 id = "HC-IR-INTEGER-BINARY-LOWERING"

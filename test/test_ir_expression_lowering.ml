@@ -2007,6 +2007,86 @@ let bound_scalar_sizeof_constants_lower_in_both_modes () =
         roots expected)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let aggregate_sizeof_constants_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h);class \
+     Base{U8 inherited;};class Nested{U16 leaf;};class Box:Base{U8 head;Nested \
+     nested;U32 values[3];I64 *pointer;};Box module_box;I64 Caller(Box \
+     parameter){Box automatic;return \
+     Target(sizeof(Box),sizeof(parameter),sizeof(module_box),sizeof(automatic.inherited),sizeof(automatic.nested.leaf),sizeof(automatic.values),sizeof(automatic.pointer),sizeof(automatic.nested*));}"
+  in
+  let expected = [ 24L; 24L; 24L; 1L; 2L; 12L; 8L; 8L ] in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-aggregate-sizeof.HC" source in
+      Alcotest.(check int) "eight aggregate sizeof roots" 8 (List.length roots);
+      List.iter2
+        (fun root value ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "aggregate sizeof emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "aggregate sizeof retains its checked byte count" true
+            (item.payload = Some (Sequence.Integer value));
+          Alcotest.(check bool)
+            "aggregate sizeof retains internal I64 storage" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check bool)
+            "aggregate sizeof keeps its complete expression span" true
+            (item.span = Some (source_span root));
+          Alcotest.(check (list int))
+            "aggregate sizeof has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int)
+            "aggregate sizeof result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "aggregate sizeof advances one instruction" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "aggregate sizeof advances one value" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-aggregate-sizeof-dump.HC"
+      source
+    |> List.hd
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let first = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "aggregate sizeof lowering replays deterministically" dump
+    (Expression.human (lower_once ()))
+
+let unsupported_aggregate_sizeof_returns_no_sequence () =
+  let source =
+    "extern class Later;extern I64 Target(I64 a,I64 b,I64 c,I64 d);class \
+     Box{U8 head;};I64 Caller(){Box automatic;Box *pointer;Box boxes[2];return \
+     Target(sizeof(Later),sizeof(automatic.missing),sizeof(pointer.head),sizeof(boxes));}class \
+     Later{I64 value;};"
+  in
+  List.iter
+    (fun mode ->
+      let roots =
+        function_roots ~mode ~path:"ir-unsupported-aggregate-sizeof.HC" source
+      in
+      Alcotest.(check int)
+        "four unsupported aggregate sizeof roots" 4 (List.length roots);
+      List.iter
+        (fun root ->
+          match lower root with
+          | Expression.Unsupported_expression -> ()
+          | Expression.Lowered _ ->
+              Alcotest.fail
+                "unsupported aggregate sizeof returned a partial sequence")
+        roots)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let top_level_sizeof_composes_with_f64_conversion () =
   List.iter
     (fun mode ->
@@ -2300,6 +2380,10 @@ let tests =
       primitive_sizeof_constants_lower_in_both_modes;
     Alcotest.test_case "bound scalar sizeof constant lowering" `Quick
       bound_scalar_sizeof_constants_lower_in_both_modes;
+    Alcotest.test_case "aggregate sizeof constant lowering" `Quick
+      aggregate_sizeof_constants_lower_in_both_modes;
+    Alcotest.test_case "unsupported aggregate sizeof lowering" `Quick
+      unsupported_aggregate_sizeof_returns_no_sequence;
     Alcotest.test_case "top-level sizeof composition" `Quick
       top_level_sizeof_composes_with_f64_conversion;
     Alcotest.test_case "unsupported sizeof roots" `Quick

@@ -380,6 +380,134 @@ let typed_value_for_query locals module_values = function
           (Sema.Outer_expression_binding.Outer_binding binding) ->
           typed_value_for_outer_binding binding)
 
+let completed_aggregate member_index ~before_item_index symbol =
+  match member_index with
+  | None -> None
+  | Some members -> (
+      match Sema.Aggregate_member_index.find_aggregate members symbol with
+      | Some aggregate
+        when Sema.Aggregate_member_index.aggregate_item_index aggregate
+             < before_item_index -> Some aggregate
+      | Some _ | None -> None)
+
+let aggregate_publication_value member_index ~before_item_index publication =
+  let symbol =
+    Sema.Module_expression_binding.publication_canonical_symbol publication
+  in
+  match completed_aggregate member_index ~before_item_index symbol with
+  | None -> None
+  | Some _ -> (
+      match Sema.Type.make_aggregate ~symbol ~pointer_depth:0 with
+      | Error _ -> None
+      | Ok resolved_type ->
+          Some
+            {
+              resolved_type;
+              shape = Sema.Function_call_resolution.Object_value;
+              array_rank = 0;
+              callable = None;
+              function_declaration = None;
+              function_address_path = None;
+            })
+
+let typed_value_for_sizeof_query member_index ~before_item_index locals
+    module_values query =
+  match typed_value_for_query locals module_values query with
+  | Some _ as value -> value
+  | None ->
+      let publication =
+        match query with
+        | Sema.Function_call_resolution.Module_query query -> (
+            match Sema.Module_expression_binding.query_resolution query with
+            | Sema.Module_expression_binding.Module_binding publication ->
+                Some publication
+            | Sema.Module_expression_binding.Local_binding _
+            | Sema.Module_expression_binding.Outer_candidate -> None)
+        | Sema.Function_call_resolution.Outer_query query -> (
+            match Sema.Outer_expression_binding.query_resolution query with
+            | Sema.Outer_expression_binding.Query_binding
+                (Sema.Outer_expression_binding.Module_binding publication) ->
+                Some publication
+            | Sema.Outer_expression_binding.Query_undefined
+            | Sema.Outer_expression_binding.Query_binding
+                (Sema.Outer_expression_binding.Local_binding _)
+            | Sema.Outer_expression_binding.Query_binding
+                (Sema.Outer_expression_binding.Outer_binding _) -> None)
+      in
+      Option.bind publication (fun publication ->
+          if
+            Sema.Module_expression_binding.publication_kind publication
+            <> Sema.Module_expression_binding.Aggregate
+          then None
+          else
+            aggregate_publication_value member_index ~before_item_index
+              publication)
+
+let completed_aggregate_for_type member_index ~before_item_index type_ =
+  if Sema.Type.pointer_depth type_ <> 0 then None
+  else
+    match Sema.Type.base type_ with
+    | Sema.Type.Primitive _ -> None
+    | Sema.Type.Aggregate symbol ->
+        completed_aggregate member_index ~before_item_index symbol
+
+let aggregate_size_for_value member_index ~before_item_index value =
+  if value.array_rank <> 0 then None
+  else
+    value.resolved_type
+    |> completed_aggregate_for_type member_index ~before_item_index
+    |> Option.map Sema.Aggregate_member_index.aggregate_size
+
+let make_sizeof_members member_index ~before_item_index root_type source_members
+    =
+  let rec loop current_type unresolved reversed = function
+    | [] -> Ok (List.rev reversed)
+    | (source : Frontend.Ast.sizeof_member) :: rest -> (
+        let lookup =
+          if unresolved then None
+          else
+            match current_type with
+            | None -> None
+            | Some type_ -> (
+                match
+                  completed_aggregate_for_type member_index ~before_item_index
+                    type_
+                with
+                | None -> None
+                | Some aggregate -> (
+                    match member_index with
+                    | None -> None
+                    | Some members -> (
+                        match
+                          Sema.Aggregate_member_index.lookup members
+                            ~aggregate:
+                              (Sema.Aggregate_member_index.aggregate_symbol
+                                 aggregate)
+                            ~name:source.sizeof_member_name.spelling
+                        with
+                        | Ok lookup -> lookup
+                        | Error _ -> None)))
+        in
+        let current_type =
+          Option.map
+            (fun lookup ->
+              lookup |> Sema.Aggregate_member_index.lookup_member
+              |> Sema.Aggregate_member_index.member_type)
+            lookup
+        in
+        let unresolved = unresolved || Option.is_none lookup in
+        match
+          Sema.Function_call_resolution.make_sizeof_member ~lookup
+            ~dot_origin:(origin source.sizeof_member_dot)
+            ~name:source.sizeof_member_name.spelling
+            ~name_origin:(origin source.sizeof_member_name.location)
+            ~origin:(origin source.sizeof_member_location)
+        with
+        | Error _ as error -> error
+        | Ok member -> loop current_type unresolved (member :: reversed) rest)
+  in
+  loop root_type false [] source_members
+
 let identifier_value_for_typed_value value =
   Sema.Function_call_resolution.make_identifier_value
     ~resolved_type:value.resolved_type ~shape:value.shape
@@ -388,6 +516,8 @@ let identifier_value_for_typed_value value =
     ?function_address_path:value.function_address_path ()
 
 type state = {
+  member_index : Sema.Aggregate_member_index.t option;
+  before_item_index : int;
   next_occurrence : int;
   next_call : int;
   calls_rev : Sema.Function_call_resolution.call list;
@@ -412,9 +542,11 @@ type state = {
   defined_queries : Sema.Function_call_resolution.defined_function_query list;
 }
 
-let empty_state visible_aggregates typed_values global_values occurrences
-    defined_queries =
+let empty_state member_index before_item_index visible_aggregates typed_values
+    global_values occurrences defined_queries =
   {
+    member_index;
+    before_item_index;
     next_occurrence = 0;
     next_call = 0;
     calls_rev = [];
@@ -572,15 +704,8 @@ let map_result apply values =
   in
   loop [] values
 
-let sizeof_kind locals globals queries (sizeof : Frontend.Ast.sizeof_expression)
-    =
-  let member (member : Frontend.Ast.sizeof_member) =
-    Sema.Function_call_resolution.make_sizeof_member
-      ~dot_origin:(origin member.sizeof_member_dot)
-      ~name:member.sizeof_member_name.spelling
-      ~name_origin:(origin member.sizeof_member_name.location)
-      ~origin:(origin member.sizeof_member_location)
-  in
+let sizeof_kind member_index ~before_item_index locals globals queries
+    (sizeof : Frontend.Ast.sizeof_expression) =
   let pointer (layer : Frontend.Ast.pointer_layer) =
     Sema.Function_call_resolution.make_sizeof_pointer_layer ~depth:layer.depth
       ~spelling:layer.spelling ~origin:(origin layer.location)
@@ -589,15 +714,30 @@ let sizeof_kind locals globals queries (sizeof : Frontend.Ast.sizeof_expression)
   | Error _ as error -> error
   | Ok query -> (
       let bound_target =
-        match typed_value_for_query locals globals query with
-        | None -> Ok None
+        match
+          typed_value_for_sizeof_query member_index ~before_item_index locals
+            globals query
+        with
+        | None -> Ok (None, None)
         | Some value ->
-            Result.map Option.some (identifier_value_for_typed_value value)
+            Result.map
+              (fun target ->
+                ( Some target,
+                  aggregate_size_for_value member_index ~before_item_index value
+                ))
+              (identifier_value_for_typed_value value)
       in
       match bound_target with
       | Error _ as error -> error
-      | Ok bound_target -> (
-          match map_result member sizeof.sizeof_members with
+      | Ok (bound_target, bound_aggregate_size) -> (
+          let root_type =
+            Option.map Sema.Function_call_resolution.identifier_value_type
+              bound_target
+          in
+          match
+            make_sizeof_members member_index ~before_item_index root_type
+              sizeof.sizeof_members
+          with
           | Error _ as error -> error
           | Ok members -> (
               match map_result pointer sizeof.sizeof_pointer_layers with
@@ -615,7 +755,7 @@ let sizeof_kind locals globals queries (sizeof : Frontend.Ast.sizeof_expression)
                       (List.map origin sizeof.sizeof_closing_parentheses)
                     ~root_resolution:
                       (Sema.Function_call_resolution.Sizeof_function_query query)
-                    ~bound_target)))
+                    ~bound_aggregate_size ~bound_target)))
 
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
@@ -667,8 +807,9 @@ let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.String_literal _
   | Frontend.Ast.Current_position_expression _ -> Ok ()
 
-let rec argument_expression visible locals globals occurrences defined_queries
-    cursor (expression : Frontend.Ast.expression) =
+let rec argument_expression member_index before_item_index visible locals
+    globals occurrences defined_queries cursor
+    (expression : Frontend.Ast.expression) =
   let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal literal -> (
@@ -699,8 +840,9 @@ let rec argument_expression visible locals globals occurrences defined_queries
             Error "string literal has a non-byte payload")
     | Frontend.Ast.Parenthesized_expression grouped -> (
         match
-          argument_expression visible locals globals occurrences defined_queries
-            cursor grouped.grouped_expression
+          argument_expression member_index before_item_index visible locals
+            globals occurrences defined_queries cursor
+            grouped.grouped_expression
         with
         | Error _ as error -> error
         | Ok grouped ->
@@ -726,7 +868,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Current_position_expression)
     | Frontend.Ast.Sizeof_expression sizeof ->
-        sizeof_kind locals globals defined_queries sizeof
+        sizeof_kind member_index ~before_item_index locals globals
+          defined_queries sizeof
     | Frontend.Ast.Offset_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
@@ -757,8 +900,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
               ~operand_resolution)
     | Frontend.Ast.Prefix_expression prefix -> (
         match
-          argument_expression visible locals globals occurrences defined_queries
-            cursor prefix.prefix_operand
+          argument_expression member_index before_item_index visible locals
+            globals occurrences defined_queries cursor prefix.prefix_operand
         with
         | Error _ as error -> error
         | Ok operand ->
@@ -768,8 +911,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
               ~operand)
     | Frontend.Ast.Postfix_expression postfix -> (
         match
-          argument_expression visible locals globals occurrences defined_queries
-            cursor postfix.postfix_operand
+          argument_expression member_index before_item_index visible locals
+            globals occurrences defined_queries cursor postfix.postfix_operand
         with
         | Error _ as error -> error
         | Ok operand ->
@@ -783,8 +926,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
         | Error _ as error -> error
         | Ok target -> (
             match
-              argument_expression visible locals globals occurrences
-                defined_queries cursor cast.cast_operand
+              argument_expression member_index before_item_index visible locals
+                globals occurrences defined_queries cursor cast.cast_operand
             with
             | Error _ as error -> error
             | Ok operand ->
@@ -802,14 +945,15 @@ let rec argument_expression visible locals globals occurrences defined_queries
                  binary.binary_operator_spec.ic_name)
         | Some operator -> (
             match
-              argument_expression visible locals globals occurrences
-                defined_queries cursor binary.binary_left
+              argument_expression member_index before_item_index visible locals
+                globals occurrences defined_queries cursor binary.binary_left
             with
             | Error _ as error -> error
             | Ok left -> (
                 match
-                  argument_expression visible locals globals occurrences
-                    defined_queries cursor binary.binary_right
+                  argument_expression member_index before_item_index visible
+                    locals globals occurrences defined_queries cursor
+                    binary.binary_right
                 with
                 | Error _ as error -> error
                 | Ok right ->
@@ -826,14 +970,14 @@ let rec argument_expression visible locals globals occurrences defined_queries
           (advance_expression_occurrences occurrences cursor expression)
     | Frontend.Ast.Index_expression index -> (
         match
-          argument_expression visible locals globals occurrences defined_queries
-            cursor index.index_base
+          argument_expression member_index before_item_index visible locals
+            globals occurrences defined_queries cursor index.index_base
         with
         | Error _ as error -> error
         | Ok base -> (
             match
-              argument_expression visible locals globals occurrences
-                defined_queries cursor index.index_value
+              argument_expression member_index before_item_index visible locals
+                globals occurrences defined_queries cursor index.index_value
             with
             | Error _ as error -> error
             | Ok value ->
@@ -844,8 +988,8 @@ let rec argument_expression visible locals globals occurrences defined_queries
                   ~closing_origin:(origin index.index_closing_bracket)))
     | Frontend.Ast.Member_expression member -> (
         match
-          argument_expression visible locals globals occurrences defined_queries
-            cursor member.member_base
+          argument_expression member_index before_item_index visible locals
+            globals occurrences defined_queries cursor member.member_base
         with
         | Error _ as error -> error
         | Ok base ->
@@ -868,16 +1012,16 @@ let rec argument_expression visible locals globals occurrences defined_queries
         ~origin:(origin (Frontend.Ast.expression_location expression)))
     kind_result
 
-let argument visible locals globals occurrences defined_queries cursor index
-    (argument : Frontend.Ast.call_argument) =
+let argument member_index before_item_index visible locals globals occurrences
+    defined_queries cursor index (argument : Frontend.Ast.call_argument) =
   let prepared =
     match argument.call_argument_value with
     | Frontend.Ast.Provided_call_argument expression ->
         Result.map
           (fun expression ->
             (Sema.Function_call_resolution.Provided, Some expression))
-          (argument_expression visible locals globals occurrences
-             defined_queries cursor expression)
+          (argument_expression member_index before_item_index visible locals
+             globals occurrences defined_queries cursor expression)
     | Frontend.Ast.Omitted_call_argument ->
         Ok (Sema.Function_call_resolution.Omitted, None)
   in
@@ -887,15 +1031,15 @@ let argument visible locals globals occurrences defined_queries cursor index
       Sema.Function_call_resolution.make_argument ~index ~kind ~expression
         ~origin:(origin argument.call_argument_location)
 
-let call_arguments visible locals globals occurrences defined_queries
-    first_occurrence call =
+let call_arguments member_index before_item_index visible locals globals
+    occurrences defined_queries first_occurrence call =
   let cursor = ref first_occurrence in
   let rec loop index rev = function
     | [] -> Ok (List.rev rev)
     | argument_ast :: rest -> (
         match
-          argument visible locals globals occurrences defined_queries cursor
-            index argument_ast
+          argument member_index before_item_index visible locals globals
+            occurrences defined_queries cursor index argument_ast
         with
         | Error _ as error -> error
         | Ok argument ->
@@ -964,13 +1108,16 @@ let record_call state call =
 
 let collect_call visible locals globals occurrences defined_queries state
     (call : Frontend.Ast.call_expression) =
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   match identifier_callee 0 call.call_callee with
   | Some (callee, callee_form) -> (
       if state.next_occurrence = max_int then
         Error "function call occurrence space is exhausted"
       else
         match
-          call_arguments visible locals globals occurrences defined_queries
+          call_arguments member_index before_item_index visible locals globals
+            occurrences defined_queries
             (state.next_occurrence + 1)
             call
         with
@@ -1002,14 +1149,14 @@ let collect_call visible locals globals occurrences defined_queries state
       | Some callee -> (
           let cursor = ref state.next_occurrence in
           match
-            argument_expression visible locals globals occurrences
-              defined_queries cursor call.call_callee
+            argument_expression member_index before_item_index visible locals
+              globals occurrences defined_queries cursor call.call_callee
           with
           | Error _ as error -> error
           | Ok computed_callee -> (
               match
-                call_arguments visible locals globals occurrences
-                  defined_queries !cursor call
+                call_arguments member_index before_item_index visible locals
+                  globals occurrences defined_queries !cursor call
               with
               | Error _ as error -> error
               | Ok arguments -> (
@@ -1117,6 +1264,8 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
 let record_implicit_output state
     (output : Frontend.Ast.implicit_output_statement) =
   let first_occurrence = state.next_occurrence in
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   let visible = state.visible_aggregates in
   let locals = state.typed_values in
   let globals = state.global_values in
@@ -1142,8 +1291,8 @@ let record_implicit_output state
       | Ok state -> (
           let cursor = ref first_occurrence in
           match
-            argument_expression visible locals globals occurrences
-              defined_queries cursor fixed_value
+            argument_expression member_index before_item_index visible locals
+              globals occurrences defined_queries cursor fixed_value
           with
           | Error _ as error -> error
           | Ok fixed_expression -> (
@@ -1152,8 +1301,9 @@ let record_implicit_output state
                 | (argument : Frontend.Ast.implicit_output_argument) :: rest
                   -> (
                     match
-                      argument_expression visible locals globals occurrences
-                        defined_queries cursor argument.value
+                      argument_expression member_index before_item_index visible
+                        locals globals occurrences defined_queries cursor
+                        argument.value
                     with
                     | Error _ as error -> error
                     | Ok expression -> (
@@ -1219,6 +1369,8 @@ let case_pattern state = function
 let record_expression_statement state
     (statement : Frontend.Ast.expression_statement) =
   let first_occurrence = state.next_occurrence in
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   let visible = state.visible_aggregates in
   let locals = state.typed_values in
   let globals = state.global_values in
@@ -1230,8 +1382,8 @@ let record_expression_statement state
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences defined_queries
-          cursor value
+        argument_expression member_index before_item_index visible locals
+          globals occurrences defined_queries cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1282,6 +1434,8 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
     | None -> finish state None
     | Some value -> (
         let first_occurrence = state.next_occurrence in
+        let member_index = state.member_index in
+        let before_item_index = state.before_item_index in
         let visible = state.visible_aggregates in
         let locals = state.typed_values in
         let globals = state.global_values in
@@ -1292,8 +1446,8 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
         | Ok state -> (
             let cursor = ref first_occurrence in
             match
-              argument_expression visible locals globals occurrences
-                defined_queries cursor value
+              argument_expression member_index before_item_index visible locals
+                globals occurrences defined_queries cursor value
             with
             | Error _ as error -> error
             | Ok _ when !cursor <> state.next_occurrence ->
@@ -1304,6 +1458,8 @@ let record_return state (return_ : Frontend.Ast.return_statement) =
 
 let record_condition role keyword location state value =
   let first_occurrence = state.next_occurrence in
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   let visible = state.visible_aggregates in
   let locals = state.typed_values in
   let globals = state.global_values in
@@ -1314,8 +1470,8 @@ let record_condition role keyword location state value =
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences defined_queries
-          cursor value
+        argument_expression member_index before_item_index visible locals
+          globals occurrences defined_queries cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1342,6 +1498,8 @@ let record_condition role keyword location state value =
 
 let record_selector mode keyword location state value =
   let first_occurrence = state.next_occurrence in
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   let visible = state.visible_aggregates in
   let locals = state.typed_values in
   let globals = state.global_values in
@@ -1352,8 +1510,8 @@ let record_selector mode keyword location state value =
   | Ok state -> (
       let cursor = ref first_occurrence in
       match
-        argument_expression visible locals globals occurrences defined_queries
-          cursor value
+        argument_expression member_index before_item_index visible locals
+          globals occurrences defined_queries cursor value
       with
       | Error _ as error -> error
       | Ok _ when !cursor <> state.next_occurrence ->
@@ -1385,6 +1543,8 @@ let selector_mode = function
 
 let record_switch_case state (case_ : Frontend.Ast.switch_case_label) =
   let first_occurrence = state.next_occurrence in
+  let member_index = state.member_index in
+  let before_item_index = state.before_item_index in
   let visible = state.visible_aggregates in
   let locals = state.typed_values in
   let globals = state.global_values in
@@ -1395,8 +1555,8 @@ let record_switch_case state (case_ : Frontend.Ast.switch_case_label) =
   | Ok state -> (
       let cursor = ref first_occurrence in
       let checked_expression value =
-        argument_expression visible locals globals occurrences defined_queries
-          cursor value
+        argument_expression member_index before_item_index visible locals
+          globals occurrences defined_queries cursor value
       in
       let pattern =
         match case_.switch_case_pattern with
@@ -1559,8 +1719,8 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table visible_aggregates global_values defined_queries
-    expected typed locals (item_index, ast) =
+let function_input table member_index visible_aggregates global_values
+    defined_queries expected typed locals (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1586,7 +1746,8 @@ let function_input table visible_aggregates global_values defined_queries
         in
         let collected =
           let state =
-            empty_state visible_aggregates typed_values global_values
+            empty_state member_index item_index visible_aggregates typed_values
+              global_values
               (occurrence_map expected_occurrences)
               defined_queries
           in
@@ -1635,8 +1796,8 @@ let publish_aggregates_before visible publications item_index =
   in
   loop visible publications
 
-let function_inputs table function_types local_types global_values expressions
-    outer module_ =
+let function_inputs table member_index function_types local_types global_values
+    expressions outer module_ =
   let rec pair inputs_rev visible publications expected typed locals ast =
     match (expected, typed, locals, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -1676,8 +1837,8 @@ let function_inputs table function_types local_types global_values expressions
         | Error _ as error -> error
         | Ok defined_queries -> (
             match
-              function_input table visible global_values defined_queries
-                expected typed locals ast
+              function_input table member_index visible global_values
+                defined_queries expected typed locals ast
             with
             | Error _ as error -> error
             | Ok input ->
@@ -1723,8 +1884,8 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
           | Error _ as error -> error
           | Ok module_values -> (
               match
-                function_inputs table function_types local_types module_values
-                  expressions outer module_
+                function_inputs table members function_types local_types
+                  module_values expressions outer module_
               with
               | Error _ as error -> error
               | Ok inputs ->
