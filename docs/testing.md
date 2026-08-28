@@ -470,6 +470,12 @@ The top-level statement-lowering group constructs one checked body from a standa
 dune exec test/test_main.exe -- test "IR top-level statement lowering"
 ```
 
+The top-level batch-lowering group threads those bodies across empty, single, and two-statement inputs. It covers JIT and AOT access choices, per-statement compiler options, consecutive stream and block identities, exact instruction and value cursor continuation, deterministic dumps, mismatched counts, foreign targets, unsupported calls, a failure after an internally completed prefix, and simultaneous stream/block exhaustion. Run only this group with:
+
+```text
+dune exec test/test_main.exe -- test "IR top-level batch lowering"
+```
+
 Terminal-global-comma cases cover the exact `Demo/Graphics/Life.HC:4` spelling, initialized and bound globals, recursive function pointers, aggregate-attached globals, JIT and AOT modes, definition and include provenance, deterministic dumps, and semantic termination without a phantom symbol. In the earlier negative-case inventory, “trailing declaration commas” means a comma followed by something other than the required semicolon; `name,;` is accepted.
 
 Corpus, differential, fuzz, loader, and bootstrap suites will be added with the stages they exercise. A suite is not marked passing until its command runs in CI and publishes its exact reference commit.

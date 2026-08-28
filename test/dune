@@ -83,6 +83,7 @@
   test_ir_expression_lowering
   test_ir_expression_statement_lowering
   test_ir_top_level_statement_lowering
+  test_ir_top_level_batch_lowering
   test_ir_condition_lowering
   test_ir_return_lowering
   test_ir_goto_label_lowering
