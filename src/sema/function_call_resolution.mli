@@ -690,6 +690,7 @@ val fixed_parameter : fixed_argument -> Function_type_resolution.parameter
 val fixed_value : fixed_argument -> fixed_value
 val direct_source : direct_call -> call
 val direct_occurrence : direct_call -> Module_expression_binding.occurrence
+val direct_declaration : direct_call -> Function_resolution.resolved_declaration
 
 val direct_active_header :
   direct_call -> Function_type_resolution.resolved_function

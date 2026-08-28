@@ -3505,7 +3505,61 @@ let variadic_origins_and_replay_are_deterministic () =
       Alcotest.failf "expected one generated variadic result, got %d"
         (List.length results)
 
+let direct_calls_retain_resolved_declarations () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-direct-declarations.HC"
+          "extern I64 Choice();I64 Before(){return Choice();}\n\
+           extern F64 Choice();F64 After(){return Choice();}"
+      in
+      let _, results = analyze prepared in
+      let describe owner =
+        let call = direct_named results owner "Choice" in
+        let resolution =
+          call |> Semantic_function_call_expression_result.direct_source
+          |> Semantic_function_call_conversion_policy.direct_source
+        in
+        let declaration =
+          Semantic_function_call_expression_result.direct_declaration call
+        in
+        Alcotest.(check bool)
+          "typed access returns the exact retained declaration" true
+          (declaration
+          == Semantic_function_call_resolution.direct_declaration resolution);
+        let site_function =
+          declaration |> Semantic_function_resolution.resolved_declaration_site
+          |> Semantic_function_resolution.declaration_site_function
+        in
+        let active_header =
+          Semantic_function_call_resolution.direct_active_header resolution
+        in
+        Alcotest.(check int)
+          "the retained declaration and active header share an item"
+          (Semantic_function_type_resolution.function_item_index active_header)
+          (Semantic_function_type_resolution.function_item_index site_function);
+        ( Semantic_function_type_resolution.function_item_index site_function,
+          site_function |> Semantic_function_type_resolution.function_symbol
+          |> Semantic_symbol.id |> Semantic_symbol.Id.to_int,
+          declaration
+          |> Semantic_function_resolution.resolved_declaration_identity_symbol
+          |> Semantic_symbol.id |> Semantic_symbol.Id.to_int )
+      in
+      let before_item, before_source, before_identity = describe "Before" in
+      let after_item, after_source, after_identity = describe "After" in
+      Alcotest.(check (pair int int))
+        "source order selects the exact declaration" (0, 2)
+        (before_item, after_item);
+      Alcotest.(check bool)
+        "replacement declarations keep distinct source symbols" true
+        (before_source <> after_source);
+      Alcotest.(check bool)
+        "replacement declarations keep one canonical identity" true
+        (before_identity = after_identity))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let nested_direct_calls_retain_return_results () =
+  direct_calls_retain_resolved_declarations ();
   List.iter
     (fun mode ->
       let prepared =
