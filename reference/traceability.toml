@@ -1724,8 +1724,8 @@ definition_and_include_provenance = "preserved"
 malformed_form_diagnostic = "HCPARSE0072"
 block_recovery = "preserves the enclosing closing brace"
 target_validation_status = "implemented for checked function bodies by HC-SEMA-BREAK-REGION-RESOLUTION"
-control_flow_status = "planned"
-lowering_status = "planned"
+control_flow_status = "break jump fragments implemented by HC-IR-FUNCTION-BREAK-FRAGMENTS; complete graphs planned"
+lowering_status = "checked break fragments implemented by HC-IR-FUNCTION-BREAK-FRAGMENTS"
 execution_status = "planned"
 
 [[feature]]
@@ -1762,7 +1762,8 @@ provenance = "complete region and break statement origins are retained"
 human_schema = "holyc-sema-break-v1"
 compilation_modes = ["jit", "aot"]
 focused_tests = 5
-ir_block_allocation_jump_lowering_complete_loop_and_switch_graphs_interpretation_backend_and_execution = "not implemented"
+ir_status = "region block assignment and jump fragments implemented by HC-IR-FUNCTION-BREAK-FRAGMENTS"
+complete_loop_and_switch_graphs_interpretation_backend_and_execution = "not implemented"
 native_oracle_status = "not required; the pinned parser passes explicit label pointers through every supported target-bearing route"
 
 [[feature]]
@@ -7628,6 +7629,43 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 4
 assembly_forms_repeated_definitions_block_partitioning_break_binding_graph_construction_optimization_interpretation_backend_and_execution = "not implemented"
 native_oracle_status = "not required for structural goto and label lowering; the pinned statement parser and opcode table state the instruction order and shapes"
+
+[[feature]]
+id = "HC-IR-FUNCTION-BREAK-FRAGMENTS"
+description = "Resolved function-body breaks lower to checked jumps targeting stable region blocks."
+sources = [
+  "Compiler/PrsStmt.HC:486-563 loop done-label creation and target propagation",
+  "Compiler/PrsStmt.HC:578-659 switch and subswitch break-label creation",
+  "Compiler/PrsStmt.HC:742-747 current switch target propagation",
+  "Compiler/PrsStmt.HC:1133-1138 break IC_JMP construction",
+  "Compiler/PrsLib.HC:79-97 source metadata and intermediate-code insertion order",
+  "Compiler/CInit.HC:98 IC_JMP zero-argument, no-result metadata"
+]
+implementation = [
+  "src/ir/break_lowering.ml",
+  "src/ir/break_lowering.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+semantic_input = [
+  "src/sema/break_resolution.ml",
+  "src/sema/break_resolution.mli"
+]
+tests = ["test/test_ir_break_lowering.ml"]
+status = "implemented"
+issue = 518
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "resolved function-body breaks and every semantic break region"
+block_assignment = "regions receive consecutive caller-seeded block identities in semantic order, including regions with no break"
+instruction_shape = "each source-ordered break emits IC_JMP with its assigned region block payload, zero flags, and exact statement span"
+identity = "each break consumes one instruction identity; each region consumes one block identity"
+diagnostics = ["HCIRL0004 incomplete source metadata", "HCIRL0005 instruction or block identity exhaustion", "HCIRL0006 inconsistent target mapping"]
+compilation_modes = ["jit", "aot"]
+human_schema = "holyc-ir-break-v1"
+focused_tests = 4
+block_placement_loop_back_edges_switch_dispatch_graph_construction_optimization_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for structural break lowering; the pinned statement parser and opcode table state target creation and jump shape"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-AGGREGATE-OFFSET-PATHS"
