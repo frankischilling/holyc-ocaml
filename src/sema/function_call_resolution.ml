@@ -338,6 +338,7 @@ type fixed_argument = {
 type direct_call = {
   source : call;
   occurrence : Module_expression_binding.occurrence;
+  declaration : Function_resolution.resolved_declaration;
   active_header : Function_type_resolution.resolved_function;
   target_symbol : Symbol.t;
   fixed_arguments : fixed_argument list;
@@ -589,6 +590,7 @@ let fixed_parameter (fixed : fixed_argument) = fixed.parameter
 let fixed_value (fixed : fixed_argument) = fixed.value
 let direct_source (direct : direct_call) = direct.source
 let direct_occurrence (direct : direct_call) = direct.occurrence
+let direct_declaration (direct : direct_call) = direct.declaration
 let direct_active_header (direct : direct_call) = direct.active_header
 let direct_target_symbol (direct : direct_call) = direct.target_symbol
 let direct_fixed_arguments (direct : direct_call) = direct.fixed_arguments
@@ -3357,6 +3359,7 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                            {
                              source = call;
                              occurrence;
+                             declaration;
                              active_header;
                              target_symbol =
                                Module_expression_binding

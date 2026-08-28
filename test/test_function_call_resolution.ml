@@ -520,43 +520,66 @@ let fixed_defaults_and_sparse_slots () =
     (Semantic_function_call_resolution.direct_variadic_count call)
 
 let active_header_and_canonical_identity () =
-  let joined =
-    prepare ~path:"function-call-joined.HC"
-      "extern I64 Joined(I64 value=1);\n\
-       I64 Joined(I64 value=2){return Joined();}"
+  let declaration_item_index call =
+    call |> Semantic_function_call_resolution.direct_declaration
+    |> Semantic_function_resolution.resolved_declaration_site
+    |> Semantic_function_resolution.declaration_site_function
+    |> Semantic_function_type_resolution.function_item_index
   in
-  let result = resolve joined |> checked in
-  let call = only_direct result "Joined" in
-  let header_symbol =
-    call |> Semantic_function_call_resolution.direct_active_header
-    |> Semantic_function_type_resolution.function_symbol
-  in
-  let target = Semantic_function_call_resolution.direct_target_symbol call in
-  Alcotest.(check bool)
-    "definition header and joined identity stay distinct" true
-    (symbol_id header_symbol <> symbol_id target);
-  Alcotest.(check int)
-    "the definition supplies the active header" 1
-    (call |> Semantic_function_call_resolution.direct_active_header
-   |> Semantic_function_type_resolution.function_item_index);
-  let visible =
-    prepare ~path:"function-call-visible-header.HC"
-      "extern I64 Pick(I64 value=1);\n\
-       I64 Before(){return Pick();}\n\
-       extern I64 Pick(I64 value=2);\n\
-       I64 After(){return Pick();}"
-  in
-  let calls = resolve visible |> checked in
-  Alcotest.(check int)
-    "earlier caller sees the first header" 0
-    (only_direct calls "Before"
-   |> Semantic_function_call_resolution.direct_active_header
-   |> Semantic_function_type_resolution.function_item_index);
-  Alcotest.(check int)
-    "later caller sees the replacement header" 2
-    (only_direct calls "After"
-   |> Semantic_function_call_resolution.direct_active_header
-   |> Semantic_function_type_resolution.function_item_index)
+  List.iter
+    (fun mode ->
+      let joined =
+        prepare ~mode ~path:"function-call-joined.HC"
+          "extern I64 Joined(I64 value=1);\n\
+           I64 Joined(I64 value=2){return Joined();}"
+      in
+      let result = resolve joined |> checked in
+      let call = only_direct result "Joined" in
+      let header_symbol =
+        call |> Semantic_function_call_resolution.direct_active_header
+        |> Semantic_function_type_resolution.function_symbol
+      in
+      let target =
+        Semantic_function_call_resolution.direct_target_symbol call
+      in
+      let declaration =
+        Semantic_function_call_resolution.direct_declaration call
+      in
+      Alcotest.(check bool)
+        "definition header and joined identity stay distinct" true
+        (symbol_id header_symbol <> symbol_id target);
+      Alcotest.(check bool)
+        "the retained declaration keeps the joined identity" true
+        (declaration
+       |> Semantic_function_resolution.resolved_declaration_identity_symbol
+       |> symbol_id
+        |> Int.equal (symbol_id target));
+      Alcotest.(check (pair int int))
+        "the definition supplies one exact declaration and active header" (1, 1)
+        ( declaration_item_index call,
+          call |> Semantic_function_call_resolution.direct_active_header
+          |> Semantic_function_type_resolution.function_item_index );
+      let visible =
+        prepare ~mode ~path:"function-call-visible-header.HC"
+          "extern I64 Pick(I64 value=1);\n\
+           I64 Before(){return Pick();}\n\
+           extern I64 Pick(I64 value=2);\n\
+           I64 After(){return Pick();}"
+      in
+      let calls = resolve visible |> checked in
+      Alcotest.(check (pair int int))
+        "earlier caller sees the first declaration and header" (0, 0)
+        ( declaration_item_index (only_direct calls "Before"),
+          only_direct calls "Before"
+          |> Semantic_function_call_resolution.direct_active_header
+          |> Semantic_function_type_resolution.function_item_index );
+      Alcotest.(check (pair int int))
+        "later caller sees the replacement declaration and header" (2, 2)
+        ( declaration_item_index (only_direct calls "After"),
+          only_direct calls "After"
+          |> Semantic_function_call_resolution.direct_active_header
+          |> Semantic_function_type_resolution.function_item_index ))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let parenthesis_free_and_oracle_evidence () =
   List.iter

@@ -421,6 +421,11 @@ let return_value result = result.return_value
 let return_conversion result = result.return_conversion
 let return_presence result = result.return_presence
 let direct_source (call : direct_call) = call.source
+
+let direct_declaration (call : direct_call) =
+  call.source |> Function_call_conversion_policy.direct_source
+  |> Function_call_resolution.direct_declaration
+
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
 let indirect_source (call : indirect_call) = call.source
