@@ -253,7 +253,7 @@ let checked_internal_i64_constant result ~description known_value =
     Error
       (metadata_error ?span
          (description
-         ^ " does not retain the checked internal I64 object result"))
+        ^ " does not retain the checked internal I64 object result"))
   in
   match known_value with
   | None -> Ok Deferred_constant

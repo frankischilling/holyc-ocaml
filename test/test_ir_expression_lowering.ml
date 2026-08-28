@@ -1937,18 +1937,16 @@ let deterministic_defined_dump_records_payload () =
 
 let primitive_sizeof_constants_lower_in_both_modes () =
   let source =
-    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,\
-     I64 i,I64 j,I64 k,I64 l,I64 m,I64 n);\
-     I64 Caller(){return Target(sizeof(I0),sizeof(I8),sizeof(I16),sizeof(I32),\
-     sizeof(I64),sizeof(U0),sizeof(U8),sizeof(U16),sizeof(U32),sizeof(U64),\
-     sizeof(F64),sizeof(Bool),sizeof(U8*),sizeof(I0**));}"
+    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h,I64 \
+     i,I64 j,I64 k,I64 l,I64 m,I64 n);I64 Caller(){return \
+     Target(sizeof(I0),sizeof(I8),sizeof(I16),sizeof(I32),sizeof(I64),sizeof(U0),sizeof(U8),sizeof(U16),sizeof(U32),sizeof(U64),sizeof(F64),sizeof(Bool),sizeof(U8*),sizeof(I0**));}"
   in
   let expected = [ 0L; 1L; 2L; 4L; 8L; 0L; 1L; 2L; 4L; 8L; 8L; 1L; 8L; 8L ] in
   List.iter
     (fun mode ->
       let roots = function_roots ~mode ~path:"ir-primitive-sizeof.HC" source in
-      Alcotest.(check int) "fourteen primitive sizeof roots" 14
-        (List.length roots);
+      Alcotest.(check int)
+        "fourteen primitive sizeof roots" 14 (List.length roots);
       List.iter2
         (fun root value ->
           let lowered = lower root |> require_lowered in
@@ -1985,8 +1983,7 @@ let top_level_sizeof_composes_with_f64_conversion () =
   List.iter
     (fun mode ->
       let root =
-        top_level_roots ~mode ~path:"ir-top-level-sizeof.HC"
-          "sizeof(I16)+2.0;"
+        top_level_roots ~mode ~path:"ir-top-level-sizeof.HC" "sizeof(I16)+2.0;"
         |> List.hd
       in
       let lowered = lower root |> require_lowered in
@@ -1996,7 +1993,8 @@ let top_level_sizeof_composes_with_f64_conversion () =
         (opcode_names lowered);
       Alcotest.(check (list int64))
         "the conversion flag belongs to the sizeof producer"
-        [ result_to_f64; 0L; 0L ] (instruction_flags lowered);
+        [ result_to_f64; 0L; 0L ]
+        (instruction_flags lowered);
       Alcotest.(check bool)
         "top-level sizeof retains two bytes" true
         ((List.hd (descriptions lowered)).payload = Some (Sequence.Integer 2L)))
@@ -2008,18 +2006,15 @@ let shadowed_and_nonprimitive_sizeof_return_no_sequence () =
       let outer_root =
         function_roots_with_outer ~mode ~path:"ir-outer-shadowed-sizeof.HC"
           ~records:
-            [
-              ( "I64",
-                Holyc_lib.Semantic_outer_environment.Global_variable );
-            ]
+            [ ("I64", Holyc_lib.Semantic_outer_environment.Global_variable) ]
           "extern I64 Target(I64 value);I64 Caller(){return \
            Target(sizeof(I64));}"
         |> List.hd
       in
       let top_level_roots =
         top_level_roots ~mode ~path:"ir-unsupported-sizeof.HC"
-          "I64 I64;class Box{I64 member;};sizeof(I64);sizeof(Box.member);\
-           sizeof(Missing);"
+          "I64 I64;class Box{I64 \
+           member;};sizeof(I64);sizeof(Box.member);sizeof(Missing);"
       in
       List.iter
         (fun root ->
@@ -2037,9 +2032,7 @@ let deterministic_sizeof_dump_records_payload () =
       "sizeof(U8**);"
     |> List.hd
   in
-  let lower_once () =
-    lower ~instruction:70 ~value:90 root |> require_lowered
-  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
   let first = lower_once () in
   let dump = Expression.human first in
   Alcotest.(check string)
