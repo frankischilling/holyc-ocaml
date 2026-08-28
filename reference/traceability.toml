@@ -7559,6 +7559,39 @@ focused_expression_lowering_tests = 2
 native_oracle_status = "not required for this source-stated layout boundary; PrsSizeOf, MemberFind, CArrayDim, CMemberLst, and CHashClass directly define the claimed size and lookup rules"
 
 [[feature]]
+id = "HC-IR-STRING-LITERAL-EXPRESSION-LOWERING"
+description = "Checked direct and transparently grouped string literal results lower through the canonical expression planner."
+sources = [
+  "Compiler/PrsExp.HC:692-697 string literal misc record, IC_STR_CONST insertion, internal U8 pointer class, decoded bytes, and length",
+  "Compiler/LexLib.HC:248-285 LexExtStr decoded-byte and length contract",
+  "Compiler/PrsLib.HC:79-97 ICAdd data, type, source, flags, and insertion order",
+  "Compiler/CInit.HC:29 zero-argument, one-result IC_STR_CONST metadata and constant-folding barrier"
+]
+implementation = [
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml"
+]
+status = "implemented"
+issue = 490
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct and parenthesized string literals in checked function-body and executable top-level expression results"
+semantic_requirements = ["internal U8 pointer at depth one", "integer result class", "address value category", "array rank zero", "exact source location"]
+instruction_shape = "one zero-operand IC_STR_CONST with one internal U8 pointer result, unchanged decoded byte payload, zero flags, and exact literal span"
+grouping_rule = "transparent grouping consumes no identity and aliases the one produced string value"
+identity_rule = "the expression lowerer owns consecutive instruction and value identities and returns the next unused pair"
+unsupported_without_partial_ir = ["conversion-bearing string use", "postfix casts outside accepted numeric domains", "missing or inconsistent checked metadata", "unsupported surrounding expressions"]
+storage_rule = "do not append a terminator, allocate string storage, place a constant-pool entry, or create a relocation"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_expression_lowering_tests = 3
+string_storage_termination_constant_pool_relocation_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated IR boundary; PrsExp, LexExtStr, ICAdd, and the IC_STR_CONST registry directly define the claimed payload, type, source, and instruction shape"
+
+[[feature]]
 id = "HC-IR-INTEGER-BINARY-LOWERING"
 description = "Checked integer literal binary trees lower to one verified IR sequence with source-ordered operands and module-owned identities."
 sources = [

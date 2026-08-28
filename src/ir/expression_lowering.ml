@@ -200,6 +200,39 @@ let checked_f64_type result =
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
+let checked_string_type result =
+  let invalid () =
+    Error
+      (metadata_error ?span:(result_span result)
+         "typed semantic string literal does not retain the checked internal \
+          U8 pointer address result")
+  in
+  match
+    ( Semantic_result.result_type result,
+      Semantic_result.result_class result,
+      Semantic_result.result_category result,
+      Semantic_result.result_array_rank result )
+  with
+  | Some type_, Semantic_result.Integer_result, Semantic_result.Address_value, 0
+    -> (
+      match (Type.pointer_depth type_, Type.base type_) with
+      | 1, Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U8) ->
+          Ok (Checked_type type_)
+      | _, (Type.Primitive _ | Type.Aggregate _) -> invalid ())
+  | ( (None | Some _),
+      ( Semantic_result.Integer_result
+      | Semantic_result.F64_result
+      | Semantic_result.Unresolved_actual_class ),
+      ( Semantic_result.Object_value
+      | Semantic_result.Address_value
+      | Semantic_result.Array_value
+      | Semantic_result.Callback_value
+      | Semantic_result.Function_value
+      | Semantic_result.Offset_value
+      | Semantic_result.Lvalue
+      | Semantic_result.Unavailable ),
+      _ ) -> invalid ()
+
 let checked_numeric_type result =
   match checked_integer_type result with
   | Error _ as error -> error
@@ -729,6 +762,14 @@ let plan root =
                     if conversion = Keep_result then
                       reversed := Literal { result; conversion } :: !reversed
                     else unsupported := true)
+            | Semantic_source.String_literal _ -> (
+                match checked_string_type result with
+                | Error item -> error := Some item
+                | Ok Unsupported_type -> unsupported := true
+                | Ok (Checked_type _) ->
+                    if conversion = Keep_result then
+                      reversed := Literal { result; conversion } :: !reversed
+                    else unsupported := true)
             | Semantic_source.Unresolved_expression
                 Semantic_source.Current_position_expression -> (
                 match checked_current_position result with
@@ -946,7 +987,6 @@ let plan root =
                                  conversion;
                                }
                           :: !pending))
-            | Semantic_source.String_literal _
             | Semantic_source.Postfix_expression _
             | Semantic_source.Index_expression _
             | Semantic_source.Member_access_expression _
