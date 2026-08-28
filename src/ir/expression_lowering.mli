@@ -15,9 +15,9 @@ val lower_typed_result :
     nonlocal names remain unsupported. [$$] emits a checked zero-operand
     [IC_RIP] address producer, while concrete address selection remains backend
     work. Integer trees accept the checked integer binary operations; pure [F64]
-    trees and mixed integer/[F64] trees accept multiplication, division, modulo,
-    bitwise operations, addition, subtraction, the six comparisons, and the
-    three logical binary operations. A mixed edge marks the retained integer
+    trees and mixed integer/[F64] trees accept shifts, multiplication, division,
+    modulo, bitwise operations, addition, subtraction, the six comparisons, and
+    the three logical binary operations. A mixed edge marks the retained integer
     producer with [ICF_RES_TO_F64] without folding its payload. Floating
     comparisons also carry [ICF_USE_F64], while floating logical operations
     remain unflagged; both retain the checked internal [I64] result. A completed

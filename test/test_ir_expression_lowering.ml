@@ -894,6 +894,99 @@ let f64_arithmetic_operators_lower_in_both_modes () =
         (internal_f64_type (Some (Expression.result_type top_level))))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let f64_shift_operators_lower_in_both_modes () =
+  let cases =
+    [
+      ("1.0<<2.0", "IC_SHL", None);
+      ("1.0>>2.0", "IC_SHR", None);
+      ("1<<2.0", "IC_SHL", Some 0);
+      ("1.0<<2", "IC_SHL", Some 1);
+      ("1>>2.0", "IC_SHR", Some 0);
+      ("1.0>>2", "IC_SHR", Some 1);
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "F64 a%d" index) cases
+    |> String.concat ","
+  in
+  let arguments = cases |> List.map (fun (source, _, _) -> source) in
+  let source =
+    Printf.sprintf "extern F64 Target(%s);F64 Caller(){return Target(%s);}"
+      parameters
+      (String.concat "," arguments)
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-f64-shifts.HC" source in
+      Alcotest.(check int)
+        "one root per floating shift form" (List.length cases)
+        (List.length roots);
+      List.iter2
+        (fun root (_, expected_opcode, converted_index) ->
+          let lowered = lower root |> require_lowered in
+          let expected_leaves, expected_flags =
+            match converted_index with
+            | None -> ([ "IC_IMM_F64"; "IC_IMM_F64" ], [ 0L; 0L; 0L ])
+            | Some 0 ->
+                ([ "IC_IMM_I64"; "IC_IMM_F64" ], [ result_to_f64; 0L; 0L ])
+            | Some 1 ->
+                ([ "IC_IMM_F64"; "IC_IMM_I64" ], [ 0L; result_to_f64; 0L ])
+            | Some _ -> assert false
+          in
+          Alcotest.(check (list string))
+            "floating shift postorder"
+            (expected_leaves @ [ expected_opcode ])
+            (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "floating shift conversion flags" expected_flags
+            (instruction_flags lowered);
+          Alcotest.(check bool)
+            "floating shift result is internal F64" true
+            (internal_f64_type (Some (Expression.result_type lowered))))
+        roots cases;
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-f64-shifts.HC"
+          "1.0<<2.0;1.0>>2.0;"
+      in
+      Alcotest.(check (list string))
+        "top-level floating shift roots use the same path"
+        [ "IC_SHL"; "IC_SHR" ]
+        (top_level
+        |> List.map (fun root ->
+            root |> lower |> require_lowered |> opcode_names |> List.rev
+            |> List.hd)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let nested_f64_shift_dump_converts_the_integer_subtree_result () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-shift-dump.HC"
+      "extern F64 Target(F64 value);F64 Caller(){return Target(3.0<<((1>>2)));}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  Alcotest.(check (list string))
+    "nested floating shift postorder"
+    [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_IMM_I64"; "IC_SHR"; "IC_SHL" ]
+    (opcode_names lowered);
+  Alcotest.(check (list int64))
+    "integer shift subtree converts for the outer floating domain"
+    [ 0L; 0L; 0L; result_to_f64; 0L ]
+    (instruction_flags lowered);
+  Alcotest.(check (list (list int)))
+    "nested floating shift operand links"
+    [ []; []; []; [ 91; 92 ]; [ 90; 93 ] ]
+    (descriptions lowered
+    |> List.map (fun (description : Sequence.description) ->
+        List.map Sequence.Value_id.to_int description.operands));
+  let dump = Expression.human lowered in
+  Alcotest.(check bool)
+    "dump records the converted integer shift producer" true
+    (contains_substring dump "IC_SHR %v91 %v92 flags=0x000000001");
+  Alcotest.(check string)
+    "shift result and next identities"
+    "result=%v94 result-type=internal:F64 next-instruction=75 next-value=95"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
 let f64_bitwise_operators_lower_in_both_modes () =
   let cases =
     [
@@ -2891,6 +2984,10 @@ let tests =
       top_level_mixed_unary_and_binary_tree_keeps_postorder;
     Alcotest.test_case "F64 arithmetic operators" `Quick
       f64_arithmetic_operators_lower_in_both_modes;
+    Alcotest.test_case "F64 shift operators" `Quick
+      f64_shift_operators_lower_in_both_modes;
+    Alcotest.test_case "nested F64 shift dump" `Quick
+      nested_f64_shift_dump_converts_the_integer_subtree_result;
     Alcotest.test_case "F64 bitwise operators" `Quick
       f64_bitwise_operators_lower_in_both_modes;
     Alcotest.test_case "nested F64 bitwise dump" `Quick

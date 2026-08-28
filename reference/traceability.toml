@@ -7964,6 +7964,37 @@ excluded = "constant raw-bit evaluation, immediate rewrite, optimization, interp
 native_oracle_status = "not required for structural lowering; the pinned optimizer and backend branches state the result type, raw-bit operation, and producer conversion"
 
 [[feature]]
+id = "HC-IR-F64-SHIFT-LOWERING"
+description = "Pure and mixed F64 shift expressions lower to canonical shift operations with source-backed producer conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:15-61,167-255 shift construction and precedence completion",
+  "Compiler/OptLib.HC:92-179 common F64 domain selection and integer producer conversion",
+  "Compiler/OptPass012.HC:229-266 integer or F64 shift folding and constant-form rewrite boundary",
+  "Compiler/OptPass3.HC:480-493 binary-tree retention for both shifts",
+  "Compiler/OptPass789A.HC:506-516 ICShift selection",
+  "Compiler/CInit.HC:60-61 two-argument, one-result shift metadata"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 504
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "IC_SHL and IC_SHR with an internal-F64 result and at least one checked F64 operand"
+classification_rule = "checked integer operand producers carry ICF_RES_TO_F64; F64 producers and the shift instruction remain unflagged"
+nested_rule = "the root of a complete integer shift subtree carries ICF_RES_TO_F64 when an outer floating-domain shift consumes it"
+instruction_shape = "emit both operands in source postorder, then one two-operand, one-result shift with internal F64 type and exact operator span"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 2
+expression_lowering_group_tests = 67
+excluded = "constant shift evaluation, IC_SHL_CONST or IC_SHR_CONST rewrite, optimization, interpretation, and backend emission"
+native_oracle_status = "not required for structural lowering; the pinned optimizer and backend branches state the result type, conversion intent, and retained shift"
+
+[[feature]]
 id = "HC-IR-F64-COMPARISON-LOWERING"
 description = "Pure and mixed F64 comparisons lower with source-backed floating execution and integer result metadata."
 sources = [
