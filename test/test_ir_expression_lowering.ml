@@ -842,6 +842,7 @@ let f64_arithmetic_operators_lower_in_both_modes () =
     [
       ("1.0*2.0", "IC_MUL");
       ("1.0/2.0", "IC_DIV");
+      ("1.0%2.0", "IC_MOD");
       ("1.0+2.0", "IC_ADD");
       ("1.0-2.0", "IC_SUB");
     ]
@@ -877,7 +878,20 @@ let f64_arithmetic_operators_lower_in_both_modes () =
             "first literal keeps exact bits" true
             ((descriptions lowered |> List.hd).payload
             = Some (Sequence.Float_bits (Int64.bits_of_float 1.0))))
-        roots expressions)
+        roots expressions;
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-f64-modulo.HC" "5.0%2.0;"
+        |> List.hd
+        |> lower ~instruction:40 ~value:60
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "top-level floating modulo uses the same path"
+        [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_MOD" ]
+        (opcode_names top_level);
+      Alcotest.(check bool)
+        "top-level modulo result is F64" true
+        (internal_f64_type (Some (Expression.result_type top_level))))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let f64_comparison_operators_lower_in_both_modes () =
@@ -1347,15 +1361,15 @@ let f64_division_by_zero_remains_unfolded_ir () =
 
 let unsupported_f64_domains_return_no_sequence () =
   let source =
-    "extern F64 Target(F64 modulo,I64 logical,I64 complement);F64 \
-     Caller(){return Target(1%2.0,1&&2.0,~1.0);}"
+    "extern F64 Target(I64 logical,I64 complement);F64 Caller(){return \
+     Target(1&&2.0,~1.0);}"
   in
   List.iter
     (fun mode ->
       let roots =
         function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
       in
-      Alcotest.(check int) "unsupported floating roots" 3 (List.length roots);
+      Alcotest.(check int) "unsupported floating roots" 2 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -1369,7 +1383,8 @@ let unsupported_f64_domains_return_no_sequence () =
 let deterministic_f64_dump_records_result_and_next_ids () =
   let root =
     function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-arithmetic-dump.HC"
-      "extern F64 Target(F64 value);F64 Caller(){return Target(1.0+2.0);}"
+      "extern F64 Target(F64 value);F64 Caller(){return \
+       Target(((5.0%((2.0%1.5)))));}"
     |> List.hd
   in
   let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
@@ -1378,9 +1393,22 @@ let deterministic_f64_dump_records_result_and_next_ids () =
   Alcotest.(check string)
     "deterministic F64 replay" dump
     (Expression.human repeated);
+  Alcotest.(check (list string))
+    "nested grouped modulo keeps postorder"
+    [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_IMM_F64"; "IC_MOD"; "IC_MOD" ]
+    (opcode_names lowered);
+  Alcotest.(check (list (list int)))
+    "nested modulo keeps exact operand links"
+    [ []; []; []; [ 91; 92 ]; [ 90; 93 ] ]
+    (descriptions lowered
+    |> List.map (fun (description : Sequence.description) ->
+        List.map Sequence.Value_id.to_int description.operands));
+  Alcotest.(check bool)
+    "nested modulo dump records the final operation" true
+    (contains_substring dump "IC_MOD %v90 %v93 flags=0x000000000");
   Alcotest.(check string)
     "F64 result and next identities"
-    "result=%v92 result-type=internal:F64 next-instruction=73 next-value=93"
+    "result=%v94 result-type=internal:F64 next-instruction=75 next-value=95"
     (List.nth (String.split_on_char '\n' dump) 1)
 
 let deep_f64_tree_uses_the_explicit_worklist () =
@@ -1415,6 +1443,8 @@ let mixed_f64_arithmetic_marks_each_integer_operand () =
       ("1.0*2", "IC_MUL", 1, 2L);
       ("1/2.0", "IC_DIV", 0, 1L);
       ("1.0/2", "IC_DIV", 1, 2L);
+      ("1%2.0", "IC_MOD", 0, 1L);
+      ("1.0%2", "IC_MOD", 1, 2L);
       ("1+2.0", "IC_ADD", 0, 1L);
       ("1.0+2", "IC_ADD", 1, 2L);
       ("1-2.0", "IC_SUB", 0, 1L);
@@ -2533,7 +2563,7 @@ let unsupported_shapes_return_no_sequence () =
   let source =
     "extern I64 Helper();extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 \
      f);I64 Caller(I64 x){return \
-     Target(1+2.0,1%2.0,x=1,x+1,(&1)+2,Helper()+1);}"
+     Target(1+2.0,1|2.0,x=1,x+1,(&1)+2,Helper()+1);}"
   in
   List.iter
     (fun mode ->

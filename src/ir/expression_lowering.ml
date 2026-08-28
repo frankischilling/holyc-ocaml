@@ -433,7 +433,11 @@ let accepted_binary_opcode = function
   | _ -> false
 
 let accepted_f64_arithmetic_opcode = function
-  | Opcode.Ic_mul | Opcode.Ic_div | Opcode.Ic_add | Opcode.Ic_sub -> true
+  | Opcode.Ic_mul
+  | Opcode.Ic_div
+  | Opcode.Ic_mod
+  | Opcode.Ic_add
+  | Opcode.Ic_sub -> true
   | _ -> false
 
 let accepted_f64_comparison_opcode = function
