@@ -894,6 +894,103 @@ let f64_arithmetic_operators_lower_in_both_modes () =
         (internal_f64_type (Some (Expression.result_type top_level))))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let f64_logical_operators_lower_in_both_modes () =
+  let cases =
+    [
+      ("1.0&&2.0", "IC_AND_AND", None);
+      ("1.0||2.0", "IC_OR_OR", None);
+      ("1.0^^2.0", "IC_XOR_XOR", None);
+      ("1&&2.0", "IC_AND_AND", Some 0);
+      ("1.0&&2", "IC_AND_AND", Some 1);
+      ("1||2.0", "IC_OR_OR", Some 0);
+      ("1.0||2", "IC_OR_OR", Some 1);
+      ("1^^2.0", "IC_XOR_XOR", Some 0);
+      ("1.0^^2", "IC_XOR_XOR", Some 1);
+    ]
+  in
+  let parameters =
+    List.mapi (fun index _ -> Printf.sprintf "I64 a%d" index) cases
+    |> String.concat ","
+  in
+  let arguments = cases |> List.map (fun (source, _, _) -> source) in
+  let source =
+    Printf.sprintf "extern I64 Target(%s);I64 Caller(){return Target(%s);}"
+      parameters
+      (String.concat "," arguments)
+  in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-f64-logical.HC" source in
+      Alcotest.(check int)
+        "one root per floating logical form" (List.length cases)
+        (List.length roots);
+      List.iter2
+        (fun root (_, expected_opcode, converted_index) ->
+          let lowered = lower root |> require_lowered in
+          let expected_leaves, expected_flags =
+            match converted_index with
+            | None -> ([ "IC_IMM_F64"; "IC_IMM_F64" ], [ 0L; 0L; 0L ])
+            | Some 0 ->
+                ([ "IC_IMM_I64"; "IC_IMM_F64" ], [ result_to_f64; 0L; 0L ])
+            | Some 1 ->
+                ([ "IC_IMM_F64"; "IC_IMM_I64" ], [ 0L; result_to_f64; 0L ])
+            | Some _ -> assert false
+          in
+          Alcotest.(check (list string))
+            "floating logical postorder"
+            (expected_leaves @ [ expected_opcode ])
+            (opcode_names lowered);
+          Alcotest.(check (list int64))
+            "floating logical conversion flags" expected_flags
+            (instruction_flags lowered);
+          Alcotest.(check bool)
+            "floating logical result is internal I64" true
+            (internal_i64_type (Some (Expression.result_type lowered))))
+        roots cases;
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-f64-logical.HC"
+          "1.0&&2.0;1.0||2.0;1.0^^2.0;"
+      in
+      Alcotest.(check (list string))
+        "top-level floating logical roots use the same path"
+        [ "IC_AND_AND"; "IC_OR_OR"; "IC_XOR_XOR" ]
+        (top_level
+        |> List.map (fun root ->
+            root |> lower |> require_lowered |> opcode_names |> List.rev
+            |> List.hd)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let nested_f64_logical_dump_keeps_conversion_on_the_integer_result () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit ~path:"ir-f64-logical-dump.HC"
+      "extern I64 Target(I64 value);I64 Caller(){return \
+       Target(1.0&&((2.0||3.0)));}"
+    |> List.hd
+  in
+  let lowered = lower ~instruction:70 ~value:90 root |> require_lowered in
+  Alcotest.(check (list string))
+    "nested floating logical postorder"
+    [ "IC_IMM_F64"; "IC_IMM_F64"; "IC_IMM_F64"; "IC_OR_OR"; "IC_AND_AND" ]
+    (opcode_names lowered);
+  Alcotest.(check (list int64))
+    "inner integer result converts for the outer floating domain"
+    [ 0L; 0L; 0L; result_to_f64; 0L ]
+    (instruction_flags lowered);
+  Alcotest.(check (list (list int)))
+    "nested floating logical operand links"
+    [ []; []; []; [ 91; 92 ]; [ 90; 93 ] ]
+    (descriptions lowered
+    |> List.map (fun (description : Sequence.description) ->
+        List.map Sequence.Value_id.to_int description.operands));
+  let dump = Expression.human lowered in
+  Alcotest.(check bool)
+    "dump records the converted logical producer" true
+    (contains_substring dump "IC_OR_OR %v91 %v92 flags=0x000000001");
+  Alcotest.(check string)
+    "logical result and next identities"
+    "result=%v94 result-type=internal:I64 next-instruction=75 next-value=95"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
 let f64_comparison_operators_lower_in_both_modes () =
   let expressions =
     [
@@ -1361,15 +1458,14 @@ let f64_division_by_zero_remains_unfolded_ir () =
 
 let unsupported_f64_domains_return_no_sequence () =
   let source =
-    "extern F64 Target(I64 logical,I64 complement);F64 Caller(){return \
-     Target(1&&2.0,~1.0);}"
+    "extern F64 Target(I64 complement);F64 Caller(){return Target(~1.0);}"
   in
   List.iter
     (fun mode ->
       let roots =
         function_roots ~mode ~path:"ir-f64-unsupported-domains.HC" source
       in
-      Alcotest.(check int) "unsupported floating roots" 2 (List.length roots);
+      Alcotest.(check int) "unsupported floating roots" 1 (List.length roots);
       List.iter
         (fun root ->
           match lower root with
@@ -2699,6 +2795,10 @@ let tests =
       top_level_mixed_unary_and_binary_tree_keeps_postorder;
     Alcotest.test_case "F64 arithmetic operators" `Quick
       f64_arithmetic_operators_lower_in_both_modes;
+    Alcotest.test_case "F64 logical operators" `Quick
+      f64_logical_operators_lower_in_both_modes;
+    Alcotest.test_case "nested F64 logical dump" `Quick
+      nested_f64_logical_dump_keeps_conversion_on_the_integer_result;
     Alcotest.test_case "F64 comparison operators" `Quick
       f64_comparison_operators_lower_in_both_modes;
     Alcotest.test_case "mixed F64 comparison conversions" `Quick

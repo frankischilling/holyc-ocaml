@@ -449,6 +449,10 @@ let accepted_f64_comparison_opcode = function
   | Opcode.Ic_less_equ -> true
   | _ -> false
 
+let accepted_f64_logical_opcode = function
+  | Opcode.Ic_and_and | Opcode.Ic_or_or | Opcode.Ic_xor_xor -> true
+  | _ -> false
+
 let accepted_prefix = function
   | Semantic_source.Unary_minus ->
       Some (Opcode.Ic_unary_minus, "unary-minus expression")
@@ -787,6 +791,9 @@ let validate_binary result opcode left right =
   | Ok false when accepted_f64_comparison_opcode opcode ->
       validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
         ~operation_flags:use_f64_flag result left right
+  | Ok false when accepted_f64_logical_opcode opcode ->
+      validate_f64_binary_with checked_integer_type ~allow_integer_pair:false
+        ~operation_flags:0L result left right
   | Ok false when opcode = Opcode.Ic_power ->
       validate_f64_binary_with checked_f64_type ~allow_integer_pair:true
         ~operation_flags:0L result left right
