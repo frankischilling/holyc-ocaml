@@ -2075,6 +2075,165 @@ let function_aggregate_offsets_retain_complete_paths () =
             .result_aggregate_offset_path (offset_result composed))))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let standalone_function_offsets_retain_source_and_checked_paths () =
+  let source =
+    "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class Box : \
+     Base {I16 prefix;Inner inner;};extern I64 Target(I64 direct,I64 \
+     nested,I64 inherited,I64 composed);I64 Caller(){return \
+     Target(offset(Box.prefix),((offset(((Box.inner.value))))),offset(Box.inherited),1+offset(Box.prefix));}"
+  in
+  let rec standalone result =
+    match
+      result |> Semantic_function_call_expression_result.result_source
+      |> Semantic_function_call_resolution.argument_expression_kind
+    with
+    | Semantic_function_call_resolution.Standalone_offset_expression offset ->
+        (result, offset)
+    | _ -> (
+        match
+          Semantic_function_call_expression_result.result_binary_operands result
+        with
+        | Some (left, right) -> (
+            match
+              Semantic_function_call_expression_result
+              .result_aggregate_offset_path left
+            with
+            | Some _ -> standalone left
+            | None -> standalone right)
+        | None -> (
+            match
+              Semantic_function_call_expression_result.result_operand result
+            with
+            | Some operand -> standalone operand
+            | None -> Alcotest.fail "expected a standalone offset result"))
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-standalone-offset.HC" source
+      in
+      let _, results = analyze prepared in
+      let checked = root_results results "Caller" |> List.map standalone in
+      let paths =
+        List.map
+          (fun (result, _) ->
+            result
+            |> Semantic_function_call_expression_result
+               .result_aggregate_offset_path |> Option.get)
+          checked
+      in
+      Alcotest.(check (list int64))
+        "standalone offsets use direct, nested, inherited, and composed values"
+        [ 1L; 4L; 0L; 1L ]
+        (List.map
+           Semantic_function_call_expression_result.aggregate_offset_value paths);
+      Alcotest.(check (list int))
+        "standalone offsets retain the complete lookup chain" [ 1; 2; 1; 1 ]
+        (List.map
+           (fun path ->
+             path
+             |> Semantic_function_call_expression_result
+                .aggregate_offset_segments |> List.length)
+           paths);
+      List.iter2
+        (fun (_, offset) path ->
+          Alcotest.(check string)
+            "the offset keyword remains source-owned" "offset"
+            (Semantic_function_call_resolution.offset_keyword_spelling offset);
+          let publication =
+            Semantic_function_call_resolution.offset_publication offset
+            |> Option.get
+          in
+          Alcotest.(check bool)
+            "source and checked path share one aggregate publication" true
+            (publication
+            == Semantic_function_call_expression_result.aggregate_offset_base
+                 path);
+          List.iter2
+            (fun member segment ->
+              Alcotest.(check bool)
+                "source and path retain the same checked member lookup" true
+                (match
+                   Semantic_function_call_resolution.offset_member_lookup member
+                 with
+                | Some lookup ->
+                    lookup
+                    == Semantic_function_call_expression_result
+                       .aggregate_offset_segment_lookup segment
+                | None -> false);
+              match
+                Semantic_function_call_resolution.offset_member_name_origin
+                  member
+              with
+              | Semantic_symbol.Source_location _ -> ()
+              | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _
+                -> Alcotest.fail "offset member lost its source origin")
+            (Semantic_function_call_resolution.offset_members offset)
+            (Semantic_function_call_expression_result.aggregate_offset_segments
+               path))
+        checked paths;
+      let _, wrapped = List.nth checked 1 in
+      Alcotest.(check int)
+        "nested offset wrappers remain balanced" 3
+        (List.length
+           (Semantic_function_call_resolution.offset_opening_origins wrapped));
+      Alcotest.(check int)
+        "nested offset closing wrappers remain balanced" 3
+        (List.length
+           (Semantic_function_call_resolution.offset_closing_origins wrapped));
+      let _, replayed = analyze prepared in
+      let replayed_values =
+        root_results replayed "Caller"
+        |> List.map standalone
+        |> List.map (fun (result, _) ->
+            result
+            |> Semantic_function_call_expression_result
+               .result_aggregate_offset_path |> Option.get
+            |> Semantic_function_call_expression_result.aggregate_offset_value)
+      in
+      Alcotest.(check (list int64))
+        "standalone offset typing is deterministic and replayable"
+        [ 1L; 4L; 0L; 1L ] replayed_values)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_standalone_function_offsets_fail_without_results () =
+  [
+    ("unknown root", "I64 Caller(){return offset(Missing.value);}");
+    ( "incomplete root",
+      "extern class Later;I64 Caller(){return offset(Later.value);}class Later \
+       {I64 value;};" );
+    ( "missing member",
+      "class Box {I64 value;};I64 Caller(){return offset(Box.missing);}" );
+    ( "pointer continuation",
+      "class Box {I64 *pointer;};I64 Caller(){return \
+       offset(Box.pointer.value);}" );
+  ]
+  |> List.iter (fun (name, source) ->
+      List.iter
+        (fun mode ->
+          let prepared =
+            prepare ~mode
+              ~path:("call-expression-invalid-standalone-offset-" ^ name ^ ".HC")
+              source
+          in
+          let policies =
+            Test_function_call_conversion_policy.analyze prepared
+            |> Test_function_call_conversion_policy.checked_policy
+          in
+          match
+            Holyc_lib.type_function_call_expressions prepared.session
+              ~members:prepared.members ~policies
+          with
+          | Error error ->
+              Alcotest.(check string)
+                "stable standalone offset diagnostic" "HCSEMA0046"
+                (Semantic_function_call_expression_result.error_code error)
+          | Ok _ ->
+              Alcotest.failf
+                "invalid standalone offset case %s produced checked results"
+                name)
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+
 let invalid_function_aggregate_offsets_fail_without_results () =
   let cases =
     [
@@ -6251,6 +6410,10 @@ let tests =
       members_retain_lookup_identity_and_access_kind;
     Alcotest.test_case "function aggregate offset paths" `Quick
       function_aggregate_offsets_retain_complete_paths;
+    Alcotest.test_case "standalone function offset paths" `Quick
+      standalone_function_offsets_retain_source_and_checked_paths;
+    Alcotest.test_case "invalid standalone function offsets" `Quick
+      invalid_standalone_function_offsets_fail_without_results;
     Alcotest.test_case "invalid function aggregate offsets" `Quick
       invalid_function_aggregate_offsets_fail_without_results;
     Alcotest.test_case "member constructor validation" `Quick

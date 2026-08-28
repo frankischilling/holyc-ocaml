@@ -267,7 +267,27 @@ let top_level_sizeof_kind query (sizeof : Frontend.Ast.sizeof_expression) =
               (Sema.Function_call_resolution.Sizeof_top_level_query query)
             ~bound_aggregate_size:None ~bound_target:None)
 
-let visible_aggregate state name =
+let rec top_level_offset_kind state (offset : Frontend.Ast.offset_expression) =
+  let publication = visible_aggregate state offset.offset_target.spelling in
+  let member (source : Frontend.Ast.offset_member) =
+    Sema.Function_call_resolution.make_offset_member
+      ~dot_origin:(origin source.offset_member_dot)
+      ~name:source.offset_member_name.spelling
+      ~name_origin:(origin source.offset_member_name.location)
+      ~origin:(origin source.offset_member_location)
+      ()
+  in
+  Result.bind (map_result member offset.offset_members) (fun members ->
+      Sema.Function_call_resolution.make_offset_argument_expression
+        ~keyword_spelling:offset.offset_keyword_spelling
+        ~keyword_origin:(origin offset.offset_keyword_location)
+        ~opening_origins:(List.map origin offset.offset_opening_parentheses)
+        ~target_spelling:offset.offset_target.spelling
+        ~target_origin:(origin offset.offset_target.location)
+        ~publication ~members
+        ~closing_origins:(List.map origin offset.offset_closing_parentheses))
+
+and visible_aggregate state name =
   state.module_expressions |> Sema.Module_expression_binding.publications
   |> List.fold_left
        (fun found publication ->
@@ -281,10 +301,7 @@ let visible_aggregate state name =
                |> Sema.Module_expression_binding.publication_source_symbol
                |> Sema.Symbol.name)
                 name
-         then
-           Some
-             (Sema.Module_expression_binding.publication_canonical_symbol
-                publication)
+         then Some publication
          else found)
        None
 
@@ -323,7 +340,11 @@ let cast_type_reference state = function
                    "named top-level postfix cast %S has no source-visible \
                     aggregate identity"
                    identifier.spelling)
-          | Some symbol ->
+          | Some publication ->
+              let symbol =
+                Sema.Module_expression_binding.publication_canonical_symbol
+                  publication
+              in
               make (Sema.Type.make_aggregate ~symbol ~pointer_depth)))
 
 let rec expression state (source : Frontend.Ast.expression) =
@@ -485,10 +506,10 @@ let rec expression state (source : Frontend.Ast.expression) =
           match top_level_sizeof_kind query sizeof with
           | Error _ as error -> error
           | Ok kind -> finish state kind))
-  | Frontend.Ast.Offset_expression _ ->
-      finish state
-        (Sema.Function_call_resolution.Unresolved_expression
-           Sema.Function_call_resolution.Offset_expression)
+  | Frontend.Ast.Offset_expression offset -> (
+      match top_level_offset_kind state offset with
+      | Error _ as error -> error
+      | Ok kind -> finish state kind)
   | Frontend.Ast.Defined_expression defined -> (
       let operand = defined.defined_operand in
       let operand_kind =

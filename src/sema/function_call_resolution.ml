@@ -80,6 +80,25 @@ type sizeof_expression = {
   sizeof_uses_pointer_size_ : bool;
 }
 
+type offset_member = {
+  offset_member_dot_origin_ : Symbol.origin;
+  offset_member_name_ : string;
+  offset_member_name_origin_ : Symbol.origin;
+  offset_member_origin_ : Symbol.origin;
+  offset_member_lookup_ : Aggregate_member_index.lookup option;
+}
+
+type offset_expression = {
+  offset_keyword_spelling_ : string;
+  offset_keyword_origin_ : Symbol.origin;
+  offset_opening_origins_ : Symbol.origin list;
+  offset_target_spelling_ : string;
+  offset_target_origin_ : Symbol.origin;
+  offset_publication_ : Module_expression_binding.publication option;
+  offset_members_ : offset_member list;
+  offset_closing_origins_ : Symbol.origin list;
+}
+
 type defined_operand_resolution =
   | Defined_non_name_false
   | Defined_function_query of defined_function_query
@@ -122,6 +141,7 @@ type argument_expression_kind =
   | Aggregate_offset_base_expression of aggregate_offset_base
   | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Sizeof_expression of sizeof_expression
+  | Standalone_offset_expression of offset_expression
   | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
@@ -691,6 +711,7 @@ let argument_expression_kind_name = function
   | Aggregate_offset_base_expression _ -> "aggregate-offset-base"
   | Top_level_bound_identifier_expression _ -> "top-level-bound-identifier"
   | Sizeof_expression _ -> "sizeof"
+  | Standalone_offset_expression _ -> "offset"
   | Defined_expression _ -> "defined"
   | Unresolved_expression kind -> unresolved_expression_kind_name kind
 
@@ -1102,6 +1123,135 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
              sizeof_uses_pointer_size_;
            })
 
+let make_offset_member ?lookup ~dot_origin ~name ~name_origin ~origin () =
+  if not (valid_origin dot_origin) then
+    Error "offset member dot has an invalid source origin"
+  else if String.equal name "" then Error "offset member name cannot be empty"
+  else if not (valid_origin name_origin && valid_origin origin) then
+    Error "offset member has an invalid source origin"
+  else
+    match lookup with
+    | Some lookup ->
+        let indexed = Aggregate_member_index.lookup_member lookup in
+        let expected =
+          indexed |> Aggregate_member_index.member_symbol |> Symbol.name
+        in
+        if not (String.equal name expected) then
+          Error "offset member name does not match its checked lookup"
+        else
+          Ok
+            {
+              offset_member_dot_origin_ = dot_origin;
+              offset_member_name_ = name;
+              offset_member_name_origin_ = name_origin;
+              offset_member_origin_ = origin;
+              offset_member_lookup_ = Some lookup;
+            }
+    | None ->
+        Ok
+          {
+            offset_member_dot_origin_ = dot_origin;
+            offset_member_name_ = name;
+            offset_member_name_origin_ = name_origin;
+            offset_member_origin_ = origin;
+            offset_member_lookup_ = None;
+          }
+
+let offset_chain_matches publication members =
+  let root =
+    Module_expression_binding.publication_canonical_symbol publication
+  in
+  let rec loop current = function
+    | [] -> true
+    | member :: rest -> (
+        match member.offset_member_lookup_ with
+        | None ->
+            List.for_all
+              (fun item -> Option.is_none item.offset_member_lookup_)
+              rest
+        | Some lookup -> (
+            let indexed = Aggregate_member_index.lookup_member lookup in
+            same_sizeof_symbol current
+              (Aggregate_member_index.lookup_queried_aggregate lookup)
+            &&
+            match rest with
+            | [] -> true
+            | _ -> (
+                let type_ = Aggregate_member_index.member_type indexed in
+                if Type.pointer_depth type_ <> 0 then false
+                else
+                  match Type.base type_ with
+                  | Type.Primitive _ -> false
+                  | Type.Aggregate symbol -> loop symbol rest)))
+  in
+  loop root members
+
+let offset_lookups_are_complete members =
+  let retained =
+    List.fold_left
+      (fun count member ->
+        if Option.is_some member.offset_member_lookup_ then count + 1 else count)
+      0 members
+  in
+  retained = 0 || retained = List.length members
+
+let make_offset_argument_expression ~keyword_spelling ~keyword_origin
+    ~opening_origins ~target_spelling ~target_origin ~publication ~members
+    ~closing_origins =
+  let all_valid = List.for_all valid_origin in
+  if String.equal keyword_spelling "" then
+    Error "offset keyword spelling cannot be empty"
+  else if not (valid_origin keyword_origin) then
+    Error "offset keyword has an invalid source origin"
+  else if List.length opening_origins <> List.length closing_origins then
+    Error "offset wrapper parentheses are unbalanced"
+  else if not (all_valid opening_origins && all_valid closing_origins) then
+    Error "offset wrapper has an invalid source origin"
+  else if String.equal target_spelling "" then
+    Error "offset target spelling cannot be empty"
+  else if not (valid_origin target_origin) then
+    Error "offset target has an invalid source origin"
+  else if
+    match publication with
+    | None -> false
+    | Some publication ->
+        Module_expression_binding.publication_kind publication
+        <> Module_expression_binding.Aggregate
+  then Error "offset target publication is not an aggregate"
+  else if
+    match publication with
+    | None -> false
+    | Some publication ->
+        let source_symbol =
+          Module_expression_binding.publication_source_symbol publication
+        in
+        not (String.equal target_spelling (Symbol.name source_symbol))
+  then Error "offset target spelling does not match its aggregate publication"
+  else if members = [] then Error "offset expression requires a member path"
+  else if not (offset_lookups_are_complete members) then
+    Error "offset member path has partial checked lookup evidence"
+  else if
+    match publication with
+    | None ->
+        List.exists
+          (fun member -> Option.is_some member.offset_member_lookup_)
+          members
+    | Some publication -> not (offset_chain_matches publication members)
+  then Error "offset member path does not match its checked aggregate chain"
+  else
+    Ok
+      (Standalone_offset_expression
+         {
+           offset_keyword_spelling_ = keyword_spelling;
+           offset_keyword_origin_ = keyword_origin;
+           offset_opening_origins_ = opening_origins;
+           offset_target_spelling_ = target_spelling;
+           offset_target_origin_ = target_origin;
+           offset_publication_ = publication;
+           offset_members_ = members;
+           offset_closing_origins_ = closing_origins;
+         })
+
 let make_defined_argument_expression ~operand_kind ~operand_spelling
     ~operand_origin ~operand_resolution =
   if String.equal operand_spelling "" then
@@ -1339,6 +1489,19 @@ let sizeof_target_aggregate_size expression =
 let sizeof_primitive expression = expression.sizeof_primitive_
 let sizeof_known_value expression = expression.sizeof_known_value_
 let sizeof_uses_pointer_size expression = expression.sizeof_uses_pointer_size_
+let offset_keyword_spelling expression = expression.offset_keyword_spelling_
+let offset_keyword_origin expression = expression.offset_keyword_origin_
+let offset_opening_origins expression = expression.offset_opening_origins_
+let offset_target_spelling expression = expression.offset_target_spelling_
+let offset_target_origin expression = expression.offset_target_origin_
+let offset_publication expression = expression.offset_publication_
+let offset_members expression = expression.offset_members_
+let offset_closing_origins expression = expression.offset_closing_origins_
+let offset_member_dot_origin member = member.offset_member_dot_origin_
+let offset_member_name member = member.offset_member_name_
+let offset_member_name_origin member = member.offset_member_name_origin_
+let offset_member_origin member = member.offset_member_origin_
+let offset_member_lookup member = member.offset_member_lookup_
 let sizeof_member_dot_origin member = member.sizeof_member_dot_origin_
 let sizeof_member_name member = member.sizeof_member_name_
 let sizeof_member_name_origin member = member.sizeof_member_name_origin_
@@ -1776,6 +1939,34 @@ let rec validate_argument_expression table parent visible declarations
             Error
               (invalid_input
                  "aggregate offset base is not source-visible at the function"))
+  | Standalone_offset_expression offset -> (
+      match offset.offset_publication_ with
+      | None -> Ok ()
+      | Some publication -> (
+          let symbol =
+            Module_expression_binding.publication_canonical_symbol publication
+          in
+          if
+            Module_expression_binding.publication_kind publication
+            <> Module_expression_binding.Aggregate
+            || (not (Symbol_table.owns_symbol table symbol))
+            || (not (symbol_in_scope symbol parent))
+            || not
+                 (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+          then Error (invalid_input "offset target has an invalid aggregate")
+          else
+            match
+              String_map.find_opt offset.offset_target_spelling_ visible
+            with
+            | Some expected when same_symbol expected symbol -> Ok ()
+            | Some _ ->
+                Error
+                  (invalid_input
+                     "offset target does not match the source-visible aggregate")
+            | None ->
+                Error
+                  (invalid_input
+                     "offset target is not source-visible at the function")))
   | Bound_identifier_expression identifier -> (
       let occurrence = bound_identifier_occurrence identifier in
       let resolved_type = bound_identifier_type identifier in
@@ -2224,6 +2415,7 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
               Error
                 (invalid_input
                    "sizeof target query does not belong to its function")))
+  | Standalone_offset_expression _ -> Ok ()
   | Defined_expression defined -> (
       match defined_operand_resolution defined with
       | Defined_non_name_false -> Ok ()
@@ -2759,6 +2951,7 @@ let rec computed_expression_type members ~before_item_index expression =
   | Character_literal _
   | String_literal _
   | Sizeof_expression _
+  | Standalone_offset_expression _
   | Defined_expression _
   | Unresolved_expression _ ->
       invalid
@@ -2944,6 +3137,7 @@ let indexed_identifier_callee computed =
     | Aggregate_offset_base_expression _
     | Top_level_bound_identifier_expression _
     | Sizeof_expression _
+    | Standalone_offset_expression _
     | Defined_expression _
     | Unresolved_expression _ -> None
   in

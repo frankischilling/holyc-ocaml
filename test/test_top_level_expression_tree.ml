@@ -180,6 +180,7 @@ let rec expression_kinds expression =
     | Aggregate_offset_base_expression _
     | Top_level_bound_identifier_expression _
     | Sizeof_expression _
+    | Standalone_offset_expression _
     | Defined_expression _
     | Unresolved_expression _ -> []
   in
