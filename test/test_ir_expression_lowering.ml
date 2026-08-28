@@ -242,6 +242,122 @@ let pointer_depth expected = function
   | Some type_ -> Type.pointer_depth type_ = expected
   | None -> false
 
+let internal_u8_pointer_type = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Primitive.U8), 1 -> true
+      | _ -> false)
+  | None -> false
+
+let string_literals_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(U8 *direct,U8 *grouped);I64 Caller(){return \
+     Target(\"a\\n\\x42\\d\",(((\"A\\x00\\n\\\"\\\\\\xFF\"))));}"
+  in
+  let expected = [ "a\nB$"; "A\000\n\"\\\255" ] in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-string-literals.HC" source in
+      Alcotest.(check int) "direct and grouped strings" 2 (List.length roots);
+      List.iter2
+        (fun root bytes ->
+          let lowered = lower root |> require_lowered in
+          let item = descriptions lowered |> List.hd in
+          Alcotest.(check (list string))
+            "one string constant" [ "IC_STR_CONST" ] (opcode_names lowered);
+          Alcotest.(check bool)
+            "decoded bytes are unchanged" true
+            (item.payload = Some (Sequence.Bytes bytes));
+          Alcotest.(check bool)
+            "string target is internal U8 pointer" true
+            (internal_u8_pointer_type item.target_type);
+          Alcotest.(check (list int))
+            "string constant has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int64) "string flags" 0L item.flags;
+          Alcotest.(check bool)
+            "string keeps a source span" true (Option.is_some item.span);
+          Alcotest.(check int)
+            "string result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "one instruction identity consumed" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "one value identity consumed" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        roots expected;
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-string-literal.HC"
+          "(((\"top\\nlevel\")));"
+        |> List.hd
+        |> lower ~instruction:40 ~value:60
+        |> require_lowered
+      in
+      Alcotest.(check bool)
+        "top-level string uses the shared path" true
+        ((descriptions top_level |> List.hd).payload
+       = Some (Sequence.Bytes "top\nlevel"));
+      Alcotest.(check int)
+        "top-level alias keeps the produced value" 60
+        (Expression.result_value top_level |> Sequence.Value_id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let deterministic_string_dump_records_exact_bytes () =
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit ~path:"ir-string-dump.HC"
+      "\"A\\x00\\n\\\"\\\\\\xFF\";"
+    |> List.hd
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let first = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "string lowering replays deterministically" dump
+    (Expression.human (lower_once ()));
+  Alcotest.(check bool)
+    "dump records escaped bytes and internal U8 pointer" true
+    (contains_substring dump
+       "%v90:internal:U8* = IC_STR_CONST bytes:\"A\\x00\\n\\\"\\\\\\xff\" \
+        flags=0x000000000");
+  Alcotest.(check string)
+    "string result and next identities"
+    "result=%v90 result-type=internal:U8* next-instruction=71 next-value=91"
+    (List.nth (String.split_on_char '\n' dump) 1)
+
+let unsupported_string_wrappers_return_no_partial_sequence () =
+  List.iter
+    (fun mode ->
+      let root =
+        function_roots ~mode ~path:"ir-unsupported-string-cast.HC"
+          "extern I64 Target(I64 value);I64 Caller(){return \
+           Target(\"text\"(I64));}"
+        |> List.hd
+      in
+      match lower root with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "unsupported string cast returned partial IR")
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let root =
+    top_level_roots ~mode:Preprocessor.Jit
+      ~path:"ir-string-address-depth-metadata.HC" "&(&(&(&(&\"x\"))));"
+    |> List.hd
+  in
+  match lower_result root with
+  | Error [ (error : Sequence.error) ] ->
+      Alcotest.(check string) "diagnostic code" "HCIRL0004" error.code;
+      Alcotest.(check (option int))
+        "no identity was consumed" None error.instruction_id;
+      Alcotest.(check bool)
+        "metadata diagnostic has a source span" true
+        (Option.is_some error.span)
+  | Error errors ->
+      Alcotest.failf "expected one string metadata error, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "invalid string metadata produced expression IR"
+
 let accepted_operators_lower_in_both_modes () =
   let expressions =
     [
@@ -2290,6 +2406,12 @@ let deep_mixed_tree_uses_the_explicit_worklist () =
 
 let tests =
   [
+    Alcotest.test_case "typed string literals" `Quick
+      string_literals_lower_in_both_modes;
+    Alcotest.test_case "deterministic string dump" `Quick
+      deterministic_string_dump_records_exact_bytes;
+    Alcotest.test_case "unsupported string wrappers" `Quick
+      unsupported_string_wrappers_return_no_partial_sequence;
     Alcotest.test_case "accepted integer binary operators" `Quick
       accepted_operators_lower_in_both_modes;
     Alcotest.test_case "nested precedence and IDs" `Quick
