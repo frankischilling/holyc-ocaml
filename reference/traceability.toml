@@ -1586,7 +1586,7 @@ definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0058", "HCPARSE0059", "HCPARSE0060"]
 shared_loop_nesting_limit = 256
 nesting_limit_diagnostic = "HCPARSE0061"
-break_status = "syntax implemented; target validation planned"
+break_status = "function-body target resolution implemented by HC-SEMA-BREAK-REGION-RESOLUTION"
 truth_conversion_status = "planned"
 semantic_checking_status = "planned"
 control_flow_status = "planned"
@@ -1632,7 +1632,7 @@ definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0062", "HCPARSE0063", "HCPARSE0064", "HCPARSE0065", "HCPARSE0066"]
 shared_loop_nesting_limit = 256
 nesting_limit_diagnostic = "HCPARSE0061"
-break_status = "syntax implemented; target validation planned"
+break_status = "function-body target resolution implemented by HC-SEMA-BREAK-REGION-RESOLUTION"
 truth_conversion_status = "planned"
 semantic_checking_status = "planned"
 control_flow_status = "planned"
@@ -1681,7 +1681,7 @@ definition_and_include_provenance = "preserved"
 malformed_form_diagnostics = ["HCPARSE0018", "HCPARSE0067", "HCPARSE0068", "HCPARSE0069", "HCPARSE0070", "HCPARSE0071"]
 shared_loop_nesting_limit = 256
 nesting_limit_diagnostic = "HCPARSE0061"
-break_status = "syntax implemented; target validation planned"
+break_status = "function-body target resolution implemented by HC-SEMA-BREAK-REGION-RESOLUTION"
 truth_conversion_status = "planned"
 semantic_checking_status = "planned"
 control_flow_status = "planned"
@@ -1723,10 +1723,47 @@ compilation_modes = ["jit", "aot"]
 definition_and_include_provenance = "preserved"
 malformed_form_diagnostic = "HCPARSE0072"
 block_recovery = "preserves the enclosing closing brace"
-target_validation_status = "planned"
+target_validation_status = "implemented for checked function bodies by HC-SEMA-BREAK-REGION-RESOLUTION"
 control_flow_status = "planned"
 lowering_status = "planned"
 execution_status = "planned"
+
+[[feature]]
+id = "HC-SEMA-BREAK-REGION-RESOLUTION"
+description = "Function-body break statements resolve to stable enclosing loop, switch, or subswitch regions."
+sources = [
+  "Compiler/PrsStmt.HC:486-503 while done-label creation and body target",
+  "Compiler/PrsStmt.HC:506-523 do-while done-label creation and body target",
+  "Compiler/PrsStmt.HC:529-563 targetless for initializer and update plus body done target",
+  "Compiler/PrsStmt.HC:578-600 outer switch break-label creation",
+  "Compiler/PrsStmt.HC:632-659 subswitch break-label creation",
+  "Compiler/PrsStmt.HC:742-747 current switch target propagation and label emission",
+  "Compiler/PrsStmt.HC:1133-1138 missing-target check and IC_JMP construction"
+]
+implementation = [
+  "src/sema/break_resolution.ml",
+  "src/sema/break_resolution.mli",
+  "src/driver/break_resolution.ml",
+  "src/driver/break_resolution.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = ["test/test_break_resolution.ml"]
+status = "implemented"
+issue = 516
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked function definitions plus rejection of direct targetless top-level breaks"
+region_kinds = ["while", "do-while", "for-body", "switch", "subswitch"]
+binding = "each break retains the nearest active function-local region identity"
+recursive_routes = ["block", "statement sequence", "if and else", "lock", "try and catch"]
+for_header_rule = "the initializer and update receive no inherited for-body break target"
+provenance = "complete region and break statement origins are retained"
+human_schema = "holyc-sema-break-v1"
+compilation_modes = ["jit", "aot"]
+focused_tests = 5
+ir_block_allocation_jump_lowering_complete_loop_and_switch_graphs_interpretation_backend_and_execution = "not implemented"
+native_oracle_status = "not required; the pinned parser passes explicit label pointers through every supported target-bearing route"
 
 [[feature]]
 id = "HC-PARSER-RETURN-STATEMENTS"
