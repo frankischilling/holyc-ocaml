@@ -372,6 +372,107 @@ let multiple_arguments_preserve_order () =
         "multiple-argument dumps replay exactly" (Lowering.human first)
         (Lowering.human second))
 
+let empty_variadic_tail_emits_hidden_count () =
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let prepared =
+        prepared mode
+          "I64 Callee(...){return argc;}I64 Caller(){return Callee();}"
+      in
+      let results, records = analyze prepared in
+      let call_span = return_root results "Caller" |> source_span in
+      let first =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let second =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions first in
+      Alcotest.(check (list string))
+        "the hidden count precedes the call"
+        [
+          "IC_CALL_START"; "IC_IMM_I64"; "IC_CALL"; "IC_ADD_RSP"; "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int64))
+        "only the hidden count is pushed"
+        [ 0L; 0x000002000L; 0L; 0L; 0L ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      let hidden = List.nth items 1 in
+      Alcotest.(check (option int64))
+        "the hidden count is zero" (Some 0L)
+        (match hidden.Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check (option string))
+        "the hidden count uses the synthesized argc type" (Some "internal:I64")
+        (Option.map Sequence.type_name hidden.Sequence.target_type);
+      Alcotest.(check (option (pair int int)))
+        "the hidden count keeps the complete call span"
+        (Some (call_span.start, call_span.stop))
+        (Option.map
+           (fun (span : Span.t) -> (span.start, span.stop))
+           hidden.Sequence.span);
+      Alcotest.(check (list int))
+        "the hidden slot consumes an instruction identity"
+        [ 10; 11; 12; 13; 14 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check int)
+        "the call result follows the hidden count" 21
+        (Lowering.result_value first |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "both cursors include the hidden slot" (15, 22)
+        ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id first |> Sequence.Value_id.to_int );
+      Alcotest.(check (option int64))
+        "the hidden slot cleans eight bytes" (Some 8L)
+        (match (List.nth items 3).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check string)
+        "empty variadic dumps replay exactly" (Lowering.human first)
+        (Lowering.human second))
+
+let fixed_arguments_precede_hidden_variadic_count () =
+  let source =
+    "I64 Callee(I64 first,F64 second,...){return first;}I64 Caller(){return \
+     Callee(1+2,3);}"
+  in
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let items =
+        lower ~instruction:10 ~value:20 records results "Caller"
+        |> lowered |> descriptions
+      in
+      Alcotest.(check (list string))
+        "fixed trees precede the hidden count"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_ADD";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_CALL";
+          "IC_ADD_RSP";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int64))
+        "fixed roots and hidden count are pushed once"
+        [ 0L; 0L; 0L; 0x000002000L; 0x000002001L; 0x000002000L; 0L; 0L; 0L ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      Alcotest.(check (option int64))
+        "two fixed slots plus argc clean 24 bytes" (Some 24L)
+        (match (List.nth items 7).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None))
+
 let unsupported_argument_expression_returns_no_ir () =
   let prepared =
     prepared Preprocessor.Jit
@@ -426,7 +527,7 @@ let unsupported_call_boundaries () =
   expect_unsupported Preprocessor.Jit
     "I64 Callee(I64 value=1){return value;}I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
-    "I64 Callee(...){return 1;}I64 Caller(){return Callee();}"
+    "I64 Callee(...){return argc;}I64 Caller(){return Callee(1);}"
 
 let inconsistent_and_exhausted_inputs_fail_without_ir () =
   let prepared =
@@ -474,6 +575,10 @@ let tests =
       one_argument_cleanup_and_dump;
     Alcotest.test_case "multiple provided argument order" `Quick
       multiple_arguments_preserve_order;
+    Alcotest.test_case "empty variadic hidden count" `Quick
+      empty_variadic_tail_emits_hidden_count;
+    Alcotest.test_case "fixed arguments before variadic count" `Quick
+      fixed_arguments_precede_hidden_variadic_count;
     Alcotest.test_case "unsupported argument expression" `Quick
       unsupported_argument_expression_returns_no_ir;
     Alcotest.test_case "deterministic direct-call dump" `Quick
