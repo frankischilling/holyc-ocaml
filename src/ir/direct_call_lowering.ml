@@ -17,8 +17,7 @@ type t = {
 type lowering_result = Lowered of t | Unsupported_call
 
 type call_shape =
-  | Zero_parameters
-  | One_provided_parameter of Result.expression_result
+  | Provided_parameters of Result.expression_result list
   | Unsupported_shape
   | Inconsistent_shape of string
 
@@ -99,20 +98,27 @@ let call_shape target =
          (Sema.Function_type_resolution.function_variadic_bindings header)
   then Unsupported_shape
   else
-    match (fixed_arguments, fixed_results, parameters) with
-    | [], [], [] -> Zero_parameters
-    | [ source ], [ fixed ], [ _ ] -> (
-        let retained_source =
-          fixed |> Result.fixed_source |> Policy.fixed_source
-        in
-        if retained_source != source then
+    let rec provided rev fixed_arguments fixed_results parameters =
+      match (fixed_arguments, fixed_results, parameters) with
+      | [], [], [] -> Provided_parameters (List.rev rev)
+      | source :: arguments, fixed :: results, _ :: parameters -> (
+          let retained_source =
+            fixed |> Result.fixed_source |> Policy.fixed_source
+          in
+          if retained_source != source then
+            Inconsistent_shape
+              "direct-call fixed argument and typed result disagree"
+          else
+            match Result.fixed_path fixed with
+            | Result.Provided_result argument ->
+                provided (argument :: rev) arguments results parameters
+            | Result.Declared_default_result _ -> Unsupported_shape)
+      | _ ->
           Inconsistent_shape
-            "direct-call fixed argument and typed result disagree"
-        else
-          match Result.fixed_path fixed with
-          | Result.Provided_result argument -> One_provided_parameter argument
-          | Result.Declared_default_result _ -> Unsupported_shape)
-    | _ -> Unsupported_shape
+            "direct-call fixed arguments, typed results, and parameters \
+             disagree"
+    in
+    provided [] fixed_arguments fixed_results parameters
 
 let description ~instruction_id ~opcode ~target_type ~payload ~span ?result () =
   {
@@ -150,41 +156,46 @@ let mark_argument_result ~span result_value descriptions =
       (metadata_error ~span
          "direct-call argument lowering has no unique result producer")
 
-let lower_argument ~span ~instruction_id ~value_id = function
-  | Zero_parameters -> Ok (Argument_lowered ([], instruction_id, value_id))
-  | One_provided_parameter argument -> (
-      match
-        Expression.lower_typed_result ~instruction_id ~value_id argument
-      with
-      | Error errors -> Error errors
-      | Ok Expression.Unsupported_expression -> Ok Unsupported_argument
-      | Ok (Expression.Lowered lowered) -> (
-          let descriptions =
-            lowered |> Expression.sequence |> Sequence.instructions
-            |> List.map Sequence.description
-          in
-          match
-            mark_argument_result ~span
-              (Expression.result_value lowered)
-              descriptions
-          with
-          | Error error -> Error [ error ]
-          | Ok descriptions ->
-              Ok
-                (Argument_lowered
-                   ( descriptions,
-                     Expression.next_instruction_id lowered,
-                     Expression.next_value_id lowered ))))
-  | Unsupported_shape | Inconsistent_shape _ -> assert false
+let lower_arguments ~span ~instruction_id ~value_id arguments =
+  let rec loop rev_descriptions instruction_id value_id = function
+    | [] ->
+        Ok
+          (Argument_lowered (List.rev rev_descriptions, instruction_id, value_id))
+    | argument :: rest -> (
+        match
+          Expression.lower_typed_result ~instruction_id ~value_id argument
+        with
+        | Error errors -> Error errors
+        | Ok Expression.Unsupported_expression -> Ok Unsupported_argument
+        | Ok (Expression.Lowered lowered) -> (
+            let descriptions =
+              lowered |> Expression.sequence |> Sequence.instructions
+              |> List.map Sequence.description
+            in
+            match
+              mark_argument_result ~span
+                (Expression.result_value lowered)
+                descriptions
+            with
+            | Error error -> Error [ error ]
+            | Ok descriptions ->
+                loop
+                  (List.rev_append descriptions rev_descriptions)
+                  (Expression.next_instruction_id lowered)
+                  (Expression.next_value_id lowered)
+                  rest))
+  in
+  loop [] instruction_id value_id arguments
 
-let lower_supported ~span ~instruction_id ~value_id ~target ~shape result_type =
+let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
+    result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
   | Ok argument_instruction_id -> (
       match
-        lower_argument ~span ~instruction_id:argument_instruction_id ~value_id
-          shape
+        lower_arguments ~span ~instruction_id:argument_instruction_id ~value_id
+          arguments
       with
       | Error _ as error -> error
       | Ok Unsupported_argument -> Ok Unsupported_call
@@ -210,10 +221,7 @@ let lower_supported ~span ~instruction_id ~value_id ~target ~shape result_type =
               in
               let symbol_payload = Some (Sequence.Symbol symbol) in
               let cleanup_bytes =
-                match shape with
-                | Zero_parameters -> 0L
-                | One_provided_parameter _ -> 8L
-                | Unsupported_shape | Inconsistent_shape _ -> assert false
+                Int64.mul (Int64.of_int (List.length arguments)) 8L
               in
               let items =
                 [
@@ -265,7 +273,7 @@ let lower ~instruction_id ~value_id ~target result =
         match call_shape target with
         | Unsupported_shape -> Ok Unsupported_call
         | Inconsistent_shape message -> Error [ metadata_error ~span message ]
-        | (Zero_parameters | One_provided_parameter _) as shape -> (
+        | Provided_parameters arguments -> (
             match Result.result_type result with
             | None ->
                 Error
@@ -274,8 +282,8 @@ let lower ~instruction_id ~value_id ~target result =
                       "direct call has no checked result type";
                   ]
             | Some result_type ->
-                lower_supported ~span ~instruction_id ~value_id ~target ~shape
-                  result_type))
+                lower_supported ~span ~instruction_id ~value_id ~target
+                  ~arguments result_type))
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_
