@@ -16,6 +16,7 @@
   test_member_collection
   test_function_collection
   test_label_resolution
+  test_break_resolution
   test_aggregate_resolution
   test_aggregate_header_resolution
   test_member_type_resolution

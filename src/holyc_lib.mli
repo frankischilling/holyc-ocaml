@@ -54,6 +54,7 @@ module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
 module Semantic_function_collection = Sema.Function_collection
 module Semantic_label_resolution = Sema.Label_resolution
+module Semantic_break_resolution = Sema.Break_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
@@ -193,6 +194,14 @@ val resolve_labels :
 (** Bind function-local [goto] occurrences to language and assembly-block label
     definitions from the same AST. Assembly operand references and control-flow
     lowering remain separate passes. *)
+
+val resolve_breaks :
+  Session.t ->
+  functions:Semantic_function_collection.t ->
+  Ast.module_ ->
+  (Semantic_break_resolution.t, string) result
+(** Bind each function-body [break] to its nearest loop, switch, or subswitch
+    region and reject a direct break without an active region. *)
 
 val resolve_aggregates :
   Session.t ->

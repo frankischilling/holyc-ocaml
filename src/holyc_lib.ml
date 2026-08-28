@@ -54,6 +54,7 @@ module Semantic_declaration_collection = Sema.Declaration_collection
 module Semantic_member_collection = Sema.Member_collection
 module Semantic_function_collection = Sema.Function_collection
 module Semantic_label_resolution = Sema.Label_resolution
+module Semantic_break_resolution = Sema.Break_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
@@ -173,6 +174,11 @@ let collect_functions session ~declarations module_ =
 
 let resolve_labels session ~functions module_ =
   Driver.Label_resolution.resolve
+    ~table:(Session.semantic_symbols session)
+    ~functions module_
+
+let resolve_breaks session ~functions module_ =
+  Driver.Break_resolution.resolve
     ~table:(Session.semantic_symbols session)
     ~functions module_
 
