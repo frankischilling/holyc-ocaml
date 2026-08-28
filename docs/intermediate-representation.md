@@ -166,6 +166,14 @@ Each resolved break then emits one zero-operand `IC_JMP` in occurrence order. It
 
 Allocation and instruction construction finish before the checked sequence is exposed. `HCIRL0004` rejects incomplete region or occurrence source metadata, `HCIRL0005` rejects instruction or block exhaustion, and `HCIRL0006` rejects a target with no assigned region. `holyc-ir-break-v1` records every region-to-block assignment, next unused identities, checked sequence, and pinned reference commit. The fragment does not place blocks, emit loop back edges or switch dispatch, construct a complete graph, optimize, interpret, or emit machine code.
 
+## Checked zero-parameter direct calls
+
+`Holyc_lib.Ir_direct_call_lowering` consumes one checked function-scope result and its exact `Sema.Function_call_target_classification` record. The declaration evidence must be the same immutable direct-call resolution object, and the selected record must use the ordinary direct-executable access path. The first supported header shape has zero fixed parameters and no variadic binding; its typed call has no fixed or variadic actual results and retains one checked scalar call result.
+
+The lowerer reproduces `Compiler/PrsExp.HC:544-586` as four source-ordered instructions: `IC_CALL_START`, `IC_CALL`, `IC_ADD_RSP` or `IC_ADD_RSP1`, and `IC_CALL_END`. Start, call, and end retain the canonical target symbol; cleanup retains the zero-byte argument payload. Call, cleanup, and end retain the checked return type, while only the end instruction produces the caller-seeded value. Every instruction keeps the complete call span and zero flags. The cleanup opcode comes from the checked `(RET1 or ARGPOP) and not NOARGPOP` predicate on the exact classified function record.
+
+The fragment advances four instruction identities and one value identity. `HCIRL0004` rejects incomplete or inconsistent semantic evidence, and `HCIRL0005` rejects identity exhaustion. Unsupported access classes and parameter shapes return `Unsupported_call` without exposing a partial sequence. Argument lowering, internal-operation decoding, extern and import addressing, indirect calls, optimization, interpretation, and machine emission remain later work.
+
 ## Generated source
 
 `tools/intermediate_code_gen.exe` verifies `Compiler/CompilerA.HH` and `Compiler/CInit.HC` against `reference/manifest.json`, parses them, and writes `src/generated/intermediate_codes.ml` and its interface. The generated `Ic_*` constructor is a mechanical lowercase form of the source constant, so `IC__PP` remains `Ic__pp` and `IC_PP_` remains `Ic_pp_`.

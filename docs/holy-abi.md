@@ -85,7 +85,7 @@ These are checked semantic signature facts, not a calling-convention implementat
 
 `Sema.Function_record_classification` retains those raw domains separately and reports which source consumer would select an internal operation, direct call, JIT extern address slot, AOT import, or AOT extern. It also reports the cleanup predicate through the checked function-flag API. This is ABI input, not ABI implementation: no call sequence, stack layout, prologue, epilogue, register save, interrupt entry, or machine instruction is emitted.
 
-`Sema.Function_call_target_classification` joins a typed function-scope direct call to that exact declaration snapshot. Its immutable result carries the typed call, resolved and classified declarations, classified record, and total call-access policy. Exact object ownership prevents a separately resolved same-name function or different-mode batch from supplying linkage state. `HCSEMA0067` reports a mismatch at the call. The join remains ABI input only; it emits no argument, call, cleanup, or end instruction.
+`Sema.Function_call_target_classification` joins a typed function-scope direct call to that exact declaration snapshot. Its immutable result carries the typed call, resolved and classified declarations, classified record, and total call-access policy. Exact object ownership prevents a separately resolved same-name function or different-mode batch from supplying linkage state. `HCSEMA0067` reports a mismatch at the call. The join remains ABI input; the separate zero-parameter lowerer consumes its ordinary executable path without weakening that ownership check.
 
 ## Argument cleanup
 
@@ -97,7 +97,7 @@ Both call lowering in `PrsExp.HC` and the function epilogue in `OptPass789A.HC` 
 (RET1 or ARGPOP) and not NOARGPOP
 ```
 
-When the choice is true, the callee emits `RET imm16` and the caller uses the matching stack-adjustment form. Otherwise the callee emits an ordinary return and the caller removes the argument block. The generated API exposes the predicate, but there is no call lowerer or epilogue emitter in this project yet.
+When the choice is true, the callee emits `RET imm16` and the caller uses the matching stack-adjustment form. Otherwise the callee emits an ordinary return and the caller removes the argument block. `Ir.Direct_call_lowering` applies this predicate to the exact classified record for its zero-parameter executable subset, selecting `IC_ADD_RSP1` or `IC_ADD_RSP` while retaining a zero-byte cleanup payload. Argument placement, nonzero cleanup, callee epilogues, and machine emission remain unavailable. [Issue #530](https://github.com/frankischilling/holyc-ocaml/issues/530) records this first call-IR boundary.
 
 ## Interrupt functions
 
