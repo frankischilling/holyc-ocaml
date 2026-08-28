@@ -7473,6 +7473,43 @@ standalone_offset_expression_runtime_address_calculation_ir_lowering_interpretat
 native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf, PrsTerm, MemberFind, ICAdd, and the intrinsic I64 record directly define the retained facts"
 
 [[feature]]
+id = "HC-IR-FUNCTION-AGGREGATE-OFFSET-LOWERING"
+description = "Completed function-body aggregate offset paths lower through the canonical expression planner."
+sources = [
+  "Compiler/PrsExp.HC:353-381 PrsOffsetOf root selection, member loop, cumulative offset, and IC_IMM_I64 result",
+  "Compiler/LexLib.HC:67-85 MemberFind current aggregate before its base chain",
+  "Compiler/PrsLib.HC:79-97 ICAdd data, type, source, flags, and insertion order",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/ir/expression_statement_lowering.ml"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 496
+ir_epic = 396
+semantic_dependency = 494
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "completed source-visible aggregate offset paths in checked function-body expression results"
+semantic_requirements = ["exact source location", "zero-depth internal I64 type", "integer result class", "offset value category", "array rank zero", "nonempty resolved member path"]
+consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
+instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact expression span, zero flags, and consecutive identities"
+composition = ["transparent grouping", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "standalone offset parser expression"]
+excluded_behavior = ["member lookup", "layout arithmetic", "runtime object address calculation", "interpretation", "optimization", "execution"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+result_owner = "function body"
+focused_expression_lowering_cases = 3
+focused_expression_statement_cases = 1
+native_oracle_status = "not required for this source-stated IR boundary; PrsOffsetOf, MemberFind, ICAdd, and the IC_IMM_I64 registry directly define the claimed value, type, source, and instruction shape"
+
+[[feature]]
 id = "HC-SEMA-SIZEOF-SOURCE-INPUT"
 description = "Ordinary sizeof expressions retain their complete source input and exact source-ordered root query before semantic size evaluation."
 sources = [
@@ -7621,11 +7658,11 @@ semantic_requirements = ["exact source location", "zero-depth internal I64 type"
 consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
 instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact expression span, zero flags, and consecutive identities"
 composition = ["transparent grouping", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
-unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "function-body aggregate offset path", "standalone offset parser expression"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "standalone offset parser expression"]
 excluded_behavior = ["member lookup", "layout arithmetic", "runtime object address calculation", "interpretation", "optimization", "execution"]
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-result_owner = "executable top level"
+result_owner = "executable top level; HC-IR-FUNCTION-AGGREGATE-OFFSET-LOWERING adds the function-body owner"
 focused_expression_lowering_tests = 3
 focused_expression_statement_tests = 1
 native_oracle_status = "not required for this source-stated IR boundary; PrsOffsetOf, MemberFind, ICAdd, and the IC_IMM_I64 registry directly define the claimed value, type, source, and instruction shape"

@@ -359,7 +359,31 @@ let aggregate_offset_statements_use_the_checked_terminator () =
         top_level |> Semantic_result.top_level_root_source
         |> Top_level_source.root_origin |> span_of_origin
       in
-      check_terminator ~expected_span lowered)
+      check_terminator ~expected_span lowered;
+      let function_statement =
+        function_statements ~mode ~path:"ir-function-offset-end.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 prefix;};I64 \
+           Caller(){0+Box.prefix;return 0;}"
+        |> List.hd
+      in
+      let function_lowered =
+        lower_function function_statement
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "function offset uses the same terminator"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_END_EXP" ]
+        (opcode_names function_lowered);
+      Alcotest.(check bool)
+        "function statement keeps offset one" true
+        ((List.nth (descriptions function_lowered) 1).payload
+       = Some (Sequence.Integer 1L));
+      let function_span =
+        function_statement |> Semantic_result.expression_statement_source
+        |> Semantic_source.expression_statement_origin |> span_of_origin
+      in
+      check_terminator ~expected_span:function_span function_lowered)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let unsupported_statement_values_return_no_sequence () =
