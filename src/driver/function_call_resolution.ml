@@ -699,6 +699,19 @@ let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
   | [] -> Error "sizeof target has no matching function query"
   | _ -> Error "sizeof target has more than one matching function query"
 
+let offset_query queries (offset : Frontend.Ast.offset_expression) =
+  let spelling = offset.offset_target.spelling in
+  let target_origin = origin offset.offset_target.location in
+  let matches query =
+    function_query_role query = Sema.Function_expression_binding.Offset_root
+    && String.equal spelling (function_query_name query)
+    && target_origin = function_query_origin query
+  in
+  match List.filter matches queries with
+  | [ query ] -> Ok query
+  | [] -> Error "offset target has no matching function query"
+  | _ -> Error "offset target has more than one matching function query"
+
 let map_result apply values =
   let rec loop reversed = function
     | [] -> Ok (List.rev reversed)
@@ -762,8 +775,24 @@ let sizeof_kind member_index ~before_item_index locals globals queries
                       (Sema.Function_call_resolution.Sizeof_function_query query)
                     ~bound_aggregate_size ~bound_target)))
 
-let offset_kind visible (offset : Frontend.Ast.offset_expression) =
-  let publication = String_map.find_opt offset.offset_target.spelling visible in
+let offset_kind locals globals queries visible
+    (offset : Frontend.Ast.offset_expression) =
+  let publication_for_target target =
+    let target_type =
+      Sema.Function_call_resolution.identifier_value_type target
+    in
+    match (Sema.Type.base target_type, Sema.Type.pointer_depth target_type) with
+    | Sema.Type.Aggregate symbol, 0 ->
+        visible |> String_map.bindings
+        |> List.find_map (fun (_, publication) ->
+            if
+              Sema.Module_expression_binding.publication_canonical_symbol
+                publication
+              == symbol
+            then Some publication
+            else None)
+    | Sema.Type.Primitive _, _ | Sema.Type.Aggregate _, _ -> None
+  in
   let member (source : Frontend.Ast.offset_member) =
     Sema.Function_call_resolution.make_offset_member
       ~dot_origin:(origin source.offset_member_dot)
@@ -772,15 +801,34 @@ let offset_kind visible (offset : Frontend.Ast.offset_expression) =
       ~origin:(origin source.offset_member_location)
       ()
   in
-  Result.bind (map_result member offset.offset_members) (fun members ->
-      Sema.Function_call_resolution.make_offset_argument_expression
-        ~keyword_spelling:offset.offset_keyword_spelling
-        ~keyword_origin:(origin offset.offset_keyword_location)
-        ~opening_origins:(List.map origin offset.offset_opening_parentheses)
-        ~target_spelling:offset.offset_target.spelling
-        ~target_origin:(origin offset.offset_target.location)
-        ~publication ~members
-        ~closing_origins:(List.map origin offset.offset_closing_parentheses))
+  Result.bind (offset_query queries offset) (fun root_query ->
+      let bound_target =
+        root_query
+        |> typed_value_for_query locals globals
+        |> Option.map identifier_value_for_typed_value
+      in
+      Result.bind
+        (match bound_target with
+        | None -> Ok None
+        | Some result -> Result.map Option.some result)
+        (fun bound_target ->
+          let publication =
+            match String_map.find_opt offset.offset_target.spelling visible with
+            | Some _ as publication -> publication
+            | None -> Option.bind bound_target publication_for_target
+          in
+          Result.bind (map_result member offset.offset_members) (fun members ->
+              Sema.Function_call_resolution.make_offset_argument_expression
+                ~keyword_spelling:offset.offset_keyword_spelling
+                ~keyword_origin:(origin offset.offset_keyword_location)
+                ~opening_origins:
+                  (List.map origin offset.offset_opening_parentheses)
+                ~target_spelling:offset.offset_target.spelling
+                ~target_origin:(origin offset.offset_target.location)
+                ~publication ~root_query:(Some root_query) ~bound_target
+                ~top_level_query:None ~members
+                ~closing_origins:
+                  (List.map origin offset.offset_closing_parentheses))))
 
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
@@ -907,7 +955,8 @@ let rec argument_expression member_index before_item_index visible locals
     | Frontend.Ast.Sizeof_expression sizeof ->
         sizeof_kind member_index ~before_item_index locals globals
           defined_queries sizeof
-    | Frontend.Ast.Offset_expression offset -> offset_kind visible offset
+    | Frontend.Ast.Offset_expression offset ->
+        offset_kind locals globals defined_queries visible offset
     | Frontend.Ast.Defined_expression defined ->
         let operand = defined.defined_operand in
         let operand_kind =

@@ -1128,6 +1128,100 @@ let standalone_top_level_offset_paths () =
         replayed_descriptions)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let top_level_global_object_offset_paths () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-global-object-offset-paths.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+           global;offset(global.prefix);offset(global.inherited);1+offset(global.prefix);"
+      in
+      let _, identifiers, _, result = analyze source in
+      let offsets =
+        completed_offsets result
+        |> List.filter (fun value ->
+            match
+              value |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Standalone_offset_expression _
+              -> true
+            | _ -> false)
+      in
+      Alcotest.(check (list string))
+        "top-level global object roots retain aggregate paths"
+        [ "Box[prefix:1]=1"; "Box[inherited:0]=0"; "Box[prefix:1]=1" ]
+        (List.map offset_description offsets);
+      List.iter
+        (fun value ->
+          match
+            value |> Semantic_function_call_expression_result.result_source
+            |> Semantic_function_call_resolution.argument_expression_kind
+          with
+          | Semantic_function_call_resolution.Standalone_offset_expression
+              offset ->
+              let query =
+                offset
+                |> Semantic_function_call_resolution.offset_top_level_query
+                |> Option.get
+              in
+              Alcotest.(check string)
+                "object-root query keeps the global spelling" "global"
+                (Semantic_top_level_outer_expression_binding.query_name query);
+              let global_publication =
+                match
+                  Semantic_top_level_outer_expression_binding.query_resolution
+                    query
+                with
+                | Semantic_top_level_outer_expression_binding.Query_binding
+                    (Semantic_top_level_outer_expression_binding.Module_binding
+                       publication) -> publication
+                | Semantic_top_level_outer_expression_binding.Query_binding
+                    (Semantic_top_level_outer_expression_binding.Outer_binding _)
+                | Semantic_top_level_outer_expression_binding.Query_undefined ->
+                    Alcotest.fail
+                      "expected the offset query to select its module global"
+              in
+              let target =
+                offset |> Semantic_function_call_resolution.offset_bound_target
+                |> Option.get
+              in
+              (match
+                 Semantic_top_level_identifier_resolution.find_module_value
+                   identifiers global_publication
+               with
+              | Some
+                  (Semantic_top_level_identifier_resolution.Global_value
+                     { value = retained; _ }) ->
+                  Alcotest.(check bool)
+                    "the offset target is the publication's checked value" true
+                    (retained == target)
+              | Some
+                  ( Semantic_top_level_identifier_resolution
+                    .Direct_function_value
+                      _
+                  | Semantic_top_level_identifier_resolution
+                    .Aggregate_offset_base
+                      _ )
+              | None ->
+                  Alcotest.fail "expected a checked value for the offset global");
+              Alcotest.(check bool)
+                "the offset target is a scalar object" true
+                (Semantic_function_call_resolution.identifier_value_shape target
+                 = Semantic_function_call_resolution.Object_value
+                && Semantic_function_call_resolution.identifier_value_array_rank
+                     target
+                   = 0);
+              Alcotest.(check string)
+                "the offset path is based on the global's aggregate type" "Box"
+                (offset |> Semantic_function_call_resolution.offset_publication
+               |> Option.get
+               |> Semantic_module_expression_binding
+                  .publication_canonical_symbol |> Semantic_symbol.name)
+          | _ -> Alcotest.fail "expected a standalone object-root offset")
+        offsets)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let invalid_standalone_top_level_offsets () =
   [
     ("unknown root", "offset(Missing.value);");
@@ -1136,6 +1230,11 @@ let invalid_standalone_top_level_offsets () =
     ("missing member", "class Box {I64 value;};offset(Box.missing);");
     ( "pointer continuation",
       "class Box {I64 *pointer;};offset(Box.pointer.value);" );
+    ("pointer object root", "class Box {I64 value;};Box *box;offset(box.value);");
+    ( "array object root",
+      "class Box {I64 value;};Box boxes[1];offset(boxes.value);" );
+    ("primitive object root", "I64 value;offset(value.member);");
+    ("callback object root", "I64 (*callback)(I64);offset(callback.member);");
   ]
   |> List.iter (fun (label, contents) ->
       let source =
@@ -2757,6 +2856,8 @@ let tests =
     Alcotest.test_case "aggregate offset paths" `Quick aggregate_offset_paths;
     Alcotest.test_case "standalone top-level offset paths" `Quick
       standalone_top_level_offset_paths;
+    Alcotest.test_case "top-level global object offset paths" `Quick
+      top_level_global_object_offset_paths;
     Alcotest.test_case "invalid standalone top-level offsets" `Quick
       invalid_standalone_top_level_offsets;
     Alcotest.test_case "invalid aggregate offset paths" `Quick

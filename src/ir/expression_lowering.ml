@@ -500,6 +500,31 @@ let same_offset_publication actual expected =
   | Some actual, Some expected -> actual == expected
   | None, Some _ | Some _, None -> false
 
+let same_offset_root_query actual expected =
+  match (actual, expected) with
+  | None, None -> true
+  | ( Some (Semantic_source.Module_query actual),
+      Some (Semantic_source.Module_query expected) ) -> actual == expected
+  | ( Some (Semantic_source.Outer_query actual),
+      Some (Semantic_source.Outer_query expected) ) -> actual == expected
+  | None, Some _
+  | Some _, None
+  | Some (Semantic_source.Module_query _), Some (Semantic_source.Outer_query _)
+  | Some (Semantic_source.Outer_query _), Some (Semantic_source.Module_query _)
+    -> false
+
+let same_offset_bound_target actual expected =
+  match (actual, expected) with
+  | None, None -> true
+  | Some actual, Some expected -> actual == expected
+  | None, Some _ | Some _, None -> false
+
+let same_offset_top_level_query actual expected =
+  match (actual, expected) with
+  | None, None -> true
+  | Some actual, Some expected -> actual == expected
+  | None, Some _ | Some _, None -> false
+
 let same_offset_member_source actual expected =
   Semantic_source.offset_member_dot_origin actual
   = Semantic_source.offset_member_dot_origin expected
@@ -534,6 +559,15 @@ let same_offset_source actual expected =
   && same_offset_publication
        (Semantic_source.offset_publication actual)
        (Semantic_source.offset_publication expected)
+  && same_offset_root_query
+       (Semantic_source.offset_root_query actual)
+       (Semantic_source.offset_root_query expected)
+  && same_offset_top_level_query
+       (Semantic_source.offset_top_level_query actual)
+       (Semantic_source.offset_top_level_query expected)
+  && same_offset_bound_target
+       (Semantic_source.offset_bound_target actual)
+       (Semantic_source.offset_bound_target expected)
   && List.compare_lengths
        (Semantic_source.offset_members actual)
        (Semantic_source.offset_members expected)
@@ -573,8 +607,32 @@ let checked_standalone_offset result source =
         when publication == Semantic_result.aggregate_offset_base path ->
           let members = Semantic_source.offset_members source in
           let segments = Semantic_result.aggregate_offset_segments path in
+          let valid_bound_target =
+            match Semantic_source.offset_bound_target source with
+            | None -> true
+            | Some target -> (
+                (Option.is_some (Semantic_source.offset_root_query source)
+                || Option.is_some
+                     (Semantic_source.offset_top_level_query source))
+                && Semantic_source.identifier_value_shape target
+                   = Semantic_source.Object_value
+                && Semantic_source.identifier_value_array_rank target = 0
+                &&
+                let target_type =
+                  Semantic_source.identifier_value_type target
+                in
+                Type.pointer_depth target_type = 0
+                &&
+                match Type.base target_type with
+                | Type.Aggregate symbol ->
+                    symbol
+                    == Sema.Module_expression_binding
+                       .publication_canonical_symbol publication
+                | Type.Primitive _ -> false)
+          in
           if
-            List.compare_lengths members segments = 0
+            valid_bound_target
+            && List.compare_lengths members segments = 0
             && List.for_all2
                  (fun member segment ->
                    match Semantic_source.offset_member_lookup member with

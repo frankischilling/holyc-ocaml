@@ -239,6 +239,9 @@ val make_offset_argument_expression :
   target_spelling:string ->
   target_origin:Symbol.origin ->
   publication:Module_expression_binding.publication option ->
+  root_query:function_query option ->
+  top_level_query:Top_level_outer_expression_binding.query option ->
+  bound_target:identifier_value option ->
   members:offset_member list ->
   closing_origins:Symbol.origin list ->
   (argument_expression_kind, string) result
@@ -598,6 +601,12 @@ val offset_target_origin : offset_expression -> Symbol.origin
 val offset_publication :
   offset_expression -> Module_expression_binding.publication option
 
+val offset_root_query : offset_expression -> function_query option
+
+val offset_top_level_query :
+  offset_expression -> Top_level_outer_expression_binding.query option
+
+val offset_bound_target : offset_expression -> identifier_value option
 val offset_members : offset_expression -> offset_member list
 val offset_closing_origins : offset_expression -> Symbol.origin list
 val offset_member_dot_origin : offset_member -> Symbol.origin

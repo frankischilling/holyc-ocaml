@@ -227,6 +227,37 @@ let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
+let take_offset_query state (offset : Frontend.Ast.offset_expression) =
+  if state.query_cursor >= Array.length state.queries then
+    Error "top-level offset expression has no bound target query"
+  else
+    let query = state.queries.(state.query_cursor) in
+    if
+      Sema.Top_level_outer_expression_binding.query_index query
+      <> state.next_query
+    then Error "top-level expression query identities are not contiguous"
+    else if
+      Sema.Top_level_outer_expression_binding.query_role query
+      <> Sema.Function_expression_binding.Offset_root
+    then Error "top-level offset expression has the wrong query role"
+    else if
+      not
+        (String.equal offset.offset_target.spelling
+           (Sema.Top_level_outer_expression_binding.query_name query))
+    then Error "top-level offset target spelling does not match its query"
+    else if
+      origin offset.offset_target.location
+      <> Sema.Top_level_outer_expression_binding.query_origin query
+    then Error "top-level offset target origin does not match its query"
+    else
+      match increment "top-level query" state.next_query with
+      | Error _ as error -> error
+      | Ok next_query ->
+          Ok
+            ( query,
+              { state with query_cursor = state.query_cursor + 1; next_query }
+            )
+
 let map_result apply values =
   let rec loop reversed = function
     | [] -> Ok (List.rev reversed)
@@ -267,7 +298,8 @@ let top_level_sizeof_kind query (sizeof : Frontend.Ast.sizeof_expression) =
               (Sema.Function_call_resolution.Sizeof_top_level_query query)
             ~bound_aggregate_size:None ~bound_target:None)
 
-let rec top_level_offset_kind state (offset : Frontend.Ast.offset_expression) =
+let rec top_level_offset_kind state query
+    (offset : Frontend.Ast.offset_expression) =
   let publication = visible_aggregate state offset.offset_target.spelling in
   let member (source : Frontend.Ast.offset_member) =
     Sema.Function_call_resolution.make_offset_member
@@ -284,7 +316,8 @@ let rec top_level_offset_kind state (offset : Frontend.Ast.offset_expression) =
         ~opening_origins:(List.map origin offset.offset_opening_parentheses)
         ~target_spelling:offset.offset_target.spelling
         ~target_origin:(origin offset.offset_target.location)
-        ~publication ~members
+        ~publication ~root_query:None ~top_level_query:(Some query)
+        ~bound_target:None ~members
         ~closing_origins:(List.map origin offset.offset_closing_parentheses))
 
 and visible_aggregate state name =
@@ -507,9 +540,12 @@ let rec expression state (source : Frontend.Ast.expression) =
           | Error _ as error -> error
           | Ok kind -> finish state kind))
   | Frontend.Ast.Offset_expression offset -> (
-      match top_level_offset_kind state offset with
+      match take_offset_query state offset with
       | Error _ as error -> error
-      | Ok kind -> finish state kind)
+      | Ok (query, state) -> (
+          match top_level_offset_kind state query offset with
+          | Error _ as error -> error
+          | Ok kind -> finish state kind))
   | Frontend.Ast.Defined_expression defined -> (
       let operand = defined.defined_operand in
       let operand_kind =

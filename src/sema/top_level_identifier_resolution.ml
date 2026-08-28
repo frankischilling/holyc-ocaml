@@ -27,6 +27,7 @@ type t = {
   source_ : Top_level_expression_tree.t;
   leaves_ : leaf list;
   leaves_by_occurrence : leaf Int_map.t;
+  module_values_ : (Module_expression_binding.publication * module_value) list;
 }
 
 type error_kind = Invalid_input of string
@@ -56,6 +57,11 @@ let find_leaf result occurrence =
   with
   | Some leaf when leaf.occurrence == occurrence -> Some leaf
   | Some _ | None -> None
+
+let find_module_value result publication =
+  result.module_values_
+  |> List.find_map (fun (candidate, value) ->
+      if candidate == publication then Some value else None)
 
 let leaf_node (leaf : leaf) = leaf.node
 let leaf_occurrence (leaf : leaf) = leaf.occurrence
@@ -249,7 +255,35 @@ let leaf_symbols_are_owned table leaves =
       occurrence_symbol_owned)
     leaves
 
-let create ~table ~source leaves =
+let module_values_are_valid table source module_values =
+  let publications =
+    source |> Top_level_expression_tree.source
+    |> Top_level_outer_expression_binding.source
+    |> Top_level_expression_binding.module_expressions
+    |> Module_expression_binding.publications
+  in
+  let rec loop seen = function
+    | [] -> true
+    | (publication, value) :: rest ->
+        let value_is_owned =
+          match value with
+          | Global_value { value; _ } | Direct_function_value { value; _ } ->
+              value_type_is_owned table value
+          | Aggregate_offset_base selected ->
+              Symbol_table.owns_symbol table
+                (Module_expression_binding.publication_canonical_symbol selected)
+        in
+        List.exists (( == ) publication) publications
+        && (not (List.exists (( == ) publication) seen))
+        && Symbol_table.owns_symbol table
+             (Module_expression_binding.publication_canonical_symbol publication)
+        && module_resolution_is_valid publication value
+        && value_is_owned
+        && loop (publication :: seen) rest
+  in
+  loop [] module_values
+
+let create ~table ~source ~module_values leaves =
   if not (Top_level_expression_tree.owns_table source table) then
     Error
       (invalid_input
@@ -258,6 +292,10 @@ let create ~table ~source leaves =
     Error
       (invalid_input
          "top-level identifier classification contains a foreign symbol")
+  else if not (module_values_are_valid table source module_values) then
+    Error
+      (invalid_input
+         "top-level publication values do not match their checked bindings")
   else
     match validate_leaves (expected_nodes source) leaves with
     | Error _ as error -> error
@@ -271,4 +309,11 @@ let create ~table ~source leaves =
                 leaf index)
             Int_map.empty leaves
         in
-        Ok { table; source_ = source; leaves_ = leaves; leaves_by_occurrence }
+        Ok
+          {
+            table;
+            source_ = source;
+            leaves_ = leaves;
+            leaves_by_occurrence;
+            module_values_ = module_values;
+          }

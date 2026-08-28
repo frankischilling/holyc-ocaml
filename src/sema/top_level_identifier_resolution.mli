@@ -28,12 +28,14 @@ val make_leaf :
 val create :
   table:Symbol_table.t ->
   source:Top_level_expression_tree.t ->
+  module_values:(Module_expression_binding.publication * module_value) list ->
   leaf list ->
   (t, error) result
 (** Classify every identifier leaf in an executable top-level tree. Module
     globals and functions retain source-derived facts. Aggregates remain offset
-    bases. Checked outer metadata creates a value; other outer records remain
-    unavailable. *)
+    bases. The publication-value catalog makes checked module globals available
+    to specialized queries that are not ordinary leaves. Checked outer metadata
+    creates a value; other outer records remain unavailable. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val source : t -> Top_level_expression_tree.t
@@ -41,6 +43,9 @@ val leaves : t -> leaf list
 
 val find_leaf :
   t -> Top_level_outer_expression_binding.occurrence -> leaf option
+
+val find_module_value :
+  t -> Module_expression_binding.publication -> module_value option
 
 val leaf_node : leaf -> Top_level_expression_tree.expression_node
 val leaf_occurrence : leaf -> Top_level_outer_expression_binding.occurrence

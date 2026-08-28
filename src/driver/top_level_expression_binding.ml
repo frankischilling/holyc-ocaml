@@ -70,12 +70,15 @@ let rec expression state = function
       add_name_query state Sema.Function_expression_binding.Sizeof_root
         ~name:sizeof.sizeof_target.spelling
         ~origin:(origin sizeof.sizeof_target)
+  | Frontend.Ast.Offset_expression offset ->
+      add_name_query state Sema.Function_expression_binding.Offset_root
+        ~name:offset.offset_target.spelling
+        ~origin:(origin offset.offset_target)
   | Frontend.Ast.Integer_literal _
   | Frontend.Ast.Float_literal _
   | Frontend.Ast.Character_literal _
   | Frontend.Ast.String_literal _
-  | Frontend.Ast.Current_position_expression _
-  | Frontend.Ast.Offset_expression _ -> Ok state
+  | Frontend.Ast.Current_position_expression _ -> Ok state
 
 and call_argument state (argument : Frontend.Ast.call_argument) =
   match argument.call_argument_value with

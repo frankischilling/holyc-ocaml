@@ -136,6 +136,32 @@ let classify_nodes globals functions compilation_mode expressions =
   in
   loop [] (Sema.Top_level_expression_tree.all_expression_nodes expressions)
 
+let publication_values globals functions compilation_mode expressions =
+  expressions |> Sema.Top_level_expression_tree.source
+  |> Sema.Top_level_outer_expression_binding.source
+  |> Sema.Top_level_expression_binding.module_expressions
+  |> Sema.Module_expression_binding.publications
+  |> List.fold_left
+       (fun result publication ->
+         match result with
+         | Error _ as error -> error
+         | Ok reversed
+           when Sema.Module_expression_binding.publication_kind publication
+                <> Sema.Module_expression_binding.Global_variable -> Ok reversed
+         | Ok reversed -> (
+             match
+               module_resolution globals functions compilation_mode publication
+             with
+             | Error _ as error -> error
+             | Ok (Sema.Top_level_identifier_resolution.Module_value value) ->
+                 Ok ((publication, value) :: reversed)
+             | Ok
+                 ( Sema.Top_level_identifier_resolution.Outer_value _
+                 | Sema.Top_level_identifier_resolution.Outer_type_required _ )
+               -> Error "module publication resolved as an outer binding"))
+       (Ok [])
+  |> Result.map List.rev
+
 let classify ~table ~globals ~functions ~expressions =
   if not (Sema.Top_level_expression_tree.owns_table expressions table) then
     Error
@@ -157,16 +183,18 @@ let classify ~table ~globals ~functions ~expressions =
       | Error message, _ | _, Error message -> Error ("HCSEMA0056: " ^ message)
       | Ok globals, Ok functions -> (
           match
-            classify_nodes globals functions compilation_mode expressions
+            ( classify_nodes globals functions compilation_mode expressions,
+              publication_values globals functions compilation_mode expressions
+            )
           with
-          | Error message ->
+          | Error message, _ | _, Error message ->
               if String.starts_with ~prefix:"HCSEMA0056:" message then
                 Error message
               else Error ("HCSEMA0056: " ^ message)
-          | Ok leaves -> (
+          | Ok leaves, Ok module_values -> (
               match
                 Sema.Top_level_identifier_resolution.create ~table
-                  ~source:expressions leaves
+                  ~source:expressions ~module_values leaves
               with
               | Ok result -> Ok result
               | Error error ->
